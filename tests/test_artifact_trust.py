@@ -12,7 +12,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
-from hosted.install.artifact_trust import SIGNER_IDENTITY, ArtifactTrustError, ArtifactTrustVerifier
+from install.artifact_trust import SIGNER_IDENTITY, ArtifactTrustError, ArtifactTrustVerifier
 from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())

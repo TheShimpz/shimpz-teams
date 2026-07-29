@@ -26,8 +26,9 @@ from assistant_human import (
     oauth_pkce_challenges,
 )
 from controller_runtime import brain_runtime_client, token_store
-from hosted.install import artifact_trust, developers_client, developers_delegation, registry_auth
+from hosted.install import developers_client, developers_delegation
 from inference import config as inference_config
+from install import artifact_trust, registry_auth
 from install import bindings as dynamic_assistants
 from power import journal as power_journal
 from storage import files as team_storage

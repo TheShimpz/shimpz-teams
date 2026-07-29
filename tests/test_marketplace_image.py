@@ -5,7 +5,7 @@ import unittest
 import docker
 
 from assistant_human import marketplace
-from hosted.install import marketplace_image
+from install import artifact as marketplace_image
 
 AUTH_CONFIG = {"username": "registry-reader", "password": "x" * 20}
 AUTH = type("_Auth", (), {"docker_auth_config": lambda self: AUTH_CONFIG})()

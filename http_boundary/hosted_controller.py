@@ -22,11 +22,11 @@ from controller_runtime import accounts_client, brain_runtime_token_store
 from core.http import stdlib
 from core.http import strict as strict_http
 from hosted.install import (
-    artifact_trust,
     developers_client,
     developers_delegation,
 )
 from http_boundary import hosted, runtime_state
+from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import contract as install_contract
 

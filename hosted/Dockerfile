@@ -111,11 +111,10 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
 COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
      container_policy/hosted_resources.py container_policy/network.py ./container_policy/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
-COPY hosted/install/__init__.py hosted/install/artifact_trust.py hosted/install/developers_client.py \
-     hosted/install/developers_delegation.py \
-     hosted/install/marketplace_image.py hosted/install/registry_auth.py \
+COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      ./hosted/install/
-COPY install/__init__.py install/bindings.py install/contract.py ./install/
+COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
+     install/contract.py install/registry_auth.py ./install/
 COPY install/protocol/upstream.json ./install/protocol/
 COPY install/protocol/v1/README.md install/protocol/v1/contract-files.sha256 \
      install/protocol/v1/controller-install-request.schema.json \
