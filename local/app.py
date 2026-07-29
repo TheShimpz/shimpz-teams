@@ -31,15 +31,12 @@ from assistant_human import (
     oauth_broker_client,
     oauth_pkce_challenges,
 )
+from assistant_human.assistant_registry import validate_power_payload
 from controller_runtime import (
     brain_runtime_client,
     brain_runtime_token_store,
     local_chat_continuation_store,
     local_token_store,
-)
-from controller_runtime.local_registry import (
-    validate_power_input,
-    validate_power_output,
 )
 from inference import config as inference_config
 from install import artifact_trust, bindings, registry_auth
@@ -776,7 +773,7 @@ class LocalController:
                 power_execution.UNDECLARED_POWER_STATUS, "Power is not declared", code="power-not-declared"
             )
         try:
-            safe_payload = validate_power_input(assistant_id, power, payload)
+            safe_payload = validate_power_payload(power_spec, "input", payload)
         except ValueError as exc:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc), code="invalid-power-input") from exc
         with self._lock(team_id):
@@ -832,7 +829,7 @@ class LocalController:
             projected = power_execution.project_rpc_result(
                 raw_result,
                 account_values,
-                lambda value: validate_power_output(assistant_id, power, value),
+                lambda value: validate_power_payload(power_spec, "output", value),
             )
         except power_execution.RpcSecretExposureError:
             local_audit.record(

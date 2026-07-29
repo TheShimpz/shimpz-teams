@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import threading
@@ -12,10 +11,13 @@ from types import SimpleNamespace
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from local_assistant_fixture import assistant_spec
+
 from assistant_human import assistant_account_challenges, oauth_account_store, oauth_pkce_challenges
-from controller_runtime import local_chat_continuation_store, local_registry
+from controller_runtime import local_chat_continuation_store
 from inference import config as inference_config
 from local import app as local_app
+from local.install.runtime import AssistantSpec
 from local_support import assistant_lifecycle
 from local_support.chat_types import ActiveAssistant
 from power import execution as power_execution
@@ -51,19 +53,8 @@ class TestPublicationRegistry(dict):
 
 
 class LocalContractCase(unittest.TestCase):
-    def _registry(self, image: str) -> dict[str, local_registry.AssistantSpec]:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "registry.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "schema": 2,
-                        "images": {"shimpz-cloudflare": image},
-                    }
-                ),
-                encoding="utf-8",
-            )
-            return TestPublicationRegistry(local_registry.load_registry(path))
+    def _registry(self, image: str) -> dict[str, AssistantSpec]:
+        return TestPublicationRegistry({"shimpz-cloudflare": assistant_spec(image)})
 
     def _chat_controller(
         self,

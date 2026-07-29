@@ -10,10 +10,10 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from local_assistant_fixture import hosted_spec
 from local_controller_harness import LocalContractCase
 
 import manifests
-from assistant_human import marketplace
 
 
 class AssistantTmpfsParity(LocalContractCase):
@@ -21,7 +21,7 @@ class AssistantTmpfsParity(LocalContractCase):
         hosted = manifests.build_team_app_kwargs(
             "team_1",
             "shimpz-cloudflare",
-            marketplace.APPS["shimpz-cloudflare"],
+            hosted_spec("ghcr.io/example/example-assistant@sha256:" + ("a" * 64)),
         )["tmpfs"]
         controller, _existing, _events = self._lifecycle_controller()
         captured = {}

@@ -8,7 +8,7 @@ from docker.errors import DockerException, NotFound
 from docker.types import LogConfig, Ulimit
 
 from container_policy import local as local_container_policy
-from controller_runtime.local_registry import AssistantSpec
+from local.install.runtime import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import validate_team_id
@@ -18,11 +18,8 @@ ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
 ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
-READINESS_RECOVERY_ASSISTANTS = frozenset({"shimpz-cloudflare"})
-
-
-def _is_replaceable_readiness_failure(assistant_id: str, problem: ApiProblem) -> bool:
-    return assistant_id in READINESS_RECOVERY_ASSISTANTS and problem.code == "assistant-not-ready"
+def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
+    return problem.code == "assistant-not-ready"
 
 
 def _serialize_against_local_team_chat(
@@ -297,7 +294,7 @@ def install_assistant(
             try:
                 self._wait_ready(existing, spec)
             except ApiProblem as exc:
-                if not _is_replaceable_readiness_failure(assistant_id, exc):
+                if not _is_replaceable_readiness_failure(exc):
                     raise
                 self._replace_unready_assistant(
                     team_id,

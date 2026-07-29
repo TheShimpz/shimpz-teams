@@ -24,7 +24,6 @@ from core import strict_json
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
 CONTRACT_PATH = "/opt/shimpz/shimpz.contract.json"
-CATALOG_PATH = Path(__file__).with_name("assistant_catalog.json")
 MAX_MANIFEST_BYTES = 256 * 1024
 MAX_CONTRACT_BYTES = 512 * 1024
 MAX_CATALOG_ASSISTANTS = 32
@@ -366,8 +365,8 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
     return payload
 
 
-def load_reviewed_catalog(path: Path = CATALOG_PATH) -> dict[str, ReviewedAssistant]:
-    """Load the build-baked catalog of reviewed SDK machine contracts."""
+def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
+    """Load an explicit reviewed-catalog test or tooling artifact."""
     try:
         raw = path.read_bytes()
     except OSError as exc:

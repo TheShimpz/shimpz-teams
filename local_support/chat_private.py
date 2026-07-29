@@ -12,7 +12,7 @@ from assistant_human import (
     oauth_account_store,
 )
 from controller_runtime import brain_runtime_client
-from controller_runtime.local_registry import AssistantSpec
+from local.install.runtime import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem

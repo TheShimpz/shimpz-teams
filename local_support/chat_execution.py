@@ -4,12 +4,12 @@ from http import HTTPStatus
 from typing import NoReturn
 
 from assistant_human import assistant_account_flow, oauth_account_store
+from assistant_human.assistant_registry import validate_power_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
 )
-from controller_runtime.local_registry import validate_power_input
 from inference import config as inference_config
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
@@ -123,9 +123,16 @@ def _validate_chat_power(
     power: str,
     payload: object,
 ) -> object:
-    _required_active_assistant(bindings, assistant_id)
+    active = _required_active_assistant(bindings, assistant_id)
+    power_spec = active.spec.powers.get(power)
+    if power_spec is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "the Power has no declared input contract",
+            code="invalid-power-input",
+        )
     try:
-        return validate_power_input(assistant_id, power, payload)
+        return validate_power_payload(power_spec, "input", payload)
     except ValueError as exc:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,

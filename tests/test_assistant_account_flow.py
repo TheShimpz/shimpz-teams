@@ -11,8 +11,9 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from assistant_human import assistant_account_challenges, assistant_account_flow
+from assistant_human.assistant_registry import AccountSpec, PowerSpec
 from controller_runtime import brain_runtime_client
-from controller_runtime.local_registry import AccountSpec, AssistantSpec, PowerSpec
+from local.install.runtime import AssistantSpec
 
 
 @dataclass(frozen=True)

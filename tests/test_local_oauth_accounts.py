@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import os
 import sys
 import tempfile
@@ -15,6 +14,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from local_assistant_fixture import assistant_spec
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestPublicationRegistry
 
 from assistant_human import (
@@ -27,10 +27,10 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    local_registry,
 )
 from inference import config as inference_config
 from local import app as local_app
+from local.install.runtime import AssistantSpec
 from local_support.chat_segment import SegmentRequest
 from local_support.chat_types import ActiveAssistant, PendingLocalChat
 
@@ -100,21 +100,9 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
 
 class LocalOAuthAccountTests(unittest.TestCase):
     @staticmethod
-    def _registry() -> dict[str, local_registry.AssistantSpec]:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "registry.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "schema": 2,
-                        "images": {
-                            "shimpz-cloudflare": "example.invalid/cloudflare@sha256:" + ("b" * 64),
-                        },
-                    }
-                ),
-                encoding="utf-8",
-            )
-            return TestPublicationRegistry(local_registry.load_registry(path))
+    def _registry() -> dict[str, AssistantSpec]:
+        image = "example.invalid/cloudflare@sha256:" + ("b" * 64)
+        return TestPublicationRegistry({"shimpz-cloudflare": assistant_spec(image)})
 
     def test_controller_accepts_injected_account_state(self) -> None:
         injected_store = SimpleNamespace()

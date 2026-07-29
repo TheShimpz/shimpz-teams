@@ -10,8 +10,8 @@ from docker.errors import DockerException
 
 from assistant_human import assistant_account_challenges, assistant_genesis, assistant_manifest, oauth_account_store
 from controller_runtime import local_chat_continuation_store, local_chat_continuations
-from controller_runtime.local_registry import AssistantSpec
 from inference import config as inference_config
+from local.install.runtime import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem

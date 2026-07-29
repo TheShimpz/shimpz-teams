@@ -6,7 +6,7 @@ from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant_human import assistant_manifest
 from container_policy import local as local_container_policy
-from controller_runtime.local_registry import AssistantSpec
+from local.install.runtime import AssistantSpec
 from local_support.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import (

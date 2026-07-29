@@ -129,6 +129,14 @@ _stub(
 )
 _stub("controller_runtime.token_store", ensure_token=lambda: "operator-token")
 
+from local_assistant_fixture import hosted_spec as _hosted_spec
+
+from assistant_human import marketplace as _marketplace
+
+_marketplace.APPS["shimpz-cloudflare"] = _hosted_spec(
+    "ghcr.io/theshimpz/shimpz-space@sha256:" + ("a" * 64)
+)
+
 spec = importlib.util.spec_from_file_location("team_app_hosted_test", TEAM / "hosted" / "app.py")
 app = importlib.util.module_from_spec(spec)
 assert spec.loader is not None

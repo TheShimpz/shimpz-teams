@@ -15,7 +15,8 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
-from controller_runtime import local_chat_continuation_store, local_registry, local_token_store
+from assistant_human import assistant_registry
+from controller_runtime import local_chat_continuation_store, local_token_store
 from inference import config as inference_config
 from local import app as local_app
 from local import healthcheck as local_healthcheck
@@ -67,48 +68,6 @@ class LocalContractTests(LocalContractCase):
             local_chat_continuation_store.KEY_PATH,
         )
 
-    def test_registry_accepts_only_a_non_placeholder_digest(self) -> None:
-        digest = "127.0.0.1:5000/shimpz/shimpz-cloudflare@sha256:" + "a" * 64
-        registry = self._registry(digest)
-        self.assertEqual(registry["shimpz-cloudflare"].image, digest)
-        self.assertEqual(registry["shimpz-cloudflare"].name, "Shimpz Cloudflare")
-        self.assertEqual(
-            set(registry["shimpz-cloudflare"].powers),
-            {"list-zones", "list-dns-records"},
-        )
-        self.assertEqual(
-            registry["shimpz-cloudflare"].powers["list-zones"].accounts,
-            ("cloudflare",),
-        )
-        self.assertEqual(
-            registry["shimpz-cloudflare"].allowed_hosts,
-            ("api.cloudflare.com",),
-        )
-        invalid = (
-            "ghcr.io/theshimpz/shimpz-space:latest",
-            "ghcr.io/theshimpz/shimpz-space@sha256:" + "0" * 64,
-            "https://ghcr.io/theshimpz/hello@sha256:" + "a" * 64,
-        )
-        for image in invalid:
-            with self.subTest(image=image), self.assertRaises(local_registry.RegistryError):
-                self._registry(image)
-
-    def test_registry_shape_is_closed(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "registry.json"
-            path.write_text(
-                json.dumps(
-                    {
-                        "schema": 2,
-                        "images": {"shimpz-cloudflare": "x"},
-                        "command": ["/bin/sh"],
-                    }
-                ),
-                encoding="utf-8",
-            )
-            with self.assertRaises(local_registry.RegistryError):
-                local_registry.load_registry(path)
-
     def test_cloudflare_assistant_contract_is_read_only_closed_and_bounded(self) -> None:
         registry = self._registry(CURRENT_ASSISTANT_IMAGE)
         spec = registry["shimpz-cloudflare"]
@@ -119,9 +78,9 @@ class LocalContractTests(LocalContractCase):
         self.assertTrue(all(not hasattr(power, "approval") for power in spec.powers.values()))
         self.assertTrue(all(power.accounts == ("cloudflare",) for power in spec.powers.values()))
         self.assertEqual(
-            local_registry.validate_power_input(
-                "shimpz-cloudflare",
-                "list-dns-records",
+            assistant_registry.validate_power_payload(
+                spec.powers["list-dns-records"],
+                "input",
                 {"zone_id": "a" * 32, "page": 1, "per_page": 100},
             ),
             {"zone_id": "a" * 32, "page": 1, "per_page": 100},
@@ -140,13 +99,13 @@ class LocalContractTests(LocalContractCase):
             "pagination": {"page": 1, "per_page": 100, "count": 1, "total_count": 1, "total_pages": 1},
         }
         self.assertEqual(
-            local_registry.validate_power_output("shimpz-cloudflare", "list-zones", zones),
+            assistant_registry.validate_power_payload(spec.powers["list-zones"], "output", zones),
             zones,
         )
         with self.assertRaises(ValueError):
-            local_registry.validate_power_output(
-                "shimpz-cloudflare",
-                "list-zones",
+            assistant_registry.validate_power_payload(
+                spec.powers["list-zones"],
+                "output",
                 zones | {"access_token": "must-not-cross"},
             )
         for invalid in (
@@ -157,7 +116,7 @@ class LocalContractTests(LocalContractCase):
         ):
             power = "list-dns-records" if "zone_id" in invalid else "list-zones"
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                local_registry.validate_power_input("shimpz-cloudflare", power, invalid)
+                assistant_registry.validate_power_payload(spec.powers[power], "input", invalid)
 
     def test_identifiers_are_strict_and_bounded(self) -> None:
         self.assertEqual(local_app.validate_team_id("demo_team"), "demo_team")
@@ -203,9 +162,8 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(local_app.half_cpu_set(1), "0")
         readiness = local_app.ApiProblem(HTTPStatus.BAD_GATEWAY, "not ready", code="assistant-not-ready")
         ownership = local_app.ApiProblem(HTTPStatus.CONFLICT, "drift", code="ownership-conflict")
-        self.assertTrue(assistant_lifecycle._is_replaceable_readiness_failure("shimpz-cloudflare", readiness))
-        self.assertFalse(assistant_lifecycle._is_replaceable_readiness_failure("future-stateful-assistant", readiness))
-        self.assertFalse(assistant_lifecycle._is_replaceable_readiness_failure("shimpz-cloudflare", ownership))
+        self.assertTrue(assistant_lifecycle._is_replaceable_readiness_failure(readiness))
+        self.assertFalse(assistant_lifecycle._is_replaceable_readiness_failure(ownership))
 
     def test_local_controller_bootstraps_tokens_before_serving(self) -> None:
         events: list[str] = []

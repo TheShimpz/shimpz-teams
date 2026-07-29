@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from assistant_human import assistant_manifest, assistant_registry
-from controller_runtime.local_registry import AssistantSpec
 from install import bindings
+from local.install.runtime import AssistantSpec
 
 
 class PublicationRegistry:

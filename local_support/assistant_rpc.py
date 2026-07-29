@@ -7,7 +7,7 @@ from pathlib import Path
 
 from docker.errors import DockerException, NotFound
 
-from controller_runtime.local_registry import AssistantSpec
+from local.install.runtime import AssistantSpec
 from local_support.errors import ApiProblemError as ApiProblem
 from power import execution as power_execution
 

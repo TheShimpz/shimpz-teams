@@ -28,7 +28,7 @@ PRODUCTION_PACKAGES = {
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
 HOSTED_PACKAGE_DATA = {
-    "assistant_human": {"assistant_human/assistant_catalog.json"},
+    "assistant_human": set(),
     "inference": {"inference/model_catalog.json"},
     "install": {
         "install/protocol/upstream.json",

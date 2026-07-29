@@ -14,21 +14,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from assistant_human import assistant_registry
-from assistant_human.assistant_registry import AccountSpec, PowerSpec, validate_power_input, validate_power_output
+from assistant_human.assistant_registry import AccountSpec, PowerSpec
 from container_policy import network as network_policy
 
-__all__ = ("AccountSpec", "PowerSpec", "validate_power_input", "validate_power_output")
+__all__ = ("AccountSpec", "PowerSpec")
 
 # Also bounds derived names: the per-app DB project "team_<sha10>_<app>" stays within postgresql-service's
 # 58-char cap at this id length (see manifests.team_app_db_project).
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$")
 DIGEST_IMAGE_RE = re.compile(r"^[a-z0-9.-]+(?::[0-9]{1,5})?/[a-z0-9]+(?:[._/-][a-z0-9]+)*@sha256:[0-9a-f]{64}$")
 RESERVED_APP_IDS = network_policy.RESERVED_SERVICE_ALIASES
-SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE = (
-    "ghcr.io/theshimpz/shimpz-space@sha256:39d19e65fc0e3f36b0fccd8dc5eb1c60ee84ead7c3e9e84558fe428af038ef18"
-)
-_REVIEWED_ASSISTANTS = assistant_registry.REVIEWED_ASSISTANTS
-_CLOUDFLARE = _REVIEWED_ASSISTANTS["shimpz-cloudflare"]
 
 
 class MarketplaceError(Exception):
@@ -65,35 +60,6 @@ APPS: dict[str, AppSpec] = {
         image="shimpz-marketapp-notification-center:v1",
         port=8080,
         health_path="/health",
-    ),
-    # First closed Genesis/Powers adapter for the hosted Team controller. The browser supplies only
-    # this ID; the controller owns the digest, runtime envelope and identity labels below.
-    _CLOUDFLARE.assistant_id: AppSpec(
-        image=SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE,
-        port=8080,
-        db=False,
-        allowed_hosts=_CLOUDFLARE.allowed_hosts,
-        first_party=True,
-        required_image_labels=(
-            ("org.shimpz.assistant.id", _CLOUDFLARE.assistant_id),
-            ("org.shimpz.assistant.api", "1"),
-        ),
-        assistant=AssistantContract(
-            powers={
-                power_id: PowerSpec(
-                    summary=assistant_registry.power_summary(power_id),
-                    input_schema=power["input_schema"],
-                    output_schema=power["output_schema"],
-                    accounts=tuple(power["accounts"]),
-                )
-                for power_id, power in _CLOUDFLARE.powers.items()
-            },
-            accounts={
-                account.id: AccountSpec(provider=account.provider, scopes=account.scopes)
-                for account in _CLOUDFLARE.accounts
-            },
-            machine_contract=_CLOUDFLARE.machine_contract,
-        ),
     ),
 }
 if RESERVED_APP_IDS & set(APPS):

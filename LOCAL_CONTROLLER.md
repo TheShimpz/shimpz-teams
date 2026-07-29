@@ -108,8 +108,9 @@ Team and Admin session, and deletes local and broker state on disconnect or Team
 
 ## Assistant execution
 
-The trusted registry binds an Assistant ID to one immutable image digest. A missing digest may be pulled,
-then repository digest and Assistant image labels are revalidated before creation. The fixed adapter
+The Team-scoped publication registry binds an Assistant ID to one immutable Developers source digest
+and verified image digest. A missing image may be pulled, then repository digest, signature, provenance,
+and Assistant image labels are revalidated before creation. The fixed adapter
 accepts only declared `POST /v1/powers/{power-id}` routes and its health probe; neither browser input nor
 the Assistant manifest can supply an arbitrary method, URL, command, or container identity.
 
@@ -121,12 +122,13 @@ state prevents ambiguous retries from silently executing a non-idempotent Power 
 
 ## Release binding
 
-The source image contains an all-zero first-party Assistant placeholder and fails closed at startup.
-Release automation replaces it with the published immutable digest:
+The controller image contains no Assistant release. An Owner selects an exact `assistant_id` and
+`source_digest` from the Store; the controller resolves that publication from Developers, verifies its
+artifact, persists the Team binding, and re-resolves the same digest immediately before start. First-party
+Assistants use this same flow from their independent repositories.
 
 ```sh
-docker build \
-  --file team/local/Dockerfile \
-  --build-arg SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE='ghcr.io/theshimpz/shimpz-space@sha256:<digest>' \
-  team
+curl -X POST http://localhost:7777/api/teams/<team>/assistants \
+  -H 'Content-Type: application/json' \
+  -d '{"assistant_id":"example-assistant","source_digest":"sha256:<64 hex>"}'
 ```

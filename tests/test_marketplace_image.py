@@ -3,12 +3,14 @@ from __future__ import annotations
 import unittest
 
 import docker
+from local_assistant_fixture import hosted_spec
 
-from assistant_human import marketplace
+from assistant_human import assistant_registry, marketplace
 from install import artifact as marketplace_image
 
 AUTH_CONFIG = {"username": "registry-reader", "password": "x" * 20}
 AUTH = type("_Auth", (), {"docker_auth_config": lambda self: AUTH_CONFIG})()
+TEST_IMAGE = "ghcr.io/example/example-assistant@sha256:" + ("a" * 64)
 
 
 class _Image:
@@ -53,7 +55,7 @@ class _Images:
 
 def _assistant_image(
     *,
-    digest: str = marketplace.SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE,
+    digest: str = TEST_IMAGE,
     assistant_id: str = "shimpz-cloudflare",
     assistant_api: str = "1",
 ) -> _Image:
@@ -64,15 +66,14 @@ def _assistant_image(
 
 
 class MarketplaceImageTests(unittest.TestCase):
-    def test_cloudflare_is_the_only_first_party_assistant(self) -> None:
-        self.assertEqual(set(marketplace.APPS), {"notification-center", "shimpz-cloudflare"})
-        spec = marketplace.APPS["shimpz-cloudflare"]
-        self.assertEqual(spec.image, marketplace.SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE)
+    def test_publication_fixture_carries_the_verified_runtime_contract(self) -> None:
+        spec = hosted_spec(TEST_IMAGE)
+        self.assertEqual(spec.image, TEST_IMAGE)
         self.assertTrue(marketplace.is_digest_image(spec.image))
         self.assertEqual(spec.port, 8080)
         self.assertFalse(spec.db)
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
-        self.assertTrue(spec.first_party)
+        self.assertFalse(spec.first_party)
         self.assertEqual(
             dict(spec.required_image_labels),
             {"org.shimpz.assistant.id": "shimpz-cloudflare", "org.shimpz.assistant.api": "1"},
@@ -90,7 +91,7 @@ class MarketplaceImageTests(unittest.TestCase):
         self.assertTrue(all(not hasattr(power, "approval") for power in spec.assistant.powers.values()))
 
     def test_missing_digest_is_pulled_by_the_exact_registry_reference_then_rechecked(self) -> None:
-        spec = marketplace.APPS["shimpz-cloudflare"]
+        spec = hosted_spec(TEST_IMAGE)
         images = _Images(_assistant_image(), missing_once=True)
         self.assertEqual(
             marketplace_image.ensure_digest_artifact(images, spec, AUTH),
@@ -100,7 +101,7 @@ class MarketplaceImageTests(unittest.TestCase):
         self.assertEqual(images.pulls, [spec.image])
 
     def test_digest_or_assistant_label_mismatch_is_refused_without_a_pull(self) -> None:
-        spec = marketplace.APPS["shimpz-cloudflare"]
+        spec = hosted_spec(TEST_IMAGE)
         mismatches = (
             _assistant_image(digest="ghcr.io/theshimpz/shimpz-space@sha256:" + "c" * 64),
             _assistant_image(assistant_id="other-assistant"),
@@ -123,16 +124,19 @@ class MarketplaceImageTests(unittest.TestCase):
         self.assertEqual(images.pulls, [])
 
     def test_cloudflare_power_input_and_output_contracts_are_closed(self) -> None:
+        spec = hosted_spec(TEST_IMAGE)
+        assert spec.assistant is not None
+        power = spec.assistant.powers["list-zones"]
         request = {"page": 1, "per_page": 25}
-        self.assertEqual(marketplace.validate_power_input("shimpz-cloudflare", "list-zones", request), request)
+        self.assertEqual(assistant_registry.validate_power_payload(power, "input", request), request)
         zones = {
             "zones": [],
             "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
         }
-        self.assertEqual(marketplace.validate_power_output("shimpz-cloudflare", "list-zones", zones), zones)
+        self.assertEqual(assistant_registry.validate_power_payload(power, "output", zones), zones)
         for payload in ({"page": 1, "per_page": 25, "shell": "id"}, {"page": 0, "per_page": 25}, []):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
-                marketplace.validate_power_input("shimpz-cloudflare", "list-zones", payload)
+                assistant_registry.validate_power_payload(power, "input", payload)
 
 
 if __name__ == "__main__":

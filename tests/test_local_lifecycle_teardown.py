@@ -10,8 +10,8 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
-from controller_runtime import local_registry
 from local import app as local_app
+from local.install import runtime as local_runtime
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -223,9 +223,9 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
-        self.assertTrue(local_registry.is_digest_ref(OUTDATED_ASSISTANT_IMAGE))
-        self.assertFalse(local_registry.is_digest_ref("ghcr.io/theshimpz/shimpz-space@sha256:" + "0" * 64))
-        self.assertFalse(local_registry.is_digest_ref("ghcr.io/theshimpz/shimpz-space:latest"))
+        self.assertTrue(local_runtime.is_digest_ref(OUTDATED_ASSISTANT_IMAGE))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-space@sha256:" + "0" * 64))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-space:latest"))
 
         for drift in ("missing-label", "image-label-mismatch", "foreign-repository", "wrong-name"):
             with self.subTest(drift=drift):

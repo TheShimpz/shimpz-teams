@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import tarfile
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -10,6 +11,31 @@ from unittest import mock
 from assistant_human import assistant_manifest
 
 FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.toml"
+
+
+def _reviewed_catalog():
+    catalog = {
+        "version": 1,
+        "assistants": {
+            "shimpz-cloudflare": {
+                "name": "Shimpz Cloudflare",
+                "summary": "Cloudflare contract test fixture",
+                "allowed_hosts": ["api.cloudflare.com"],
+                "accounts": {
+                    "cloudflare": {
+                        "scopes": ["zone.read", "dns.read", "offline_access"],
+                    }
+                },
+                "contract": json.loads(
+                    (FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8")
+                ),
+            }
+        },
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "catalog.json"
+        path.write_text(json.dumps(catalog), encoding="utf-8")
+        return assistant_manifest.load_reviewed_catalog(path)
 
 
 def manifest(
@@ -94,7 +120,7 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_reference_fixture_matches_the_reviewed_cloudflare_security_intent(self) -> None:
         declared = assistant_manifest.parse_manifest_contract(FIXTURE_MANIFEST.read_bytes())
-        reviewed_assistant = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed_assistant = _reviewed_catalog()["shimpz-cloudflare"]
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=reviewed_assistant.allowed_hosts,
             accounts={account.id: account for account in reviewed_assistant.accounts},
@@ -260,7 +286,7 @@ class AssistantManifestTests(unittest.TestCase):
                 cache.get(container, reviewed)
 
     def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_accounts(self) -> None:
-        reviewed = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
@@ -283,7 +309,7 @@ class AssistantManifestTests(unittest.TestCase):
             "Draft202012Validator",
             wraps=assistant_manifest.Draft202012Validator,
         ) as validator_class:
-            catalog = assistant_manifest.load_reviewed_catalog()
+            catalog = _reviewed_catalog()
             reviewed = catalog["shimpz-cloudflare"]
 
         self.assertEqual(
@@ -303,7 +329,7 @@ class AssistantManifestTests(unittest.TestCase):
         construct.assert_not_called()
 
     def test_machine_contract_loader_rejects_malformed_schema_and_oversized_artifact(self) -> None:
-        reviewed = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         malformed = json.loads(json.dumps(reviewed.machine_contract))
         malformed["powers"][0]["input_schema"] = {"type": "not-a-json-schema-type"}
 
@@ -316,7 +342,7 @@ class AssistantManifestTests(unittest.TestCase):
                 assistant_manifest.parse_machine_contract(raw, reviewed.accounts)
 
     def test_machine_contract_loader_rejects_open_top_level_and_nested_schemas(self) -> None:
-        reviewed = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         open_contracts = []
         for schema_name in ("input_schema", "output_schema"):
             contract = json.loads(json.dumps(reviewed.machine_contract))
@@ -337,7 +363,7 @@ class AssistantManifestTests(unittest.TestCase):
                 assistant_manifest.parse_machine_contract(json.dumps(contract).encode(), reviewed.accounts)
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
-        reviewed = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
 
         typeless = json.loads(json.dumps(reviewed.machine_contract))
         typeless["powers"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
@@ -365,7 +391,7 @@ class AssistantManifestTests(unittest.TestCase):
         )
 
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
-        reviewed = assistant_manifest.load_reviewed_catalog()["shimpz-cloudflare"]
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         container = ContractContainer("machine-generation", raw)
         cache = assistant_manifest.MachineContractCache()

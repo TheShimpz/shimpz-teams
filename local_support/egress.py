@@ -8,8 +8,8 @@ from typing import NoReturn
 
 from docker.errors import DockerException, NotFound
 
-from controller_runtime.local_registry import AssistantSpec
 from egress import policy as egress_policy
+from local.install.runtime import AssistantSpec
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import (
     ASSISTANT_LABEL,

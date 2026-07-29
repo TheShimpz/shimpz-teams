@@ -34,9 +34,10 @@ WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/app.py local/healthcheck.py ./local/
-COPY local/install/__init__.py local/install/developers.py local/install/registry.py ./local/install/
+COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
+    local/install/runtime.py ./local/install/
 COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
-    assistant_human/assistant_account_flow.py assistant_human/assistant_catalog.json \
+    assistant_human/assistant_account_flow.py \
     assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
     assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
     assistant_human/challenge_store.py assistant_human/oauth_account_service.py \
@@ -47,7 +48,7 @@ COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
     controller_runtime/brain_runtime_token_store.py \
     controller_runtime/local_chat_continuations.py \
-    controller_runtime/local_chat_continuation_store.py controller_runtime/local_registry.py \
+    controller_runtime/local_chat_continuation_store.py \
     controller_runtime/local_token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
 COPY core/__init__.py core/strict_json.py ./core/

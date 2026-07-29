@@ -16,15 +16,13 @@ sys.path.insert(0, str(TESTS))
 
 import hosted_app_fixture as hosted_harness
 
-from assistant_human import marketplace
+from assistant_human import assistant_registry, marketplace
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
-from controller_runtime import (
-    brain_runtime_client,
-    local_registry,
-)
+from controller_runtime import brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
+from local.install.runtime import AssistantSpec
 from local_support import chat_segment as local_chat_segment
 from local_support.chat_segment import SegmentRequest
 from local_support.chat_types import ActiveAssistant
@@ -297,13 +295,13 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             assistant_container,
         )
 
-        local_power = local_registry.PowerSpec(
+        local_power = assistant_registry.PowerSpec(
             declared_power.summary,
             dict(declared_power.input_schema),
             dict(declared_power.output_schema),
             (),
         )
-        local_spec = local_registry.AssistantSpec(
+        local_spec = AssistantSpec(
             assistant_id=assistant_id,
             name="Assistant",
             summary="Test Assistant",

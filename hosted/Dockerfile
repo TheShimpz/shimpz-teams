@@ -92,7 +92,7 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
 COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
 COPY validate.py manifests.py audit.py ./
 COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
-     assistant_human/assistant_account_flow.py assistant_human/assistant_catalog.json \
+     assistant_human/assistant_account_flow.py \
      assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
      assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
      assistant_human/challenge_store.py assistant_human/hosted_assistants.py \
