@@ -2,7 +2,7 @@
 
 The Brain container is normally the ownership anchor. Named volumes cannot be removed until that
 container is gone, so a failed volume removal needs a smaller non-runnable anchor that survives a
-driver/container restart. Records live in a driver-only volume, contain no credential, and are removed
+Team/container restart. Records live in a Team-only volume, contain no credential, and are removed
 only after every runtime/database artifact has been removed.
 """
 
@@ -18,7 +18,7 @@ import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-STATE_DIR = Path(os.environ.get("SHIMPZ_TEAM_CLEANUP_DIR", "/var/lib/team-driver/cleanup"))
+STATE_DIR = Path(os.environ.get("SHIMPZ_TEAM_CLEANUP_DIR", "/var/lib/team/cleanup"))
 MAX_RECORDS = int(os.environ.get("SHIMPZ_TEAM_CLEANUP_MAX_RECORDS", "128"))
 MAX_RECORD_BYTES = 4096
 VERSION = 1

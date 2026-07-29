@@ -80,8 +80,11 @@ def _admit_app_contract(spec: marketplace.AppSpec, container) -> tuple[str, ...]
 
 
 def _team_app_containers(team_id: str) -> list:
-    """Every installed-app container of team `team_id` (its OWN label set — never `team.driver`)."""
-    return runtime_state._docker.containers.list(all=True, filters={"label": ["team.app.driver", f"team.id={team_id}"]})
+    """Every installed-app container of team `team_id` (its OWN label set — never `team.runtime`)."""
+    return runtime_state._docker.containers.list(
+        all=True,
+        filters={"label": ["team.app.runtime", f"team.id={team_id}"]},
+    )
 
 
 def _resolve_team_app(
@@ -569,7 +572,7 @@ def _admit_existing_app(
             f"cannot verify installed app {app_id!r}",
         ) from exc
     expected_labels = {
-        "team.app.driver": "1",
+        "team.app.runtime": "1",
         "team.id": team_id,
         "team.app": app_id,
         "team.owner": owner,

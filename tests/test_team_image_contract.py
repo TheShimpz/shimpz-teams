@@ -120,7 +120,7 @@ def _copied_package_sources(logical_lines: list[str]) -> dict[str, set[str]]:
     return copied
 
 
-class StaticTeamDriverImageContractTests(unittest.TestCase):
+class StaticTeamImageContractTests(unittest.TestCase):
     def _assert_package_copy_closure(
         self,
         packages: set[str],
@@ -237,19 +237,19 @@ class StaticTeamDriverImageContractTests(unittest.TestCase):
         )
         self.assertNotIn("r2", dockerfile.lower())
         self.assertIn(
-            "chown teamdriver:shimpzbrain-runtime-token /run/shimpz-brain-runtime",
+            "chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime",
             dockerfile,
         )
         self.assertIn("chmod 0750 /run/shimpz-brain-runtime", dockerfile)
-        self.assertIn("/var/lib/team-driver/inference", dockerfile)
-        self.assertIn("/var/lib/team-driver/power-journal", dockerfile)
-        self.assertNotIn("/var/lib/team-driver/assistant-secrets", dockerfile)
-        self.assertIn("/var/lib/team-driver/assistant-accounts/state", dockerfile)
-        self.assertIn("/var/lib/team-driver/assistant-accounts/key", dockerfile)
+        self.assertIn("/var/lib/team/inference", dockerfile)
+        self.assertIn("/var/lib/team/power-journal", dockerfile)
+        self.assertNotIn("/var/lib/team/assistant-secrets", dockerfile)
+        self.assertIn("/var/lib/team/assistant-accounts/state", dockerfile)
+        self.assertIn("/var/lib/team/assistant-accounts/key", dockerfile)
         self.assertIn(
-            "/var/lib/team-driver/cleanup \\\n"
-            "        /var/lib/team-driver/inference \\\n"
-            "        /var/lib/team-driver/power-journal \\",
+            "/var/lib/team/cleanup \\\n"
+            "        /var/lib/team/inference \\\n"
+            "        /var/lib/team/power-journal \\",
             dockerfile,
         )
 

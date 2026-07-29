@@ -473,7 +473,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                     "Labels": {
                         "team.id": "team_1",
                         "team.app": "hello-world",
-                        "team.app.driver": "1",
+                        "team.app.runtime": "1",
                         "team.app.dynamic": "1",
                     }
                 }
@@ -500,7 +500,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                     "Labels": {
                         "team.id": "team_1",
                         "team.app": "hello-world",
-                        "team.app.driver": "1",
+                        "team.app.runtime": "1",
                         "team.app.dynamic": "1",
                     }
                 },

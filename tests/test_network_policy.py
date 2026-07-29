@@ -2,7 +2,7 @@
 """Pure contracts for the Team core network and drift policy.
 
 No Docker daemon and no mocks: these tests feed Engine-API-shaped immutable dictionaries into the
-same stdlib policy used by team-driver admission and its shipping healthcheck.
+same stdlib policy used by team admission and its shipping healthcheck.
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
     brain = _container(
         "brain-id",
         policy.team_container_name(TEAM_ID),
-        labels={"team.driver": "1", "team.id": TEAM_ID, "team.brain": "runtime"},
+        labels={"team.runtime": "1", "team.id": TEAM_ID, "team.brain": "runtime"},
         networks={CORE: _endpoint("core-id", policy.team_container_name(TEAM_ID))},
         host_config={
             **common_security,
@@ -192,7 +192,7 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
     app = _container(
         "app-id",
         policy.team_app_container_name(TEAM_ID, app_id),
-        labels={"team.app.driver": "1", "team.id": TEAM_ID, "team.app": app_id},
+        labels={"team.app.runtime": "1", "team.id": TEAM_ID, "team.app": app_id},
         networks={CORE: _endpoint("core-id", app_id, f"{app_id}.team")},
         host_config={
             **common_security,
@@ -249,7 +249,7 @@ def _members_valid(network: dict, containers: dict[str, dict], kind: str) -> boo
 
 def _workload_valid(metadata: dict) -> bool:
     labels = metadata["Config"]["Labels"]
-    if labels.get("team.driver") == "1":
+    if labels.get("team.runtime") == "1":
         expected_ref, expected_id = BRAIN_IMAGE_REF, BRAIN_IMAGE_ID
     else:
         expected_ref, expected_id = APP_IMAGE_REF, APP_IMAGE_ID
@@ -291,7 +291,7 @@ def test_network_names_are_injective_and_bounded() -> None:
     foreign_brain = _container(
         "foreign-brain",
         policy.team_container_name("x"),
-        labels={"team.driver": "1", "team.id": "somebody_else"},
+        labels={"team.runtime": "1", "team.id": "somebody_else"},
     )
     check(not policy.brain_identity_valid(foreign_brain, "x"), "a matching name cannot forge Brain identity")
 
@@ -424,7 +424,7 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
     try:
         cache: dict[str, str] = {}
         brain_ref = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
-        brain = {"Config": {"Labels": {"team.driver": "1", "team.brain": "runtime"}}}
+        brain = {"Config": {"Labels": {"team.runtime": "1", "team.brain": "runtime"}}}
         check(
             team_healthcheck._expected_workload_image(brain, cache, {}) == (brain_ref, "sha256:1", False),
             "health maps the registered Brain provider to its resolved immutable image ID",
@@ -436,7 +436,7 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
         )
 
         app_id, app_spec = next(iter(team_healthcheck.marketplace.APPS.items()))
-        app = {"Config": {"Labels": {"team.app.driver": "1", "team.app": app_id}}}
+        app = {"Config": {"Labels": {"team.app.runtime": "1", "team.app": app_id}}}
         check(
             team_healthcheck._expected_workload_image(app, cache, {}) == (app_spec.image, "sha256:2", False),
             "health maps a registered App to its separately resolved immutable image ID",
@@ -446,7 +446,7 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
             "Config": {
                 "Labels": {
                     "team.id": TEAM_ID,
-                    "team.app.driver": "1",
+                    "team.app.runtime": "1",
                     "team.app": "hello-world",
                     "team.app.dynamic": "1",
                 }
@@ -466,7 +466,7 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
             == (dynamic_ref, "sha256:3", True),
             "health resolves a dynamic App through its controller-owned binding",
         )
-        unknown = {"Config": {"Labels": {"team.driver": "1", "team.brain": "unknown-provider"}}}
+        unknown = {"Config": {"Labels": {"team.runtime": "1", "team.brain": "unknown-provider"}}}
         check(
             team_healthcheck._expected_workload_image(unknown, cache, {}) is None,
             "health fails closed for an unregistered Brain provider",
@@ -531,7 +531,7 @@ def test_health_tolerates_only_stopped_unbound_dynamic_apps() -> None:
         "orphan",
         labels={
             "team.id": TEAM_ID,
-            "team.app.driver": "1",
+            "team.app.runtime": "1",
             "team.app": "orphan",
             "team.app.dynamic": "1",
         },
@@ -592,7 +592,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
         "orphan",
         labels={
             "team.id": TEAM_ID,
-            "team.app.driver": "1",
+            "team.app.runtime": "1",
             "team.app": "orphan",
             "team.app.dynamic": "1",
         },
@@ -603,7 +603,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
         for container_id, metadata in containers.items()
-        if {"team.driver", "team.app.driver"} & set(metadata["Config"]["Labels"])
+        if {"team.runtime", "team.app.runtime"} & set(metadata["Config"]["Labels"])
     ]
     original_checks = (
         team_healthcheck.daemon_isolation_ready,

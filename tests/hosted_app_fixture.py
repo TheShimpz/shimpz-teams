@@ -1,4 +1,4 @@
-"""Import-isolated hosted Team driver fixture shared by its contract suites."""
+"""Import-isolated hosted Team fixture shared by its contract suites."""
 
 from __future__ import annotations
 

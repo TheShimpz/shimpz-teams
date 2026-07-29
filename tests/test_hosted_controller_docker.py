@@ -97,7 +97,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
     def test_account_b_cannot_reach_any_account_a_team_route(self) -> None:
         unique = uuid.uuid4().hex[:12]
-        image = f"shimpz-team-driver-hosted-test:{unique}"
+        image = f"shimpz-team-hosted-test:{unique}"
         controller = f"shimpz-hosted-controller-{unique}"
         team_id = f"live_{unique}"
         anchor = f"team_{team_id}"
@@ -143,7 +143,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                 "--pids-limit",
                 "32",
                 "--label",
-                "team.driver=1",
+                "team.runtime=1",
                 "--label",
                 f"team.id={team_id}",
                 "--label",

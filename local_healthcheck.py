@@ -1,5 +1,5 @@
 #!/usr/local/bin/python3
-"""Authenticated, bounded liveness probe for team-driver-local."""
+"""Authenticated, bounded liveness probe for team-local."""
 
 from __future__ import annotations
 

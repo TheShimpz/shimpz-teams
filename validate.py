@@ -1,7 +1,7 @@
-"""Allowlist validation for team-driver — runs BEFORE any Docker or postgresql-service call.
+"""Allowlist validation for team — runs BEFORE any Docker or postgresql-service call.
 
 Nothing here touches Docker; it only decides yes/no and returns a validated team id the caller
-(app.py) turns into container/network/volume/DB names. Same shape as the other drivers' validate.py
+(app.py) turns into container/network/volume/DB names. Same shape as the other runtime validators
 modules — the actual security boundary, not the client that acts on its output.
 """
 
@@ -16,7 +16,7 @@ TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 
 
 class ValidationError(Exception):
-    """A team-driver request failed the allowlist — nothing was touched."""
+    """A team request failed the allowlist — nothing was touched."""
 
 
 def sanitize(name: str) -> str:

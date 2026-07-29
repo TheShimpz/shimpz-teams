@@ -6,7 +6,7 @@ construction and keeping its startup dependency closure narrow. The configured h
 must remain bound to the reviewed absolute handler while Docker advertises its built-in seccomp and
 AppArmor defaults; every advertised Brain image must be present, and every existing Team Brain/App
 must actually use that runtime. The probe never accepts Docker's default runc, a running workload left
-outside the current registry, or a missing provider. Then an unauthenticated driver GET must be
+outside the current registry, or a missing provider. Then an unauthenticated Team GET must be
 refused with 403 — a 2xx means the auth gate is not enforced.
 """
 
@@ -36,12 +36,12 @@ REQUIRED_BRAIN_IMAGES = {
     "runtime": os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_BRAIN_IMAGE),
 }
 REQUIRED_IMAGES = tuple(REQUIRED_BRAIN_IMAGES.values())
-LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAMDRIVER_PORT", "7077"))
+LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 DYNAMIC_ASSISTANTS = dynamic_assistants.DynamicAssistantStore(
     Path(
         os.environ.get(
             "SHIMPZ_TEAM_DYNAMIC_ASSISTANT_PATH",
-            "/var/lib/team-driver/dynamic-assistants/bindings.json",
+            "/var/lib/team/dynamic-assistants/bindings.json",
         )
     )
 )
@@ -101,11 +101,11 @@ def _expected_workload_image(
     labels = config.get("Labels") if isinstance(config, dict) else None
     if not isinstance(labels, dict):
         return None
-    if labels.get("team.driver") == "1":
+    if labels.get("team.runtime") == "1":
         provider = labels.get("team.brain")
         image_ref = REQUIRED_BRAIN_IMAGES.get(provider) if isinstance(provider, str) else None
         compact_app_runtime = False
-    elif labels.get("team.app.driver") == "1":
+    elif labels.get("team.app.runtime") == "1":
         app_id = labels.get("team.app")
         app_spec = marketplace.APPS.get(app_id) if isinstance(app_id, str) else None
         if app_spec is not None:
@@ -161,9 +161,9 @@ def _stopped_unbound_dynamic_app(
     labels = config.get("Labels") if isinstance(config, dict) else None
     if (
         not isinstance(labels, dict)
-        or labels.get("team.app.driver") != "1"
+        or labels.get("team.app.runtime") != "1"
         or labels.get("team.app.dynamic") != "1"
-        or "team.driver" in labels
+        or "team.runtime" in labels
     ):
         return False
     host_config = metadata.get("HostConfig")
@@ -201,7 +201,7 @@ def _inspect_workloads(
         if not isinstance(summary, dict):
             return None
         labels = summary.get("Labels")
-        if not isinstance(labels, dict) or not ({"team.driver", "team.app.driver"} & set(labels)):
+        if not isinstance(labels, dict) or not ({"team.runtime", "team.app.runtime"} & set(labels)):
             continue
         container_id = summary.get("Id")
         team_id = labels.get("team.id")
@@ -210,7 +210,7 @@ def _inspect_workloads(
         app_id = labels.get("team.app")
         if (
             not bindings_loaded
-            and labels.get("team.app.driver") == "1"
+            and labels.get("team.app.runtime") == "1"
             and isinstance(app_id, str)
             and app_id not in marketplace.APPS
         ):
@@ -232,7 +232,7 @@ def _inspect_workloads(
             return None
         inspections[container_id] = metadata
         team_ids.add(team_id)
-        if labels.get("team.driver") == "1":
+        if labels.get("team.runtime") == "1":
             brains_by_team_id[team_id] = brains_by_team_id.get(team_id, 0) + 1
             if running:
                 running_brains.add(team_id)

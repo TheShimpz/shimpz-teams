@@ -38,7 +38,7 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
-LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAMDRIVER_PORT", "7077"))
+LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 # The host has 125 GiB and each Team has a 2 GiB hard ceiling. The default leaves roughly half the
 # host for the platform, installed apps, and Docker overhead; operators may lower these quotas.
 MAX_TEAMS = _positive_int_env("SHIMPZ_MAX_TEAMS", 32)
@@ -72,23 +72,23 @@ HTTP_CONNECTION_TIMEOUT_SECONDS = _positive_int_env("SHIMPZ_TEAM_HTTP_CONNECTION
 # One token-gated proxy serves every app, with each token confined to its own allowlist in this volume.
 APP_EGRESS_POLICY_DIR = Path(os.environ.get("SHIMPZ_APP_EGRESS_POLICY_DIR", "/app-egress-policy"))
 APP_EGRESS_POLICY_GID = 10017
-TEAM_STORAGE_ROOT = Path("/var/lib/team-driver/storage")
+TEAM_STORAGE_ROOT = Path("/var/lib/team/storage")
 POWER_JOURNAL_PATH = Path(
     os.environ.get(
         "SHIMPZ_TEAM_POWER_JOURNAL_PATH",
-        "/var/lib/team-driver/power-journal/journal.sqlite3",
+        "/var/lib/team/power-journal/journal.sqlite3",
     )
 )
 ASSISTANT_ACCOUNT_STATE_PATH = Path(
     os.environ.get(
         "SHIMPZ_TEAM_ASSISTANT_ACCOUNT_STATE_PATH",
-        "/var/lib/team-driver/assistant-accounts/state/accounts.json",
+        "/var/lib/team/assistant-accounts/state/accounts.json",
     )
 )
 ASSISTANT_ACCOUNT_KEY_PATH = Path(
     os.environ.get(
         "SHIMPZ_TEAM_ASSISTANT_ACCOUNT_KEY_PATH",
-        "/var/lib/team-driver/assistant-accounts/key/aes256.key",
+        "/var/lib/team/assistant-accounts/key/aes256.key",
     )
 )
 DEVELOPERS_CONTROLLER_TOKEN_PATH = Path("/run/shimpz-developers-controller/developers-to-controller-token")
@@ -99,13 +99,13 @@ REGISTRY_TOKEN_PATH = Path("/run/shimpz-developers-controller/assistant-registry
 DYNAMIC_ASSISTANT_PATH = Path(
     os.environ.get(
         "SHIMPZ_TEAM_DYNAMIC_ASSISTANT_PATH",
-        "/var/lib/team-driver/dynamic-assistants/bindings.json",
+        "/var/lib/team/dynamic-assistants/bindings.json",
     )
 )
 COSIGN_TRUST_ROOT = Path(
     os.environ.get(
         "SHIMPZ_TEAM_COSIGN_TRUST_ROOT",
-        "/var/lib/team-driver/cosign",
+        "/var/lib/team/cosign",
     )
 )
 HEALTH_RETRIES = int(os.environ.get("SHIMPZ_HEALTH_RETRIES", "40"))

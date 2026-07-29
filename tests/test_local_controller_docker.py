@@ -129,7 +129,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             controller=f"shimpz-controller-{unique}",
             egress_proxy=f"shimpz-egress-proxy-{unique}",
             fixture_tag=f"shimpz-cloudflare-test:{unique}",
-            controller_tag=f"shimpz-team-driver-local-test:{unique}",
+            controller_tag=f"shimpz-team-local-test:{unique}",
             egress_proxy_tag=f"shimpz-app-egress-test:{unique}",
             token_volume=f"shimpz-local-token-{unique}",
             runtime_token_volume=f"shimpz-local-runtime-token-{unique}",

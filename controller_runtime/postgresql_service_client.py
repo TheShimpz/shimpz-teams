@@ -20,7 +20,7 @@ PROVISIONER_TOKEN_FILE = Path(
 PRINCIPAL_DIR = Path(
     os.environ.get(
         "SHIMPZ_POSTGRESQL_PRINCIPAL_DIR",
-        "/var/lib/team-driver/postgresql-principals",
+        "/var/lib/team/postgresql-principals",
     )
 )
 SAFE_TEAM_ID = re.compile(r"^[a-z0-9_]{1,40}$")

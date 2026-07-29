@@ -169,7 +169,7 @@ def record(
     trace_id = uuid.uuid4().hex
     event = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "service": "team-driver-local",
+        "service": "team-local",
         "trace_id": trace_id,
         "operation": operation,
         "result": result,

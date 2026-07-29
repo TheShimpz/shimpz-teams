@@ -87,7 +87,7 @@ IMAGE_LABEL = _LOCAL_IMAGE_LABEL
 ASSISTANT_LABEL = local_labels.ASSISTANT_LABEL
 _brain_thread_id = _local_brain_thread_id
 
-log = logging.getLogger("shimpz-team-driver-local")
+log = logging.getLogger("shimpz-team-local")
 
 LISTEN_PORT = 7077
 STORAGE_ROOT = Path("/var/lib/shimpz-local/storage")
@@ -804,7 +804,7 @@ def main() -> int:
         controller = LocalController(client, space_id, registry, storage)
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
     except (KeyError, RegistryError, RuntimeError, DockerException) as exc:
-        print(f"team-driver-local: startup failed: {exc}", file=sys.stderr, flush=True)
+        print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)
         return 1
     local_audit.record("startup", result="ok")
     try:

@@ -28,7 +28,7 @@ def _container(*, container_id: str = CONTAINER_ID, owner: str = "account_1") ->
 def _routable_container() -> SimpleNamespace:
     name = manifests.team_container_name(TEAM_ID)
     labels = {
-        "team.driver": "1",
+        "team.runtime": "1",
         "team.id": TEAM_ID,
         "team.owner": "account_1",
     }

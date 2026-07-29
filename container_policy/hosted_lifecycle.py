@@ -419,7 +419,7 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
 
 def _list(owner: str | None = None) -> dict:
     """All teams for the operator; only the account's own when `owner` is set."""
-    teams = runtime_state._docker.containers.list(all=True, filters={"label": "team.driver"})
+    teams = runtime_state._docker.containers.list(all=True, filters={"label": "team.runtime"})
     if owner is not None:
         teams = [container for container in teams if container.labels.get("team.owner", "") == owner]
     return {"teams": [hosted_resources._describe(container) for container in teams]}

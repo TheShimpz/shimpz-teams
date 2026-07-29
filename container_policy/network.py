@@ -1,6 +1,6 @@
 """Pure Team network identity, membership, and workload-posture policy.
 
-This module deliberately has no Docker SDK dependency.  The lifecycle driver applies it to SDK
+This module deliberately has no Docker SDK dependency. Team lifecycle applies it to SDK
 inspect dictionaries and the healthcheck applies it to raw Engine API dictionaries, so admission and
 continuous readiness cannot drift into two different definitions of an isolated Team.
 """
@@ -148,7 +148,7 @@ def volume_identity_valid(metadata: Mapping, team_id: str, kind: str) -> bool:
         metadata.get("Name") == volume_name(team_id, kind)
         and metadata.get("Driver") == "local"
         and metadata.get("Scope") == "local"
-        # The driver creates ordinary Docker-local volumes with no driver options. A same-name,
+        # Team creates ordinary Docker-local volumes with no driver options. A same-name,
         # correctly labeled local volume backed by a host bind/NFS device must never be mounted into
         # tenant code or claimed during cleanup.
         and (options is None or (isinstance(options, Mapping) and not options))
@@ -215,11 +215,11 @@ def network_identity_valid(metadata: Mapping, team_id: str, kind: str) -> bool:
 def _workload_role(metadata: Mapping, team_id: str) -> tuple[str, str] | None:
     labels = _container_labels(metadata)
     name = _container_name(metadata)
-    if labels.get("team.driver") == "1" and labels.get("team.id") == team_id and name == team_container_name(team_id):
+    if labels.get("team.runtime") == "1" and labels.get("team.id") == team_id and name == team_container_name(team_id):
         return "brain", ""
     app_id = labels.get("team.app")
     if (
-        labels.get("team.app.driver") == "1"
+        labels.get("team.app.runtime") == "1"
         and labels.get("team.id") == team_id
         and isinstance(app_id, str)
         and APP_ID_RE.fullmatch(app_id) is not None

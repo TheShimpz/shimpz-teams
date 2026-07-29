@@ -9,7 +9,7 @@ import stat
 from pathlib import Path
 
 TOKEN_PATH = Path("/run/shimpz-local/token")
-LOCAL_ACCESS_GROUP = "shimpzteamdriver-token"
+LOCAL_ACCESS_GROUP = "shimpzteam-token"
 TOKEN_BYTES = 32
 
 

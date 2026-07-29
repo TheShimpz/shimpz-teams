@@ -31,7 +31,7 @@ DEFAULT_TEAM_IMAGE = (
 )
 IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
 # Hostile-tenant Teams are unconditionally locked to gVisor. This is deliberately not an
-# environment setting: Docker rejects create when runsc is unavailable, and the driver refuses
+# environment setting: Docker rejects create when runsc is unavailable, and Team refuses
 # lifecycle mutations until the daemon registry preserves its exact handler path, built-in security
 # defaults, and every existing workload proves this exact runtime.
 RUNTIME = "runsc"
@@ -73,7 +73,7 @@ POSTGRES_CONTAINER = network_policy.POSTGRES_CONTAINER
 TEAM_PREFIX = network_policy.TEAM_PREFIX
 NET_PREFIX = network_policy.CORE_NETWORK_PREFIX
 
-# Per-team envelope. The hard cap is charged in full against team-driver's global/owner
+# Per-team envelope. The hard cap is charged in full against team's global/owner
 # admission budget before Docker provisioning begins; the lower cgroup reservation is only runtime
 # reclaim protection, never the capacity-accounting unit. cgroup v2: mem_reservation ≈ memory.low,
 # mem_limit ≈ memory.max.
@@ -225,11 +225,11 @@ def build_team_kwargs(
         "nano_cpus": NANO_CPUS,
         "pids_limit": PIDS_LIMIT,
         "ulimits": [docker.types.Ulimit(name="nofile", soft=256, hard=256)],
-        # Hostile workloads may only become runnable through the driver's static+live proof. Docker
+        # Hostile workloads may only become runnable through Team's static+live proof. Docker
         # daemon startup or a natural process crash must never auto-start them behind that gate.
         "restart_policy": {"Name": "no"},
         "labels": {
-            "team.driver": "1",
+            "team.runtime": "1",
             "team.id": team_id,
             "team.name": team_name,
             "team.owner": owner,
@@ -257,7 +257,7 @@ def build_team_app_kwargs(
     read-only rootfs with a /tmp tmpfs, no mounts at all — the app's ONLY state is its scoped DB, so an
     app container is disposable by construction. `proxy_env` is the app-egress lock (HTTPS_PROXY with the
     app's own token) — injected here by app.py only when the registry spec declares egress, never
-    caller-suppliable. NOTE: the label is `team.app.driver`, NOT `team.driver` — app containers must
+    caller-suppliable. NOTE: the label is `team.app.runtime`, NOT `team.runtime` — app containers must
     never count against the team quota or appear in the team list.
     """
     env = {
@@ -296,7 +296,7 @@ def build_team_app_kwargs(
         "ulimits": [docker.types.Ulimit(name="nofile", soft=4096, hard=4096)],
         "restart_policy": {"Name": "no"},
         "labels": {
-            "team.app.driver": "1",
+            "team.app.runtime": "1",
             "team.id": team_id,
             "team.app": app_id,
             "team.app.db": "1" if spec.db else "0",
@@ -344,7 +344,7 @@ def build_dynamic_assistant_kwargs(
         "ulimits": [docker.types.Ulimit(name="nofile", soft=4096, hard=4096)],
         "restart_policy": {"Name": "no"},
         "labels": {
-            "team.app.driver": "1",
+            "team.app.runtime": "1",
             "team.app.dynamic": "1",
             "team.id": team_id,
             "team.app": assistant_id,

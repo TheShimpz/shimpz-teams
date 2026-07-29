@@ -398,7 +398,7 @@ class _CleanupResult:
 
 def _capacity_key(container) -> str:
     team_id = str(container.labels.get("team.id", ""))
-    if container.labels.get("team.app.driver"):
+    if container.labels.get("team.app.runtime"):
         return f"app:{team_id}:{container.labels.get('team.app', '')}"
     return f"team:{team_id}"
 
@@ -408,7 +408,7 @@ def _admitted_resource_containers() -> list:
     try:
         resources = {
             container.id: container
-            for label in ("team.driver", "team.app.driver")
+            for label in ("team.runtime", "team.app.runtime")
             for container in runtime_state._docker.containers.list(all=True, filters={"label": label})
         }
     except docker.errors.DockerException as exc:
@@ -447,7 +447,7 @@ def _memory_usage(*, exclude_keys: frozenset[str] = frozenset()) -> _MemoryUsage
 
 def _physical_teams(*, exclude_keys: frozenset[str]) -> list:
     try:
-        teams = runtime_state._docker.containers.list(all=True, filters={"label": "team.driver"})
+        teams = runtime_state._docker.containers.list(all=True, filters={"label": "team.runtime"})
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "cannot verify Team count inventory") from exc
     return [container for container in teams if _capacity_key(container) not in exclude_keys]

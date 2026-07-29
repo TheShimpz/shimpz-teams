@@ -55,7 +55,7 @@ RUN mkdir -p /etc/shimpz && \
     'import json, os, pathlib; pathlib.Path("/etc/shimpz/local-assistants.json").write_text(json.dumps({"schema": 2, "images": {"shimpz-cloudflare": os.environ["SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE"]}}, separators=(",", ":")) + "\n", encoding="utf-8")'
 
 RUN groupadd --gid 10001 shimpzlocal && \
-    groupadd --gid 10010 shimpzteamdriver-token && \
+    groupadd --gid 10010 shimpzteam-token && \
     groupadd --gid 10016 shimpzbrain-runtime-token && \
     groupadd --gid 10017 shimpzapp-egress-policy && \
     useradd --uid 10001 --gid 10001 --groups 10010,10016,10017 --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
@@ -63,7 +63,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/app-egress \
         /var/lib/shimpz-local/assistant-accounts/state /var/lib/shimpz-local/assistant-accounts/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
-    chown shimpzlocal:shimpzteamdriver-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
+    chown shimpzlocal:shimpzteam-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
     chown shimpzlocal:shimpzbrain-runtime-token /run/shimpz-brain-runtime && \
     chmod 0750 /run/shimpz-brain-runtime && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
@@ -79,7 +79,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
     chmod 0555 /app/local_healthcheck.py && chmod 0444 /etc/shimpz/local-assistants.json
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
-      org.shimpz.component="team-driver-local" \
+      org.shimpz.component="team-local" \
       org.shimpz.local.profile="single-owner-local-v1"
 
 USER 10001:10001

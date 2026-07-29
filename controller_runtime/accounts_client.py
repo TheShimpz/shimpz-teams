@@ -1,7 +1,7 @@
 """Verify a Shimpz account session token against the `accounts` service.
 
-This is how the team-driver scopes every op to the authenticated account (Team ownership). The
-public store only FORWARDS the user's token (it holds no secret); THIS driver is the enforcer — it
+This is how the team scopes every op to the authenticated account (Team ownership). The
+public store only FORWARDS the user's token (it holds no secret); Team is the enforcer — it
 verifies the token here and ties/authorizes Teams by the returned account_id. Stdlib only.
 
 SELF-HOST PHONE-HOME: on shimpz.com's own Space this points at the internal `accounts` container; a

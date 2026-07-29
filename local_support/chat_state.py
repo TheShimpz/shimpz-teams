@@ -16,7 +16,7 @@ from local_support.chat_types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import ASSISTANT_LABEL
 
-log = logging.getLogger("shimpz-team-driver-local")
+log = logging.getLogger("shimpz-team-local")
 MAX_CHAT_FILES = 8
 
 

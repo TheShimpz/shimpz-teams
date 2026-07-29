@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1@sha256:87999aa3d42bdc6bea60565083ee17e86d1f3339802f543c0d03998580f9cb89
 # check=skip=SecretsUsedInArgOrEnv ; false positive: the *_TOKEN_GID/DOCKER_GID ARGs are numeric group IDs, never secrets
 #
-# team-driver — the only container holding /var/run/docker.sock, dedicated to Team lifecycle.
+# team — the only container holding /var/run/docker.sock, dedicated to Team lifecycle.
 # `shimpz-brain` never mounts the socket; the
-# authenticated admin panel calls this driver's restricted, allowlisted, audited API instead. This
+# authenticated admin panel calls Team's restricted, allowlisted, audited API instead. This
 # process's own UID is unprivileged (10001) — defense-in-depth against trivial filesystem tampering,
 # not a claim that socket access itself is contained (holding the socket is host-root-equivalent).
 # Pinned by digest; bump deliberately.
@@ -35,9 +35,9 @@ ARG COSIGN_ARM64_SHA256=bedac92e8c3729864e13d4a17048007cfafa79d5deca993a43a90ffe
 ARG TARGETARCH
 # Must match the GID that owns /var/run/docker.sock on the host (stat -c '%g' /var/run/docker.sock).
 ARG DOCKER_GID=989
-# Fixed GID for THIS driver's token group — the caller (admin, uid 1000) joins it to read the token.
+# Fixed GID for Team's token group — the caller (admin, uid 1000) joins it to read the token.
 # Distinct from every other sidecar's (10002–10009) so no token is readable via another's group.
-ARG SHIMPZ_TEAMDRIVER_TOKEN_GID=10010
+ARG SHIMPZ_TEAM_TOKEN_GID=10010
 # The PostgreSQL Service token group — Team joins it read-only to request a scoped database.
 # MUST match the Service image's SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID so the shared 0440 token is readable.
 ARG SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID=10004
@@ -71,15 +71,15 @@ RUN case "${TARGETARCH}" in \
 
 # Every shared capability has a distinct supplementary group.
 RUN groupadd -g "${DOCKER_GID}" dockersock \
-    && groupadd -g "${SHIMPZ_TEAMDRIVER_TOKEN_GID}" shimpzteamdriver-token \
+    && groupadd -g "${SHIMPZ_TEAM_TOKEN_GID}" shimpzteam-token \
     && groupadd -g "${SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID}" shimpzpostgresql-token \
     && groupadd -g "${SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID}" shimpzbraincred-unseal-token \
     && groupadd -g "${SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
     && groupadd -g "${SHIMPZ_APP_EGRESS_POLICY_GID}" shimpzapp-egress-policy \
     && useradd -u 10001 -g dockersock \
-        -G shimpzteamdriver-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzbrain-runtime-token,shimpzapp-egress-policy \
-        -M -s /usr/sbin/nologin teamdriver
+        -G shimpzteam-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzbrain-runtime-token,shimpzapp-egress-policy \
+        -M -s /usr/sbin/nologin shimpzteam
 
 WORKDIR /app
 # BuildKit is required: read-only bind mounts keep dependency metadata out of every image layer while the
@@ -122,39 +122,39 @@ COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_cont
      http_boundary/runtime_state.py http_boundary/stdlib.py http_boundary/strict.py ./http_boundary/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
-# non-root user. /run/shimpz-teamdriver gets GROUP `shimpzteamdriver-token` so the fresh volume's
+# non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's
 # perms already match what the token file inside needs — readable by the admin panel via that group.
-RUN mkdir -p /run/shimpz-teamdriver /var/log/team-driver /var/lib/team-driver/postgresql-principals \
-        /var/lib/team-driver/storage \
-        /var/lib/team-driver/cleanup \
-        /var/lib/team-driver/inference \
-        /var/lib/team-driver/power-journal \
-        /var/lib/team-driver/assistant-accounts/state \
-        /var/lib/team-driver/assistant-accounts/key \
-        /var/lib/team-driver/dynamic-assistants \
-        /var/lib/team-driver/cosign \
+RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals \
+        /var/lib/team/storage \
+        /var/lib/team/cleanup \
+        /var/lib/team/inference \
+        /var/lib/team/power-journal \
+        /var/lib/team/assistant-accounts/state \
+        /var/lib/team/assistant-accounts/key \
+        /var/lib/team/dynamic-assistants \
+        /var/lib/team/cosign \
         /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
         /run/shimpz-brain-runtime \
-    && chown teamdriver:shimpzteamdriver-token /run/shimpz-teamdriver && chmod 750 /run/shimpz-teamdriver \
-    && chown teamdriver:shimpzbraincred-unseal-token /run/shimpz-braincred-unseal \
-    && chown teamdriver:shimpzbrain-resolve /run/shimpz-accounts-brain-resolve \
+    && chown shimpzteam:shimpzteam-token /run/shimpz-team && chmod 750 /run/shimpz-team \
+    && chown shimpzteam:shimpzbraincred-unseal-token /run/shimpz-braincred-unseal \
+    && chown shimpzteam:shimpzbrain-resolve /run/shimpz-accounts-brain-resolve \
     && chmod 0750 /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
-    && chown teamdriver:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
+    && chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
     && chmod 0750 /run/shimpz-brain-runtime \
-    && chown -R teamdriver:dockersock /var/log/team-driver /var/lib/team-driver \
-    && chmod 0700 /var/lib/team-driver/postgresql-principals \
-        /var/lib/team-driver/storage \
-        /var/lib/team-driver/cleanup \
-        /var/lib/team-driver/inference \
-        /var/lib/team-driver/power-journal \
-        /var/lib/team-driver/assistant-accounts/state \
-        /var/lib/team-driver/assistant-accounts/key \
-        /var/lib/team-driver/dynamic-assistants \
-        /var/lib/team-driver/cosign \
-    && chown teamdriver:shimpzapp-egress-policy /app-egress-policy \
+    && chown -R shimpzteam:dockersock /var/log/team /var/lib/team \
+    && chmod 0700 /var/lib/team/postgresql-principals \
+        /var/lib/team/storage \
+        /var/lib/team/cleanup \
+        /var/lib/team/inference \
+        /var/lib/team/power-journal \
+        /var/lib/team/assistant-accounts/state \
+        /var/lib/team/assistant-accounts/key \
+        /var/lib/team/dynamic-assistants \
+        /var/lib/team/cosign \
+    && chown shimpzteam:shimpzapp-egress-policy /app-egress-policy \
     && chmod 0770 /app-egress-policy
 
-USER teamdriver
+USER shimpzteam
 EXPOSE 7077
 # The umbrella Compose deployment owns liveness and invokes /app/healthcheck.py.
 ENTRYPOINT ["/opt/venv/bin/python", "/app/app.py"]

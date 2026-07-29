@@ -1,4 +1,4 @@
-"""Structured audit log for every mutating team-driver operation.
+"""Structured audit log for every mutating team operation.
 
 Matches the repo-wide structlog JSON schema `logq` expects (ts/level/service/trace_id/msg/…extra).
 """
@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-AUDIT_PATH = Path(os.environ.get("SHIMPZ_TEAMDRIVER_AUDIT_LOG", "/var/log/team-driver/audit.jsonl"))
+AUDIT_PATH = Path(os.environ.get("SHIMPZ_TEAM_AUDIT_LOG", "/var/log/team/audit.jsonl"))
 MAX_BYTES = 10 * 1024 * 1024
 BACKUPS = 3
 
@@ -36,7 +36,7 @@ def log(
     event = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "level": level or ("info" if result == "ok" else "warn"),
-        "service": "team-driver",
+        "service": "team",
         "trace_id": trace_id,
         "msg": f"{op} {team_id}: {result}",
         "op": op,

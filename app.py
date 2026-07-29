@@ -1,4 +1,4 @@
-"""Hosted Team driver entrypoint."""
+"""Hosted Team entrypoint."""
 
 from http_boundary.hosted_controller import Handler, _BoundedThreadingHTTPServer, main
 

@@ -84,7 +84,7 @@ def _install_authorization_matches(receipt: dict, expected: dict, now: int) -> b
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "team-driver/1.0"
+    server_version = "team/1.0"
 
     def log_message(self, *_args) -> None:  # audit.log is the ONLY log source
         pass
@@ -94,7 +94,7 @@ class Handler(BaseHTTPRequestHandler):
 
         The operator token (the admin panel) has full access. A store-forwarded account token is verified
         against the accounts service and scopes every op to that account's OWN teams — the store holds
-        no privileged secret, this driver is the enforcer.
+        no privileged secret, Team is the enforcer.
         """
         if strict_http.bearer_matches(self.headers, runtime_state._token):
             return ("operator", None)
@@ -216,10 +216,10 @@ class Handler(BaseHTTPRequestHandler):
             raise runtime_state.ApiError(exc.status, exc.message) from exc
 
     def _read_driver_body(self, keys: set[str]) -> dict[str, object]:
-        """Read one closed Driver mutation document; arbitrary scripts/shapes never cross the bridge."""
+        """Read one closed Team mutation document; arbitrary scripts/shapes never cross the bridge."""
         body = self._read_body(max_bytes=runtime_state.MAX_DRIVER_JSON_BODY_BYTES)
         if not isinstance(body, dict) or set(body) != keys:
-            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "request body does not match the Driver operation")
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "request body does not match the Team operation")
         return body
 
     def do_GET(self) -> None:
@@ -255,7 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                 marketplace.MarketplaceError,
             ),
             emit=lambda failure: self._emit_failure(method, failure),
-            unexpected_message="internal driver error",
+            unexpected_message="internal Team error",
         )
 
     def _dispatch_developers(self, method: str) -> None:
