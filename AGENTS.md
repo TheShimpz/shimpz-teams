@@ -1,7 +1,9 @@
 # Teams repository rules
 
-- This repository owns the Team domain. It does not own Developers, Brain, Account, Assistant release, or egress
-  policy merely because it integrates with them.
+- This repository owns the Team domain. It does not own Developers, Brain, Account, Assistant release, or the
+  Assistant egress proxy merely because it integrates with them.
+- Team owns its outbound policy and bindings under `egress/`; `assistants/egress` owns the separate enforcement
+  proxy. Do not merge policy authority and network enforcement into one component.
 - Organize profile-specific source under `hosted/` or `local/`. Keep source at the repository root only while its
   ownership is genuinely profile-neutral and its final responsibility has been classified.
 - Name responsibility directories with the shortest clear term. Use `install/`, not `installation/`.
@@ -11,6 +13,8 @@
   executable Team core logic.
 - Do not create `core/`, `shared/`, `common/`, `utils/`, or `misc/` as a convenience. `core/` is allowed only for
   cohesive Team invariants proven to be shared by Hosted and Local.
+- Prefer a named profile-neutral responsibility such as `chat/`, `egress/`, `inference/`, or `power/` over hiding
+  that responsibility in `core/`.
 - Preserve Team isolation, least privilege, fail-closed validation, secret redaction, and exact image-copy closure
   while moving source.
 - Use Python 3.14. Run Ruff from the umbrella root with `ruff check --config ruff.toml teams`; run the complete local

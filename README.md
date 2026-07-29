@@ -4,7 +4,7 @@
 Docker-mediated workload boundary.
 
 The repository is consumed by the Shimpz umbrella at the root `teams/` checkout. It is not a Service repository and
-does not own Brain, Account, Assistant-release, or egress-policy responsibilities.
+does not own Brain, Account, Assistant-release, or egress-proxy responsibilities.
 
 ## Source organization
 
@@ -12,8 +12,10 @@ does not own Brain, Account, Assistant-release, or egress-policy responsibilitie
 - `hosted/install/` owns the Team side of resolving, authorizing, binding, and materializing a published Assistant.
 - `hosted/install/protocol/` is the verified wire-protocol mirror consumed by that responsibility.
 - `local/` contains the Local entrypoint, healthcheck, and image definition used by `install.shimpz.com`.
-- Root packages are existing profile-neutral candidates. They move to `core/` only after their contents prove one
-  cohesive Team responsibility shared by both profiles.
+- `chat/`, `egress/`, `inference/`, and `power/` are profile-neutral Team responsibilities.
+- `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.
+- `core/` contains only low-level Team invariants shared by both profiles, currently strict JSON and HTTP contracts.
+- Remaining root packages are unclassified transitional source, not a precedent for placing new files at root.
 
 Directory names use the shortest clear responsibility term, such as `install/`. A peer domain may appear in a leaf
 adapter name but never as a child domain owned by Team.
