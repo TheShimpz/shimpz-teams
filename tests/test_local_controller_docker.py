@@ -31,7 +31,7 @@ sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
 
 from controller_runtime import power_execution
-from local_app import half_cpu_set
+from local.app import half_cpu_set
 
 
 class _BrainLifecycleHandler(BaseHTTPRequestHandler):
@@ -306,7 +306,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.builder,
             "--load",
             "--file",
-            str(TEAM / "Dockerfile.local"),
+            str(TEAM / "local" / "Dockerfile"),
             "--build-arg",
             f"SHIMPZ_ASSISTANT_IMAGE={flow.trusted_ref}",
             "--build-arg",

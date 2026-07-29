@@ -19,7 +19,7 @@ ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
-COPY local_app.py local_healthcheck.py ./
+COPY local/__init__.py local/app.py local/healthcheck.py ./local/
 COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
     assistant_human/assistant_account_flow.py assistant_human/assistant_catalog.json \
     assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
@@ -76,7 +76,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
         /var/lib/shimpz-local/power-journal \
         /var/lib/shimpz-local/assistant-accounts/state /var/lib/shimpz-local/assistant-accounts/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
-    chmod 0555 /app/local_healthcheck.py && chmod 0444 /etc/shimpz/local-assistants.json
+    chmod 0555 /app/local/healthcheck.py && chmod 0444 /etc/shimpz/local-assistants.json
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
@@ -85,5 +85,5 @@ LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams
 USER 10001:10001
 EXPOSE 7077
 HEALTHCHECK --interval=10s --timeout=4s --start-period=10s --retries=3 \
-    CMD ["/opt/venv/bin/python", "/app/local_healthcheck.py"]
-ENTRYPOINT ["/opt/venv/bin/python", "/app/local_app.py"]
+    CMD ["/opt/venv/bin/python", "-m", "local.healthcheck"]
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "local.app"]

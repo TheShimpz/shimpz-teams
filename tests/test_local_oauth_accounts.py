@@ -17,7 +17,6 @@ sys.path.insert(0, str(TEAM))
 
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase
 
-import local_app
 from assistant_human import (
     assistant_account_challenges,
     oauth_account_service,
@@ -31,6 +30,7 @@ from controller_runtime import (
     inference_config,
     local_registry,
 )
+from local import app as local_app
 from local_support.chat_segment import SegmentRequest
 from local_support.chat_types import ActiveAssistant, PendingLocalChat
 

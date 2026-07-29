@@ -14,9 +14,9 @@ import types
 import unittest
 from pathlib import Path
 
-import healthcheck as team_healthcheck
 import manifests
 from container_policy import network as policy
+from hosted import healthcheck as team_healthcheck
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -354,7 +354,7 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
         team_healthcheck.DEFAULT_BRAIN_IMAGE == manifests.DEFAULT_TEAM_IMAGE,
         "shipping readiness pins the same default Brain image as lifecycle admission",
     )
-    health_image = _environment_get(ROOT / "healthcheck.py", "REQUIRED_BRAIN_IMAGES")
+    health_image = _environment_get(ROOT / "hosted" / "healthcheck.py", "REQUIRED_BRAIN_IMAGES")
     manifest_image = _environment_get(ROOT / "manifests.py", "IMAGE")
     check(
         ast.literal_eval(health_image.args[0]) == ast.literal_eval(manifest_image.args[0]),
@@ -364,14 +364,14 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
         {name: brain["image"] for name, brain in manifests.BRAINS.items()} == team_healthcheck.REQUIRED_BRAIN_IMAGES,
         "shipping readiness pins the same Brain image registry as lifecycle admission",
     )
-    health_port = _environment_get(ROOT / "healthcheck.py", "LISTEN_PORT")
+    health_port = _environment_get(ROOT / "hosted" / "healthcheck.py", "LISTEN_PORT")
     runtime_port = _environment_get(ROOT / "http_boundary" / "runtime_state.py", "LISTEN_PORT")
     check(
         tuple(ast.literal_eval(argument) for argument in health_port.args)
         == tuple(ast.literal_eval(argument) for argument in runtime_port.args),
         "shipping readiness probes the same configured Controller port as runtime state",
     )
-    health_bindings = _environment_get(ROOT / "healthcheck.py", "DYNAMIC_ASSISTANTS")
+    health_bindings = _environment_get(ROOT / "hosted" / "healthcheck.py", "DYNAMIC_ASSISTANTS")
     runtime_bindings = _environment_get(
         ROOT / "http_boundary" / "runtime_state.py",
         "DYNAMIC_ASSISTANT_PATH",

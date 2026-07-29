@@ -26,7 +26,7 @@ from assistant_human import (
     oauth_pkce_challenges,
 )
 from controller_runtime import brain_runtime_client, inference_config, power_journal, team_storage, token_store
-from hosted_install import artifact_trust, developers_client, developers_delegation, dynamic_assistants, registry_auth
+from hosted.install import artifact_trust, developers_client, developers_delegation, dynamic_assistants, registry_auth
 
 ALL_INTERFACES = str(ipaddress.IPv4Address(0))
 

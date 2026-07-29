@@ -22,7 +22,7 @@ from pathlib import Path
 
 from assistant_human import marketplace
 from container_policy import network as network_policy
-from hosted_install import dynamic_assistants
+from hosted.install import dynamic_assistants
 
 DOCKER_SOCKET = os.environ.get("DOCKER_HOST_SOCKET", "/var/run/docker.sock")
 # Must stay identical to manifests.RUNTIME without importing the SDK-backed module. This is not an

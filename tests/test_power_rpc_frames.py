@@ -21,10 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_app_fixture import hosted_assistants, runtime_state
 
-import local_app
 import manifests
 from container_policy import local as local_container_policy
 from controller_runtime import brain_runtime_client, power_execution, power_journal
+from local import app as local_app
 from local_support import assistant_rpc as local_assistant_rpc
 
 

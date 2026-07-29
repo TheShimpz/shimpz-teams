@@ -129,7 +129,7 @@ _stub(
 )
 _stub("controller_runtime.token_store", ensure_token=lambda: "operator-token")
 
-spec = importlib.util.spec_from_file_location("team_app_hosted_test", TEAM / "app.py")
+spec = importlib.util.spec_from_file_location("team_app_hosted_test", TEAM / "hosted" / "app.py")
 app = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = app

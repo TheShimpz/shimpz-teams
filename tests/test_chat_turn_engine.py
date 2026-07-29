@@ -16,7 +16,6 @@ sys.path.insert(0, str(TESTS))
 
 import hosted_app_fixture as hosted_harness
 
-import local_app
 from assistant_human import marketplace
 from controller_runtime import (
     brain_runtime_client,
@@ -25,6 +24,7 @@ from controller_runtime import (
     inference_config,
     local_registry,
 )
+from local import app as local_app
 from local_support import chat_segment as local_chat_segment
 from local_support.chat_segment import SegmentRequest
 from local_support.chat_types import ActiveAssistant

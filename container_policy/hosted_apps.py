@@ -17,7 +17,7 @@ from assistant_human import assistant_genesis, assistant_manifest, marketplace, 
 from container_policy import hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import egress_policy, postgresql_service_client
-from hosted_install import dynamic_assistants
+from hosted.install import dynamic_assistants
 from http_boundary import runtime_state
 
 

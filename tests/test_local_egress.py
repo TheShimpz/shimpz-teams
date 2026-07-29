@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import local_app
+from local import app as local_app
 from local_support import egress as local_egress
 
 

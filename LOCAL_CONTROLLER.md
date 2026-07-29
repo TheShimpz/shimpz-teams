@@ -1,6 +1,6 @@
 # Local Team controller v1
 
-`Dockerfile.local` packages the single-owner controller installed by `install.shimpz.com`. It is a
+`local/Dockerfile` packages the single-owner controller installed by `install.shimpz.com`. It is a
 local projection of the shared Team controller domain, not a lifecycle-only Docker wrapper. It owns
 Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Powers,
 enforces egress policy, stores Team files and inference selection, and coordinates OAuth Accounts.
@@ -126,7 +126,7 @@ Release automation replaces it with the published immutable digest:
 
 ```sh
 docker build \
-  --file team/Dockerfile.local \
+  --file team/local/Dockerfile \
   --build-arg SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE='ghcr.io/theshimpz/shimpz-space@sha256:<digest>' \
   team
 ```

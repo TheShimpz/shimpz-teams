@@ -17,7 +17,7 @@ import validate
 from assistant_human import marketplace
 from container_policy import network as network_policy
 from controller_runtime import cleanup_state, inference_config
-from hosted_install import dynamic_assistants, marketplace_image
+from hosted.install import dynamic_assistants, marketplace_image
 from http_boundary import runtime_state
 
 _CAPACITY_SNAPSHOT_MAX_ATTEMPTS = 8

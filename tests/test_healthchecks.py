@@ -12,8 +12,8 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-import healthcheck
-import local_healthcheck
+from hosted import healthcheck
+from local import healthcheck as local_healthcheck
 
 
 class _Response:

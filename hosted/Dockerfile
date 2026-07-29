@@ -89,7 +89,8 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
     UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
     rm -rf /root/.cache/uv
 
-COPY app.py validate.py manifests.py audit.py healthcheck.py ./
+COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
+COPY validate.py manifests.py audit.py ./
 COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
      assistant_human/assistant_account_flow.py assistant_human/assistant_catalog.json \
      assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
@@ -112,12 +113,21 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
      container_policy/hosted_resources.py container_policy/network.py ./container_policy/
-# Keep the vendored contract authority byte-complete for its independent digest re-verification.
-COPY contracts ./contracts
-COPY hosted_install/__init__.py hosted_install/artifact_trust.py hosted_install/developers_client.py \
-     hosted_install/developers_controller_contract.py hosted_install/developers_delegation.py \
-     hosted_install/dynamic_assistants.py hosted_install/marketplace_image.py hosted_install/registry_auth.py \
-     ./hosted_install/
+# Keep the vendored protocol byte-complete for its independent digest re-verification.
+COPY hosted/install/__init__.py hosted/install/artifact_trust.py hosted/install/developers_client.py \
+     hosted/install/developers_controller_contract.py hosted/install/developers_delegation.py \
+     hosted/install/dynamic_assistants.py hosted/install/marketplace_image.py hosted/install/registry_auth.py \
+     ./hosted/install/
+COPY hosted/install/protocol/upstream.json ./hosted/install/protocol/
+COPY hosted/install/protocol/v1/README.md hosted/install/protocol/v1/contract-files.sha256 \
+     hosted/install/protocol/v1/controller-install-request.schema.json \
+     hosted/install/protocol/v1/controller-install-response.schema.json \
+     hosted/install/protocol/v1/definitions.schema.json hosted/install/protocol/v1/delegation-claims.schema.json \
+     hosted/install/protocol/v1/install-authorization-receipt.schema.json \
+     hosted/install/protocol/v1/install-authorization-request.schema.json \
+     hosted/install/protocol/v1/resolve-response.schema.json hosted/install/protocol/v1/schema_validator.py \
+     hosted/install/protocol/v1/team-list-response.schema.json hosted/install/protocol/v1/vectors.json \
+     hosted/install/protocol/v1/verify.py ./hosted/install/protocol/v1/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
      http_boundary/runtime_state.py http_boundary/stdlib.py http_boundary/strict.py ./http_boundary/
 
@@ -156,5 +166,5 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
 
 USER shimpzteam
 EXPOSE 7077
-# The umbrella Compose deployment owns liveness and invokes /app/healthcheck.py.
-ENTRYPOINT ["/opt/venv/bin/python", "/app/app.py"]
+# The umbrella Compose deployment owns liveness and invokes the hosted.healthcheck module.
+ENTRYPOINT ["/opt/venv/bin/python", "-m", "hosted.app"]

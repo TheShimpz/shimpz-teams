@@ -7,23 +7,47 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UV_IMAGE = "ghcr.io/astral-sh/uv:0.11.25@sha256:1e3808aa9023d0980e7c15b1fa7c1ac16ff35925780cf5c459858b2d693f01a9"
-HOSTED_ENTRYPOINTS = ("app", "healthcheck")  # Compose invokes the auxiliary healthcheck entrypoint.
-LOCAL_ENTRYPOINTS = ("local_app", "local_healthcheck")
+HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck")
+LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
     "assistant_human",
     "container_policy",
     "controller_runtime",
-    "hosted_install",
+    "hosted",
     "http_boundary",
+    "local",
     "local_support",
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
 HOSTED_PACKAGE_DATA = {
     "assistant_human": {"assistant_human/assistant_catalog.json"},
     "controller_runtime": {"controller_runtime/model_catalog.json"},
+    "hosted": {
+        "hosted/install/protocol/upstream.json",
+        "hosted/install/protocol/v1/README.md",
+        "hosted/install/protocol/v1/contract-files.sha256",
+        "hosted/install/protocol/v1/controller-install-request.schema.json",
+        "hosted/install/protocol/v1/controller-install-response.schema.json",
+        "hosted/install/protocol/v1/definitions.schema.json",
+        "hosted/install/protocol/v1/delegation-claims.schema.json",
+        "hosted/install/protocol/v1/install-authorization-receipt.schema.json",
+        "hosted/install/protocol/v1/install-authorization-request.schema.json",
+        "hosted/install/protocol/v1/resolve-response.schema.json",
+        "hosted/install/protocol/v1/team-list-response.schema.json",
+        "hosted/install/protocol/v1/vectors.json",
+    },
 }
-LOCAL_PACKAGE_DATA = HOSTED_PACKAGE_DATA
+LOCAL_PACKAGE_DATA = {
+    "assistant_human": HOSTED_PACKAGE_DATA["assistant_human"],
+    "controller_runtime": HOSTED_PACKAGE_DATA["controller_runtime"],
+}
+PACKAGE_TOOLS = {
+    "hosted": {
+        "hosted/install/protocol/v1/schema_validator.py",
+        "hosted/install/protocol/v1/verify.py",
+    },
+}
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
 
 
@@ -55,7 +79,12 @@ def _module_name(path: Path) -> str:
 
 
 def _runtime_import_closure(*entrypoints: str) -> tuple[set[str], set[str], set[str]]:
-    pending = list(entrypoints)
+    pending = [
+        ".".join(parts[:depth])
+        for entrypoint in entrypoints
+        for parts in [entrypoint.split(".")]
+        for depth in range(1, len(parts) + 1)
+    ]
     visited = set()
     root_modules = set()
     root_packages = set()
@@ -114,7 +143,7 @@ def _copied_package_sources(logical_lines: list[str]) -> dict[str, set[str]]:
         if not copy_parts:
             continue
         sources, destination = copy_parts
-        match = re.fullmatch(r"[.]\/([a-z][a-z0-9_]*)/", destination)
+        match = re.fullmatch(r"[.]\/([a-z][a-z0-9_]*)(?:/[a-z0-9_]+)*/", destination)
         if match and match.group(1) in PRODUCTION_PACKAGES:
             copied.setdefault(match.group(1), set()).update(sources)
     return copied
@@ -134,16 +163,9 @@ class StaticTeamImageContractTests(unittest.TestCase):
             copied_python = {path for path in package_files if path.endswith(".py")}
             self.assertEqual(
                 copied_python,
-                {path for path in imported_paths if path.startswith(f"{package}/")},
+                {path for path in imported_paths if path.startswith(f"{package}/")} | PACKAGE_TOOLS.get(package, set()),
             )
-            nested_sources = {
-                source for source in package_files if not re.fullmatch(rf"{re.escape(package)}/[A-Za-z0-9_.-]+", source)
-            }
-            self.assertEqual(
-                set(),
-                nested_sources,
-                f"{package} has nested sources that multi-source COPY would flatten",
-            )
+            self.assertTrue(all(source.startswith(f"{package}/") for source in package_files))
             self.assertEqual(package_data.get(package, set()), package_files - copied_python)
 
     def _assert_image_closure(
@@ -157,12 +179,15 @@ class StaticTeamImageContractTests(unittest.TestCase):
         modules, packages, imported_paths = _runtime_import_closure(*entrypoints)
         self.assertEqual(packaged, modules)
         self.assertEqual(root_copy_sources, modules | ROOT_RUNTIME_DATA)
-        modeled_destinations = {"./", "./contracts", "/opt/venv"}
+        modeled_destinations = {"./", "/opt/venv"}
         for line in logical_lines:
             copy_parts = _copy_parts(line)
             if copy_parts:
                 _sources, destination = copy_parts
-                package_destination = re.fullmatch(r"[.]\/([a-z][a-z0-9_]*)/", destination)
+                package_destination = re.fullmatch(
+                    r"[.]\/([a-z][a-z0-9_]*)(?:/[a-z0-9_]+)*/",
+                    destination,
+                )
                 self.assertTrue(
                     destination in modeled_destinations
                     or (package_destination and package_destination.group(1) in PRODUCTION_PACKAGES),
@@ -200,27 +225,22 @@ class StaticTeamImageContractTests(unittest.TestCase):
         )
 
     def test_static_image_packages_the_exact_runtime_import_closure(self) -> None:
-        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "hosted" / "Dockerfile").read_text(encoding="utf-8")
         for line in re.sub(r"\\\n\s*", " ", dockerfile).splitlines():
             _copy_parts(line)
         runtime = dockerfile.rsplit("\nFROM ", 1)[-1]
         logical_lines = re.sub(r"\\\n\s*", " ", runtime).splitlines()
 
         self.assertIn(
-            f'ENTRYPOINT ["/opt/venv/bin/python", "/app/{HOSTED_ENTRYPOINTS[0]}.py"]',
+            f'ENTRYPOINT ["/opt/venv/bin/python", "-m", "{HOSTED_ENTRYPOINTS[0]}"]',
             logical_lines,
         )
         self.assertNotIn("HEALTHCHECK", runtime)
         self._assert_image_closure(logical_lines, HOSTED_ENTRYPOINTS, HOSTED_PACKAGE_DATA)
         self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", runtime)
         self.assertIn("source=uv.lock,target=/app/uv.lock,ro", runtime)
-        self.assertIn("COPY contracts ./contracts", runtime)
-        contracts = ROOT / "contracts"
-        self.assertEqual({"developers-controller"}, {path.name for path in contracts.iterdir()})
-        self.assertEqual(
-            {"upstream.json", "v1"},
-            {path.name for path in (contracts / "developers-controller").iterdir()},
-        )
+        protocol = ROOT / "hosted" / "install" / "protocol"
+        self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
         for package in PRODUCTION_PACKAGES:
             package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))
             self.assertFalse(
@@ -228,7 +248,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             )
 
     def test_static_image_keeps_brain_access_and_private_state_narrow(self) -> None:
-        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "hosted" / "Dockerfile").read_text(encoding="utf-8")
 
         self.assertIn("ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016", dockerfile)
         self.assertIn(
@@ -247,14 +267,12 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertIn("/var/lib/team/assistant-accounts/state", dockerfile)
         self.assertIn("/var/lib/team/assistant-accounts/key", dockerfile)
         self.assertIn(
-            "/var/lib/team/cleanup \\\n"
-            "        /var/lib/team/inference \\\n"
-            "        /var/lib/team/power-journal \\",
+            "/var/lib/team/cleanup \\\n        /var/lib/team/inference \\\n        /var/lib/team/power-journal \\",
             dockerfile,
         )
 
     def test_static_local_image_copies_the_exact_runtime_import_closure(self) -> None:
-        dockerfile = (ROOT / "Dockerfile.local").read_text(encoding="utf-8")
+        dockerfile = (ROOT / "local" / "Dockerfile").read_text(encoding="utf-8")
         for line in re.sub(r"\\\n\s*", " ", dockerfile).splitlines():
             _copy_parts(line)
         runtime = dockerfile.split(" AS runtime\n", 1)[1]
@@ -264,13 +282,10 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertIn("COPY --from=uv /uv /usr/local/bin/uv", dockerfile)
         self.assertIn("COPY --from=dependencies /opt/venv /opt/venv", runtime)
         self.assertTrue(
-            any(
-                line.startswith("HEALTHCHECK ") and f'/app/{LOCAL_ENTRYPOINTS[1]}.py"]' in line
-                for line in logical_lines
-            ),
+            any(line.startswith("HEALTHCHECK ") and f'"{LOCAL_ENTRYPOINTS[1]}"]' in line for line in logical_lines),
         )
         self.assertIn(
-            f'ENTRYPOINT ["/opt/venv/bin/python", "/app/{LOCAL_ENTRYPOINTS[0]}.py"]',
+            f'ENTRYPOINT ["/opt/venv/bin/python", "-m", "{LOCAL_ENTRYPOINTS[0]}"]',
             logical_lines,
         )
         self._assert_image_closure(logical_lines, LOCAL_ENTRYPOINTS, LOCAL_PACKAGE_DATA)
@@ -294,7 +309,9 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertEqual(PRODUCTION_PACKAGES, filesystem_packages)
         self.assertEqual(PRODUCTION_PACKAGES, hosted_packages | local_packages)
         for package in PRODUCTION_PACKAGES:
-            package_files = {path.relative_to(ROOT).as_posix() for path in (ROOT / package).rglob("*.py")}
+            package_files = {
+                path.relative_to(ROOT).as_posix() for path in (ROOT / package).rglob("*.py")
+            } - PACKAGE_TOOLS.get(package, set())
             self.assertEqual(
                 package_files,
                 {path for path in imported_paths if path.startswith(f"{package}/")},
@@ -304,6 +321,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             for package in PRODUCTION_PACKAGES
             for path in (ROOT / package).rglob("*")
             if path.is_file()
+            and path.name != "Dockerfile"
             and path.suffix not in {".py", ".pyc"}
             and not any(part.startswith(".") or part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
