@@ -23,6 +23,7 @@ PRODUCTION_PACKAGES = {
     "local",
     "local_support",
     "power",
+    "storage",
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
 HOSTED_PACKAGE_DATA = {

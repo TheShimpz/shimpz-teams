@@ -7,7 +7,7 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
-from controller_runtime import brain_runtime_client, team_storage
+from controller_runtime import brain_runtime_client
 from inference import config as inference_config
 from local_support.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
@@ -25,6 +25,7 @@ from local_support.validation import MAX_ASSISTANT_ID_LENGTH, MAX_TEAM_ID_LENGTH
 from local_support.validation import TEAM_ID_RE as _TEAM_ID
 from local_support.validation import brain_thread_id as _brain_thread_id
 from power import journal as power_journal
+from storage import files as team_storage
 
 
 def _purge_power_generation(self, generation: str) -> None:

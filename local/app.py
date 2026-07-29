@@ -36,7 +36,6 @@ from controller_runtime import (
     brain_runtime_token_store,
     local_chat_continuation_store,
     local_token_store,
-    team_storage,
 )
 from controller_runtime.local_registry import (
     AssistantSpec,
@@ -82,6 +81,7 @@ from local_support.validation import (
 )
 from power import execution as power_execution
 from power import journal as power_journal
+from storage import files as team_storage
 
 IMAGE_LABEL = _LOCAL_IMAGE_LABEL
 ASSISTANT_LABEL = local_labels.ASSISTANT_LABEL

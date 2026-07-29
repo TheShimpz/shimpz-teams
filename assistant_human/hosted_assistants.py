@@ -29,11 +29,11 @@ from container_policy import network as network_policy
 from controller_runtime import (
     brain_credentials_client,
     brain_runtime_client,
-    team_storage,
 )
 from http_boundary import runtime_state
 from power import execution as power_execution
 from power import journal as power_journal
+from storage import files as team_storage
 
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
 CHAT_OUTPUT_CAP = 60000

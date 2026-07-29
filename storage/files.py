@@ -1,4 +1,4 @@
-"""Controller-owned, quota-bounded file storage for one Team.
+"""Team-owned, quota-bounded file storage.
 
 The Brain and Assistant containers never mount this directory.  Files are opaque
 blobs reached only through named controller operations, so uploaded bytes cannot
