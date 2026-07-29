@@ -37,7 +37,7 @@ MAX_CHAT_MESSAGE = 16000
 
 
 def validate_chat_message(message: object) -> str:
-    """A Captain-to-Assistant chat message: non-empty text, size-bounded."""
+    """A user-to-Assistant chat message: non-empty text, size-bounded."""
     if not isinstance(message, str):
         raise ValidationError("message must be a string")
     text = message.strip()
