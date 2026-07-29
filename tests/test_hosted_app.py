@@ -244,6 +244,81 @@ class HostedHttpBoundaryTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
 
+    def test_lists_only_durable_dynamic_assistant_bindings(self) -> None:
+        request = hosted_controller._AuthorizedRequest(
+            {},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._send_json = mock.Mock()
+        bindings = (
+            SimpleNamespace(assistant_id="example-assistant"),
+            SimpleNamespace(assistant_id="other-assistant"),
+        )
+        inventory = {
+            "team_id": "team_1",
+            "apps": [
+                {"app": "example-assistant", "status": "running"},
+                {"app": "notification-center", "status": "running"},
+            ],
+        }
+
+        with (
+            mock.patch.object(runtime_state._dynamic_assistants, "list", return_value=bindings),
+            mock.patch.object(hosted_apps, "_list_apps", return_value=inventory),
+        ):
+            handler._route_assistant_list(request)
+
+        handler._send_json.assert_called_once_with(
+            HTTPStatus.OK,
+            {"assistants": [{"assistant": "example-assistant", "status": "running"}]},
+            no_store=True,
+        )
+
+    def test_uninstalls_only_a_bound_dynamic_assistant(self) -> None:
+        request = hosted_controller._AuthorizedRequest(
+            {"assistant_id": "example-assistant"},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._send_json = mock.Mock()
+
+        with (
+            mock.patch.object(
+                runtime_state._dynamic_assistants,
+                "get",
+                return_value=SimpleNamespace(assistant_id="example-assistant"),
+            ),
+            mock.patch.object(
+                hosted_apps,
+                "_uninstall_app",
+                return_value={"uninstalled": True},
+            ) as uninstall,
+            mock.patch.object(hosted_controller.audit, "log", return_value="trace"),
+        ):
+            handler._route_assistant_uninstall(request)
+
+        uninstall.assert_called_once_with(
+            "team_1",
+            "example-assistant",
+            mock.sentinel.lease,
+        )
+        handler._send_json.assert_called_once_with(
+            HTTPStatus.OK,
+            {
+                "assistant": "example-assistant",
+                "uninstalled": True,
+                "trace_id": "trace",
+            },
+            no_store=True,
+        )
+
 
 class HostedAllowedHostsAdmissionTests(unittest.TestCase):
     @staticmethod

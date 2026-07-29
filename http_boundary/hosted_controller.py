@@ -753,6 +753,57 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json(HTTPStatus.OK, {**response, "trace_id": trace}, no_store=True)
 
+    def _route_assistant_list(self, request: _AuthorizedRequest) -> None:
+        try:
+            assistant_ids = {
+                binding.assistant_id
+                for binding in runtime_state._dynamic_assistants.list(request.team_id)
+            }
+        except dynamic_assistants.DynamicAssistantError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant metadata is unavailable",
+            ) from exc
+        inventory = hosted_apps._list_apps(request.team_id, request.lease)
+        assistants = [
+            {"assistant": item["app"], "status": item["status"]}
+            for item in inventory["apps"]
+            if item["app"] in assistant_ids
+        ]
+        self._send_json(
+            HTTPStatus.OK,
+            {"assistants": assistants},
+            no_store=True,
+        )
+
+    def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
+        assistant_id = marketplace.validate_app_id(request.params["assistant_id"])
+        try:
+            binding = runtime_state._dynamic_assistants.get(request.team_id, assistant_id)
+        except dynamic_assistants.DynamicAssistantError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant metadata is unavailable",
+            ) from exc
+        if binding is None:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed")
+        result = hosted_apps._uninstall_app(request.team_id, assistant_id, request.lease)
+        trace = audit.log(
+            "assistant_uninstall",
+            request.team_id,
+            result="ok",
+            assistant=assistant_id,
+        )
+        self._send_json(
+            HTTPStatus.OK,
+            {
+                "assistant": assistant_id,
+                "uninstalled": result["uninstalled"],
+                "trace_id": trace,
+            },
+            no_store=True,
+        )
+
     def _route_app_list(self, request: _AuthorizedRequest) -> None:
         self._send_json(
             HTTPStatus.OK,
@@ -798,6 +849,8 @@ _AUTHORIZED_ROUTES = {
     "app-list": Handler._route_app_list,
     "app-install": Handler._route_app_install,
     "assistant-install": Handler._route_assistant_install,
+    "assistant-list": Handler._route_assistant_list,
+    "assistant-uninstall": Handler._route_assistant_uninstall,
     "app-uninstall": Handler._route_app_uninstall,
     "team-status": Handler._route_team_status,
     "team-logs": Handler._route_team_logs,
