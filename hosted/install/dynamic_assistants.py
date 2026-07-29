@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from assistant_human import assistant_manifest, assistant_registry, marketplace
-
-from .developers_controller_contract import ContractValidationError, ContractValidator
+from install.contract import ContractValidationError, ContractValidator
 
 _FORMAT_VERSION = 1
 _MAX_BINDINGS = 4096

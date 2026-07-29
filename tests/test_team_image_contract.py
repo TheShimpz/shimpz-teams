@@ -20,6 +20,7 @@ PRODUCTION_PACKAGES = {
     "hosted",
     "http_boundary",
     "inference",
+    "install",
     "local",
     "local_support",
     "power",
@@ -29,19 +30,19 @@ PRODUCTION_PACKAGES = {
 HOSTED_PACKAGE_DATA = {
     "assistant_human": {"assistant_human/assistant_catalog.json"},
     "inference": {"inference/model_catalog.json"},
-    "hosted": {
-        "hosted/install/protocol/upstream.json",
-        "hosted/install/protocol/v1/README.md",
-        "hosted/install/protocol/v1/contract-files.sha256",
-        "hosted/install/protocol/v1/controller-install-request.schema.json",
-        "hosted/install/protocol/v1/controller-install-response.schema.json",
-        "hosted/install/protocol/v1/definitions.schema.json",
-        "hosted/install/protocol/v1/delegation-claims.schema.json",
-        "hosted/install/protocol/v1/install-authorization-receipt.schema.json",
-        "hosted/install/protocol/v1/install-authorization-request.schema.json",
-        "hosted/install/protocol/v1/resolve-response.schema.json",
-        "hosted/install/protocol/v1/team-list-response.schema.json",
-        "hosted/install/protocol/v1/vectors.json",
+    "install": {
+        "install/protocol/upstream.json",
+        "install/protocol/v1/README.md",
+        "install/protocol/v1/contract-files.sha256",
+        "install/protocol/v1/controller-install-request.schema.json",
+        "install/protocol/v1/controller-install-response.schema.json",
+        "install/protocol/v1/definitions.schema.json",
+        "install/protocol/v1/delegation-claims.schema.json",
+        "install/protocol/v1/install-authorization-receipt.schema.json",
+        "install/protocol/v1/install-authorization-request.schema.json",
+        "install/protocol/v1/resolve-response.schema.json",
+        "install/protocol/v1/team-list-response.schema.json",
+        "install/protocol/v1/vectors.json",
     },
 }
 LOCAL_PACKAGE_DATA = {
@@ -49,9 +50,9 @@ LOCAL_PACKAGE_DATA = {
     "inference": HOSTED_PACKAGE_DATA["inference"],
 }
 PACKAGE_TOOLS = {
-    "hosted": {
-        "hosted/install/protocol/v1/schema_validator.py",
-        "hosted/install/protocol/v1/verify.py",
+    "install": {
+        "install/protocol/v1/schema_validator.py",
+        "install/protocol/v1/verify.py",
     },
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
@@ -245,7 +246,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self._assert_image_closure(logical_lines, HOSTED_ENTRYPOINTS, HOSTED_PACKAGE_DATA)
         self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", runtime)
         self.assertIn("source=uv.lock,target=/app/uv.lock,ro", runtime)
-        protocol = ROOT / "hosted" / "install" / "protocol"
+        protocol = ROOT / "install" / "protocol"
         self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
         for package in PRODUCTION_PACKAGES:
             package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))

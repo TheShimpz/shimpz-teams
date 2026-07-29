@@ -8,7 +8,7 @@ import re
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1] / "hosted" / "install" / "protocol"
+ROOT = Path(__file__).resolve().parents[1] / "install" / "protocol"
 AUTHORITY = ROOT / "v1"
 MANIFEST = AUTHORITY / "contract-files.sha256"
 EXPECTED_UPSTREAM = {

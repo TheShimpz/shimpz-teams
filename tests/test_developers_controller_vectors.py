@@ -7,9 +7,9 @@ import json
 import unittest
 from pathlib import Path
 
-from hosted.install.developers_controller_contract import ContractValidationError, ContractValidator
+from install.contract import ContractValidationError, ContractValidator
 
-CONTRACT = Path(__file__).resolve().parents[1] / "hosted" / "install" / "protocol" / "v1"
+CONTRACT = Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1"
 VECTORS = json.loads((CONTRACT / "vectors.json").read_bytes())
 
 

@@ -13,13 +13,13 @@ from pathlib import Path
 from unittest import mock
 
 from hosted.install import dynamic_assistants
-from hosted.install.developers_controller_contract import CONTRACT_ROOT
 from hosted.install.dynamic_assistants import (
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,
     app_spec,
 )
+from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]

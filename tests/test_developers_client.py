@@ -16,7 +16,7 @@ from hosted.install.developers_client import (
     DevelopersClientError,
     InstallAuthorizationDeniedError,
 )
-from hosted.install.developers_controller_contract import CONTRACT_ROOT
+from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]

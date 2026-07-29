@@ -13,8 +13,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from hosted.install.developers_controller_contract import CONTRACT_ROOT
 from hosted.install.developers_delegation import DevelopersDelegationError, DevelopersDelegationVerifier
+from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 INSTALL = VECTORS["fixtures"]["assistant_install_delegation"]["value"]

@@ -24,17 +24,17 @@ from core.http import strict as strict_http
 from hosted.install import (
     artifact_trust,
     developers_client,
-    developers_controller_contract,
     developers_delegation,
     dynamic_assistants,
 )
 from http_boundary import hosted, runtime_state
+from install import contract as install_contract
 
 _DEVELOPERS_TEAMS_PATH = "/internal/v1/developers/teams"
 _DEVELOPERS_INSTALL_PATH = "/internal/v1/developers/install"
 _INSTALL_AUTHORIZATION_CLOCK_SKEW_SECONDS = 5
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_CONTROLLER_CONTRACTS = developers_controller_contract.ContractValidator()
+_CONTROLLER_CONTRACTS = install_contract.ContractValidator()
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +284,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(exc.status, {"error": exc.message})
         except docker.errors.DockerException, OSError:
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Controller dependency is unavailable"})
-        except developers_controller_contract.ContractValidationError, dynamic_assistants.DynamicAssistantError:
+        except install_contract.ContractValidationError, dynamic_assistants.DynamicAssistantError:
             self._send_json(HTTPStatus.BAD_REQUEST, {"error": "installation request is invalid"})
 
     def _developers_dependencies(self):

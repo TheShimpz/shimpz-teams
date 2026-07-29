@@ -112,19 +112,20 @@ COPY container_policy/__init__.py container_policy/hosted_apps.py container_poli
      container_policy/hosted_resources.py container_policy/network.py ./container_policy/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/artifact_trust.py hosted/install/developers_client.py \
-     hosted/install/developers_controller_contract.py hosted/install/developers_delegation.py \
+     hosted/install/developers_delegation.py \
      hosted/install/dynamic_assistants.py hosted/install/marketplace_image.py hosted/install/registry_auth.py \
      ./hosted/install/
-COPY hosted/install/protocol/upstream.json ./hosted/install/protocol/
-COPY hosted/install/protocol/v1/README.md hosted/install/protocol/v1/contract-files.sha256 \
-     hosted/install/protocol/v1/controller-install-request.schema.json \
-     hosted/install/protocol/v1/controller-install-response.schema.json \
-     hosted/install/protocol/v1/definitions.schema.json hosted/install/protocol/v1/delegation-claims.schema.json \
-     hosted/install/protocol/v1/install-authorization-receipt.schema.json \
-     hosted/install/protocol/v1/install-authorization-request.schema.json \
-     hosted/install/protocol/v1/resolve-response.schema.json hosted/install/protocol/v1/schema_validator.py \
-     hosted/install/protocol/v1/team-list-response.schema.json hosted/install/protocol/v1/vectors.json \
-     hosted/install/protocol/v1/verify.py ./hosted/install/protocol/v1/
+COPY install/__init__.py install/contract.py ./install/
+COPY install/protocol/upstream.json ./install/protocol/
+COPY install/protocol/v1/README.md install/protocol/v1/contract-files.sha256 \
+     install/protocol/v1/controller-install-request.schema.json \
+     install/protocol/v1/controller-install-response.schema.json \
+     install/protocol/v1/definitions.schema.json install/protocol/v1/delegation-claims.schema.json \
+     install/protocol/v1/install-authorization-receipt.schema.json \
+     install/protocol/v1/install-authorization-request.schema.json \
+     install/protocol/v1/resolve-response.schema.json install/protocol/v1/schema_validator.py \
+     install/protocol/v1/team-list-response.schema.json install/protocol/v1/vectors.json \
+     install/protocol/v1/verify.py ./install/protocol/v1/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
