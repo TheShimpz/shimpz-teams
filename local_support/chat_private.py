@@ -112,7 +112,7 @@ def list_assistant_accounts(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     with self._lock(team_id):
         specs = [
-            self.assistant_lifecycle._resolve(assistant_id)
+            self.assistant_lifecycle._resolve(team_id, assistant_id)
             for assistant_id in self.assistant_lifecycle._assistant_ids(team_id)
         ]
         try:
@@ -166,7 +166,7 @@ def _current_account_declaration(
     account_id: str,
 ) -> object:
     with self._lock(team_id):
-        spec = self.assistant_lifecycle._resolve(assistant_id)
+        spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         declaration = spec.accounts.get(account_id)
         if (
             assistant_id not in self.assistant_lifecycle._assistant_ids(team_id, running_only=True)

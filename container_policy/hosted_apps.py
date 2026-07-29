@@ -18,6 +18,7 @@ from container_policy import hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import postgresql_service_client
 from egress import policy as egress_policy
+from hosted.install import publication
 from http_boundary import runtime_state
 from install import bindings as dynamic_assistants
 
@@ -108,7 +109,7 @@ def _resolve_team_app(
         )
         if binding is None:
             raise marketplace.MarketplaceError(f"app {assistant_id!r} is not deployable in this Team")
-        return assistant_id, dynamic_assistants.app_spec(binding)
+        return assistant_id, publication.app_spec(binding)
     except dynamic_assistants.DynamicAssistantError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -500,7 +501,7 @@ def _install_dynamic_assistant(
             result = _install_app_locked(
                 team_id,
                 app_id,
-                dynamic_assistants.app_spec(retained),
+                publication.app_spec(retained),
                 owner,
                 lease,
                 binding=retained,

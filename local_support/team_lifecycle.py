@@ -53,7 +53,7 @@ def _team_assistant_containers(self, team_id: str) -> list:
 def _validate_destroy_containers(self, containers: list, team_id: str, network) -> None:
     for container in containers:
         assistant_id = container.labels.get(ASSISTANT_LABEL)
-        spec = self.registry.get(assistant_id)
+        spec = self.registry.get(team_id, assistant_id)
         if spec is None or network is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
@@ -81,7 +81,13 @@ def _delete_team_conversation(self, team_id: str, network) -> None:
 def _remove_team_assistants(self, team_id: str, containers: list) -> int:
     for container in containers:
         assistant_id = container.labels[ASSISTANT_LABEL]
-        spec = self.registry[assistant_id]
+        spec = self.registry.get(team_id, assistant_id)
+        if spec is None:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Team resources failed their ownership contract",
+                code="ownership-conflict",
+            )
         try:
             container.remove(force=True)
         except DockerException as exc:
@@ -220,7 +226,7 @@ def _reset_assistant_identities(self, containers: list, networks: list) -> set[t
         validate_team_id(team_id)
         self.assistant_lifecycle._validate_network(network, team_id)
         owned_team_ids.add(team_id)
-    owned_assistants.update((team_id, assistant_id) for team_id in owned_team_ids for assistant_id in self.registry)
+    owned_assistants.update(self.registry.identities())
     return owned_assistants
 
 

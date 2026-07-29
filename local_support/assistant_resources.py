@@ -66,7 +66,7 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
     for container in containers:
         labels = container.labels
         assistant_id = labels.get(ASSISTANT_LABEL) if isinstance(labels, dict) else None
-        spec = self.registry.get(assistant_id) if isinstance(assistant_id, str) else None
+        spec = self.registry.get(team_id, assistant_id) if isinstance(assistant_id, str) else None
         if spec is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
@@ -92,8 +92,8 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
     return tuple(sorted(assistant_ids))
 
 
-def _resolve(self, assistant_id: str) -> AssistantSpec:
-    spec = self.registry.get(assistant_id)
+def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
+    spec = self.registry.get(team_id, assistant_id)
     if spec is None:
         # Resolution is intentionally completed before any image lookup/pull.
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Assistant is not allowlisted", code="assistant-not-allowlisted")

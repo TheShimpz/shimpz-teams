@@ -109,7 +109,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
             ),
             mock.patch.object(hosted_resources, "_authorize", return_value=lease) as authorize,
             mock.patch.object(
-                hosted_controller.dynamic_assistants,
+                hosted_controller.publication,
                 "app_spec",
                 return_value=materialized_spec,
             ) as app_spec,

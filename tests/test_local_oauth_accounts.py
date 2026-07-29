@@ -15,7 +15,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase
+from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestPublicationRegistry
 
 from assistant_human import (
     assistant_account_challenges,
@@ -114,7 +114,7 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            return local_registry.load_registry(path)
+            return TestPublicationRegistry(local_registry.load_registry(path))
 
     def test_controller_accepts_injected_account_state(self) -> None:
         injected_store = SimpleNamespace()
@@ -134,6 +134,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 assistant_accounts=injected_store,
                 account_challenges=injected_challenges,
                 oauth_service=SimpleNamespace(),
+                developers=SimpleNamespace(),
+                artifact_trust=SimpleNamespace(),
             ),
         )
 
@@ -267,6 +269,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
                     assistant_accounts=accounts,
                     account_challenges=SimpleNamespace(),
                     oauth_pkce=pkce,
+                    developers=SimpleNamespace(),
+                    artifact_trust=SimpleNamespace(),
                 ),
             )
 

@@ -160,7 +160,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
 
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        spec = self.registry.get(assistant_id)
+        spec = self.registry.get(team_id, assistant_id)
         if spec is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,

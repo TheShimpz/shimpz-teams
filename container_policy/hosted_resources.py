@@ -17,6 +17,7 @@ import validate
 from assistant_human import marketplace
 from container_policy import network as network_policy
 from controller_runtime import cleanup_state
+from hosted.install import publication
 from http_boundary import runtime_state
 from inference import config as inference_config
 from install import artifact as marketplace_image
@@ -154,7 +155,7 @@ def _trusted_workload_image(
         if app_spec is None and isinstance(app_id, str):
             try:
                 binding = runtime_state._dynamic_assistants.get(team_id, app_id)
-                app_spec = dynamic_assistants.app_spec(binding) if binding is not None else None
+                app_spec = publication.app_spec(binding) if binding is not None else None
                 compact_app_runtime = binding is not None and dynamic_app_role
             except dynamic_assistants.DynamicAssistantError as exc:
                 raise runtime_state.ApiError(

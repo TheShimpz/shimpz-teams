@@ -217,7 +217,6 @@ class LocalContractTests(LocalContractCase):
 
         with (
             mock.patch.dict(os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
-            mock.patch.object(local_app, "load_registry", side_effect=lambda: events.append("registry") or {}),
             mock.patch.object(
                 local_app.local_token_store,
                 "ensure_token",
@@ -240,6 +239,16 @@ class LocalContractTests(LocalContractCase):
             ),
             mock.patch.object(
                 local_app,
+                "PublicationRegistry",
+                side_effect=lambda _store: events.append("registry") or SimpleNamespace(),
+            ),
+            mock.patch.object(
+                local_app.artifact_trust,
+                "ArtifactTrustVerifier",
+                return_value=SimpleNamespace(),
+            ),
+            mock.patch.object(
+                local_app,
                 "LocalController",
                 side_effect=lambda *_args: events.append("controller") or SimpleNamespace(),
             ),
@@ -256,10 +265,10 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(
             events,
             [
-                "registry",
                 "controller-token",
                 "runtime-token",
                 "docker",
+                "registry",
                 "storage",
                 "controller",
                 "server",
@@ -285,6 +294,8 @@ class LocalContractTests(LocalContractCase):
             local_app.LocalControllerDependencies(
                 brain_runtime=SimpleNamespace(),
                 power_state=injected,
+                developers=SimpleNamespace(),
+                artifact_trust=SimpleNamespace(),
             ),
         )
 

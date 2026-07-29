@@ -38,13 +38,13 @@ from controller_runtime import (
     local_token_store,
 )
 from controller_runtime.local_registry import (
-    AssistantSpec,
-    RegistryError,
-    load_registry,
     validate_power_input,
     validate_power_output,
 )
 from inference import config as inference_config
+from install import artifact_trust, bindings, registry_auth
+from local.install import developers as local_developers
+from local.install.registry import PublicationRegistry
 from local_support import assistant_api as local_assistant_api
 from local_support import assistant_lifecycle as local_assistant_lifecycle
 from local_support import assistant_resources as local_assistant_resources
@@ -110,6 +110,8 @@ LOCAL_CHAT_CONTINUATIONS_KEY_PATH = Path(
         str(local_chat_continuation_store.KEY_PATH),
     )
 )
+LOCAL_PUBLICATION_BINDINGS_PATH = Path("/var/lib/shimpz-local/publications/bindings.json")
+LOCAL_COSIGN_TRUST_ROOT = Path("/var/lib/shimpz-local/cosign")
 
 
 @dataclass(frozen=True)
@@ -123,6 +125,8 @@ class AssistantLifecycleDependencies:
     lock_for: object | None = None
     invoke: object | None = None
     list_assistants: object | None = None
+    developers: object | None = None
+    artifact_trust: object | None = None
 
 
 @dataclass(frozen=True)
@@ -155,6 +159,8 @@ class AssistantLifecycle:
         self._lock = dependencies.lock_for
         self.invoke = dependencies.invoke
         self.list_assistants = dependencies.list_assistants
+        self.developers = dependencies.developers
+        self.artifact_trust = dependencies.artifact_trust
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
@@ -359,6 +365,8 @@ class LocalControllerDependencies:
     oauth_broker: oauth_broker_client.OAuthBrokerClient | None = None
     oauth_service: oauth_account_service.BrokeredOAuthAccountService | None = None
     chat_continuations: local_chat_continuation_store.EncryptedContinuationStore | None = None
+    developers: local_developers.DevelopersClient | None = None
+    artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
 
 
 class LocalController:
@@ -383,7 +391,7 @@ class LocalController:
         self,
         client: docker.DockerClient,
         space_id: str,
-        registry: dict[str, AssistantSpec],
+        registry: PublicationRegistry,
         storage: team_storage.TeamStorage,
         dependencies: LocalControllerDependencies | None = None,
     ) -> None:
@@ -423,6 +431,10 @@ class LocalController:
                 LOCAL_CHAT_CONTINUATIONS_KEY_PATH,
             )
         )
+        if dependencies.developers is None or dependencies.artifact_trust is None:
+            raise RuntimeError("Local publication installation dependencies are unavailable")
+        self.developers = dependencies.developers
+        self.artifact_trust = dependencies.artifact_trust
         self._locks = tuple(threading.RLock() for _ in range(64))
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
@@ -440,6 +452,8 @@ class LocalController:
                 lock_for=self._lock,
                 invoke=self.invoke,
                 list_assistants=self.list_assistants,
+                developers=getattr(self, "developers", None),
+                artifact_trust=getattr(self, "artifact_trust", None),
             )
         )
         chat_turn_service = ChatTurnService(
@@ -668,9 +682,72 @@ class LocalController:
                     "summary": spec.summary,
                     "powers": sorted(spec.powers),
                 }
-                for spec in sorted(self.registry.values(), key=lambda item: item.assistant_id)
+                for spec in self.registry.all()
             ]
         }
+
+    def install_publication(
+        self,
+        team_id: str,
+        assistant_id: str,
+        source_digest: str,
+    ) -> dict[str, object]:
+        team_id = validate_team_id(team_id)
+        existing = self.registry.get(team_id, assistant_id)
+        try:
+            resolution = self.developers.resolve(source_digest)
+            if resolution["assistant_id"] != assistant_id:
+                raise local_developers.PublicationNotInstallableError(
+                    "publication does not match the requested Assistant"
+                )
+            self.artifact_trust.verify(resolution)
+            spec = self.registry.put(team_id, resolution)
+
+            def authorize_start() -> None:
+                current = self.developers.resolve(source_digest)
+                if (
+                    current["assistant_id"] != assistant_id
+                    or current["oci_digest"] != resolution["oci_digest"]
+                ):
+                    raise local_developers.PublicationNotInstallableError(
+                        "publication changed before installation"
+                    )
+
+            return self.assistant_lifecycle.install_assistant(
+                team_id,
+                spec.assistant_id,
+                authorize_start=authorize_start,
+            )
+        except ApiProblem as exc:
+            if existing is None and exc.code != "assistant-install-rollback-incomplete":
+                self.registry.delete(team_id, assistant_id)
+            raise
+        except local_developers.PublicationNotInstallableError as exc:
+            if existing is None:
+                self.registry.delete(team_id, assistant_id)
+            raise ApiProblem(
+                HTTPStatus.NOT_FOUND,
+                "Assistant publication is not installable",
+                code="assistant-not-installable",
+            ) from exc
+        except local_developers.DevelopersError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Developers is unavailable",
+                code="developers-unavailable",
+            ) from exc
+        except artifact_trust.ArtifactTrustError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant artifact trust failed",
+                code="assistant-artifact-untrusted",
+            ) from exc
+        except bindings.DynamicAssistantError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant publication binding failed",
+                code="assistant-binding-conflict",
+            ) from exc
 
     def health(self) -> dict[str, str]:
         try:
@@ -692,7 +769,7 @@ class LocalController:
         payload: object,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
-        spec = self.assistant_lifecycle._resolve(assistant_id)
+        spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         power_spec = spec.powers.get(power)
         if power_spec is None:
             raise ApiProblem(
@@ -796,14 +873,28 @@ class LocalController:
 def main() -> int:
     try:
         space_id = os.environ["SHIMPZ_SPACE_ID"]
-        registry = load_registry()
         token = local_token_store.ensure_token()
         brain_runtime_token_store.ensure()
         client = docker.from_env(timeout=REQUEST_TIMEOUT_SECONDS)
+        registry = PublicationRegistry(bindings.DynamicAssistantStore(LOCAL_PUBLICATION_BINDINGS_PATH))
         storage = team_storage.TeamStorage(STORAGE_ROOT)
-        controller = LocalController(client, space_id, registry, storage)
+        controller = LocalController(
+            client,
+            space_id,
+            registry,
+            storage,
+            LocalControllerDependencies(
+                developers=local_developers.DevelopersClient(),
+                artifact_trust=artifact_trust.ArtifactTrustVerifier(
+                    client,
+                    binary="/opt/venv/bin/cosign",
+                    credentials=registry_auth.AnonymousRegistryAccess(),
+                    trust_root=LOCAL_COSIGN_TRUST_ROOT,
+                ),
+            ),
+        )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
-    except (KeyError, RegistryError, RuntimeError, DockerException) as exc:
+    except (KeyError, RuntimeError, DockerException) as exc:
         print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)
         return 1
     local_audit.record("startup", result="ok")

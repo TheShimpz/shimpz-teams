@@ -203,7 +203,7 @@ class HostedCheckHarness:
             mock.patch.object(runtime_state, "_dynamic_assistants", CountingDynamicStore(self.bindings, self.calls)),
             mock.patch.object(runtime_state, "_storage", side_effect=self._storage),
             mock.patch.object(runtime_state, "_inference_store", types.SimpleNamespace(load=self._inference)),
-            mock.patch.object(dynamic_assistants, "app_spec", side_effect=self._app_spec),
+            mock.patch.object(hosted_apps.publication, "app_spec", side_effect=self._app_spec),
             mock.patch.object(hosted_apps, "_egress_store", side_effect=self._egress_store),
             mock.patch.object(hosted_apps, "_require_assistant_allowed_hosts", return_value=("api.example.test",)),
             mock.patch.object(

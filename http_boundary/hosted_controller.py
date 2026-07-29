@@ -24,6 +24,7 @@ from core.http import strict as strict_http
 from hosted.install import (
     developers_client,
     developers_delegation,
+    publication,
 )
 from http_boundary import hosted, runtime_state
 from install import artifact_trust
@@ -344,7 +345,7 @@ class Handler(BaseHTTPRequestHandler):
         binding = dynamic_assistants.binding_from_resolution(body["team_id"], resolution)
         # Pull outside the Team lifecycle lock; the in-lock install path re-resolves the same
         # digest locally immediately before create, preserving the execution-boundary proof.
-        hosted_resources._prepare_marketplace_image(dynamic_assistants.app_spec(binding))
+        hosted_resources._prepare_marketplace_image(publication.app_spec(binding))
 
         def authorize_start() -> None:
             request = {
@@ -706,7 +707,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             trust.verify(resolution)
             binding = dynamic_assistants.binding_from_resolution(request.team_id, resolution)
-            hosted_resources._prepare_marketplace_image(dynamic_assistants.app_spec(binding))
+            hosted_resources._prepare_marketplace_image(publication.app_spec(binding))
 
             def authorize_start() -> None:
                 current = client.resolve(source_digest)

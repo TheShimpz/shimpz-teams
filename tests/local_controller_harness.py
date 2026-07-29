@@ -36,6 +36,20 @@ CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "a" * 64
 
 
+class TestPublicationRegistry(dict):
+    def get(self, team_id, assistant_id=None):
+        return super().get(team_id if assistant_id is None else assistant_id)
+
+    def all(self):
+        return tuple(self.values())
+
+    def identities(self):
+        return {("team_1", assistant_id) for assistant_id in self}
+
+    def delete(self, _team_id, assistant_id):
+        return self.pop(assistant_id, None) is not None
+
+
 class LocalContractCase(unittest.TestCase):
     def _registry(self, image: str) -> dict[str, local_registry.AssistantSpec]:
         with tempfile.TemporaryDirectory() as directory:
@@ -49,7 +63,7 @@ class LocalContractCase(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            return local_registry.load_registry(path)
+            return TestPublicationRegistry(local_registry.load_registry(path))
 
     def _chat_controller(
         self,
@@ -142,7 +156,7 @@ class LocalContractCase(unittest.TestCase):
             allowed_hosts=(),
             accounts={},
         )
-        controller.registry = {spec.assistant_id: spec}
+        controller.registry = TestPublicationRegistry({spec.assistant_id: spec})
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)

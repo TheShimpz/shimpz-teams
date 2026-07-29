@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, TestPublicationRegistry
 
 from controller_runtime import brain_runtime_client
 from local import app as local_app
@@ -75,7 +75,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             return [container]
 
         controller._lock = lambda _team_id: LifecycleLock()
-        controller.registry = {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        controller.registry = TestPublicationRegistry(
+            {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        )
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=list_containers))
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))
@@ -135,7 +137,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
         controller._locks = (threading.RLock(),)
-        controller.registry = {"shimpz-cloudflare": SimpleNamespace()}
+        controller.registry = TestPublicationRegistry({"shimpz-cloudflare": SimpleNamespace()})
         network = SimpleNamespace(
             attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}},
             remove=lambda: events.append("network-remove"),
@@ -183,7 +185,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             remove=lambda *, force: events.append("container-remove"),
         )
         controller._lock = lambda _team_id: threading.RLock()
-        controller.registry = {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        controller.registry = TestPublicationRegistry(
+            {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        )
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
 
         def fail_delete(_thread_id: str) -> None:
@@ -227,7 +231,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
         controller._lock = lambda _team_id: threading.RLock()
-        controller.registry = {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        controller.registry = TestPublicationRegistry(
+            {"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())}
+        )
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))

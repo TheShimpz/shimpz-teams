@@ -83,7 +83,15 @@ def _rollback_assistant_install(
     return None
 
 
-def _create_assistant_container(self, team_id: str, spec: AssistantSpec, network, image) -> None:
+def _create_assistant_container(
+    self,
+    team_id: str,
+    spec: AssistantSpec,
+    network,
+    image,
+    *,
+    authorize_start: Callable[[], None] | None = None,
+) -> None:
     container = None
     egress_prepared = False
     egress_store = None
@@ -141,6 +149,8 @@ def _create_assistant_container(self, team_id: str, spec: AssistantSpec, network
         allowed_hosts = self._admit_assistant_allowed_hosts(container, spec)
         if allowed_hosts:
             self._activate_assistant_egress(team_id, spec, network, allowed_hosts, egress_store)
+        if authorize_start is not None:
+            authorize_start()
         container.start()
         self._validate_container(container, team_id, spec, network.name)
         self._wait_ready(container, spec)
@@ -173,7 +183,15 @@ def _create_assistant_container(self, team_id: str, spec: AssistantSpec, network
         ) from exc
 
 
-def _replace_unready_assistant(self, team_id: str, spec: AssistantSpec, network, existing) -> None:
+def _replace_unready_assistant(
+    self,
+    team_id: str,
+    spec: AssistantSpec,
+    network,
+    existing,
+    *,
+    authorize_start: Callable[[], None] | None = None,
+) -> None:
     # The reference Assistant is the only explicitly stateless recovery target. Resolve its trusted image before
     # removing anything, then revalidate ownership to close the pull/remove race.
     image = self._trusted_image(spec)
@@ -189,10 +207,21 @@ def _replace_unready_assistant(self, team_id: str, spec: AssistantSpec, network,
             "Docker could not replace the Assistant",
             code="docker-remove-failed",
         ) from exc
-    self._create_assistant_container(team_id, spec, network, image)
+    if authorize_start is None:
+        self._create_assistant_container(team_id, spec, network, image)
+    else:
+        self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
-def _replace_outdated_assistant(self, team_id: str, spec: AssistantSpec, network, existing) -> None:
+def _replace_outdated_assistant(
+    self,
+    team_id: str,
+    spec: AssistantSpec,
+    network,
+    existing,
+    *,
+    authorize_start: Callable[[], None] | None = None,
+) -> None:
     image = self._trusted_image(spec)
     config = self._validate_container_isolation(existing, team_id, spec, network.name)
     if self._has_current_assistant_artifact(config, spec):
@@ -223,24 +252,41 @@ def _replace_outdated_assistant(self, team_id: str, spec: AssistantSpec, network
             network,
             remaining_egress=remaining_egress,
         )
-    self._create_assistant_container(team_id, spec, network, image)
+    if authorize_start is None:
+        self._create_assistant_container(team_id, spec, network, image)
+    else:
+        self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
 
 
 @_serialize_against_local_team_chat
-def install_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
-    spec = self._resolve(assistant_id)
+def install_assistant(
+    self,
+    team_id: str,
+    assistant_id: str,
+    *,
+    authorize_start: Callable[[], None] | None = None,
+) -> dict[str, object]:
+    spec = self._resolve(team_id, assistant_id)
     with self._lock(team_id):
         network = self._network(team_id)
         existing = self._assistant_container(team_id, assistant_id, required=False)
         if existing is not None:
             config = self._validate_container_isolation(existing, team_id, spec, network.name)
             if not self._has_current_assistant_artifact(config, spec):
-                self._replace_outdated_assistant(team_id, spec, network, existing)
+                self._replace_outdated_assistant(
+                    team_id,
+                    spec,
+                    network,
+                    existing,
+                    authorize_start=authorize_start,
+                )
                 return {"assistant": assistant_id, "installed": False}
             self._validate_container_security(existing, team_id, spec, network.name, refresh=False)
             existing.reload()
             if existing.status != "running":
                 try:
+                    if authorize_start is not None:
+                        authorize_start()
                     existing.start()
                 except DockerException as exc:
                     raise ApiProblem(
@@ -253,19 +299,34 @@ def install_assistant(self, team_id: str, assistant_id: str) -> dict[str, object
             except ApiProblem as exc:
                 if not _is_replaceable_readiness_failure(assistant_id, exc):
                     raise
-                self._replace_unready_assistant(team_id, spec, network, existing)
+                self._replace_unready_assistant(
+                    team_id,
+                    spec,
+                    network,
+                    existing,
+                    authorize_start=authorize_start,
+                )
             else:
                 self._active_assistant_genesis(_ActiveAssistant(spec, existing.id, existing))
             return {"assistant": assistant_id, "installed": False}
 
         image = self._trusted_image(spec)
-        self._create_assistant_container(team_id, spec, network, image)
+        if authorize_start is None:
+            self._create_assistant_container(team_id, spec, network, image)
+        else:
+            self._create_assistant_container(
+                team_id,
+                spec,
+                network,
+                image,
+                authorize_start=authorize_start,
+            )
         return {"assistant": assistant_id, "installed": True}
 
 
 @_serialize_against_local_team_chat
 def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
-    spec = self._resolve(assistant_id)
+    spec = self._resolve(team_id, assistant_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
     with self._lock(team_id):
         network = self._network(team_id)
@@ -280,6 +341,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                     remaining_egress=remaining_egress,
                 )
             self.chat_turn_service._delete_assistant_account_state(team_id, assistant_id)
+            self.registry.delete(team_id, assistant_id)
             return {"assistant": assistant_id, "uninstalled": False}
         self._validate_container_security(container, team_id, spec, network.name)
         remaining_egress = (
@@ -305,4 +367,5 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 remaining_egress=remaining_egress,
             )
         self.chat_turn_service._delete_assistant_account_state(team_id, assistant_id)
+        self.registry.delete(team_id, assistant_id)
         return {"assistant": assistant_id, "uninstalled": True}

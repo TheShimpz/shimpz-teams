@@ -12,14 +12,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from install import bindings as dynamic_assistants
+from hosted.install import publication
 from install.bindings import (
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,
-    app_spec,
 )
 from install.contract import CONTRACT_ROOT
+
+app_spec = publication.app_spec
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
@@ -38,7 +39,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "bindings.json"
         self.store = DynamicAssistantStore(self.path)
-        dynamic_assistants._cached_app_spec.cache_clear()
+        publication._cached_app_spec.cache_clear()
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -119,10 +120,10 @@ class DynamicAssistantStoreTests(unittest.TestCase):
 
     def test_unchanged_digest_reuses_validation_without_aliasing_results(self) -> None:
         binding = self.store.put("team_1", runtime_resolution())
-        validator = dynamic_assistants.assistant_manifest.canonical_machine_contract
+        validator = publication.assistant_manifest.canonical_machine_contract
 
         with mock.patch.object(
-            dynamic_assistants.assistant_manifest,
+            publication.assistant_manifest,
             "canonical_machine_contract",
             wraps=validator,
         ) as canonical:

@@ -26,7 +26,7 @@ def _invoke_chat_power(
 ) -> object:
     assistant_id = power_request.assistant_id
     with self._lock(team_id):
-        spec = self.assistant_lifecycle._resolve(assistant_id)
+        spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         network = self.assistant_lifecycle._network(team_id)
         container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
         self.assistant_lifecycle._validate_container(container, team_id, spec, network.name)

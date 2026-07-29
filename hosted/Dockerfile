@@ -112,6 +112,7 @@ COPY container_policy/__init__.py container_policy/hosted_apps.py container_poli
      container_policy/hosted_resources.py container_policy/network.py ./container_policy/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
+     hosted/install/publication.py \
      ./hosted/install/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
      install/contract.py install/registry_auth.py ./install/

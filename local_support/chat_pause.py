@@ -35,7 +35,7 @@ def _account_response(
 ) -> dict[str, object]:
     bindings: dict[str, _ActiveAssistant] = {}
     for requirement in challenge.requirements:
-        spec = self.assistant_lifecycle._resolve(requirement.assistant_id)
+        spec = self.assistant_lifecycle._resolve(challenge.team_id, requirement.assistant_id)
         bindings[spec.assistant_id] = _ActiveAssistant(spec, "")
     try:
         return assistant_account_flow.challenge_payload(challenge, bindings)

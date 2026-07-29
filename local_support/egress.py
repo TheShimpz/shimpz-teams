@@ -352,7 +352,7 @@ def _team_requires_egress_proxy(self, team_id: str, network) -> bool:
     requires_proxy = False
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        spec = self.registry.get(assistant_id)
+        spec = self.registry.get(team_id, assistant_id)
         if spec is None or assistant_id in seen:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
@@ -411,7 +411,7 @@ def _team_has_egress_assistant(self, team_id: str, *, excluding: str | None = No
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
         if assistant_id == excluding:
             continue
-        spec = self.registry.get(assistant_id)
+        spec = self.registry.get(team_id, assistant_id)
         if spec is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,

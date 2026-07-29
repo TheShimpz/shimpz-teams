@@ -8,6 +8,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from local_controller_harness import TestPublicationRegistry
+
 from local import app as local_app
 from local_support import egress as local_egress
 
@@ -91,7 +93,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
             assistant_id="shimpz-cloudflare",
             allowed_hosts=("api.open-meteo.com", "geocoding-api.open-meteo.com"),
         )
-        self.controller.registry = {self.spec.assistant_id: self.spec}
+        self.controller.registry = TestPublicationRegistry({self.spec.assistant_id: self.spec})
         self.controller._wire_collaborators()
         self.patches = (
             mock.patch.object(local_egress, "APP_EGRESS_POLICY_DIR", self.policy_root),

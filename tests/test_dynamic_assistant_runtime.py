@@ -9,7 +9,8 @@ import unittest
 from pathlib import Path
 
 import manifests
-from install.bindings import DynamicAssistantStore, app_spec
+from hosted.install.publication import app_spec
+from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())

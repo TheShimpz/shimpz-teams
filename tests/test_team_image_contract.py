@@ -48,6 +48,10 @@ HOSTED_PACKAGE_DATA = {
 LOCAL_PACKAGE_DATA = {
     "assistant_human": HOSTED_PACKAGE_DATA["assistant_human"],
     "inference": HOSTED_PACKAGE_DATA["inference"],
+    "install": {
+        "install/protocol/v1/definitions.schema.json",
+        "install/protocol/v1/resolve-response.schema.json",
+    },
 }
 PACKAGE_TOOLS = {
     "install": {

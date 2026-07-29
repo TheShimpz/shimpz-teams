@@ -116,15 +116,19 @@ class Handler(BaseHTTPRequestHandler):
             )
         return validate_team_name(body["team_name"])
 
-    def _install_body(self) -> str:
+    def _install_body(self) -> tuple[str, str]:
         body = self._body()
-        if set(body) != {"assistant"} or not isinstance(body["assistant"], str):
+        if (
+            set(body) != {"assistant_id", "source_digest"}
+            or not isinstance(body["assistant_id"], str)
+            or not isinstance(body["source_digest"], str)
+        ):
             raise ApiProblem(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
-                "assistant must identify one allowlisted Assistant",
+                "Assistant installation requires assistant_id and source_digest",
                 code="invalid-body",
             )
-        return body["assistant"]
+        return body["assistant_id"], body["source_digest"]
 
     def _model_credential_headers(self) -> tuple[str, str]:
         return validate_model_credential_headers(
@@ -416,10 +420,10 @@ class Handler(BaseHTTPRequestHandler):
         if operation == "assistant-list":
             return HTTPStatus.OK, controller.list_assistants(team_id), operation, team_id, None
         if operation == "assistant-install":
-            assistant_id = self._install_body()
+            assistant_id, source_digest = self._install_body()
             return (
                 HTTPStatus.OK,
-                controller.assistant_lifecycle.install_assistant(team_id, assistant_id),
+                controller.install_publication(team_id, assistant_id, source_digest),
                 operation,
                 team_id,
                 assistant_id,

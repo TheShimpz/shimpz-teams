@@ -170,7 +170,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
                 return_value=binding,
             ),
             mock.patch.object(
-                hosted_controller.dynamic_assistants,
+                hosted_controller.publication,
                 "app_spec",
                 return_value=mock.sentinel.spec,
             ),
@@ -630,7 +630,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
             binding = store.put("team_1", resolution)
-            spec = dynamic_assistants.app_spec(binding)
+            spec = hosted_apps.publication.app_spec(binding)
             with (
                 mock.patch.object(network_policy, "brain_identity_valid", return_value=False),
                 mock.patch.object(hosted_resources, "_trusted_image_id", return_value="sha256:image"),

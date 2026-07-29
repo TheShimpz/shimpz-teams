@@ -32,7 +32,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
     for container in containers:
         labels = container.labels
         assistant_id = labels.get(ASSISTANT_LABEL)
-        spec = self.registry.get(assistant_id)
+        spec = self.registry.get(team_id, assistant_id)
         if spec is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
