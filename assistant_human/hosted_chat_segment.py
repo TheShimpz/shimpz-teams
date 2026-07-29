@@ -21,10 +21,10 @@ from controller_runtime import (
     chat_orchestrator,
     chat_turn_engine,
     inference_config,
-    power_execution,
-    power_journal,
 )
 from http_boundary import runtime_state
+from power import execution as power_execution
+from power import journal as power_journal
 
 
 def _current_team_anchor(

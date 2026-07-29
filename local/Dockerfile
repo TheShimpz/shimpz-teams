@@ -34,7 +34,6 @@ COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
     controller_runtime/inference_config.py controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py controller_runtime/local_registry.py \
     controller_runtime/local_token_store.py controller_runtime/model_catalog.json \
-    controller_runtime/power_execution.py controller_runtime/power_journal.py \
     controller_runtime/team_storage.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
 COPY core/__init__.py core/strict_json.py ./core/
@@ -48,6 +47,7 @@ COPY local_support/__init__.py local_support/assistant_api.py local_support/assi
     local_support/chat_state.py local_support/chat_types.py local_support/egress.py local_support/errors.py \
     local_support/http.py local_support/labels.py local_support/team_lifecycle.py local_support/validation.py \
     ./local_support/
+COPY power/__init__.py power/execution.py power/journal.py ./power/
 
 # A normal source build remains possible, but cannot start until release automation supplies the
 # published Cloudflare Assistant digest with `--build-arg SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE=repo@sha256:...`.

@@ -23,9 +23,11 @@ from hosted_app_fixture import hosted_assistants, runtime_state
 
 import manifests
 from container_policy import local as local_container_policy
-from controller_runtime import brain_runtime_client, power_execution, power_journal
+from controller_runtime import brain_runtime_client
 from local import app as local_app
 from local_support import assistant_rpc as local_assistant_rpc
+from power import execution as power_execution
+from power import journal as power_journal
 
 
 def _frame(stream_id: int, payload: bytes) -> bytes:
@@ -353,7 +355,11 @@ class PowerRpcFrameTests(unittest.TestCase):
             with (
                 mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=api)),
                 mock.patch.object(hosted_assistants, "_fail_stop_power", fail_stop),
-                mock.patch.object(power_execution, "encode_rpc_invocation", return_value=b"request"),
+                mock.patch.object(
+                    hosted_assistants.power_execution,
+                    "encode_rpc_invocation",
+                    return_value=b"request",
+                ),
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
                 hosted_assistants._assistant_rpc_exchange(
@@ -415,9 +421,9 @@ class RpcMessageParity(unittest.TestCase):
         with (
             mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
             mock.patch.object(
-                power_execution,
+                hosted_assistants.power_execution,
                 "rpc_exchange",
-                side_effect=power_execution.RpcExchangeError(kind),
+                side_effect=hosted_assistants.power_execution.RpcExchangeError(kind),
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
@@ -433,9 +439,9 @@ class RpcMessageParity(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                power_execution,
+                local_assistant_rpc.power_execution,
                 "rpc_exchange",
-                side_effect=power_execution.RpcExchangeError(kind),
+                side_effect=local_assistant_rpc.power_execution.RpcExchangeError(kind),
             ),
             self.assertRaises(local_assistant_rpc.ApiProblem) as caught,
         ):

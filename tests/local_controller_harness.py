@@ -13,10 +13,11 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from assistant_human import assistant_account_challenges, oauth_account_store, oauth_pkce_challenges
-from controller_runtime import inference_config, local_chat_continuation_store, local_registry, power_execution
+from controller_runtime import inference_config, local_chat_continuation_store, local_registry
 from local import app as local_app
 from local_support import assistant_lifecycle
 from local_support.chat_types import ActiveAssistant
+from power import execution as power_execution
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {

@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from controller_runtime import power_journal
+from power import journal as power_journal
 
 
 def operation(interrupt_id: str, value: str) -> power_journal.Operation:

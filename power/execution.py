@@ -1,4 +1,4 @@
-"""Shared fail-closed Power execution primitives for hosted and local Controllers."""
+"""Shared fail-closed Power execution primitives for Hosted and Local."""
 
 from __future__ import annotations
 
@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
-from controller_runtime import power_journal
 from core import strict_json
+from power import journal as power_journal
 
 # A missing manifest Power is a missing resource; an unavailable connected account is an unmet
 # request precondition. Both Controllers use these statuses so their public contracts cannot drift.

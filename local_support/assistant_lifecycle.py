@@ -8,11 +8,11 @@ from docker.errors import DockerException, NotFound
 from docker.types import LogConfig, Ulimit
 
 from container_policy import local as local_container_policy
-from controller_runtime import power_execution
 from controller_runtime.local_registry import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import validate_team_id
+from power import execution as power_execution
 
 ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS

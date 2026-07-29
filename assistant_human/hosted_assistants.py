@@ -29,11 +29,11 @@ from controller_runtime import (
     brain_runtime_client,
     chat_orchestrator,
     chat_turn_engine,
-    power_execution,
-    power_journal,
     team_storage,
 )
 from http_boundary import runtime_state
+from power import execution as power_execution
+from power import journal as power_journal
 
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
 CHAT_OUTPUT_CAP = 60000

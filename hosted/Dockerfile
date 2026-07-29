@@ -108,7 +108,6 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/chat_turn_engine.py controller_runtime/cleanup_state.py \
      controller_runtime/inference_config.py \
      controller_runtime/model_catalog.json controller_runtime/postgresql_service_client.py \
-     controller_runtime/power_execution.py controller_runtime/power_journal.py \
      controller_runtime/team_storage.py \
      controller_runtime/token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
@@ -133,6 +132,7 @@ COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
      http_boundary/runtime_state.py ./http_boundary/
+COPY power/__init__.py power/execution.py power/journal.py ./power/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's

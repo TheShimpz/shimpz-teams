@@ -11,12 +11,14 @@ from assistant_human import (
     oauth_account_service,
     oauth_account_store,
 )
-from controller_runtime import brain_runtime_client, power_execution, power_journal
+from controller_runtime import brain_runtime_client
 from controller_runtime.local_registry import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import validate_team_id
+from power import execution as power_execution
+from power import journal as power_journal
 
 
 def _power_account_generations(

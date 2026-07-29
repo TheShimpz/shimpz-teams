@@ -30,8 +30,8 @@ LOCAL_PROFILE = "single-owner-local-v1"
 sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
 
-from controller_runtime import power_execution
 from local.app import half_cpu_set
+from power import execution as power_execution
 
 
 class _BrainLifecycleHandler(BaseHTTPRequestHandler):

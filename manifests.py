@@ -22,7 +22,7 @@ import docker.types
 
 from assistant_human.marketplace import AppSpec
 from container_policy import network as network_policy
-from controller_runtime import power_execution
+from power import execution as power_execution
 
 # Multi-instance (R137): SHIMPZ_SUFFIX names this Space's resources; empty (the default) is prod.
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")

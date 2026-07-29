@@ -17,10 +17,10 @@ from controller_runtime import (
     cleanup_state,
     inference_config,
     postgresql_service_client,
-    power_journal,
     team_storage,
 )
 from http_boundary import runtime_state
+from power import journal as power_journal
 
 
 def _put_inbox_file(

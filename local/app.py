@@ -37,8 +37,6 @@ from controller_runtime import (
     inference_config,
     local_chat_continuation_store,
     local_token_store,
-    power_execution,
-    power_journal,
     team_storage,
 )
 from controller_runtime.local_registry import (
@@ -82,6 +80,8 @@ from local_support.validation import (
     validate_team_id,
     validate_team_name,
 )
+from power import execution as power_execution
+from power import journal as power_journal
 
 IMAGE_LABEL = _LOCAL_IMAGE_LABEL
 ASSISTANT_LABEL = local_labels.ASSISTANT_LABEL

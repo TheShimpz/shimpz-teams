@@ -9,12 +9,12 @@ from controller_runtime import (
     chat_orchestrator,
     chat_turn_engine,
     inference_config,
-    power_journal,
 )
 from controller_runtime.local_registry import validate_power_input
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem
+from power import journal as power_journal
 
 
 def _invoke_chat_power(
