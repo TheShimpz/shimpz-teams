@@ -102,10 +102,10 @@ COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py
      assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
      assistant_human/oauth_providers.py assistant_human/private_state.py \
      ./assistant_human/
+COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/brain_credentials_client.py controller_runtime/brain_runtime_client.py \
-     controller_runtime/brain_runtime_token_store.py controller_runtime/chat_orchestrator.py \
-     controller_runtime/chat_turn_engine.py controller_runtime/cleanup_state.py \
+     controller_runtime/brain_runtime_token_store.py controller_runtime/cleanup_state.py \
      controller_runtime/inference_config.py \
      controller_runtime/model_catalog.json controller_runtime/postgresql_service_client.py \
      controller_runtime/team_storage.py \

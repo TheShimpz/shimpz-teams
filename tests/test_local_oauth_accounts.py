@@ -23,10 +23,10 @@ from assistant_human import (
     oauth_account_store,
     oauth_broker_client,
 )
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
-    chat_turn_engine,
     inference_config,
     local_registry,
 )

@@ -1,4 +1,4 @@
-"""Deterministic Controller-owned loop between LangGraph suspensions and Assistant Powers."""
+"""Deterministic Team-owned loop between LangGraph suspensions and Assistant Powers."""
 
 from __future__ import annotations
 

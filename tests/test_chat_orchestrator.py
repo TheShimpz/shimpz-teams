@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from controller_runtime import brain_runtime_client, chat_orchestrator
+from chat import orchestrator as chat_orchestrator
+from controller_runtime import brain_runtime_client
 
 
 def context(*powers: brain_runtime_client.RuntimePower) -> brain_runtime_client.RuntimeContext:

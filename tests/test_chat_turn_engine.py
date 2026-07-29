@@ -17,10 +17,10 @@ sys.path.insert(0, str(TESTS))
 import hosted_app_fixture as hosted_harness
 
 from assistant_human import marketplace
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
-    chat_turn_engine,
     inference_config,
     local_registry,
 )

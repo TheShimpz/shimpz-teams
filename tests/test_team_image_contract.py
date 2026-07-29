@@ -12,6 +12,7 @@ LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
     "assistant_human",
+    "chat",
     "container_policy",
     "controller_runtime",
     "core",

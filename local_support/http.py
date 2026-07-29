@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from docker.errors import DockerException
 
-from controller_runtime import chat_turn_engine
+from chat import turn as chat_turn_engine
 from core.http import strict as strict_http
 from http_boundary import local
 from local_support import audit as local_audit

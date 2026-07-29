@@ -3,7 +3,8 @@
 from http import HTTPStatus
 
 from assistant_human import assistant_account_challenges, assistant_account_flow
-from controller_runtime import chat_orchestrator, chat_turn_engine
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem

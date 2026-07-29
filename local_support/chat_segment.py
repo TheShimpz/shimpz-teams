@@ -2,7 +2,9 @@
 
 from dataclasses import dataclass
 
-from controller_runtime import brain_runtime_client, chat_orchestrator, chat_turn_engine
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
+from controller_runtime import brain_runtime_client
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.validation import brain_thread_id as _brain_thread_id

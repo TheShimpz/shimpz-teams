@@ -14,12 +14,12 @@ from assistant_human import (
     marketplace,
     oauth_account_store,
 )
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
 from container_policy import hosted_apps, hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
-    chat_turn_engine,
     inference_config,
 )
 from http_boundary import runtime_state

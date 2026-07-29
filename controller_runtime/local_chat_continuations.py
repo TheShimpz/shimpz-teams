@@ -8,9 +8,9 @@ import re
 from dataclasses import asdict, dataclass
 
 from assistant_human import assistant_account_challenges
+from chat import orchestrator as chat_orchestrator
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
     inference_config,
     local_chat_continuation_store,
 )

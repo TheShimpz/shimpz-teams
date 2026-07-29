@@ -4,10 +4,10 @@ from http import HTTPStatus
 from typing import NoReturn
 
 from assistant_human import assistant_account_flow, oauth_account_store
+from chat import orchestrator as chat_orchestrator
+from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
-    chat_turn_engine,
     inference_config,
 )
 from controller_runtime.local_registry import validate_power_input

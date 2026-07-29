@@ -17,7 +17,8 @@ from assistant_human import (
     oauth_account_store,
     oauth_http_client,
 )
-from controller_runtime import brain_runtime_client, chat_orchestrator
+from chat import orchestrator as chat_orchestrator
+from controller_runtime import brain_runtime_client
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))

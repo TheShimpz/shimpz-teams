@@ -8,9 +8,9 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from assistant_human import assistant_account_challenges
+from chat import orchestrator as chat_orchestrator
 from controller_runtime import (
     brain_runtime_client,
-    chat_orchestrator,
     inference_config,
     local_chat_continuation_store,
     local_chat_continuations,

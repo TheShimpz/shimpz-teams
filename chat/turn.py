@@ -1,4 +1,4 @@
-"""Shared Controller-owned chat turn drive and suspension dispatch."""
+"""Shared Team-owned chat turn drive and suspension dispatch."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from assistant_human import assistant_account_challenges, assistant_account_flow, assistant_chat, oauth_account_store
-from controller_runtime import brain_runtime_client, chat_orchestrator
+from chat import orchestrator as chat_orchestrator
+from controller_runtime import brain_runtime_client
 from power import journal as power_journal
 
 CHAT_PAUSED_STATUSES = frozenset({"accounts-required"})

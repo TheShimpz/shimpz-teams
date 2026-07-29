@@ -16,8 +16,8 @@ from assistant_human import (
     marketplace,
     oauth_account_service,
 )
+from chat import turn as chat_turn_engine
 from container_policy import hosted_resources
-from controller_runtime import chat_turn_engine
 from http_boundary import runtime_state
 
 
