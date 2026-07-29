@@ -43,7 +43,7 @@ class _RouteHarness:
         self.read_count = 0
         self.sent: list[tuple[HTTPStatus, dict]] = []
 
-    def _read_driver_body(self, keys: set[str]) -> dict:
+    def _read_team_body(self, keys: set[str]) -> dict:
         self.read_count += 1
         if self.body is None or set(self.body) != keys:
             raise AssertionError("unexpected body contract")

@@ -35,7 +35,7 @@ RESOLVE_TOKEN_FILE = Path(
         "/run/shimpz-accounts-brain-resolve/token",
     )
 )
-BRAINCRED_URL = os.environ.get("SHIMPZ_BRAINCRED_URL", "http://brain-credential-driver:7080")
+BRAINCRED_URL = os.environ.get("SHIMPZ_BRAINCRED_URL", "http://brain-credentials:7080")
 UNSEAL_TOKEN_FILE = Path(
     os.environ.get(
         "SHIMPZ_BRAINCRED_UNSEAL_TOKEN_FILE",

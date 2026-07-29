@@ -52,7 +52,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
     def _handler(self):
         handler = object.__new__(hosted_controller.Handler)
         handler.headers = object()
-        handler._read_driver_body = mock.Mock(return_value=copy.deepcopy(REQUEST))
+        handler._read_team_body = mock.Mock(return_value=copy.deepcopy(REQUEST))
         handler._send_json = mock.Mock()
         return handler
 

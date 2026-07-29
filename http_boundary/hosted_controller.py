@@ -215,9 +215,9 @@ class Handler(BaseHTTPRequestHandler):
         except strict_http.HttpContractError as exc:
             raise runtime_state.ApiError(exc.status, exc.message) from exc
 
-    def _read_driver_body(self, keys: set[str]) -> dict[str, object]:
+    def _read_team_body(self, keys: set[str]) -> dict[str, object]:
         """Read one closed Team mutation document; arbitrary scripts/shapes never cross the bridge."""
-        body = self._read_body(max_bytes=runtime_state.MAX_DRIVER_JSON_BODY_BYTES)
+        body = self._read_body(max_bytes=runtime_state.MAX_TEAM_JSON_BODY_BYTES)
         if not isinstance(body, dict) or set(body) != keys:
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "request body does not match the Team operation")
         return body
@@ -313,7 +313,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, response, no_store=True)
 
     def _route_developers_install(self) -> None:
-        body = self._read_driver_body({"version", "team_id", "source_digest", "request_id", "idempotency_key"})
+        body = self._read_team_body({"version", "team_id", "source_digest", "request_id", "idempotency_key"})
         _CONTROLLER_CONTRACTS.validate("controller-install-request.schema.json", body)
         delegation, client, trust = self._developers_dependencies()
         claims = delegation.verify(
