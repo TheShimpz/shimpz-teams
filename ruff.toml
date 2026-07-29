@@ -29,12 +29,16 @@ max-args = 7
 convention = "pep257"
 
 [lint.per-file-ignores]
-"tests/test-*.py" = ["S101", "S108", "S105", "S310", "S602", "S603", "S607", "BLE", "S110", "S112", "E501"]
-"tests/**" = ["S101", "S108", "S105", "S310", "S602", "S603", "S607"]
+# Nested product tests may assert and use explicit synthetic credentials, but do not receive a
+# blanket exemption from subprocess, network, temporary-path, or swallowed-exception checks.
+"tests/**" = ["S101", "S105"]
 "app.py" = ["BLE001"]
 "local_app.py" = ["N815", "N818", "S104"]
+# These exact no-mock integration tests execute fixed Docker argv and reach only loopback fixtures.
 "tests/test_local_controller_docker.py" = ["S108", "S310", "S603", "S607"]
 "tests/test_hosted_controller_docker.py" = ["S310", "S603"]
+# Their shared harness preserves the same fixed-argv and loopback-only boundary.
 "tests/docker_harness.py" = ["S310", "S603"]
+# Engine-inspect fixtures intentionally describe the container's /tmp tmpfs mount.
 "tests/test_network_policy.py" = ["S108"]
 "http_boundary/stdlib.py" = ["BLE001"]
