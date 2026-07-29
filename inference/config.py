@@ -1,4 +1,4 @@
-"""Small provider/model registry owned by the Team Controller; never stores secrets."""
+"""Small Team-owned provider/model registry that never stores secrets."""
 
 from __future__ import annotations
 

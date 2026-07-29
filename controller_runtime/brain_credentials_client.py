@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from controller_runtime.inference_config import PROVIDERS as MODEL_PROVIDERS
+from inference.config import PROVIDERS as MODEL_PROVIDERS
 
 ACCOUNTS_URL = os.environ.get("SHIMPZ_ACCOUNTS_URL", "http://accounts:7079")
 RESOLVE_TOKEN_FILE = Path(

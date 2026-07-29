@@ -15,7 +15,8 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
-from controller_runtime import inference_config, local_chat_continuation_store, local_registry, local_token_store
+from controller_runtime import local_chat_continuation_store, local_registry, local_token_store
+from inference import config as inference_config
 from local import app as local_app
 from local import healthcheck as local_healthcheck
 from local_support import assistant_lifecycle

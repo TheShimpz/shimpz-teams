@@ -7,7 +7,8 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
-from controller_runtime import brain_runtime_client, inference_config, team_storage
+from controller_runtime import brain_runtime_client, team_storage
+from inference import config as inference_config
 from local_support.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import (

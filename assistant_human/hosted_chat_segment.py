@@ -20,9 +20,9 @@ from container_policy import hosted_apps, hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import (
     brain_runtime_client,
-    inference_config,
 )
 from http_boundary import runtime_state
+from inference import config as inference_config
 from power import execution as power_execution
 from power import journal as power_journal
 

@@ -19,6 +19,7 @@ PRODUCTION_PACKAGES = {
     "egress",
     "hosted",
     "http_boundary",
+    "inference",
     "local",
     "local_support",
     "power",
@@ -26,7 +27,7 @@ PRODUCTION_PACKAGES = {
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
 HOSTED_PACKAGE_DATA = {
     "assistant_human": {"assistant_human/assistant_catalog.json"},
-    "controller_runtime": {"controller_runtime/model_catalog.json"},
+    "inference": {"inference/model_catalog.json"},
     "hosted": {
         "hosted/install/protocol/upstream.json",
         "hosted/install/protocol/v1/README.md",
@@ -44,7 +45,7 @@ HOSTED_PACKAGE_DATA = {
 }
 LOCAL_PACKAGE_DATA = {
     "assistant_human": HOSTED_PACKAGE_DATA["assistant_human"],
-    "controller_runtime": HOSTED_PACKAGE_DATA["controller_runtime"],
+    "inference": HOSTED_PACKAGE_DATA["inference"],
 }
 PACKAGE_TOOLS = {
     "hosted": {

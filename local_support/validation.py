@@ -4,7 +4,7 @@ import hashlib
 import re
 from http import HTTPStatus
 
-from controller_runtime import inference_config
+from inference import config as inference_config
 from local_support.errors import ApiProblemError
 
 TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}")

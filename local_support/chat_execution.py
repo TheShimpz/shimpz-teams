@@ -8,9 +8,9 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    inference_config,
 )
 from controller_runtime.local_registry import validate_power_input
+from inference import config as inference_config
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem

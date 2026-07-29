@@ -11,10 +11,10 @@ from assistant_human import assistant_account_challenges
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import (
     brain_runtime_client,
-    inference_config,
     local_chat_continuation_store,
     local_chat_continuations,
 )
+from inference import config as inference_config
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 TURN = brain_runtime_client.RuntimeTurn(

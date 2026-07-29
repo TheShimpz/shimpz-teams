@@ -25,8 +25,9 @@ from assistant_human import (
     oauth_http_client,
     oauth_pkce_challenges,
 )
-from controller_runtime import brain_runtime_client, inference_config, team_storage, token_store
+from controller_runtime import brain_runtime_client, team_storage, token_store
 from hosted.install import artifact_trust, developers_client, developers_delegation, dynamic_assistants, registry_auth
+from inference import config as inference_config
 from power import journal as power_journal
 
 ALL_INTERFACES = str(ipaddress.IPv4Address(0))

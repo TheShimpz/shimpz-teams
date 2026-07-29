@@ -16,9 +16,10 @@ import manifests
 import validate
 from assistant_human import marketplace
 from container_policy import network as network_policy
-from controller_runtime import cleanup_state, inference_config
+from controller_runtime import cleanup_state
 from hosted.install import dynamic_assistants, marketplace_image
 from http_boundary import runtime_state
+from inference import config as inference_config
 
 _CAPACITY_SNAPSHOT_MAX_ATTEMPTS = 8
 _CAPACITY_RETRY_BASE_SECONDS = 0.002

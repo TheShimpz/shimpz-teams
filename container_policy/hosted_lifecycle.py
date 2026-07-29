@@ -15,11 +15,11 @@ from container_policy import network as network_policy
 from controller_runtime import (
     brain_runtime_client,
     cleanup_state,
-    inference_config,
     postgresql_service_client,
     team_storage,
 )
 from http_boundary import runtime_state
+from inference import config as inference_config
 from power import journal as power_journal
 
 

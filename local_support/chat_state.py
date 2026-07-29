@@ -9,8 +9,9 @@ from typing import NoReturn
 from docker.errors import DockerException
 
 from assistant_human import assistant_account_challenges, assistant_genesis, assistant_manifest, oauth_account_store
-from controller_runtime import inference_config, local_chat_continuation_store, local_chat_continuations, team_storage
+from controller_runtime import local_chat_continuation_store, local_chat_continuations, team_storage
 from controller_runtime.local_registry import AssistantSpec
+from inference import config as inference_config
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem

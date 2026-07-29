@@ -27,9 +27,9 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from controller_runtime import (
     brain_runtime_client,
-    inference_config,
     local_registry,
 )
+from inference import config as inference_config
 from local import app as local_app
 from local_support.chat_segment import SegmentRequest
 from local_support.chat_types import ActiveAssistant, PendingLocalChat

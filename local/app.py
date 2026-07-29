@@ -34,7 +34,6 @@ from assistant_human import (
 from controller_runtime import (
     brain_runtime_client,
     brain_runtime_token_store,
-    inference_config,
     local_chat_continuation_store,
     local_token_store,
     team_storage,
@@ -46,6 +45,7 @@ from controller_runtime.local_registry import (
     validate_power_input,
     validate_power_output,
 )
+from inference import config as inference_config
 from local_support import assistant_api as local_assistant_api
 from local_support import assistant_lifecycle as local_assistant_lifecycle
 from local_support import assistant_resources as local_assistant_resources
