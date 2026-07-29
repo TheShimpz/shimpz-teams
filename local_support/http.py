@@ -8,8 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from docker.errors import DockerException
 
 from controller_runtime import chat_turn_engine
+from core.http import strict as strict_http
 from http_boundary import local
-from http_boundary import strict as strict_http
 from local_support import audit as local_audit
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import (

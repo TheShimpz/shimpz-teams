@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
-from . import stdlib, strict
+from core.http import stdlib, strict
 
 
 def route_target(headers: object, path: str, method: str, error_type: type[Exception]):

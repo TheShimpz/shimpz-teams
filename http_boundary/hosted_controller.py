@@ -18,6 +18,8 @@ import validate
 from assistant_human import hosted_assistants, hosted_chat_api, hosted_chat_segment, marketplace
 from container_policy import hosted_apps, hosted_lifecycle, hosted_resources
 from controller_runtime import accounts_client, brain_runtime_token_store
+from core.http import stdlib
+from core.http import strict as strict_http
 from hosted.install import (
     artifact_trust,
     developers_client,
@@ -25,8 +27,7 @@ from hosted.install import (
     developers_delegation,
     dynamic_assistants,
 )
-from http_boundary import hosted, runtime_state, stdlib
-from http_boundary import strict as strict_http
+from http_boundary import hosted, runtime_state
 
 _DEVELOPERS_TEAMS_PATH = "/internal/v1/developers/teams"
 _DEVELOPERS_INSTALL_PATH = "/internal/v1/developers/install"

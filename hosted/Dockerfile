@@ -128,8 +128,10 @@ COPY hosted/install/protocol/v1/README.md hosted/install/protocol/v1/contract-fi
      hosted/install/protocol/v1/resolve-response.schema.json hosted/install/protocol/v1/schema_validator.py \
      hosted/install/protocol/v1/team-list-response.schema.json hosted/install/protocol/v1/vectors.json \
      hosted/install/protocol/v1/verify.py ./hosted/install/protocol/v1/
+COPY core/__init__.py ./core/
+COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
-     http_boundary/runtime_state.py http_boundary/stdlib.py http_boundary/strict.py ./http_boundary/
+     http_boundary/runtime_state.py ./http_boundary/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's

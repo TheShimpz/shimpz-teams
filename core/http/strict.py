@@ -1,4 +1,4 @@
-"""Fail-closed HTTP parsing primitives shared by both Team Controllers."""
+"""Fail-closed HTTP parsing primitives shared by both Team profiles."""
 
 from __future__ import annotations
 

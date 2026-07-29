@@ -37,7 +37,9 @@ COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
     controller_runtime/power_execution.py controller_runtime/power_journal.py \
     controller_runtime/strict_json.py controller_runtime/team_storage.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
-COPY http_boundary/__init__.py http_boundary/local.py http_boundary/stdlib.py http_boundary/strict.py ./http_boundary/
+COPY core/__init__.py ./core/
+COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
+COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
 COPY local_support/__init__.py local_support/assistant_api.py local_support/assistant_lifecycle.py \
     local_support/assistant_resources.py local_support/assistant_rpc.py local_support/audit.py \
     local_support/chat_api.py local_support/chat_execution.py local_support/chat_pause.py \

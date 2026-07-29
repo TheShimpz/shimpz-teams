@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from http import HTTPStatus
 
-from . import stdlib
+from core.http import stdlib
 
 
 def dispatch_route(route, record, send, problem_type: type[Exception], docker_error_type: type[Exception]) -> None:

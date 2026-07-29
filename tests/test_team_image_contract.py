@@ -14,6 +14,7 @@ PRODUCTION_PACKAGES = {
     "assistant_human",
     "container_policy",
     "controller_runtime",
+    "core",
     "hosted",
     "http_boundary",
     "local",

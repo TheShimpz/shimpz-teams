@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_app_fixture import app, runtime_state
 
-from http_boundary import strict as strict_http
+from core.http import strict as strict_http
 from local import app as local_app
 
 

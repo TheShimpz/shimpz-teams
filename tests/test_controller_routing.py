@@ -9,7 +9,7 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from http_boundary import strict as strict_http
+from core.http import strict as strict_http
 
 
 def _parts(path: str) -> tuple[str, ...]:

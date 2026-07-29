@@ -41,4 +41,4 @@ convention = "pep257"
 "tests/docker_harness.py" = ["S310", "S603"]
 # Engine-inspect fixtures intentionally describe the container's /tmp tmpfs mount.
 "tests/test_network_policy.py" = ["S108"]
-"http_boundary/stdlib.py" = ["BLE001"]
+"core/http/stdlib.py" = ["BLE001"]
