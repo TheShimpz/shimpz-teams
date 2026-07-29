@@ -1,0 +1,40 @@
+target-version = "py314"
+line-length = 120
+
+[lint]
+select = [
+    "F", "E4", "E7", "E9", "W",
+    "I", "UP", "B", "S", "DTZ", "ASYNC",
+    "C4", "SIM", "PTH", "PIE", "PERF", "FURB", "G", "RUF",
+    "BLE", "PLW1510",
+    "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+    "N", "D", "RET", "TRY", "ISC", "A", "E501",
+]
+ignore = [
+    "S311",
+    "D1",
+    "D401",
+    "TRY003", "TRY301", "TRY004",
+    "RUF001", "RUF002", "RUF003",
+    "E402",
+]
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.pylint]
+max-args = 7
+
+[lint.pydocstyle]
+convention = "pep257"
+
+[lint.per-file-ignores]
+"tests/test-*.py" = ["S101", "S108", "S105", "S310", "S602", "S603", "S607", "BLE", "S110", "S112", "E501"]
+"tests/**" = ["S101", "S108", "S105", "S310", "S602", "S603", "S607"]
+"app.py" = ["BLE001"]
+"local_app.py" = ["N815", "N818", "S104"]
+"tests/test_local_controller_docker.py" = ["S108", "S310", "S603", "S607"]
+"tests/test_hosted_controller_docker.py" = ["S310", "S603"]
+"tests/docker_harness.py" = ["S310", "S603"]
+"tests/test_network_policy.py" = ["S108"]
+"http_boundary/stdlib.py" = ["BLE001"]
