@@ -124,7 +124,7 @@ COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_cont
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-teamdriver gets GROUP `shimpzteamdriver-token` so the fresh volume's
 # perms already match what the token file inside needs — readable by the admin panel via that group.
-RUN mkdir -p /run/shimpz-teamdriver /var/log/team-driver /var/lib/team-driver/pg-principals \
+RUN mkdir -p /run/shimpz-teamdriver /var/log/team-driver /var/lib/team-driver/postgresql-principals \
         /var/lib/team-driver/storage \
         /var/lib/team-driver/cleanup \
         /var/lib/team-driver/inference \
@@ -142,7 +142,7 @@ RUN mkdir -p /run/shimpz-teamdriver /var/log/team-driver /var/lib/team-driver/pg
     && chown teamdriver:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
     && chmod 0750 /run/shimpz-brain-runtime \
     && chown -R teamdriver:dockersock /var/log/team-driver /var/lib/team-driver \
-    && chmod 0700 /var/lib/team-driver/pg-principals \
+    && chmod 0700 /var/lib/team-driver/postgresql-principals \
         /var/lib/team-driver/storage \
         /var/lib/team-driver/cleanup \
         /var/lib/team-driver/inference \
