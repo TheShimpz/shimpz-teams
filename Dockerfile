@@ -38,9 +38,9 @@ ARG DOCKER_GID=989
 # Fixed GID for THIS driver's token group — the caller (admin, uid 1000) joins it to read the token.
 # Distinct from every other sidecar's (10002–10009) so no token is readable via another's group.
 ARG SHIMPZ_TEAMDRIVER_TOKEN_GID=10010
-# The pg-driver token group — this driver joins it (read-only) to request a scoped DB from pg-driver.
-# MUST match pg/Dockerfile and Brain's SHIMPZ_PGDRIVER_TOKEN_GID so the shared 0440 token is readable.
-ARG SHIMPZ_PGDRIVER_TOKEN_GID=10004
+# The PostgreSQL Service token group — Team joins it read-only to request a scoped database.
+# MUST match the Service image's SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID so the shared 0440 token is readable.
+ARG SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID=10004
 ARG SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID=10012
 ARG SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID=10013
 # Controller-owned token shared read-only with the isolated Brain runtime.
@@ -72,13 +72,13 @@ RUN case "${TARGETARCH}" in \
 # Every shared capability has a distinct supplementary group.
 RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_TEAMDRIVER_TOKEN_GID}" shimpzteamdriver-token \
-    && groupadd -g "${SHIMPZ_PGDRIVER_TOKEN_GID}" shimpzpgdriver-token \
+    && groupadd -g "${SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID}" shimpzpostgresql-token \
     && groupadd -g "${SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID}" shimpzbraincred-unseal-token \
     && groupadd -g "${SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
     && groupadd -g "${SHIMPZ_APP_EGRESS_POLICY_GID}" shimpzapp-egress-policy \
     && useradd -u 10001 -g dockersock \
-        -G shimpzteamdriver-token,shimpzpgdriver-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzbrain-runtime-token,shimpzapp-egress-policy \
+        -G shimpzteamdriver-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzbrain-runtime-token,shimpzapp-egress-policy \
         -M -s /usr/sbin/nologin teamdriver
 
 WORKDIR /app
@@ -106,7 +106,7 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/brain_runtime_token_store.py controller_runtime/chat_orchestrator.py \
      controller_runtime/chat_turn_engine.py controller_runtime/cleanup_state.py \
      controller_runtime/egress_policy.py controller_runtime/inference_config.py \
-     controller_runtime/model_catalog.json controller_runtime/pgdriver_client.py \
+     controller_runtime/model_catalog.json controller_runtime/postgresql_service_client.py \
      controller_runtime/power_execution.py controller_runtime/power_journal.py \
      controller_runtime/strict_json.py controller_runtime/team_storage.py \
      controller_runtime/token_store.py ./controller_runtime/

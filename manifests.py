@@ -167,7 +167,7 @@ def team_app_container_name(team_id: str, app_id: str) -> str:
 def team_app_db_project(team_id: str, app_id: str) -> str:
     """The per-(team, app) DB project: 'team_<sha10(team_id)>_<app>'.
 
-    Deterministic (uninstall/teardown re-derive it with no lookup) and always within pg-driver's
+    Deterministic (uninstall/teardown re-derive it with no lookup) and always within postgresql-service's
     58-char project cap: a readable 'team_<team_id>_<app>' would overflow at the 40-char team-id
     maximum, so the team contributes a fixed 10-hex digest instead.
     """

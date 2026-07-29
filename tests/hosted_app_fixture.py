@@ -105,7 +105,7 @@ class _BrainCredentialSession:
         pass
 
 
-class _PgDriverError(Exception):
+class _PostgreSQLServiceError(Exception):
     pass
 
 
@@ -119,8 +119,8 @@ _stub(
     generation_is_current=lambda *_args: True,
 )
 _stub(
-    "controller_runtime.pgdriver_client",
-    PgDriverError=_PgDriverError,
+    "controller_runtime.postgresql_service_client",
+    PostgreSQLServiceError=_PostgreSQLServiceError,
     provision_team=lambda _team_id: {"database_url": "postgres://scoped"},
     create_app_db=lambda *_args: {},
     drop_app_db=lambda *_args: {},
@@ -176,7 +176,7 @@ for module_name in (
     "controller_runtime.accounts_client",
     "audit",
     "controller_runtime.brain_credentials_client",
-    "controller_runtime.pgdriver_client",
+    "controller_runtime.postgresql_service_client",
     "controller_runtime.token_store",
 ):
     current = sys.modules.get(module_name)

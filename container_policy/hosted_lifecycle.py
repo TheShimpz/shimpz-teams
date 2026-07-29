@@ -16,7 +16,7 @@ from controller_runtime import (
     brain_runtime_client,
     cleanup_state,
     inference_config,
-    pgdriver_client,
+    postgresql_service_client,
     power_journal,
     team_storage,
 )
@@ -187,10 +187,10 @@ def _drop_teardown_database(team_id: str, record: cleanup_state.Record) -> clean
     if record.db_dropped:
         return record
     try:
-        pgdriver_client.drop_team(team_id)
+        postgresql_service_client.drop_team(team_id)
         return cleanup_state.mark_db_dropped(record)
     except (
-        pgdriver_client.PgDriverError,
+        postgresql_service_client.PostgreSQLServiceError,
         cleanup_state.CleanupStateError,
         http.client.HTTPException,
         OSError,
@@ -201,10 +201,10 @@ def _drop_teardown_database(team_id: str, record: cleanup_state.Record) -> clean
 
 def _finalize_teardown(team_id: str, record: cleanup_state.Record) -> bool:
     try:
-        pgdriver_client.finalize_team_drop(team_id)
+        postgresql_service_client.finalize_team_drop(team_id)
         cleanup_state.finish(record)
     except (
-        pgdriver_client.PgDriverError,
+        postgresql_service_client.PostgreSQLServiceError,
         cleanup_state.CleanupStateError,
         http.client.HTTPException,
         OSError,
@@ -240,7 +240,7 @@ def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._C
     record = _drop_teardown_database(team_id, record)
     if record is None:
         return hosted_resources._CleanupResult(False, False)
-    # pg-driver keeps a retired, idempotent principal until this provisioner-authorized finalizer;
+    # postgresql-service keeps a retired, idempotent principal until this provisioner-authorized finalizer;
     # only then is the controller's cleartext principal removed. Both operations are retry-safe.
     if not _finalize_teardown(team_id, record):
         return hosted_resources._CleanupResult(False, True)
@@ -308,7 +308,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             # never leak an orphan DB/role, network, or volume for an operator to hunt down later.
             container = None
             try:
-                db = pgdriver_client.provision_team(team_id)
+                db = postgresql_service_client.provision_team(team_id)
                 network = hosted_resources._ensure_team_network(team_id)
                 hosted_resources._wire_network_deps(network, manifests.core_deps())
                 hosted_resources._require_network_policy(

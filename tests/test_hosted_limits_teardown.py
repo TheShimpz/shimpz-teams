@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hosted_app_fixture import hosted_lifecycle, hosted_resources, runtime_state
 
 cleanup_state = hosted_lifecycle.cleanup_state
-pgdriver_client = hosted_lifecycle.pgdriver_client
+postgresql_service_client = hosted_lifecycle.postgresql_service_client
 
 
 class HostedLimitAndTeardownTests(unittest.TestCase):
@@ -153,8 +153,8 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 _remove_teardown_brain=phase("brain"),
                 _teardown_volumes=phase("volumes"),
             ),
-            mock.patch.object(pgdriver_client, "drop_team", side_effect=phase("database")),
-            mock.patch.object(pgdriver_client, "finalize_team_drop", side_effect=phase("finalize")),
+            mock.patch.object(postgresql_service_client, "drop_team", side_effect=phase("database")),
+            mock.patch.object(postgresql_service_client, "finalize_team_drop", side_effect=phase("finalize")),
         ):
             result = hosted_lifecycle._teardown("team_1", owner="account_1", brain_id=brain.id)
             pending = cleanup_state.load("team_1")

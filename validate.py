@@ -1,4 +1,4 @@
-"""Allowlist validation for team-driver — runs BEFORE any Docker or pg-driver call.
+"""Allowlist validation for team-driver — runs BEFORE any Docker or postgresql-service call.
 
 Nothing here touches Docker; it only decides yes/no and returns a validated team id the caller
 (app.py) turns into container/network/volume/DB names. Same shape as the other drivers' validate.py

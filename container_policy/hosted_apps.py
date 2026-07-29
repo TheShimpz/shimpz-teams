@@ -16,7 +16,7 @@ import manifests
 from assistant_human import assistant_genesis, assistant_manifest, marketplace, oauth_account_store
 from container_policy import hosted_resources
 from container_policy import network as network_policy
-from controller_runtime import egress_policy, pgdriver_client
+from controller_runtime import egress_policy, postgresql_service_client
 from hosted_install import dynamic_assistants
 from http_boundary import runtime_state
 
@@ -426,8 +426,8 @@ def _admit_teardown_app(team_id: str, app_id: str, container, drop_db: bool):
 
 def _drop_app_database(team_id: str, app_id: str) -> hosted_resources._CleanupResult:
     try:
-        pgdriver_client.drop_app_db(team_id, app_id)
-    except pgdriver_client.PgDriverError, http.client.HTTPException, OSError, ValueError:
+        postgresql_service_client.drop_app_db(team_id, app_id)
+    except postgresql_service_client.PostgreSQLServiceError, http.client.HTTPException, OSError, ValueError:
         return hosted_resources._CleanupResult(True, False)
     return hosted_resources._CleanupResult(True, True)
 
@@ -654,7 +654,7 @@ def _provision_app_transaction(
 ) -> str:
     egress_store = _egress_store()
     try:
-        database_url = pgdriver_client.create_app_db(team_id, app_id)["database_url"] if spec.db else ""
+        database_url = postgresql_service_client.create_app_db(team_id, app_id)["database_url"] if spec.db else ""
         network = hosted_resources._ensure_team_network(team_id)
         token, proxy_env = _reserve_egress_environment(team_id, app_id, spec.allowed_hosts, egress_store)
         if binding is None:

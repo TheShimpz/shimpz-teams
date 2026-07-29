@@ -19,7 +19,7 @@ from container_policy import network as network_policy
 
 __all__ = ("AccountSpec", "PowerSpec", "validate_power_input", "validate_power_output")
 
-# Also bounds derived names: the per-app DB project "team_<sha10>_<app>" stays within pg-driver's
+# Also bounds derived names: the per-app DB project "team_<sha10>_<app>" stays within postgresql-service's
 # 58-char cap at this id length (see manifests.team_app_db_project).
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$")
 DIGEST_IMAGE_RE = re.compile(r"^[a-z0-9.-]+(?::[0-9]{1,5})?/[a-z0-9]+(?:[._/-][a-z0-9]+)*@sha256:[0-9a-f]{64}$")
@@ -47,7 +47,7 @@ class AppSpec:
     image: str  # the pinned artifact — an image this Space can resolve locally or pull
     port: int  # where the app answers HTTP inside the team's own network
     health_path: str = "/health"  # exact endpoint that must answer 200 before install commits
-    db: bool = True  # provision a scoped per-(team, app) Postgres DB via pg-driver
+    db: bool = True  # provision a scoped per-(team, app) Postgres DB via postgresql-service
     allowed_hosts: tuple[str, ...] = ()  # reviewed maximum; packaged intent must match before proxy admission
     first_party: bool = True  # False = a marketplace app → the install REQUIRES a verified Shimpz account
     archs: tuple[str, ...] = ("amd64", "arm64")  # CPU archs the image supports; an amd64-only Shimpz
