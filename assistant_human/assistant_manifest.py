@@ -20,7 +20,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from assistant_human import oauth_providers
-from controller_runtime import strict_json
+from core import strict_json
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
 CONTRACT_PATH = "/opt/shimpz/shimpz.contract.json"

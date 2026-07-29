@@ -17,7 +17,7 @@ from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
 from assistant_human import oauth_http_client, oauth_providers
-from controller_runtime import strict_json
+from core import strict_json
 
 BROKER_ORIGIN = "https://shimpz.com"
 DEFAULT_CALLBACK_MODE = "loopback"

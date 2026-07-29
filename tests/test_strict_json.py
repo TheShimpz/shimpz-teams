@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from controller_runtime import strict_json
+from core import strict_json
 
 
 class StrictJsonTests(unittest.TestCase):

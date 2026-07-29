@@ -13,8 +13,8 @@ from controller_runtime import (
     chat_orchestrator,
     inference_config,
     local_chat_continuation_store,
-    strict_json,
 )
+from core import strict_json
 
 SCHEMA_VERSION = 1
 MAX_JSON_DEPTH = 16

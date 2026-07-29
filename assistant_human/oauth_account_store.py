@@ -25,7 +25,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from assistant_human import oauth_providers, private_state
-from controller_runtime import strict_json
+from core import strict_json
 
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-accounts/state/accounts.json")
 KEY_PATH = Path("/var/lib/shimpz-local/assistant-accounts/key/aes256.key")

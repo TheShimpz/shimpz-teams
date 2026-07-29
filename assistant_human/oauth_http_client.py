@@ -16,7 +16,7 @@ from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
 from assistant_human import oauth_providers
-from controller_runtime import strict_json
+from core import strict_json
 
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024

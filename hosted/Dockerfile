@@ -109,7 +109,7 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/egress_policy.py controller_runtime/inference_config.py \
      controller_runtime/model_catalog.json controller_runtime/postgresql_service_client.py \
      controller_runtime/power_execution.py controller_runtime/power_journal.py \
-     controller_runtime/strict_json.py controller_runtime/team_storage.py \
+     controller_runtime/team_storage.py \
      controller_runtime/token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
      container_policy/hosted_resources.py container_policy/network.py ./container_policy/
@@ -128,7 +128,7 @@ COPY hosted/install/protocol/v1/README.md hosted/install/protocol/v1/contract-fi
      hosted/install/protocol/v1/resolve-response.schema.json hosted/install/protocol/v1/schema_validator.py \
      hosted/install/protocol/v1/team-list-response.schema.json hosted/install/protocol/v1/vectors.json \
      hosted/install/protocol/v1/verify.py ./hosted/install/protocol/v1/
-COPY core/__init__.py ./core/
+COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
      http_boundary/runtime_state.py ./http_boundary/
