@@ -1,4 +1,4 @@
-"""Private, canonical egress-policy storage shared by both Team Controllers."""
+"""Private, canonical egress-policy storage shared by both Team profiles."""
 
 from __future__ import annotations
 

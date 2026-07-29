@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from controller_runtime import egress_policy
+from egress import policy as egress_policy
 
 
 class SharedEgressPolicyTests(unittest.TestCase):

@@ -30,7 +30,7 @@ COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py
     assistant_human/oauth_providers.py assistant_human/private_state.py ./assistant_human/
 COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
     controller_runtime/brain_runtime_token_store.py controller_runtime/chat_orchestrator.py \
-    controller_runtime/chat_turn_engine.py controller_runtime/egress_policy.py \
+    controller_runtime/chat_turn_engine.py \
     controller_runtime/inference_config.py controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py controller_runtime/local_registry.py \
     controller_runtime/local_token_store.py controller_runtime/model_catalog.json \
@@ -39,6 +39,7 @@ COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
+COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
 COPY local_support/__init__.py local_support/assistant_api.py local_support/assistant_lifecycle.py \
     local_support/assistant_resources.py local_support/assistant_rpc.py local_support/audit.py \

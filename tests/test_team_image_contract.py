@@ -15,6 +15,7 @@ PRODUCTION_PACKAGES = {
     "container_policy",
     "controller_runtime",
     "core",
+    "egress",
     "hosted",
     "http_boundary",
     "local",

@@ -106,7 +106,7 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/brain_credentials_client.py controller_runtime/brain_runtime_client.py \
      controller_runtime/brain_runtime_token_store.py controller_runtime/chat_orchestrator.py \
      controller_runtime/chat_turn_engine.py controller_runtime/cleanup_state.py \
-     controller_runtime/egress_policy.py controller_runtime/inference_config.py \
+     controller_runtime/inference_config.py \
      controller_runtime/model_catalog.json controller_runtime/postgresql_service_client.py \
      controller_runtime/power_execution.py controller_runtime/power_journal.py \
      controller_runtime/team_storage.py \
@@ -130,6 +130,7 @@ COPY hosted/install/protocol/v1/README.md hosted/install/protocol/v1/contract-fi
      hosted/install/protocol/v1/verify.py ./hosted/install/protocol/v1/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
+COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
      http_boundary/runtime_state.py ./http_boundary/
 
