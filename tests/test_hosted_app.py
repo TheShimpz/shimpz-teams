@@ -12,6 +12,7 @@ from email.message import Message
 from http import HTTPStatus
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from hosted_app_fixture import (
@@ -124,6 +125,124 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             with self.subTest(body=body, headers=headers), self.assertRaises(runtime_state.ApiError) as caught:
                 handler._read_body()
             self.assertEqual(caught.exception.status, expected_status)
+
+    def test_account_installs_exact_verified_assistant_publication(self) -> None:
+        source_digest = f"sha256:{'a' * 64}"
+        resolution = {
+            "assistant_id": "example-assistant",
+            "source_digest": source_digest,
+            "oci_digest": f"sha256:{'b' * 64}",
+        }
+        binding = SimpleNamespace(assistant_id="example-assistant")
+        request = hosted_controller._AuthorizedRequest(
+            {},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._read_team_body = mock.Mock(
+            return_value={
+                "assistant_id": "example-assistant",
+                "source_digest": source_digest,
+            }
+        )
+        client = mock.Mock()
+        client.resolve.return_value = resolution
+        trust = mock.Mock()
+        handler._publication_dependencies = mock.Mock(return_value=(client, trust))
+        handler._send_json = mock.Mock()
+
+        def install(*_args, authorize_start, **_kwargs):
+            authorize_start()
+            return {
+                "source_digest": source_digest,
+                "oci_digest": resolution["oci_digest"],
+                "binding_digest": f"sha256:{'c' * 64}",
+            }
+
+        with (
+            mock.patch.object(runtime_state, "_enforce_rate"),
+            mock.patch.object(
+                hosted_controller.dynamic_assistants,
+                "binding_from_resolution",
+                return_value=binding,
+            ),
+            mock.patch.object(
+                hosted_controller.dynamic_assistants,
+                "app_spec",
+                return_value=mock.sentinel.spec,
+            ),
+            mock.patch.object(hosted_resources, "_prepare_marketplace_image"),
+            mock.patch.object(
+                hosted_apps,
+                "_install_dynamic_assistant",
+                side_effect=install,
+            ) as install_assistant,
+        ):
+            handler._route_assistant_install(request)
+
+        self.assertEqual(client.resolve.call_count, 2)
+        client.resolve.assert_called_with(source_digest)
+        trust.verify.assert_called_once_with(resolution)
+        install_assistant.assert_called_once_with(
+            "team_1",
+            binding,
+            "account_1",
+            mock.sentinel.lease,
+            authorize_start=mock.ANY,
+        )
+        status, payload = handler._send_json.call_args.args
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertEqual(payload["assistant"], "example-assistant")
+        self.assertEqual(payload["source_digest"], source_digest)
+
+    def test_assistant_publication_install_requires_account_identity(self) -> None:
+        request = hosted_controller._AuthorizedRequest(
+            {},
+            "team_1",
+            ("operator", None),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+
+        with self.assertRaises(runtime_state.ApiError) as caught:
+            handler._route_assistant_install(request)
+
+        self.assertEqual(caught.exception.status, HTTPStatus.UNAUTHORIZED)
+
+    def test_assistant_publication_must_match_requested_identifier(self) -> None:
+        source_digest = f"sha256:{'a' * 64}"
+        request = hosted_controller._AuthorizedRequest(
+            {},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._read_team_body = mock.Mock(
+            return_value={
+                "assistant_id": "expected-assistant",
+                "source_digest": source_digest,
+            }
+        )
+        client = mock.Mock()
+        client.resolve.return_value = {
+            "assistant_id": "different-assistant",
+            "source_digest": source_digest,
+        }
+        handler._publication_dependencies = mock.Mock(return_value=(client, mock.Mock()))
+
+        with (
+            mock.patch.object(runtime_state, "_enforce_rate"),
+            self.assertRaises(runtime_state.ApiError) as caught,
+        ):
+            handler._route_assistant_install(request)
+
+        self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
 
 
 class HostedAllowedHostsAdmissionTests(unittest.TestCase):

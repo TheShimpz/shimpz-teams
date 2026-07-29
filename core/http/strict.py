@@ -359,7 +359,7 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/assistants", "assistant-install", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("POST", "/v1/teams/:team_id/assistants", "assistant-install"),
     _controller_route(
         "DELETE",
         "/v1/teams/:team_id/assistants/:assistant_id",

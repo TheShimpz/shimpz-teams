@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import json
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -32,6 +33,7 @@ from http_boundary import hosted, runtime_state
 _DEVELOPERS_TEAMS_PATH = "/internal/v1/developers/teams"
 _DEVELOPERS_INSTALL_PATH = "/internal/v1/developers/install"
 _INSTALL_AUTHORIZATION_CLOCK_SKEW_SECONDS = 5
+_SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTROLLER_CONTRACTS = developers_controller_contract.ContractValidator()
 
 
@@ -288,6 +290,18 @@ class Handler(BaseHTTPRequestHandler):
     def _developers_dependencies(self):
         dependencies = (
             runtime_state._developers_delegation,
+            runtime_state._developers_client,
+            runtime_state._artifact_trust,
+        )
+        if any(dependency is None for dependency in dependencies):
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Developers integration is unavailable",
+            )
+        return dependencies
+
+    def _publication_dependencies(self):
+        dependencies = (
             runtime_state._developers_client,
             runtime_state._artifact_trust,
         )
@@ -670,6 +684,74 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
 
+    def _route_assistant_install(self, request: _AuthorizedRequest) -> None:
+        kind, account_id = request.principal
+        if kind != "account" or account_id is None:
+            raise runtime_state.ApiError(
+                HTTPStatus.UNAUTHORIZED,
+                "Assistant publication installation requires a Shimpz Account",
+            )
+        body = self._read_team_body({"assistant_id", "source_digest"})
+        assistant_id = marketplace.validate_app_id(body["assistant_id"])
+        source_digest = body["source_digest"]
+        if not isinstance(source_digest, str) or _SOURCE_DIGEST.fullmatch(source_digest) is None:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "source digest is invalid")
+        runtime_state._enforce_rate("install", request.principal)
+        client, trust = self._publication_dependencies()
+        try:
+            resolution = client.resolve(source_digest)
+            if resolution["assistant_id"] != assistant_id:
+                raise developers_client.AssistantNotInstallableError(
+                    "Assistant publication does not match the requested identifier"
+                )
+            trust.verify(resolution)
+            binding = dynamic_assistants.binding_from_resolution(request.team_id, resolution)
+            hosted_resources._prepare_marketplace_image(dynamic_assistants.app_spec(binding))
+
+            def authorize_start() -> None:
+                current = client.resolve(source_digest)
+                if (
+                    current["assistant_id"] != assistant_id
+                    or current["oci_digest"] != resolution["oci_digest"]
+                ):
+                    raise developers_client.InstallAuthorizationDeniedError(
+                        "Assistant publication changed before installation"
+                    )
+
+            installed = hosted_apps._install_dynamic_assistant(
+                request.team_id,
+                binding,
+                account_id,
+                request.lease,
+                authorize_start=authorize_start,
+            )
+        except developers_client.AssistantNotInstallableError as exc:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installable") from exc
+        except developers_client.InstallAuthorizationDeniedError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.CONFLICT,
+                "Assistant installation is no longer authorized",
+            ) from exc
+        except developers_client.DevelopersClientError as exc:
+            raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Developers is unavailable") from exc
+        except artifact_trust.ArtifactTrustError as exc:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant artifact trust failed") from exc
+        response = {
+            "assistant": assistant_id,
+            "installed": True,
+            "source_digest": installed["source_digest"],
+            "oci_digest": installed["oci_digest"],
+            "binding_digest": installed["binding_digest"],
+        }
+        trace = audit.log(
+            "assistant_install",
+            request.team_id,
+            result="ok",
+            assistant=assistant_id,
+            source_digest=source_digest,
+        )
+        self._send_json(HTTPStatus.OK, {**response, "trace_id": trace}, no_store=True)
+
     def _route_app_list(self, request: _AuthorizedRequest) -> None:
         self._send_json(
             HTTPStatus.OK,
@@ -714,6 +796,7 @@ _AUTHORIZED_ROUTES = {
     "assistant-account-disconnect": Handler._route_assistant_account_disconnect,
     "app-list": Handler._route_app_list,
     "app-install": Handler._route_app_install,
+    "assistant-install": Handler._route_assistant_install,
     "app-uninstall": Handler._route_app_uninstall,
     "team-status": Handler._route_team_status,
     "team-logs": Handler._route_team_logs,
