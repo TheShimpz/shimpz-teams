@@ -25,9 +25,9 @@ from hosted.install import (
     artifact_trust,
     developers_client,
     developers_delegation,
-    dynamic_assistants,
 )
 from http_boundary import hosted, runtime_state
+from install import bindings as dynamic_assistants
 from install import contract as install_contract
 
 _DEVELOPERS_TEAMS_PATH = "/internal/v1/developers/teams"

@@ -113,9 +113,9 @@ COPY container_policy/__init__.py container_policy/hosted_apps.py container_poli
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/artifact_trust.py hosted/install/developers_client.py \
      hosted/install/developers_delegation.py \
-     hosted/install/dynamic_assistants.py hosted/install/marketplace_image.py hosted/install/registry_auth.py \
+     hosted/install/marketplace_image.py hosted/install/registry_auth.py \
      ./hosted/install/
-COPY install/__init__.py install/contract.py ./install/
+COPY install/__init__.py install/bindings.py install/contract.py ./install/
 COPY install/protocol/upstream.json ./install/protocol/
 COPY install/protocol/v1/README.md install/protocol/v1/contract-files.sha256 \
      install/protocol/v1/controller-install-request.schema.json \

@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from hosted.install import dynamic_assistants
-from hosted.install.dynamic_assistants import (
+from install import bindings as dynamic_assistants
+from install.bindings import (
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,

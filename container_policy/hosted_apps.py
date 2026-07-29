@@ -18,8 +18,8 @@ from container_policy import hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import postgresql_service_client
 from egress import policy as egress_policy
-from hosted.install import dynamic_assistants
 from http_boundary import runtime_state
+from install import bindings as dynamic_assistants
 
 
 class _IncompleteInstallRollback(runtime_state.ApiError):
