@@ -219,7 +219,6 @@ class TeamStorage:
             applied = int(connection.execute(f"PRAGMA max_page_count={physical_page_limit}").fetchone()[0])
             if applied != physical_page_limit:
                 raise StorageError("Team storage page limit could not be applied")
-            connection.execute("PRAGMA user_version=1")
             path.chmod(0o600)
         except BaseException:
             connection.close()

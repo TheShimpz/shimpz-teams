@@ -172,6 +172,7 @@ class TeamStorageTests(unittest.TestCase):
             page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
             expected = (64 + team_storage.DATABASE_HEADROOM_BYTES + page_size - 1) // page_size
             self.assertEqual(int(connection.execute("PRAGMA max_page_count").fetchone()[0]), expected)
+            self.assertEqual(int(connection.execute("PRAGMA user_version").fetchone()[0]), 0)
             connection.execute("UPDATE files SET content=? WHERE id=?", (b"evil", stored["id"]))
 
         with self.assertRaises(team_storage.StorageError):
