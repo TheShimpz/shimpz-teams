@@ -59,10 +59,7 @@ HOSTED_PROTOCOL_DATA = {
 }
 LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/supervisor.py",
-    "protocol/install/v1/definitions.schema.json",
-    "protocol/install/v1/resolve-response.schema.json",
-    "protocol/install/v1/schema_validator.py",
-    "protocol/install/v1/verify.py",
+    *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
 
