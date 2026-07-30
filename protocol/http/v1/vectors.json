@@ -1,5 +1,8 @@
 {
   "version": 1,
+  "headers": {
+    "account_session": "X-Shimpz-Account"
+  },
   "frames": [
     {
       "name": "valid_object",

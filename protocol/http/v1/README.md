@@ -6,6 +6,13 @@ and Store. `payload.py` validates Team-facing HTTP values without trusting upstr
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
+In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-Account`
+header containing the current opaque Account session. Team binds the canonical route, parameters,
+query, and exact request-body evidence before synchronously asking Account to evaluate that session.
+The internal Team bearer is machine authority only for the one-use OAuth callback continuation; it
+never substitutes for human Account or Supervisor evidence. Local Supervisor authority is a
+profile-specific boundary and is not expressed through this Hosted header.
+
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
 `contract-files.sha256`, and remain byte-identical to this directory.

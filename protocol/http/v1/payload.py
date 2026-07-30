@@ -10,6 +10,7 @@ FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
 MEDIA_TYPE_PATTERN = r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$"
+ACCOUNT_SESSION_HEADER = "X-Shimpz-Account"
 
 TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
 ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)

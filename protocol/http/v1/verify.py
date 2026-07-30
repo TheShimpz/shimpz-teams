@@ -37,6 +37,8 @@ for filename, expected in rows.items():
 vectors = json.loads((HERE / "vectors.json").read_bytes())
 if not isinstance(vectors, dict) or vectors.get("version") != 1:
     fail("Team HTTP vectors have an invalid root")
+if vectors.get("headers") != {"account_session": payload.ACCOUNT_SESSION_HEADER}:
+    fail("Team HTTP Account session header vector differs")
 for case in vectors.get("frames", []):
     message = dict(case["message"])
     if "bytes_hex" in message:
