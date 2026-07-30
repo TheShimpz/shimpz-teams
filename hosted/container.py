@@ -110,7 +110,7 @@ ASSISTANT_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_NANO_CPUS", str(
 ASSISTANT_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_PIDS_LIMIT", "256"))
 ASSISTANT_MEM_LIMIT_BYTES = network_policy.ASSISTANT_MEMORY_BYTES
 # The many-tenant egress proxy is attached only when an installed Assistant declares egress.
-APP_EGRESS_CONTAINER = network_policy.APP_EGRESS_CONTAINER
+ASSISTANT_EGRESS_CONTAINER = network_policy.ASSISTANT_EGRESS_CONTAINER
 
 # Keep Docker's json-file logs bounded: a hostile workload could otherwise fill the host filesystem
 # without exceeding its cgroup memory or PID admission envelope.

@@ -29,8 +29,8 @@ class _IncompleteInstallRollback(runtime_state.ApiError):
 
 def _egress_store() -> egress_policy.EgressPolicyStore:
     return egress_policy.EgressPolicyStore(
-        runtime_state.APP_EGRESS_POLICY_DIR,
-        runtime_state.APP_EGRESS_POLICY_GID,
+        runtime_state.ASSISTANT_EGRESS_POLICY_DIR,
+        runtime_state.ASSISTANT_EGRESS_POLICY_GID,
         "localhost,127.0.0.1,::1,postgres,.team",
     )
 
@@ -272,8 +272,8 @@ def _activate_admitted_egress(
     _write_egress_policy(token, allowed_hosts, store)
     hosted_resources._safe_connect(
         network,
-        container_spec.APP_EGRESS_CONTAINER,
-        aliases=["app-egress-proxy"],
+        container_spec.ASSISTANT_EGRESS_CONTAINER,
+        aliases=["assistant-egress"],
         required=True,
     )
 

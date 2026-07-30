@@ -25,15 +25,15 @@ from local.validation import validate_team_id, validate_team_name
 
 PROFILE = "single-owner-local-v1"
 MAX_EGRESS_POLICY_BYTES = egress_policy.MAX_POLICY_BYTES
-APP_EGRESS_PROXY_ALIAS = "app-egress-proxy"
-APP_EGRESS_PROXY_PORT = 8889
-APP_EGRESS_PROXY_KIND = "app-egress-proxy"
-APP_EGRESS_POLICY_GID = 10017
-APP_EGRESS_PROXY_CONTAINER = os.environ.get("SHIMPZ_APP_EGRESS_PROXY_CONTAINER", "").strip()
-APP_EGRESS_POLICY_DIR = Path(
+ASSISTANT_EGRESS_ALIAS = "assistant-egress"
+ASSISTANT_EGRESS_PORT = 8889
+ASSISTANT_EGRESS_KIND = "assistant-egress"
+ASSISTANT_EGRESS_POLICY_GID = 10017
+ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", "").strip()
+ASSISTANT_EGRESS_POLICY_DIR = Path(
     os.environ.get(
-        "SHIMPZ_APP_EGRESS_POLICY_DIR",
-        "/var/lib/shimpz-local/app-egress",
+        "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR",
+        "/var/lib/shimpz-local/assistant-egress",
     )
 )
 _CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
@@ -41,11 +41,11 @@ _CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 
 def _egress_store() -> egress_policy.EgressPolicyStore:
     return egress_policy.EgressPolicyStore(
-        APP_EGRESS_POLICY_DIR,
-        APP_EGRESS_POLICY_GID,
+        ASSISTANT_EGRESS_POLICY_DIR,
+        ASSISTANT_EGRESS_POLICY_GID,
         "127.0.0.1,localhost",
-        APP_EGRESS_PROXY_ALIAS,
-        APP_EGRESS_PROXY_PORT,
+        ASSISTANT_EGRESS_ALIAS,
+        ASSISTANT_EGRESS_PORT,
     )
 
 
@@ -197,14 +197,14 @@ def _remove_egress_policy(
 
 
 def _egress_proxy(self):
-    if not APP_EGRESS_PROXY_CONTAINER or _CONTAINER_NAME.fullmatch(APP_EGRESS_PROXY_CONTAINER) is None:
+    if not ASSISTANT_EGRESS_CONTAINER or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant egress proxy is unavailable",
             code="egress-proxy-unavailable",
         )
     try:
-        proxy = self.client.containers.get(APP_EGRESS_PROXY_CONTAINER)
+        proxy = self.client.containers.get(ASSISTANT_EGRESS_CONTAINER)
     except (NotFound, DockerException) as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -219,13 +219,13 @@ def _egress_proxy(self):
         MANAGED_LABEL: "1",
         PROFILE_LABEL: PROFILE,
         SPACE_LABEL: self.space_id,
-        KIND_LABEL: APP_EGRESS_PROXY_KIND,
+        KIND_LABEL: ASSISTANT_EGRESS_KIND,
     }
     security_options = host.get("SecurityOpt") or []
     mounts = attrs.get("Mounts") or []
     policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
     if (
-        proxy.name != APP_EGRESS_PROXY_CONTAINER
+        proxy.name != ASSISTANT_EGRESS_CONTAINER
         or proxy.status != "running"
         or not self._labels_include(labels, expected_labels)
         or config.get("User") not in {"10005", "10005:10005"}
@@ -251,7 +251,7 @@ def _connect_egress_proxy(self, network) -> None:
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if attached is None:
         try:
-            network.connect(proxy, aliases=[APP_EGRESS_PROXY_ALIAS])
+            network.connect(proxy, aliases=[ASSISTANT_EGRESS_ALIAS])
             proxy.reload()
         except DockerException as exc:
             raise ApiProblem(
@@ -260,7 +260,7 @@ def _connect_egress_proxy(self, network) -> None:
                 code="egress-proxy-unavailable",
             ) from exc
         attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
-    if not isinstance(attached, dict) or APP_EGRESS_PROXY_ALIAS not in (attached.get("Aliases") or []):
+    if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its Team attachment contract",
@@ -272,7 +272,7 @@ def _validate_egress_proxy_attachment(self, network_name: str, proxy=None) -> No
     if proxy is None:
         proxy = self._egress_proxy()
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
-    if not isinstance(attached, dict) or APP_EGRESS_PROXY_ALIAS not in (attached.get("Aliases") or []):
+    if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its Team attachment contract",
@@ -318,7 +318,7 @@ def _disconnect_egress_proxy_if_attached(self, network) -> None:
             "Team resource ownership conflict",
             code="ownership-conflict",
         )
-    if any(endpoint.get("Name") == APP_EGRESS_PROXY_CONTAINER for endpoint in endpoints.values()):
+    if any(endpoint.get("Name") == ASSISTANT_EGRESS_CONTAINER for endpoint in endpoints.values()):
         self._disconnect_egress_proxy(network)
 
 

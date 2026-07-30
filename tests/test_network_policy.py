@@ -249,9 +249,9 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
     )
     app_proxy = _container(
         "app-proxy-id",
-        policy.APP_EGRESS_CONTAINER,
-        labels=policy.shared_service_labels(policy.APP_EGRESS_ROLE),
-        networks={CORE: _endpoint("core-id", "app-egress-proxy")},
+        policy.ASSISTANT_EGRESS_CONTAINER,
+        labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
+        networks={CORE: _endpoint("core-id", "assistant-egress")},
     )
     containers = {item["Id"]: item for item in (brain, assistant, postgres, app_proxy)}
     core = _network(policy.CORE_KIND, "core-id", "brain-id", "app-id", "postgres-id", "app-proxy-id")

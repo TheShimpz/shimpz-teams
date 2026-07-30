@@ -25,7 +25,7 @@ class _Proxy:
                     local_app.MANAGED_LABEL: "1",
                     local_app.PROFILE_LABEL: local_app.PROFILE,
                     local_app.SPACE_LABEL: space_id,
-                    local_app.KIND_LABEL: local_egress.APP_EGRESS_PROXY_KIND,
+                    local_app.KIND_LABEL: local_egress.ASSISTANT_EGRESS_KIND,
                 },
             },
             "HostConfig": {
@@ -96,9 +96,9 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.controller.registry = TestPublicationRegistry({self.spec.assistant_id: self.spec})
         self.controller._wire_collaborators()
         self.patches = (
-            mock.patch.object(local_egress, "APP_EGRESS_POLICY_DIR", self.policy_root),
-            mock.patch.object(local_egress, "APP_EGRESS_POLICY_GID", os.getgid()),
-            mock.patch.object(local_egress, "APP_EGRESS_PROXY_CONTAINER", self.proxy.name),
+            mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_DIR", self.policy_root),
+            mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_GID", os.getgid()),
+            mock.patch.object(local_egress, "ASSISTANT_EGRESS_CONTAINER", self.proxy.name),
         )
         for patcher in self.patches:
             patcher.start()
@@ -118,7 +118,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.assertEqual(environment["NO_PROXY"], "127.0.0.1,localhost")
         self.assertIn(self.network.name, self.proxy.attrs["NetworkSettings"]["Networks"])
         self.assertIn(
-            local_egress.APP_EGRESS_PROXY_ALIAS,
+            local_egress.ASSISTANT_EGRESS_ALIAS,
             self.proxy.attrs["NetworkSettings"]["Networks"][self.network.name]["Aliases"],
         )
         policy = self.policy_root / f"{token}.json"
@@ -161,8 +161,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
             self.policy_root,
             os.getgid(),
             "127.0.0.1,localhost",
-            local_egress.APP_EGRESS_PROXY_ALIAS,
-            local_egress.APP_EGRESS_PROXY_PORT,
+            local_egress.ASSISTANT_EGRESS_ALIAS,
+            local_egress.ASSISTANT_EGRESS_PORT,
         )
 
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
@@ -188,7 +188,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
 
         self.assertEqual(
             self.proxy.attrs["NetworkSettings"]["Networks"][self.network.name]["Aliases"],
-            [local_egress.APP_EGRESS_PROXY_ALIAS],
+            [local_egress.ASSISTANT_EGRESS_ALIAS],
         )
         self.controller.assistant_lifecycle._validate_container_profile.assert_called_once_with(
             assistant,

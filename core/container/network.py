@@ -40,16 +40,16 @@ WORKSPACE_VOLUME_KIND = "workspace"
 VOLUME_KINDS = frozenset({CONFIG_VOLUME_KIND, WORKSPACE_VOLUME_KIND})
 
 POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgres{SUFFIX}")
-APP_EGRESS_CONTAINER = os.environ.get("SHIMPZ_APP_EGRESS_PROXY_CONTAINER", f"app-egress-proxy{SUFFIX}")
+ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"assistant-egress{SUFFIX}")
 
 ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_BRAIN_CAP_ADD = frozenset()
 SHARED_MANAGED_LABEL = "shimpz.team.shared"
 SHARED_ROLE_LABEL = "shimpz.team.shared.role"
 POSTGRES_ROLE = "postgres"
-APP_EGRESS_ROLE = "app-egress"
-SHARED_ROLES = frozenset({POSTGRES_ROLE, APP_EGRESS_ROLE})
-RESERVED_SERVICE_ALIASES = frozenset({"postgres", "app-egress-proxy"})
+ASSISTANT_EGRESS_ROLE = "assistant-egress"
+SHARED_ROLES = frozenset({POSTGRES_ROLE, ASSISTANT_EGRESS_ROLE})
+RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress"})
 
 
 def _normalized_capabilities(values: object) -> set[str]:
@@ -263,7 +263,7 @@ def shared_service_labels(role: str) -> dict[str, str]:
 def _shared_role_for_name(name: str) -> str | None:
     return {
         POSTGRES_CONTAINER: POSTGRES_ROLE,
-        APP_EGRESS_CONTAINER: APP_EGRESS_ROLE,
+        ASSISTANT_EGRESS_CONTAINER: ASSISTANT_EGRESS_ROLE,
     }.get(name)
 
 
@@ -289,8 +289,8 @@ def _member_role(metadata: Mapping, team_id: str, kind: str) -> tuple[str, str] 
     name = _container_name(metadata)
     if name == POSTGRES_CONTAINER and shared_service_identity_valid(metadata, POSTGRES_ROLE):
         return POSTGRES_ROLE, ""
-    if name == APP_EGRESS_CONTAINER and shared_service_identity_valid(metadata, APP_EGRESS_ROLE):
-        return APP_EGRESS_ROLE, ""
+    if name == ASSISTANT_EGRESS_CONTAINER and shared_service_identity_valid(metadata, ASSISTANT_EGRESS_ROLE):
+        return ASSISTANT_EGRESS_ROLE, ""
     return _workload_role(metadata, team_id)
 
 
@@ -311,8 +311,8 @@ def _required_aliases(role: tuple[str, str]) -> frozenset[str]:
     name, value = role
     if name == "postgres":
         return frozenset({"postgres"})
-    if name == "app-egress":
-        return frozenset({"app-egress-proxy"})
+    if name == "assistant-egress":
+        return frozenset({"assistant-egress"})
     if name == "assistant":
         return frozenset({value, f"{value}.team"})
     return frozenset()

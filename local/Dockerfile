@@ -77,14 +77,14 @@ COPY storage/__init__.py storage/files.py ./storage/
 RUN groupadd --gid 10001 shimpzlocal && \
     groupadd --gid 10010 shimpzteam-token && \
     groupadd --gid 10016 shimpzbrain-runtime-token && \
-    groupadd --gid 10017 shimpzapp-egress-policy && \
+    groupadd --gid 10017 shimpzassistant-egress-policy && \
     groupadd --gid 10021 shimpzsupervisor-key && \
     groupadd --gid 10022 shimpzaccount-egress-token && \
     useradd --uid 10001 --gid 10001 --groups 10010,10016,10017,10021,10022 \
         --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
     mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /run/shimpz-local-supervisor \
         /var/log/shimpz-local /var/lib/shimpz-local/storage \
-        /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/app-egress \
+        /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/assistant-egress \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     mkdir -p /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
@@ -98,8 +98,8 @@ RUN groupadd --gid 10001 shimpzlocal && \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
-    chown shimpzlocal:shimpzapp-egress-policy /var/lib/shimpz-local/app-egress && \
-    chmod 0770 /var/lib/shimpz-local/app-egress && \
+    chown shimpzlocal:shimpzassistant-egress-policy /var/lib/shimpz-local/assistant-egress && \
+    chmod 0770 /var/lib/shimpz-local/assistant-egress && \
     chmod 0700 /var/log/shimpz-local /var/lib/shimpz-local/storage /var/lib/shimpz-local/inference \
         /var/lib/shimpz-local/power-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \

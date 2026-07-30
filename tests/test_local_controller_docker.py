@@ -332,7 +332,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--volume",
             f"{flow.egress_policy_volume}:/policy:ro",
             "--volume",
-            f"{flow.egress_audit_volume}:/var/log/app-egress-proxy",
+            f"{flow.egress_audit_volume}:/var/log/assistant-egress",
             "--label",
             "com.shimpz.local.managed=1",
             "--label",
@@ -340,7 +340,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--label",
             f"com.shimpz.local.space-id={flow.space_id}",
             "--label",
-            "com.shimpz.local.kind=app-egress-proxy",
+            "com.shimpz.local.kind=assistant-egress",
             flow.egress_proxy_tag,
         )
         socket_gid = str(Path("/var/run/docker.sock").stat().st_gid)
@@ -403,13 +403,13 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--volume",
             f"{FIXTURE / 'local-controller-fixture.py'}:/local-controller-fixture.py:ro",
             "--volume",
-            f"{flow.egress_policy_volume}:/var/lib/shimpz-local/app-egress",
+            f"{flow.egress_policy_volume}:/var/lib/shimpz-local/assistant-egress",
             "--env",
             f"SHIMPZ_SPACE_ID={flow.space_id}",
             "--env",
-            f"SHIMPZ_APP_EGRESS_PROXY_CONTAINER={flow.egress_proxy}",
+            f"SHIMPZ_ASSISTANT_EGRESS_CONTAINER={flow.egress_proxy}",
             "--env",
-            "SHIMPZ_APP_EGRESS_POLICY_DIR=/var/lib/shimpz-local/app-egress",
+            "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR=/var/lib/shimpz-local/assistant-egress",
             "--env",
             "SHIMPZ_OAUTH_BROKER_PROXY_HOST=oauth-broker-proxy",
             "--env",
@@ -736,14 +736,14 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
         proxy_networks = proxy_metadata["NetworkSettings"]["Networks"]
         self.assertEqual(set(proxy_networks), {flow.outbound_network, flow.network_name})
-        self.assertIn("app-egress-proxy", proxy_networks[flow.network_name]["Aliases"])
+        self.assertIn("assistant-egress", proxy_networks[flow.network_name]["Aliases"])
         policy_contract = self._run(
             "exec",
             flow.controller,
             "/opt/venv/bin/python",
             "-c",
             "import json,os,stat; from pathlib import Path; "
-            "p=next(Path('/var/lib/shimpz-local/app-egress').glob('*.json')); s=p.stat(); "
+            "p=next(Path('/var/lib/shimpz-local/assistant-egress').glob('*.json')); s=p.stat(); "
             "print(json.dumps(json.loads(p.read_text())),oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid)",
         ).stdout.strip()
         self.assertEqual(
@@ -775,7 +775,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.controller,
             "/opt/venv/bin/python",
             "-c",
-            "from pathlib import Path; p=Path('/var/lib/shimpz-local/app-egress'); "
+            "from pathlib import Path; p=Path('/var/lib/shimpz-local/assistant-egress'); "
             "print(len(list(p.glob('*.json'))),len(list((p/'.tokens').glob('*.token'))))",
         ).stdout.strip()
         self.assertEqual(remaining_policy_files, "0 0")

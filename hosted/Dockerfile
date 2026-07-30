@@ -46,7 +46,7 @@ ARG SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID=10013
 ARG SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID=10019
 # Controller-owned token shared read-only with the isolated Brain runtime.
 ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016
-ARG SHIMPZ_APP_EGRESS_POLICY_GID=10017
+ARG SHIMPZ_ASSISTANT_EGRESS_POLICY_GID=10017
 
 # Downloaded + hash-checked BEFORE execution — never `curl | sh`.
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
@@ -78,9 +78,9 @@ RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
     && groupadd -g "${SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID}" shimpzaccount-team-authority \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
-    && groupadd -g "${SHIMPZ_APP_EGRESS_POLICY_GID}" shimpzapp-egress-policy \
+    && groupadd -g "${SHIMPZ_ASSISTANT_EGRESS_POLICY_GID}" shimpzassistant-egress-policy \
     && useradd -u 10001 -g dockersock \
-        -G shimpzteam-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzaccount-team-authority,shimpzbrain-runtime-token,shimpzapp-egress-policy \
+        -G shimpzteam-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzaccount-team-authority,shimpzbrain-runtime-token,shimpzassistant-egress-policy \
         -M -s /usr/sbin/nologin shimpzteam
 
 WORKDIR /app
@@ -150,7 +150,7 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
-        /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-account-brain-resolve \
+        /assistant-egress-policy /run/shimpz-braincred-unseal /run/shimpz-account-brain-resolve \
         /run/shimpz-account-team-authority \
         /run/shimpz-brain-runtime \
     && chown shimpzteam:shimpzteam-token /run/shimpz-team && chmod 750 /run/shimpz-team \
@@ -171,8 +171,8 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
-    && chown shimpzteam:shimpzapp-egress-policy /app-egress-policy \
-    && chmod 0770 /app-egress-policy
+    && chown shimpzteam:shimpzassistant-egress-policy /assistant-egress-policy \
+    && chmod 0770 /assistant-egress-policy
 
 USER shimpzteam
 EXPOSE 7077

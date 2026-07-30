@@ -13,7 +13,7 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
 from local import app as local_app
-from local.assistant.egress import APP_EGRESS_PROXY_ALIAS
+from local.assistant.egress import ASSISTANT_EGRESS_ALIAS
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -158,7 +158,7 @@ class LocalLifecycleTests(LocalContractCase):
         second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
-        proxy_environment = {"HTTPS_PROXY": "http://app-egress-proxy:8889"}
+        proxy_environment = {"HTTPS_PROXY": "http://assistant-egress:8889"}
         for container in (first, second):
             container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
         network_name = controller.assistant_lifecycle._network_name("team_1")
@@ -167,7 +167,7 @@ class LocalLifecycleTests(LocalContractCase):
                 "NetworkSettings": {
                     "Networks": {
                         network_name: {
-                            "Aliases": [APP_EGRESS_PROXY_ALIAS],
+                            "Aliases": [ASSISTANT_EGRESS_ALIAS],
                         }
                     }
                 }
@@ -196,7 +196,7 @@ class LocalLifecycleTests(LocalContractCase):
         second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
-        proxy_environment = {"HTTPS_PROXY": "http://app-egress-proxy:8889"}
+        proxy_environment = {"HTTPS_PROXY": "http://assistant-egress:8889"}
         network_name = controller.assistant_lifecycle._network_name("team_1")
         for container in (first, second):
             container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
@@ -207,7 +207,7 @@ class LocalLifecycleTests(LocalContractCase):
                 "NetworkSettings": {
                     "Networks": {
                         network_name: {
-                            "Aliases": [APP_EGRESS_PROXY_ALIAS],
+                            "Aliases": [ASSISTANT_EGRESS_ALIAS],
                         }
                     }
                 }

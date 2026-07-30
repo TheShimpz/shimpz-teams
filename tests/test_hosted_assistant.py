@@ -459,8 +459,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     runtime_state,
                     _lock_for=lambda _team_id: contextlib.nullcontext(),
                     _docker=engine,
-                    APP_EGRESS_POLICY_DIR=Path(directory),
-                    APP_EGRESS_POLICY_GID=os.getgid(),
+                    ASSISTANT_EGRESS_POLICY_DIR=Path(directory),
+                    ASSISTANT_EGRESS_POLICY_GID=os.getgid(),
                 ),
                 mock.patch.multiple(
                     hosted_resources,
@@ -521,8 +521,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             Path(directory).chmod(0o770)
             with mock.patch.multiple(
                 runtime_state,
-                APP_EGRESS_POLICY_DIR=Path(directory),
-                APP_EGRESS_POLICY_GID=os.getgid(),
+                ASSISTANT_EGRESS_POLICY_DIR=Path(directory),
+                ASSISTANT_EGRESS_POLICY_GID=os.getgid(),
             ):
                 token = hosted_apps._assistant_egress_token("team_1", "shimpz-cloudflare")
                 assert token is not None
@@ -545,8 +545,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             with (
                 mock.patch.multiple(
                     runtime_state,
-                    APP_EGRESS_POLICY_DIR=policy_root,
-                    APP_EGRESS_POLICY_GID=os.getgid(),
+                    ASSISTANT_EGRESS_POLICY_DIR=policy_root,
+                    ASSISTANT_EGRESS_POLICY_GID=os.getgid(),
                 ),
                 mock.patch.object(
                     hosted_egress_policy,
@@ -581,8 +581,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         drifted_environments = {
             "wrong-token": {**expected, "HTTPS_PROXY": expected["HTTPS_PROXY"].replace(token, "b" * 32)},
             "missing-lowercase": {key: value for key, value in expected.items() if key != "https_proxy"},
-            "http-proxy": {**expected, "HTTP_PROXY": "http://app-egress-proxy:8889"},
-            "all-proxy": {**expected, "all_proxy": "http://app-egress-proxy:8889"},
+            "http-proxy": {**expected, "HTTP_PROXY": "http://assistant-egress:8889"},
+            "all-proxy": {**expected, "all_proxy": "http://assistant-egress:8889"},
         }
         for name, environment in drifted_environments.items():
             with self.subTest(name=name), self.assertRaises(runtime_state.ApiError) as caught:

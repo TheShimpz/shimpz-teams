@@ -122,7 +122,7 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         egress_proxy=f"shimpz-egress-proxy-{unique}",
         fixture_tag=f"shimpz-cloudflare-test:{unique}",
         controller_tag=f"shimpz-team-local-test:{unique}",
-        egress_proxy_tag=f"shimpz-app-egress-test:{unique}",
+        egress_proxy_tag=f"shimpz-assistant-egress-test:{unique}",
         token_volume=f"shimpz-local-token-{unique}",
         runtime_token_volume=f"shimpz-local-runtime-token-{unique}",
         audit_volume=f"shimpz-local-audit-{unique}",
