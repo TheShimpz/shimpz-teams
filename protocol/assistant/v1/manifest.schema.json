@@ -85,7 +85,7 @@
       "not": {
         "enum": [
           "postgres",
-          "app-egress-proxy"
+          "assistant-egress"
         ]
       }
     },

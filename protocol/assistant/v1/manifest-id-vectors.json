@@ -14,6 +14,6 @@
     "hello--world",
     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "postgres",
-    "app-egress-proxy"
+    "assistant-egress"
   ]
 }
