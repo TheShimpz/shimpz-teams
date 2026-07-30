@@ -33,19 +33,26 @@ class RequestTarget:
     query: dict[str, str]
 
 
+@dataclass(frozen=True, slots=True)
+class FileUploadMetadata:
+    length: int
+    filename: str
+    media_type: str
+
+
 def bearer_matches(headers: object, token: str) -> bool:
     """Accept exactly one bearer header and compare it in constant time."""
     values = headers.get_all("Authorization", failobj=[])
     return len(values) == 1 and hmac.compare_digest(values[0], f"Bearer {token}")
 
 
-def read_json_object(
+def read_json_document(
     headers: object,
     stream: BinaryIO,
     *,
     max_bytes: int,
-) -> dict[str, object]:
-    """Read one length-delimited, finite, duplicate-free JSON object."""
+) -> tuple[bytes, dict[str, object]]:
+    """Capture and parse one finite duplicate-free JSON object exactly once."""
     if headers.get_all("Transfer-Encoding", failobj=[]):
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
@@ -97,16 +104,26 @@ def read_json_object(
             "a JSON object is required",
             code="invalid-body",
         )
-    return body
+    return raw, body
 
 
-def read_file_upload(
+def read_json_object(
     headers: object,
     stream: BinaryIO,
     *,
     max_bytes: int,
-) -> tuple[str, bytes, str]:
-    """Read one length-delimited raw file with canonical metadata headers."""
+) -> dict[str, object]:
+    """Read one JSON object when the caller does not need its exact byte binding."""
+    _raw, body = read_json_document(headers, stream, max_bytes=max_bytes)
+    return body
+
+
+def file_upload_metadata(
+    headers: object,
+    *,
+    max_bytes: int,
+) -> FileUploadMetadata:
+    """Validate file framing and metadata before reading untrusted content."""
     if headers.get_all("Transfer-Encoding", failobj=[]):
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
@@ -163,6 +180,11 @@ def read_file_upload(
         not filename
         or len(filename.encode("utf-8")) > MAX_FILENAME_BYTES
         or quote(filename, safe="") != encoded_filename
+        or filename in {".", ".."}
+        or "/" in filename
+        or "\\" in filename
+        or filename.strip() != filename
+        or any(ord(character) < 32 or ord(character) == 127 for character in filename)
     ):
         raise HttpContractError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -170,21 +192,37 @@ def read_file_upload(
             code="invalid-file",
         )
 
+    return FileUploadMetadata(length, filename, media_type)
+
+
+def read_file_content(stream: BinaryIO, metadata: FileUploadMetadata) -> bytes:
+    """Read exactly the content covered by previously validated file metadata."""
     try:
-        body = stream.read(length)
+        body = stream.read(metadata.length)
     except OSError as exc:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
             "invalid file body",
             code="invalid-file",
         ) from exc
-    if len(body) != length:
+    if len(body) != metadata.length:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
             "invalid file body",
             code="invalid-file",
         )
-    return filename, body, media_type
+    return body
+
+
+def read_file_upload(
+    headers: object,
+    stream: BinaryIO,
+    *,
+    max_bytes: int,
+) -> tuple[str, bytes, str]:
+    """Read one file when the caller does not need pre-content authorization."""
+    metadata = file_upload_metadata(headers, max_bytes=max_bytes)
+    return metadata.filename, read_file_content(stream, metadata), metadata.media_type
 
 
 def reject_body(headers: object) -> None:

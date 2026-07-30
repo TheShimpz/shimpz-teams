@@ -13,7 +13,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hosted_assistant_fixture import app, runtime_state
+from hosted_assistant_fixture import app, hosted_controller, runtime_state
 
 from core.http import strict as strict_http
 from local import app as local_app
@@ -42,7 +42,7 @@ class SharedStrictHttpTest(unittest.TestCase):
             local = self._handler(local_app.Handler, body, headers)
             with self.subTest(body=body):
                 with self.assertRaises(runtime_state.ApiError) as hosted_error:
-                    hosted._read_body()
+                    hosted._capture_body("team-create")
                 with self.assertRaises(local_app.ApiProblem) as local_error:
                     local._body()
                 self.assertEqual((hosted_error.exception.status, local_error.exception.status), (expected, expected))
@@ -54,7 +54,7 @@ class SharedStrictHttpTest(unittest.TestCase):
         local.path = hosted.path
 
         with self.assertRaises(runtime_state.ApiError) as hosted_error:
-            hosted._route("GET", ("operator", None))
+            hosted_controller.hosted.route_target(hosted.headers, hosted.path, "GET", runtime_state.ApiError)
         with self.assertRaises(local_app.ApiProblem) as local_error:
             local._path_parts()
 
@@ -74,6 +74,7 @@ class SharedStrictHttpTest(unittest.TestCase):
         local = self._handler(local_app.Handler, body, headers)
 
         expected = ("brief ✓.txt", body, "text/plain")
+        hosted._capture_body("file-upload")
         self.assertEqual(hosted._read_file_body(), expected)
         self.assertEqual(local._file_body(), expected)
 
@@ -92,6 +93,19 @@ class SharedStrictHttpTest(unittest.TestCase):
             strict_http.read_file_upload(headers, Unreadable(), max_bytes=10)
 
         self.assertEqual(error.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+
+    def test_file_metadata_rejects_every_path_and_control_name_before_body_read(self) -> None:
+        for encoded_name in (".", "..", "..%2Fsecret", "path%5Csecret", "%20name", "name%20", "%00name"):
+            headers = Message()
+            headers.add_header("Content-Length", "1")
+            headers.add_header("Content-Type", "text/plain")
+            headers.add_header("X-Shimpz-Filename", encoded_name)
+            with (
+                self.subTest(encoded_name=encoded_name),
+                self.assertRaises(strict_http.HttpContractError) as caught,
+            ):
+                strict_http.file_upload_metadata(headers, max_bytes=1)
+            self.assertEqual(caught.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
 
 
 if __name__ == "__main__":
