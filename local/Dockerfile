@@ -109,7 +109,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
-      org.shimpz.local.profile="single-owner-local-v1"
+      org.shimpz.local.profile="local-v1"
 
 USER 10001:10001
 EXPOSE 7077

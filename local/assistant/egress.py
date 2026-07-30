@@ -23,7 +23,7 @@ from local.labels import (
 from local.validation import space_prefix as _space_prefix
 from local.validation import validate_team_id, validate_team_name
 
-PROFILE = "single-owner-local-v1"
+PROFILE = "local-v1"
 MAX_EGRESS_POLICY_BYTES = egress_policy.MAX_POLICY_BYTES
 ASSISTANT_EGRESS_ALIAS = "assistant-egress"
 ASSISTANT_EGRESS_PORT = 8889

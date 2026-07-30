@@ -15,7 +15,7 @@ leave only through the deny-by-default egress proxy policy written by this contr
 Every managed network and Assistant container carries these ownership labels:
 
 - `com.shimpz.local.managed=1`
-- `com.shimpz.local.profile=single-owner-local-v1`
+- `com.shimpz.local.profile=local-v1`
 - `com.shimpz.local.space-id=$SHIMPZ_SPACE_ID`
 - a fixed resource kind plus the Team/Assistant identity used to derive its deterministic Docker name
 - Team networks also carry the validated 1–80 character display name used by Admin

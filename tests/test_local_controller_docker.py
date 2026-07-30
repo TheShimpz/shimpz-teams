@@ -27,7 +27,7 @@ MANAGED_LABEL = "com.shimpz.local.managed"
 PROFILE_LABEL = "com.shimpz.local.profile"
 SPACE_LABEL = "com.shimpz.local.space-id"
 KIND_LABEL = "com.shimpz.local.kind"
-LOCAL_PROFILE = "single-owner-local-v1"
+LOCAL_PROFILE = "local-v1"
 
 sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
@@ -336,7 +336,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--label",
             "com.shimpz.local.managed=1",
             "--label",
-            "com.shimpz.local.profile=single-owner-local-v1",
+            "com.shimpz.local.profile=local-v1",
             "--label",
             f"com.shimpz.local.space-id={flow.space_id}",
             "--label",
@@ -829,7 +829,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--label",
             "com.shimpz.local.managed=1",
             "--label",
-            "com.shimpz.local.profile=single-owner-local-v1",
+            "com.shimpz.local.profile=local-v1",
             "--label",
             f"com.shimpz.local.space-id={flow.space_id}",
             flow.foreign_network,
