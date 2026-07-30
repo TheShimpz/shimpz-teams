@@ -19,8 +19,17 @@ from . import registry_auth
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
+RELEASE_PROXY_URL = "http://assistant-release:8888"
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
+_RELEASE_PROXY_ENVIRONMENT = (
+    f"HTTPS_PROXY={RELEASE_PROXY_URL}",
+    f"https_proxy={RELEASE_PROXY_URL}",
+    f"HTTP_PROXY={RELEASE_PROXY_URL}",
+    f"http_proxy={RELEASE_PROXY_URL}",
+    "NO_PROXY=",
+    "no_proxy=",
+)
 
 
 class ArtifactTrustError(RuntimeError):
@@ -140,6 +149,7 @@ class ArtifactTrustVerifier:
                         f"COSIGN_REPOSITORY={TRUST_REPOSITORY}",
                         f"DOCKER_CONFIG={docker_config}",
                         f"TUF_ROOT={self._trust_root}",
+                        *_RELEASE_PROXY_ENVIRONMENT,
                     ],
                 )
                 execution_id = execution["Id"]

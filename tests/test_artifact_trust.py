@@ -12,7 +12,12 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
-from install.artifact_trust import SIGNER_IDENTITY, ArtifactTrustError, ArtifactTrustVerifier
+from install.artifact_trust import (
+    RELEASE_PROXY_URL,
+    SIGNER_IDENTITY,
+    ArtifactTrustError,
+    ArtifactTrustVerifier,
+)
 from install.contract import CONTRACT_ROOT
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
@@ -112,9 +117,23 @@ class ArtifactTrustTests(unittest.TestCase):
             next(value for value in environment if value.startswith("DOCKER_CONFIG=")) for environment in environments
         ]
         homes = [next(value for value in environment if value.startswith("HOME=")) for environment in environments]
+        expected_proxy = {
+            f"HTTPS_PROXY={RELEASE_PROXY_URL}",
+            f"https_proxy={RELEASE_PROXY_URL}",
+            f"HTTP_PROXY={RELEASE_PROXY_URL}",
+            f"http_proxy={RELEASE_PROXY_URL}",
+            "NO_PROXY=",
+            "no_proxy=",
+        }
         self.assertEqual(tuf_roots, [f"TUF_ROOT={self._trust_root}"] * 2)
         self.assertNotEqual(docker_roots[0], docker_roots[1])
         self.assertNotEqual(homes[0], homes[1])
+        self.assertTrue(
+            all(
+                {value for value in environment if "_PROXY=" in value or "_proxy=" in value} == expected_proxy
+                for environment in environments
+            )
+        )
         self.assertEqual(self._trust_root.stat().st_mode & 0o777, 0o700)
         self.assertTrue(all(not Path(path).exists() for path in docker_configs))
         self.assertTrue(all(not Path(value.removeprefix("HOME=")).exists() for value in homes))
