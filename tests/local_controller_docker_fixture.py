@@ -149,6 +149,56 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
     )
 
 
+def prepare_account_egress_capability(
+    run: Callable[..., CompletedProcess[str]],
+    flow: DockerFlow,
+) -> None:
+    run(
+        "run",
+        "--rm",
+        "--user",
+        "0:0",
+        "--network",
+        "none",
+        "--volume",
+        f"{flow.account_egress_capability_volume}:/run/shimpz-account-egress",
+        "--entrypoint",
+        "/opt/venv/bin/python",
+        flow.controller_tag,
+        "-c",
+        "import os; from pathlib import Path; "
+        "p=Path('/run/shimpz-account-egress/token'); p.write_text('a'*64,encoding='ascii'); "
+        "os.chown(p,0,10022); p.chmod(0o440)",
+    )
+
+
+def runtime_secret_metadata(
+    run: Callable[..., CompletedProcess[str]],
+    flow: DockerFlow,
+) -> tuple[str, str, str]:
+    results = tuple(
+        run(
+            "exec",
+            flow.controller,
+            "/opt/venv/bin/python",
+            "-c",
+            "import os,stat,sys; s=os.stat(sys.argv[1]); "
+            "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink,s.st_size)",
+            path,
+        ).stdout.strip()
+        for path in (
+            "/run/shimpz-local/token",
+            "/run/shimpz-brain-runtime/token",
+            "/run/shimpz-account-egress/token",
+        )
+    )
+    return (
+        results[0],
+        results[1],
+        results[2],
+    )
+
+
 def _segment(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 

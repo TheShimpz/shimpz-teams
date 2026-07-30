@@ -35,6 +35,8 @@ from local_controller_docker_fixture import (
     DockerFlow,
     fixture_resolution,
     new_flow,
+    prepare_account_egress_capability,
+    runtime_secret_metadata,
     supervisor_header,
 )
 
@@ -298,23 +300,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "os.chown(r.parent,10001,10001); r.parent.chmod(0o700); "
             "os.chown(r,10001,10001); r.chmod(0o600)",
         )
-        self._run(
-            "run",
-            "--rm",
-            "--user",
-            "0:0",
-            "--network",
-            "none",
-            "--volume",
-            f"{flow.account_egress_capability_volume}:/run/shimpz-account-egress",
-            "--entrypoint",
-            "/opt/venv/bin/python",
-            flow.controller_tag,
-            "-c",
-            "import os; from pathlib import Path; "
-            "p=Path('/run/shimpz-account-egress/token'); p.write_text('a'*64,encoding='ascii'); "
-            "os.chown(p,0,10022); p.chmod(0o440)",
-        )
+        prepare_account_egress_capability(self._run, flow)
         self._run(
             "run",
             "--detach",
@@ -922,32 +908,9 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertNotIn("Captain", audit)
         self.assertNotIn(flow.token, audit)
 
-        token_mode = self._run(
-            "exec",
-            flow.controller,
-            "/opt/venv/bin/python",
-            "-c",
-            "import os,stat; s=os.stat('/run/shimpz-local/token'); "
-            "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink)",
-        ).stdout.strip()
-        self.assertEqual(token_mode, "0o440 10001 10010 1")
-        runtime_token_mode = self._run(
-            "exec",
-            flow.controller,
-            "/opt/venv/bin/python",
-            "-c",
-            "import os,stat; s=os.stat('/run/shimpz-brain-runtime/token'); "
-            "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink,s.st_size)",
-        ).stdout.strip()
+        token_mode, runtime_token_mode, account_egress_capability_mode = runtime_secret_metadata(self._run, flow)
+        self.assertEqual(token_mode, "0o440 10001 10010 1 64")
         self.assertEqual(runtime_token_mode, "0o440 10001 10016 1 64")
-        account_egress_capability_mode = self._run(
-            "exec",
-            flow.controller,
-            "/opt/venv/bin/python",
-            "-c",
-            "import os,stat; s=os.stat('/run/shimpz-account-egress/token'); "
-            "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink,s.st_size)",
-        ).stdout.strip()
         self.assertEqual(account_egress_capability_mode, "0o440 0 10022 1 64")
 
         # Leave one exact-owned pair for the outer finally. This proves cleanup does not depend
