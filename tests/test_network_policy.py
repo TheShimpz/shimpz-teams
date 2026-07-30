@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 from core.container import network as policy
-from hosted import container as manifests
+from hosted import container
 from hosted import healthcheck as team_healthcheck
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -370,17 +370,17 @@ def test_daemon_admission_requires_exact_runsc_path_and_builtin_seccomp() -> Non
     )
 
 
-def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
+def test_shipping_healthcheck_constants_mirror_lifecycle_container() -> None:
     check(
         team_healthcheck.REQUIRED_RUNTIME_PATH == policy.TEAM_RUNTIME_PATH,
         "shipping readiness pins the same absolute runsc handler as lifecycle admission",
     )
     check(
-        team_healthcheck.REQUIRED_RUNTIME == manifests.RUNTIME,
+        team_healthcheck.REQUIRED_RUNTIME == container.RUNTIME,
         "shipping readiness pins the same runtime name as lifecycle admission",
     )
     check(
-        team_healthcheck.DEFAULT_BRAIN_IMAGE == manifests.DEFAULT_TEAM_IMAGE,
+        team_healthcheck.DEFAULT_BRAIN_IMAGE == container.DEFAULT_TEAM_IMAGE,
         "shipping readiness pins the same default Brain image as lifecycle admission",
     )
     health_image = _environment_get(ROOT / "hosted" / "healthcheck.py", "REQUIRED_BRAIN_IMAGES")
@@ -390,7 +390,7 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
         "shipping readiness and lifecycle admission use the same Brain image environment key",
     )
     check(
-        {name: brain["image"] for name, brain in manifests.BRAINS.items()} == team_healthcheck.REQUIRED_BRAIN_IMAGES,
+        {name: brain["image"] for name, brain in container.BRAINS.items()} == team_healthcheck.REQUIRED_BRAIN_IMAGES,
         "shipping readiness pins the same Brain image registry as lifecycle admission",
     )
     health_port = _environment_get(ROOT / "hosted" / "healthcheck.py", "LISTEN_PORT")
