@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from controller_runtime import brain_credentials_client
+from inference import credentials as brain_credentials_client
 
 
 def _delivery(account_id: str, provider: str, recipient: str, secret: str) -> dict[str, object]:

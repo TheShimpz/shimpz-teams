@@ -15,7 +15,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 from local import app as local_app
 from local_support.chat_types import ActiveAssistant
 from local_support.validation import MAX_CHAT_ASSISTANTS

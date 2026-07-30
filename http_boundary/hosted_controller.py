@@ -23,7 +23,7 @@ from assistant_human import (
     hosted_chat_segment,
 )
 from container_policy import hosted_apps, hosted_lifecycle, hosted_resources
-from controller_runtime import accounts_client, brain_runtime_token_store
+from controller_runtime import accounts_client
 from core.http import stdlib
 from core.http import strict as strict_http
 from hosted.install import (
@@ -32,6 +32,7 @@ from hosted.install import (
     publication,
 )
 from http_boundary import hosted, runtime_state
+from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import contract as install_contract

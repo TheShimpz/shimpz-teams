@@ -7,9 +7,7 @@ from assistant_human import assistant_integration_flow, oauth_integration_store
 from assistant_human.assistant_registry import validate_power_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
-from controller_runtime import (
-    brain_runtime_client,
-)
+from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant

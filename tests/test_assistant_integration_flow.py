@@ -12,7 +12,7 @@ sys.path.insert(0, str(TEAM))
 
 from assistant_human import assistant_integration_challenges, assistant_integration_flow
 from assistant_human.assistant_registry import IntegrationSpec, PowerSpec
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 from local.install.runtime import AssistantSpec
 
 

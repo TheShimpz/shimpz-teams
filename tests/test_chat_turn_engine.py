@@ -19,7 +19,7 @@ import hosted_assistant_fixture as hosted_harness
 from assistant_human import assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
 from local.install.runtime import AssistantSpec

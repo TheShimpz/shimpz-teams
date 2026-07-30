@@ -23,7 +23,7 @@ from hosted_assistant_fixture import hosted_assistants, runtime_state
 
 import manifests
 from container_policy import local as local_container_policy
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 from local import app as local_app
 from local_support import assistant_rpc as local_assistant_rpc
 from power import execution as power_execution

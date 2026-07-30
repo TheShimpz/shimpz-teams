@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 
 
 class _Response:

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from assistant_human import assistant_integration_challenges, oauth_providers
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 
 MAX_BATCH_POWERS = 64
 MAX_INTEGRATION_REQUIREMENTS = 64

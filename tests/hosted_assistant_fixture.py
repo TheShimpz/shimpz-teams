@@ -112,7 +112,7 @@ class _PostgreSQLServiceError(Exception):
 _stub("controller_runtime.accounts_client", verify=lambda _token: None)
 _stub("audit", log=lambda *_args, **_kwargs: "trace")
 _stub(
-    "controller_runtime.brain_credentials_client",
+    "inference.credentials",
     BrainCredentialError=_BrainCredentialError,
     BrainCredentialSession=_BrainCredentialSession,
     resolve=lambda *_args: None,
@@ -212,7 +212,7 @@ for module_name in (
     "docker.utils.socket",
     "controller_runtime.accounts_client",
     "audit",
-    "controller_runtime.brain_credentials_client",
+    "inference.credentials",
     "controller_runtime.postgresql_service_client",
     "controller_runtime.token_store",
 ):

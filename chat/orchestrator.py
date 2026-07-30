@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 
 MAX_POWER_ROUNDS = 8
 

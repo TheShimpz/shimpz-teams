@@ -45,9 +45,7 @@ COPY assistant_human/__init__.py assistant_human/assistant_integration_challenge
     assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
     assistant_human/oauth_providers.py assistant_human/private_state.py ./assistant_human/
 COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
-COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
-    controller_runtime/brain_runtime_token_store.py \
-    controller_runtime/local_chat_continuations.py \
+COPY controller_runtime/__init__.py controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py \
     controller_runtime/local_token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
@@ -56,7 +54,8 @@ COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
-COPY inference/__init__.py inference/config.py inference/model_catalog.json ./inference/
+COPY inference/__init__.py inference/client.py inference/config.py inference/model_catalog.json \
+    inference/token.py ./inference/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py \
     install/registry_auth.py ./install/
 COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \

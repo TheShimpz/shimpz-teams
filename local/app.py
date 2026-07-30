@@ -33,12 +33,12 @@ from assistant_human import (
 )
 from assistant_human.assistant_registry import validate_power_payload
 from controller_runtime import (
-    brain_runtime_client,
-    brain_runtime_token_store,
     local_chat_continuation_store,
     local_token_store,
 )
+from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import token as brain_runtime_token_store
 from install import artifact_trust, bindings, registry_auth
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry

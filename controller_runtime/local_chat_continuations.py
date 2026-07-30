@@ -9,11 +9,9 @@ from dataclasses import asdict, dataclass
 
 from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
-from controller_runtime import (
-    brain_runtime_client,
-    local_chat_continuation_store,
-)
+from controller_runtime import local_chat_continuation_store
 from core import strict_json
+from inference import client as brain_runtime_client
 from inference import config as inference_config
 
 SCHEMA_VERSION = 1

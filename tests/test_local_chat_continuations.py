@@ -9,11 +9,8 @@ sys.path.insert(0, str(TEAM))
 
 from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
-from controller_runtime import (
-    brain_runtime_client,
-    local_chat_continuation_store,
-    local_chat_continuations,
-)
+from controller_runtime import local_chat_continuation_store, local_chat_continuations
+from inference import client as brain_runtime_client
 from inference import config as inference_config
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64

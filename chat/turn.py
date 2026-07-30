@@ -13,7 +13,7 @@ from assistant_human import (
     oauth_integration_store,
 )
 from chat import orchestrator as chat_orchestrator
-from controller_runtime import brain_runtime_client
+from inference import client as brain_runtime_client
 from power import journal as power_journal
 
 CHAT_PAUSED_STATUSES = frozenset({"integrations-required"})
