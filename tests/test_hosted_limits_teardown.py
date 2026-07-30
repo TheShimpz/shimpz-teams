@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hosted_assistant_fixture import hosted_lifecycle, hosted_resources, runtime_state
+from hosted_assistant_fixture import hosted_apps, hosted_lifecycle, hosted_resources, runtime_state
 
 cleanup_state = hosted_lifecycle.cleanup_state
 postgresql_service_client = hosted_lifecycle.postgresql_service_client
@@ -126,6 +126,47 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
         self.assertEqual(inventory.call_count, 3)
         self.assertEqual(sleep.call_count, 2)
         self.assertNotIn("team:one", runtime_state._capacity_reservations)
+
+    def test_teardown_removes_container_and_orphan_publication_bindings(self) -> None:
+        container = SimpleNamespace(labels={"team.assistant": "alpha"})
+        bindings = {
+            "alpha": SimpleNamespace(assistant_id="alpha"),
+            "beta": SimpleNamespace(assistant_id="beta"),
+        }
+        events: list[tuple[str, object]] = []
+
+        class BindingStore:
+            @staticmethod
+            def delete(_team_id: str, assistant_id: str) -> bool:
+                events.append(("delete-binding", assistant_id))
+                return bindings.pop(assistant_id, None) is not None
+
+            @staticmethod
+            def list(_team_id: str) -> tuple:
+                return tuple(bindings.values())
+
+        def teardown(_team_id: str, assistant_id: str, *, container=None):
+            events.append(("teardown", assistant_id, container))
+            return hosted_resources._CleanupResult(True, True)
+
+        with (
+            mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=[container]),
+            mock.patch.object(hosted_apps, "_teardown_assistant", side_effect=teardown),
+            mock.patch.object(runtime_state, "_dynamic_assistants", BindingStore()),
+        ):
+            complete = hosted_lifecycle._teardown_assistants("team_1")
+
+        self.assertTrue(complete)
+        self.assertEqual(bindings, {})
+        self.assertEqual(
+            events,
+            [
+                ("teardown", "alpha", container),
+                ("delete-binding", "alpha"),
+                ("teardown", "beta", None),
+                ("delete-binding", "beta"),
+            ],
+        )
 
     def test_teardown_advances_and_removes_real_durable_cleanup_record(self) -> None:
         events: list[object] = []

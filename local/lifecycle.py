@@ -98,6 +98,19 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             ) from exc
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
+        self.registry.delete(team_id, assistant_id)
+    for bound_team_id, assistant_id in sorted(self.registry.identities()):
+        if bound_team_id != team_id:
+            continue
+        spec = self.registry.get(team_id, assistant_id)
+        if spec is None:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Team resources failed their ownership contract",
+                code="ownership-conflict",
+            )
+        self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
+        self.registry.delete(team_id, assistant_id)
     return len(containers)
 
 
@@ -242,6 +255,7 @@ def _remove_space_resources(
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
+        self.registry.delete(team_id, assistant_id)
     for network in networks:
         self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)
     storage_removed = self.storage.destroy_all()

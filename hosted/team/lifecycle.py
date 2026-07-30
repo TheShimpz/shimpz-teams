@@ -18,6 +18,7 @@ from hosted.team import postgresql as postgresql_service_client
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from install import bindings as dynamic_assistants
 from integrations import store as integration_store
 from power import journal as power_journal
 from storage import files as team_storage
@@ -137,7 +138,30 @@ def _teardown_assistants(team_id: str) -> bool:
             assistant_id,
             container=assistant_container,
         )
-        cleanup_complete = result.artifacts_removed and cleanup_complete
+        if result.artifacts_removed:
+            try:
+                runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+            except dynamic_assistants.DynamicAssistantError:
+                cleanup_complete = False
+        else:
+            cleanup_complete = False
+    try:
+        remaining_bindings = runtime_state._dynamic_assistants.list(team_id)
+    except dynamic_assistants.DynamicAssistantError:
+        return False
+    for binding in remaining_bindings:
+        result = hosted_apps._teardown_assistant(
+            team_id,
+            binding.assistant_id,
+            container=None,
+        )
+        if not result.artifacts_removed:
+            cleanup_complete = False
+            continue
+        try:
+            runtime_state._dynamic_assistants.delete(team_id, binding.assistant_id)
+        except dynamic_assistants.DynamicAssistantError:
+            cleanup_complete = False
     return cleanup_complete
 
 

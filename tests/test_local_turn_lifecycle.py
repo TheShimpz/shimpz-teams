@@ -128,6 +128,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "storage_removed": True,
             },
         )
+        self.assertEqual(controller.registry.identities(), set())
 
     def test_reset_removes_orphan_egress_authority_for_owned_teams(self) -> None:
         events: list[object] = []
@@ -164,6 +165,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(result["assistants_removed"], 0)
         self.assertEqual(result["teams_removed"], 1)
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
+        self.assertEqual(controller.registry.identities(), set())
         self.assertLess(events.index("delete-accounts"), events.index("network-remove"))
 
     def test_destroy_brain_failure_is_redacted_and_mutates_nothing(self) -> None:
