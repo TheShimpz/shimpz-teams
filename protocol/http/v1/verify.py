@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import payload
+import supervisor
 import websocket
 
 HERE = Path(__file__).resolve().parent
@@ -37,8 +38,21 @@ for filename, expected in rows.items():
 vectors = json.loads((HERE / "vectors.json").read_bytes())
 if not isinstance(vectors, dict) or vectors.get("version") != 1:
     fail("Team HTTP vectors have an invalid root")
-if vectors.get("headers") != {"account_session": payload.ACCOUNT_SESSION_HEADER}:
+if vectors.get("headers") != {
+    "account_session": payload.ACCOUNT_SESSION_HEADER,
+    "local_supervisor": supervisor.ASSERTION_HEADER,
+}:
     fail("Team HTTP Account session header vector differs")
+supervisor_vectors = vectors.get("local_supervisor", {})
+for case in supervisor_vectors.get("valid", []):
+    if supervisor.canonical_claims(case) != case:
+        fail("Team HTTP Local Supervisor positive vector differs")
+for case in supervisor_vectors.get("invalid", []):
+    try:
+        supervisor.canonical_claims(case)
+    except supervisor.SupervisorAssertionError:
+        continue
+    fail("Team HTTP Local Supervisor negative vector differs")
 for case in vectors.get("frames", []):
     message = dict(case["message"])
     if "bytes_hex" in message:

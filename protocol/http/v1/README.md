@@ -10,8 +10,9 @@ In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-
 header containing the current opaque Account session. Team binds the canonical route, parameters,
 query, and exact request-body evidence before synchronously asking Account to evaluate that session.
 The internal Team bearer is machine authority only for the one-use OAuth callback continuation; it
-never substitutes for human Account or Supervisor evidence. Local Supervisor authority is a
-profile-specific boundary and is not expressed through this Hosted header.
+never substitutes for human Account or Supervisor evidence. In Local, Admin emits one short-lived
+Ed25519 assertion in `X-Shimpz-Supervisor` after validating its current browser session; Team binds
+it to the canonical request and consumes it once while retaining an independent machine bearer.
 
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
