@@ -88,22 +88,6 @@ def provision_team(team_id: str) -> dict:
     )
 
 
-def create_app_db(team_id: str, app_id: str) -> dict:
-    return _call(
-        "/v1/teams/apps/create",
-        {"team_id": team_id, "app_id": app_id},
-        _principal(team_id, create=False),
-    )
-
-
-def drop_app_db(team_id: str, app_id: str) -> dict:
-    return _call(
-        "/v1/teams/apps/drop",
-        {"team_id": team_id, "app_id": app_id},
-        _principal(team_id, create=False),
-    )
-
-
 def drop_team(team_id: str) -> dict:
     # The tenant endpoint retires (rather than deletes) its hashed principal, making an ambiguous
     # response safely retryable until Team runtime/volume cleanup is durably complete.

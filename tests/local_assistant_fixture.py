@@ -1,14 +1,13 @@
 """Runtime-only Assistant fixture; no product registry or installation authority."""
 
-from assistant_human import assistant_registry, marketplace
+from assistant_human import assistant_registry
 from local.install.runtime import AssistantSpec
 
 _PAGINATION = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        key: {"type": "integer", "minimum": 0}
-        for key in ("page", "per_page", "count", "total_count", "total_pages")
+        key: {"type": "integer", "minimum": 0} for key in ("page", "per_page", "count", "total_count", "total_pages")
     },
     "required": ["page", "per_page", "count", "total_count", "total_pages"],
 }
@@ -93,19 +92,17 @@ def assistant_spec(image: str) -> AssistantSpec:
     )
 
 
-def hosted_spec(image: str) -> marketplace.AppSpec:
+def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
     local = assistant_spec(image)
-    return marketplace.AppSpec(
+    return assistant_registry.AssistantSpec(
         image=image,
-        port=8080,
-        db=False,
         allowed_hosts=local.allowed_hosts,
-        first_party=False,
+        archs=("amd64", "arm64"),
         required_image_labels=(
             ("org.shimpz.assistant.id", local.assistant_id),
-            ("org.shimpz.assistant.api", "1"),
+            ("org.shimpz.source.digest", "sha256:" + ("c" * 64)),
         ),
-        assistant=marketplace.AssistantContract(
+        contract=assistant_registry.AssistantContract(
             powers=local.powers,
             accounts=local.accounts,
             machine_contract=local.machine_contract,

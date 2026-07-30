@@ -1,4 +1,4 @@
-"""Import-isolated hosted Team fixture shared by its contract suites."""
+"""Import-isolated Hosted Team fixture shared by Assistant contract suites."""
 
 from __future__ import annotations
 
@@ -122,22 +122,12 @@ _stub(
     "controller_runtime.postgresql_service_client",
     PostgreSQLServiceError=_PostgreSQLServiceError,
     provision_team=lambda _team_id: {"database_url": "postgres://scoped"},
-    create_app_db=lambda *_args: {},
-    drop_app_db=lambda *_args: {},
     drop_team=lambda *_args: {},
     finalize_team_drop=lambda *_args: {},
 )
 _stub("controller_runtime.token_store", ensure_token=lambda: "operator-token")
 
-from local_assistant_fixture import hosted_spec as _hosted_spec
-
-from assistant_human import marketplace as _marketplace
-
-_marketplace.APPS["shimpz-cloudflare"] = _hosted_spec(
-    "ghcr.io/theshimpz/shimpz-space@sha256:" + ("a" * 64)
-)
-
-spec = importlib.util.spec_from_file_location("team_app_hosted_test", TEAM / "hosted" / "app.py")
+spec = importlib.util.spec_from_file_location("team_assistant_hosted_test", TEAM / "hosted" / "app.py")
 app = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = app
@@ -151,6 +141,45 @@ hosted_assistants = sys.modules["assistant_human.hosted_assistants"]
 hosted_chat_api = sys.modules["assistant_human.hosted_chat_api"]
 hosted_chat_segment = sys.modules["assistant_human.hosted_chat_segment"]
 hosted_controller = sys.modules["http_boundary.hosted_controller"]
+
+from local_assistant_fixture import hosted_spec as _hosted_spec
+
+HOSTED_SPEC = _hosted_spec("ghcr.io/theshimpz/shimpz-space@sha256:" + ("a" * 64))
+HOSTED_BINDING = types.SimpleNamespace(
+    team_id="team_1",
+    assistant_id="shimpz-cloudflare",
+    binding_digest="sha256:" + ("b" * 64),
+    resolution={
+        "assistant_id": "shimpz-cloudflare",
+        "source_digest": "sha256:" + ("c" * 64),
+        "oci_digest": "sha256:" + ("a" * 64),
+    },
+)
+
+
+class _BindingStore:
+    def get(self, team_id, assistant_id):
+        if (team_id, assistant_id) == ("team_1", "shimpz-cloudflare"):
+            return HOSTED_BINDING
+        return None
+
+    def list(self, team_id):
+        return (HOSTED_BINDING,) if team_id == "team_1" else ()
+
+    def put(self, _team_id, resolution):
+        return types.SimpleNamespace(
+            team_id="team_1",
+            assistant_id=resolution["assistant_id"],
+            binding_digest="sha256:" + ("b" * 64),
+            resolution=resolution,
+        )
+
+    @staticmethod
+    def delete(_team_id, _assistant_id):
+        return True
+
+
+runtime_state._dynamic_assistants = _BindingStore()
 
 # The loaded app keeps direct references to its fakes. Restore the process import table so discovery
 # order can never make unrelated tests import a partial Docker/client module.

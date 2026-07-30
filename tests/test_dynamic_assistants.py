@@ -14,13 +14,14 @@ from unittest import mock
 
 from hosted.install import publication
 from install.bindings import (
+    DynamicAssistantBinding,
     DynamicAssistantConflictError,
     DynamicAssistantError,
     DynamicAssistantStore,
 )
 from install.contract import CONTRACT_ROOT
 
-app_spec = publication.app_spec
+assistant_spec = publication.assistant_spec
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
@@ -39,7 +40,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.path = Path(self.directory.name) / "bindings.json"
         self.store = DynamicAssistantStore(self.path)
-        publication._cached_app_spec.cache_clear()
+        publication._cached_assistant_spec.cache_clear()
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -99,17 +100,31 @@ class DynamicAssistantStoreTests(unittest.TestCase):
             with self.subTest(assistant_id=assistant_id), self.assertRaises(DynamicAssistantError):
                 self.store.get("team_1", assistant_id)
 
+    def test_reserved_service_alias_is_refused_before_write_and_revalidation(self) -> None:
+        resolution = runtime_resolution()
+        resolution["assistant_id"] = "postgres"
+
+        with self.assertRaises(DynamicAssistantError):
+            self.store.put("team_1", resolution)
+        self.assertFalse(self.path.exists())
+
+        forged = DynamicAssistantBinding(
+            team_id="team_1",
+            binding_digest=f"sha256:{'a' * 64}",
+            resolution=resolution,
+        )
+        with self.assertRaises(DynamicAssistantError):
+            assistant_spec(forged)
+
     def test_resolution_builds_a_digest_bound_assistant_spec(self) -> None:
         binding = self.store.put("team_1", runtime_resolution())
 
-        spec = app_spec(binding)
+        spec = assistant_spec(binding)
 
         self.assertEqual(spec.image, RESOLUTION["image_reference"])
-        self.assertFalse(spec.db)
-        self.assertFalse(spec.first_party)
         self.assertEqual(spec.archs, ("amd64", "arm64"))
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
-        self.assertEqual(tuple(spec.assistant.powers), ("hello",))
+        self.assertEqual(tuple(spec.contract.powers), ("hello",))
         self.assertEqual(
             spec.required_image_labels,
             (
@@ -127,14 +142,14 @@ class DynamicAssistantStoreTests(unittest.TestCase):
             "canonical_machine_contract",
             wraps=validator,
         ) as canonical:
-            first = app_spec(binding)
-            second = app_spec(binding)
+            first = assistant_spec(binding)
+            second = assistant_spec(binding)
 
         self.assertEqual(canonical.call_count, 1)
         self.assertEqual(first, second)
         self.assertIsNot(first, second)
-        first.assistant.powers.pop("hello")
-        self.assertIn("hello", app_spec(binding).assistant.powers)
+        first.contract.powers.pop("hello")
+        self.assertIn("hello", assistant_spec(binding).contract.powers)
 
     def test_registry_readers_share_the_file_lock(self) -> None:
         expected = self.store.put("team_1", runtime_resolution())
@@ -183,7 +198,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         binding = self.store.put("team_1", copy.deepcopy(RESOLUTION))
 
         with self.assertRaises(DynamicAssistantError):
-            app_spec(binding)
+            assistant_spec(binding)
 
 
 if __name__ == "__main__":

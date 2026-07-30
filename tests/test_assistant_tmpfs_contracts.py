@@ -1,4 +1,4 @@
-"""Hosted and local Assistant writable-temp parity."""
+"""Hosted and Local Assistant writable-temp contracts."""
 
 from __future__ import annotations
 
@@ -16,12 +16,14 @@ from local_controller_harness import LocalContractCase
 import manifests
 
 
-class AssistantTmpfsParity(LocalContractCase):
-    def test_local_and_hosted_assistants_share_the_same_tmpfs(self):
-        hosted = manifests.build_team_app_kwargs(
+class AssistantTmpfsContracts(LocalContractCase):
+    def test_each_profile_applies_its_current_bounded_tmpfs(self):
+        hosted = manifests.build_assistant_kwargs(
             "team_1",
             "shimpz-cloudflare",
             hosted_spec("ghcr.io/example/example-assistant@sha256:" + ("a" * 64)),
+            owner="account_1",
+            source_digest="sha256:" + ("c" * 64),
         )["tmpfs"]
         controller, _existing, _events = self._lifecycle_controller()
         captured = {}
@@ -46,5 +48,5 @@ class AssistantTmpfsParity(LocalContractCase):
             SimpleNamespace(id="img-id"),
         )
 
-        self.assertEqual(captured["tmpfs"], hosted)
-        self.assertEqual(hosted, {manifests.CONTAINER_TMP: "size=256m"})
+        self.assertEqual(hosted, {manifests.CONTAINER_TMP: "size=64m,mode=1777"})
+        self.assertEqual(captured["tmpfs"], {manifests.CONTAINER_TMP: "size=256m"})

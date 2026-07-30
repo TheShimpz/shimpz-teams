@@ -15,7 +15,7 @@ from decimal import Decimal, InvalidOperation
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")
 TEAM_PREFIX = f"team{SUFFIX}_"
 CORE_NETWORK_PREFIX = f"net_team{SUFFIX}_"
-APP_WORKLOAD_DELIMITER = ".app."
+ASSISTANT_WORKLOAD_DELIMITER = ".assistant."
 DOCKER_RESOURCE_NAME_MAX = 255
 DOCKER_NETWORK_NAME_MAX = DOCKER_RESOURCE_NAME_MAX
 TMPFS_MOUNT_PATH = f"{os.sep}tmp"
@@ -42,7 +42,7 @@ VOLUME_KINDS = frozenset({CONFIG_VOLUME_KIND, WORKSPACE_VOLUME_KIND})
 POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgres{SUFFIX}")
 APP_EGRESS_CONTAINER = os.environ.get("SHIMPZ_APP_EGRESS_PROXY_CONTAINER", f"app-egress-proxy{SUFFIX}")
 
-APP_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
+ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_BRAIN_CAP_ADD = frozenset()
 SHARED_MANAGED_LABEL = "shimpz.team.shared"
 SHARED_ROLE_LABEL = "shimpz.team.shared.role"
@@ -88,15 +88,15 @@ BRAIN_MEMORY_RESERVATION_BYTES = hard_memory_bytes(
 )
 BRAIN_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_NANO_CPUS", str(100_000_000)))
 BRAIN_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_PIDS_LIMIT", "128"))
-APP_MEMORY_BYTES = hard_memory_bytes(
-    os.environ.get("SHIMPZ_TEAM_APP_MEM_LIMIT", "1g"),
-    setting="SHIMPZ_TEAM_APP_MEM_LIMIT",
+ASSISTANT_MEMORY_BYTES = hard_memory_bytes(
+    os.environ.get("SHIMPZ_TEAM_ASSISTANT_MEM_LIMIT", "1g"),
+    setting="SHIMPZ_TEAM_ASSISTANT_MEM_LIMIT",
 )
-APP_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_APP_NANO_CPUS", str(500_000_000)))
-APP_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_APP_PIDS_LIMIT", "256"))
+ASSISTANT_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_NANO_CPUS", str(500_000_000)))
+ASSISTANT_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_PIDS_LIMIT", "256"))
 TEAM_LOG_MAX_SIZE = "5m"
 TEAM_LOG_MAX_FILE = "2"
-if min(BRAIN_NANO_CPUS, BRAIN_PIDS_LIMIT, APP_NANO_CPUS, APP_PIDS_LIMIT) < 1:
+if min(BRAIN_NANO_CPUS, BRAIN_PIDS_LIMIT, ASSISTANT_NANO_CPUS, ASSISTANT_PIDS_LIMIT) < 1:
     raise ValueError("Team CPU and PID limits must be positive")
 
 
@@ -110,13 +110,12 @@ def team_container_name(team_id: str) -> str:
     return _bounded_resource_name(f"{TEAM_PREFIX}{team_id}", "Brain container")
 
 
-def team_app_container_name(team_id: str, app_id: str) -> str:
-    if APP_ID_RE.fullmatch(app_id) is None:
-        raise ValueError(f"invalid Team App id: {app_id!r}")
-    # Dot is outside the TEAM_ID alphabet, so no valid Brain TEAM_ID can impersonate an App workload. Keeping
-    # the App id verbatim also makes (TEAM_ID, app id) -> Docker name injective.
-    name = f"{TEAM_PREFIX}{team_id}{APP_WORKLOAD_DELIMITER}{app_id}"
-    return _bounded_resource_name(name, "App container")
+def team_assistant_container_name(team_id: str, assistant_id: str) -> str:
+    if ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
+        raise ValueError(f"invalid Team Assistant id: {assistant_id!r}")
+    # Dot is outside the TEAM_ID alphabet, so no valid Brain TEAM_ID can impersonate an Assistant workload.
+    name = f"{TEAM_PREFIX}{team_id}{ASSISTANT_WORKLOAD_DELIMITER}{assistant_id}"
+    return _bounded_resource_name(name, "Assistant container")
 
 
 def volume_name(team_id: str, kind: str) -> str:
@@ -217,16 +216,16 @@ def _workload_role(metadata: Mapping, team_id: str) -> tuple[str, str] | None:
     name = _container_name(metadata)
     if labels.get("team.runtime") == "1" and labels.get("team.id") == team_id and name == team_container_name(team_id):
         return "brain", ""
-    app_id = labels.get("team.app")
+    assistant_id = labels.get("team.assistant")
     if (
-        labels.get("team.app.runtime") == "1"
+        labels.get("team.assistant.runtime") == "1"
         and labels.get("team.id") == team_id
-        and isinstance(app_id, str)
-        and APP_ID_RE.fullmatch(app_id) is not None
-        and app_id not in RESERVED_SERVICE_ALIASES
-        and name == team_app_container_name(team_id, app_id)
+        and isinstance(assistant_id, str)
+        and ASSISTANT_ID_RE.fullmatch(assistant_id) is not None
+        and assistant_id not in RESERVED_SERVICE_ALIASES
+        and name == team_assistant_container_name(team_id, assistant_id)
     ):
-        return "app", app_id
+        return "assistant", assistant_id
     return None
 
 
@@ -235,9 +234,9 @@ def brain_identity_valid(metadata: Mapping, team_id: str) -> bool:
     return _workload_role(metadata, team_id) == ("brain", "")
 
 
-def app_identity_valid(metadata: Mapping, team_id: str, app_id: str) -> bool:
-    """Require both the injective Docker name and exact App ownership labels."""
-    return _workload_role(metadata, team_id) == ("app", app_id)
+def assistant_identity_valid(metadata: Mapping, team_id: str, assistant_id: str) -> bool:
+    """Require both the injective Docker name and exact Assistant ownership labels."""
+    return _workload_role(metadata, team_id) == ("assistant", assistant_id)
 
 
 def workload_network_kinds(metadata: Mapping, team_id: str) -> frozenset[str] | None:
@@ -314,7 +313,7 @@ def _required_aliases(role: tuple[str, str]) -> frozenset[str]:
         return frozenset({"postgres"})
     if name == "app-egress":
         return frozenset({"app-egress-proxy"})
-    if name == "app":
+    if name == "assistant":
         return frozenset({value, f"{value}.team"})
     return frozenset()
 
@@ -566,7 +565,7 @@ def _resource_and_namespace_posture_reason(
     host_config: Mapping,
     role: str,
     *,
-    compact_app_runtime: bool = False,
+    compact_assistant_runtime: bool = False,
 ) -> str | None:
     if role == "brain":
         expected = (
@@ -578,8 +577,8 @@ def _resource_and_namespace_posture_reason(
         tmpfs_size = 16 * 1024**2
         nofile = 256
     else:
-        expected = (APP_MEMORY_BYTES, 0, APP_NANO_CPUS, APP_PIDS_LIMIT)
-        tmpfs_size = (64 if compact_app_runtime else 256) * 1024**2
+        expected = (ASSISTANT_MEMORY_BYTES, 0, ASSISTANT_NANO_CPUS, ASSISTANT_PIDS_LIMIT)
+        tmpfs_size = (64 if compact_assistant_runtime else 256) * 1024**2
         nofile = 4096
     memory_reservation = host_config.get("MemoryReservation")
     if memory_reservation is None:
@@ -612,13 +611,13 @@ def _resource_and_namespace_posture_valid(
     host_config: Mapping,
     role: str,
     *,
-    compact_app_runtime: bool = False,
+    compact_assistant_runtime: bool = False,
 ) -> bool:
     return (
         _resource_and_namespace_posture_reason(
             host_config,
             role,
-            compact_app_runtime=compact_app_runtime,
+            compact_assistant_runtime=compact_assistant_runtime,
         )
         is None
     )
@@ -631,7 +630,7 @@ def workload_security_valid(
     *,
     expected_image_ref: str,
     expected_image_id: str,
-    compact_app_runtime: bool = False,
+    compact_assistant_runtime: bool = False,
 ) -> bool:
     """Validate immutable hostile-workload posture plus its exact core attachment."""
     role = _workload_role(metadata, team_id)
@@ -651,7 +650,7 @@ def workload_security_valid(
         or not _resource_and_namespace_posture_valid(
             host_config,
             role[0],
-            compact_app_runtime=compact_app_runtime,
+            compact_assistant_runtime=compact_assistant_runtime,
         )
         or metadata.get("AppArmorProfile") != "docker-default"
     ):

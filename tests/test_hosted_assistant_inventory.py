@@ -4,21 +4,25 @@ import types
 import unittest
 from unittest import mock
 
-from hosted_app_fixture import hosted_apps, hosted_assistants, hosted_resources, runtime_state
-
-marketplace = hosted_assistants.marketplace
+from hosted_assistant_fixture import (
+    HOSTED_SPEC,
+    hosted_apps,
+    hosted_assistants,
+    hosted_resources,
+    runtime_state,
+)
 
 
 class HostedAssistantInventoryTests(unittest.TestCase):
     def test_active_assistants_inspect_network_members_once_per_listing(self) -> None:
         first_id = "shimpz-cloudflare"
         second_id = "second-assistant"
-        spec = marketplace.APPS[first_id]
+        spec = HOSTED_SPEC
         candidate_ids = (first_id, second_id)
         candidates = [
             types.SimpleNamespace(
                 id=f"container-{assistant_id}",
-                labels={"team.app": assistant_id},
+                labels={"team.assistant": assistant_id},
                 status="running",
                 reload=mock.Mock(),
             )
@@ -39,15 +43,22 @@ class HostedAssistantInventoryTests(unittest.TestCase):
         def installed(_team_id: str, assistant_id: str, inspect_memo, candidate, *_args):
             admitted_candidates.append(candidate)
             hosted_resources._network_container_metadata(network, inspect_memo)
-            return assistant_id, spec.assistant, candidate
+            return assistant_id, spec.contract, candidate
 
         engine = types.SimpleNamespace(
             containers=types.SimpleNamespace(get=lambda member_id: members[member_id]),
         )
         with (
-            mock.patch.dict(marketplace.APPS, {second_id: spec}),
             mock.patch.object(runtime_state, "_docker", engine),
-            mock.patch.object(hosted_apps, "_team_app_containers", return_value=candidates),
+            mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=candidates),
+            mock.patch.object(
+                hosted_apps,
+                "_resolve_team_assistant",
+                side_effect=lambda _team_id, assistant_id, *_args: (
+                    assistant_id,
+                    spec,
+                ),
+            ),
             mock.patch.object(hosted_assistants, "_installed_assistant", side_effect=installed),
         ):
             active = hosted_assistants._active_team_assistants("team_1")

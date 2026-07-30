@@ -1,22 +1,24 @@
-"""Hosted Team app admission, egress, installation, and inventory."""
+"""Hosted Team Assistant admission, egress, installation, and inventory."""
 
 from __future__ import annotations
 
 import contextlib
-import http.client
 import time
 from collections.abc import Callable
 from http import HTTPStatus
 from typing import NoReturn
 
-import docker
 import docker.errors
 
 import manifests
-from assistant_human import assistant_genesis, assistant_manifest, marketplace, oauth_account_store
+from assistant_human import (
+    assistant_genesis,
+    assistant_manifest,
+    assistant_registry,
+    oauth_account_store,
+)
 from container_policy import hosted_resources
 from container_policy import network as network_policy
-from controller_runtime import postgresql_service_client
 from egress import policy as egress_policy
 from hosted.install import publication
 from http_boundary import runtime_state
@@ -53,18 +55,22 @@ def _require_assistant_genesis(container) -> str:
         ) from exc
 
 
-def _require_assistant_allowed_hosts(spec: marketplace.AppSpec, container) -> tuple[str, ...]:
+def _require_assistant_allowed_hosts(
+    spec: assistant_registry.AssistantSpec,
+    container,
+) -> tuple[str, ...]:
     """Admit the complete security manifest and return its reviewed egress set."""
-    contract = spec.assistant
-    if contract is None:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant has no reviewed manifest contract")
     try:
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
-            accounts=contract.accounts,
+            accounts=spec.contract.accounts,
         )
         declared = runtime_state._assistant_allowed_hosts_cache.get(container, reviewed)
-        runtime_state._assistant_machine_contract_cache.get(container, declared.accounts, contract.machine_contract)
+        runtime_state._assistant_machine_contract_cache.get(
+            container,
+            declared.accounts,
+            spec.contract.machine_contract,
+        )
     except assistant_manifest.ManifestError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
@@ -73,86 +79,79 @@ def _require_assistant_allowed_hosts(spec: marketplace.AppSpec, container) -> tu
     return declared.allowed_hosts
 
 
-def _admit_app_contract(spec: marketplace.AppSpec, container) -> tuple[str, ...]:
-    if spec.assistant is not None:
-        allowed_hosts = _require_assistant_allowed_hosts(spec, container)
-        _require_assistant_genesis(container)
-        return allowed_hosts
-    return spec.allowed_hosts
+def _admit_assistant_contract(
+    spec: assistant_registry.AssistantSpec,
+    container,
+) -> tuple[str, ...]:
+    allowed_hosts = _require_assistant_allowed_hosts(spec, container)
+    _require_assistant_genesis(container)
+    return allowed_hosts
 
 
-def _team_app_containers(team_id: str) -> list:
-    """Every installed-app container of team `team_id` (its OWN label set — never `team.runtime`)."""
+def _team_assistant_containers(team_id: str) -> list:
+    """Return only exact Assistant-labeled containers owned by one Team."""
     return runtime_state._docker.containers.list(
         all=True,
-        filters={"label": ["team.app.runtime", f"team.id={team_id}"]},
+        filters={"label": ["team.assistant.runtime", f"team.id={team_id}"]},
     )
 
 
-def _resolve_team_app(
+def _resolve_team_assistant(
     team_id: str,
-    app_id: object,
-    dynamic_bindings: dict[str, dynamic_assistants.DynamicAssistantBinding] | None = None,
-) -> tuple[str, marketplace.AppSpec]:
-    """Resolve a static catalog entry or this Team's exact durable dynamic binding."""
-    assistant_id = marketplace.validate_app_id(app_id)
-    if assistant_id in marketplace.RESERVED_APP_IDS:
-        raise marketplace.MarketplaceError(f"app id {assistant_id!r} is reserved for Team infrastructure")
-    static = marketplace.APPS.get(assistant_id)
-    if static is not None:
-        return assistant_id, static
+    assistant_id: object,
+    bindings: dict[str, dynamic_assistants.DynamicAssistantBinding] | None = None,
+) -> tuple[str, assistant_registry.AssistantSpec]:
+    """Resolve one Assistant exclusively through this Team's durable publication binding."""
     try:
+        validated_id = assistant_registry.validate_assistant_id(assistant_id)
+        if validated_id in network_policy.RESERVED_SERVICE_ALIASES:
+            raise assistant_registry.AssistantSpecError("the Assistant id is reserved for Team infrastructure")
         binding = (
-            runtime_state._dynamic_assistants.get(team_id, assistant_id)
-            if dynamic_bindings is None
-            else dynamic_bindings.get(assistant_id)
+            runtime_state._dynamic_assistants.get(team_id, validated_id)
+            if bindings is None
+            else bindings.get(validated_id)
         )
         if binding is None:
-            raise marketplace.MarketplaceError(f"app {assistant_id!r} is not deployable in this Team")
-        return assistant_id, publication.app_spec(binding)
+            raise assistant_registry.AssistantSpecError(f"Assistant {validated_id!r} is not installed in this Team")
+        return validated_id, publication.assistant_spec(binding)
     except dynamic_assistants.DynamicAssistantError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "dynamic Assistant metadata is unavailable",
+            "Assistant metadata is unavailable",
         ) from exc
 
 
 def _dynamic_binding_snapshot(
     team_id: str,
-    app_ids: tuple[str, ...],
+    assistant_ids: tuple[str, ...],
 ) -> dict[str, dynamic_assistants.DynamicAssistantBinding]:
-    dynamic_ids = frozenset(app_id for app_id in app_ids if app_id not in marketplace.APPS)
-    if not dynamic_ids:
+    if not assistant_ids:
         return {}
     try:
+        requested = frozenset(assistant_ids)
         return {
             binding.assistant_id: binding
             for binding in runtime_state._dynamic_assistants.list(team_id)
-            if binding.assistant_id in dynamic_ids
+            if binding.assistant_id in requested
         }
     except dynamic_assistants.DynamicAssistantError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "dynamic Assistant metadata is unavailable",
+            "Assistant metadata is unavailable",
         ) from exc
 
 
-def _app_egress_token(
+def _assistant_egress_token(
     team_id: str,
-    app_id: str,
+    assistant_id: str,
     *,
     create: bool = True,
     store: egress_policy.EgressPolicyStore | None = None,
 ) -> str | None:
-    """The app instance's stable egress token (its Proxy-Authorization to app-egress-proxy).
-
-    Kept in the policy volume (Team controller + proxy only) and reused across reinstalls. The proxy
-    maps the token to this App instance's own allowlist.
-    """
     try:
         current_store = store if store is not None else _egress_store()
         return current_store.token(
-            manifests.team_app_container_name(team_id, app_id),
+            manifests.team_assistant_container_name(team_id, assistant_id),
             create=create,
         )
     except egress_policy.EgressPolicyError as exc:
@@ -173,14 +172,14 @@ def _write_egress_policy(
 
 def _validate_egress_policy(
     team_id: str,
-    app_id: str,
+    assistant_id: str,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
 ) -> str:
     try:
         current_store = store if store is not None else _egress_store()
         return current_store.validate(
-            manifests.team_app_container_name(team_id, app_id),
+            manifests.team_assistant_container_name(team_id, assistant_id),
             allowed_hosts,
         )
     except egress_policy.EgressPolicyError as exc:
@@ -189,12 +188,12 @@ def _validate_egress_policy(
 
 def _validate_admitted_egress(
     team_id: str,
-    app_id: str,
+    assistant_id: str,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
 ) -> str | None:
     if allowed_hosts:
-        return _validate_egress_policy(team_id, app_id, allowed_hosts, store)
+        return _validate_egress_policy(team_id, assistant_id, allowed_hosts, store)
     return None
 
 
@@ -219,27 +218,43 @@ def _validate_assistant_proxy_environment(
     raw_environment = config.get("Env") if isinstance(config, dict) else None
     environment = egress_policy.environment_map(raw_environment)
     if environment is None:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant proxy environment is invalid")
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "installed Assistant proxy environment is invalid",
+        )
     proxy_environment = {key: value for key, value in environment.items() if key.upper().endswith("_PROXY")}
     if allowed_hosts and token is None:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant proxy environment failed its contract")
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "installed Assistant proxy environment failed its contract",
+        )
     expected = _egress_proxy_environment(token, store) if token is not None else {}
     if proxy_environment != expected:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant proxy environment failed its contract")
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "installed Assistant proxy environment failed its contract",
+        )
 
 
 def _reserve_egress_environment(
     team_id: str,
-    app_id: str,
+    assistant_id: str,
     allowed_hosts: tuple[str, ...],
     store: egress_policy.EgressPolicyStore | None = None,
 ) -> tuple[str | None, dict[str, str]]:
     if not allowed_hosts:
         return None, {}
     current_store = store if store is not None else _egress_store()
-    token = _app_egress_token(team_id, app_id, store=current_store)
+    token = _assistant_egress_token(
+        team_id,
+        assistant_id,
+        store=current_store,
+    )
     if token is None:
-        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Assistant egress token is unavailable")
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant egress token is unavailable",
+        )
     return token, _egress_proxy_environment(token, current_store)
 
 
@@ -252,10 +267,11 @@ def _activate_admitted_egress(
     if not allowed_hosts:
         return
     if token is None:
-        raise runtime_state.ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, "Assistant egress admission failed")
+        raise runtime_state.ApiError(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "Assistant egress admission failed",
+        )
     _write_egress_policy(token, allowed_hosts, store)
-    # Only the authenticated app proxy may join the core network. The broad Brain proxy
-    # is confined to the separate Brain-egress network and is unreachable from this App.
     hosted_resources._safe_connect(
         network,
         manifests.APP_EGRESS_CONTAINER,
@@ -264,88 +280,15 @@ def _activate_admitted_egress(
     )
 
 
-def _remove_egress_policy(team_id: str, app_id: str) -> bool:
-    """Remove an App's policy and token without losing the token needed for a retry."""
+def _remove_egress_policy(team_id: str, assistant_id: str) -> bool:
     try:
-        _egress_store().remove(manifests.team_app_container_name(team_id, app_id))
+        _egress_store().remove(manifests.team_assistant_container_name(team_id, assistant_id))
     except egress_policy.EgressPolicyError:
         return False
     return True
 
 
-def _probe_app_health(container, port: int, health_path: str) -> bool:
-    """Probe the registry-declared endpoint; only an exact HTTP 200 proves the App ready."""
-    url = f"http://127.0.0.1:{port}{health_path}"
-    script = (
-        "import http.client,sys\n"
-        "connection=http.client.HTTPConnection('127.0.0.1', int(sys.argv[1]), timeout=3)\n"
-        "try:\n"
-        "    connection.request('GET', sys.argv[2])\n"
-        "    print(connection.getresponse().status)\n"
-        "finally:\n"
-        "    connection.close()\n"
-    )
-    probes = (
-        [
-            "curl",
-            "-s",
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code}",
-            "--max-time",
-            "3",
-            url,
-        ],
-        ["python3", "-c", script, str(port), health_path],
-    )
-    for probe in probes:
-        try:
-            rc, out = container.exec_run(probe)
-        except docker.errors.APIError:  # the binary isn't in this image — try the other one
-            continue
-        answer = out.decode(errors="replace").strip() if rc == 0 else ""
-        if answer.isdigit():
-            return marketplace.health_response_ok(int(answer))
-    return False
-
-
-def _wait_app_healthy(container, port: int, health_path: str) -> tuple[bool, str]:
-    for attempt in range(runtime_state.HEALTH_RETRIES):
-        container.reload()
-        if container.status in ("exited", "dead"):
-            return False, f"container not running (status={container.status})"
-        if container.status == "running" and _probe_app_health(container, port, health_path):
-            return True, "ok"
-        if attempt < runtime_state.HEALTH_RETRIES - 1:
-            time.sleep(runtime_state.HEALTH_DELAY_SECONDS)
-    return False, "health probe never answered"
-
-
-def _app_ready_now(container, port: int, health_path: str) -> tuple[bool, str]:
-    """Re-prove running + exact endpoint health at the install response commit seam."""
-    try:
-        container.reload()
-        if container.status != "running":
-            return False, f"container not running (status={container.status})"
-        if not _probe_app_health(container, port, health_path):
-            return False, "declared health endpoint did not answer 200"
-            # The endpoint may have answered while the process was exiting. Reload once more so a
-            # container that died during or immediately after the probe cannot be reported as running.
-        container.reload()
-    except docker.errors.DockerException:
-        return False, "container readiness could not be verified"
-    if container.status != "running":
-        return False, f"container exited during its health probe (status={container.status})"
-    return True, container.status
-
-
-def _wait_registered_app_ready(
-    container,
-    spec: marketplace.AppSpec,
-) -> tuple[bool, str]:
-    if spec.assistant is None:
-        return _wait_app_healthy(container, spec.port, spec.health_path)
+def _wait_assistant_ready(container) -> tuple[bool, str]:
     for attempt in range(runtime_state.HEALTH_RETRIES):
         container.reload()
         if container.status == "running":
@@ -357,12 +300,7 @@ def _wait_registered_app_ready(
     return False, "Assistant container never started"
 
 
-def _registered_app_ready_now(
-    container,
-    spec: marketplace.AppSpec,
-) -> tuple[bool, str]:
-    if spec.assistant is None:
-        return _app_ready_now(container, spec.port, spec.health_path)
+def _assistant_ready_now(container) -> tuple[bool, str]:
     try:
         container.reload()
     except docker.errors.DockerException:
@@ -372,19 +310,32 @@ def _registered_app_ready_now(
     return True, "running"
 
 
-def _teardown_app(
+def _teardown_assistant(
     team_id: str,
-    app_id: str,
+    assistant_id: str,
     *,
     container=None,
-    drop_db: bool = True,
 ) -> hosted_resources._CleanupResult:
-    """Remove one exact managed App, retaining retry state whenever cleanup is incomplete."""
-    admitted = _admit_teardown_app(team_id, app_id, container, drop_db)
-    if isinstance(admitted, hosted_resources._CleanupResult):
-        return admitted
-    container, drop_db = admitted
-    policy_removed = _remove_egress_policy(team_id, app_id)
+    """Remove one exact managed Assistant while preserving retry evidence."""
+    if container is None:
+        try:
+            container = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, assistant_id))
+        except docker.errors.DockerException:
+            return hosted_resources._CleanupResult(False, True)
+
+    if container is not None:
+        try:
+            container.reload()
+        except docker.errors.DockerException:
+            return hosted_resources._CleanupResult(False, True)
+        if not network_policy.assistant_identity_valid(
+            container.attrs,
+            team_id,
+            assistant_id,
+        ):
+            return hosted_resources._CleanupResult(False, True)
+
+    policy_removed = _remove_egress_policy(team_id, assistant_id)
     container_removed = container is None
     if container is not None and policy_removed:
         container_id = getattr(container, "id", None)
@@ -394,79 +345,36 @@ def _teardown_app(
             runtime_state._assistant_allowed_hosts_cache.discard(container_id)
             runtime_state._assistant_machine_contract_cache.discard(container_id)
     elif container is not None:
-        # Preserve the labeled retry anchor, but do not leave tenant code running after a failed removal.
         with contextlib.suppress(runtime_state.ApiError):
             hosted_resources._fail_stop_team(container)
-
-    artifacts_removed = policy_removed and container_removed
-    if not drop_db:
-        return hosted_resources._CleanupResult(artifacts_removed, True)
-    if not artifacts_removed:
-        # Keep the DB registration intact until the retryable container/policy phase has completed.
-        return hosted_resources._CleanupResult(False, False)
-    return _drop_app_database(team_id, app_id)
+    return hosted_resources._CleanupResult(
+        policy_removed and container_removed,
+        True,
+    )
 
 
-def _admit_teardown_app(team_id: str, app_id: str, container, drop_db: bool):
-    if container is None:
-        try:
-            container = hosted_resources._get_container(manifests.team_app_container_name(team_id, app_id))
-        except docker.errors.DockerException:
-            return hosted_resources._CleanupResult(False, not drop_db)
-
-    if container is not None:
-        try:
-            container.reload()
-        except docker.errors.DockerException:
-            return hosted_resources._CleanupResult(False, not drop_db)
-        if not network_policy.app_identity_valid(container.attrs, team_id, app_id):
-            # A deterministic-name collision or drifted ownership label is not ours to delete.
-            return hosted_resources._CleanupResult(False, not drop_db)
-        db_label = container.labels.get("team.app.db")
-        if db_label not in ("0", "1"):
-            return hosted_resources._CleanupResult(False, not drop_db)
-        drop_db = drop_db and db_label == "1"
-    return container, drop_db
-
-
-def _drop_app_database(team_id: str, app_id: str) -> hosted_resources._CleanupResult:
-    try:
-        postgresql_service_client.drop_app_db(team_id, app_id)
-    except postgresql_service_client.PostgreSQLServiceError, http.client.HTTPException, OSError, ValueError:
-        return hosted_resources._CleanupResult(True, False)
-    return hosted_resources._CleanupResult(True, True)
-
-
-def _retain_admitted_assistant_accounts(team_id: str, app_id: str, spec: marketplace.AppSpec) -> None:
-    """Prune OAuth grants removed from the exact Assistant contract admitted at install."""
-    if spec.assistant is None:
-        return
+def _retain_admitted_assistant_accounts(
+    team_id: str,
+    assistant_id: str,
+    spec: assistant_registry.AssistantSpec,
+) -> None:
     try:
         pruned = runtime_state._assistant_accounts.retain_declared(
             team_id,
-            app_id,
-            tuple(sorted(spec.assistant.accounts)),
+            assistant_id,
+            tuple(sorted(spec.contract.accounts)),
         )
     except oauth_account_store.OAuthAccountStoreError as exc:
-        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Assistant account state is unavailable") from exc
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant account state is unavailable",
+        ) from exc
     if pruned:
         runtime_state._assistant_account_challenges.cancel_team(team_id)
 
 
 @runtime_state._serialize_against_team_chat
-def _install_app(
-    team_id: str,
-    app_id: str,
-    spec: marketplace.AppSpec,
-    owner: str,
-    lease: hosted_resources._AuthorizationLease,
-) -> dict:
-    with runtime_state._lock_for(team_id):
-        return _install_app_locked(team_id, app_id, spec, owner, lease)
-
-
-@runtime_state._serialize_against_team_chat
-def _install_dynamic_assistant(
+def _install_assistant(
     team_id: str,
     binding: dynamic_assistants.DynamicAssistantBinding,
     owner: str,
@@ -474,19 +382,20 @@ def _install_dynamic_assistant(
     *,
     authorize_start: Callable[[], None],
 ) -> dict[str, object]:
-    """Install one validated published artifact and atomically retain its Team binding."""
+    """Install one validated publication and atomically retain its Team binding."""
     if team_id != binding.team_id:
-        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
-    app_id = binding.assistant_id
-    if app_id in marketplace.APPS:
         raise runtime_state.ApiError(
-            HTTPStatus.CONFLICT,
-            "a published Assistant cannot replace a built-in app",
+            HTTPStatus.NOT_FOUND,
+            f"team {team_id!r} not found",
         )
+    assistant_id = binding.assistant_id
     with runtime_state._lock_for(team_id):
         try:
-            previous = runtime_state._dynamic_assistants.get(team_id, app_id)
-            retained = runtime_state._dynamic_assistants.put(team_id, binding.resolution)
+            previous = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+            retained = runtime_state._dynamic_assistants.put(
+                team_id,
+                binding.resolution,
+            )
         except dynamic_assistants.DynamicAssistantConflictError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.CONFLICT,
@@ -495,22 +404,21 @@ def _install_dynamic_assistant(
         except dynamic_assistants.DynamicAssistantError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "dynamic Assistant metadata is unavailable",
+                "Assistant metadata is unavailable",
             ) from exc
         try:
-            result = _install_app_locked(
+            result = _install_assistant_locked(
                 team_id,
-                app_id,
-                publication.app_spec(retained),
+                retained,
+                publication.assistant_spec(retained),
                 owner,
                 lease,
-                binding=retained,
                 authorize_start=authorize_start,
             )
         except Exception as exc:
             if previous is None and not isinstance(exc, _IncompleteInstallRollback):
                 with contextlib.suppress(dynamic_assistants.DynamicAssistantError):
-                    runtime_state._dynamic_assistants.delete(team_id, app_id)
+                    runtime_state._dynamic_assistants.delete(team_id, assistant_id)
             raise
     return {
         **result,
@@ -520,256 +428,299 @@ def _install_dynamic_assistant(
     }
 
 
-def _install_app_locked(
+def _install_assistant_locked(
     team_id: str,
-    app_id: str,
-    spec: marketplace.AppSpec,
+    binding: dynamic_assistants.DynamicAssistantBinding,
+    spec: assistant_registry.AssistantSpec,
     owner: str,
     lease: hosted_resources._AuthorizationLease,
     *,
-    binding: dynamic_assistants.DynamicAssistantBinding | None = None,
-    authorize_start: Callable[[], None] | None = None,
+    authorize_start: Callable[[], None],
 ) -> dict[str, object]:
-    team = hosted_resources._require_current_authorization(team_id, lease)
+    hosted_resources._require_current_authorization(team_id, lease)
     if owner != lease.owner:
-        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
-    hosted_resources._prepare_marketplace_image(spec)
-    team_name = team.labels.get("team.name", "")
-    existing = hosted_resources._get_container(manifests.team_app_container_name(team_id, app_id))
+        raise runtime_state.ApiError(
+            HTTPStatus.NOT_FOUND,
+            f"team {team_id!r} not found",
+        )
+    hosted_resources._prepare_assistant_image(spec)
+    existing = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, binding.assistant_id))
     if existing is not None:
-        return _admit_existing_app(
+        return _admit_existing_assistant(
             team_id,
-            app_id,
+            binding,
             spec,
             owner,
             existing,
-            binding=binding,
         )
-    return _provision_app(
+    return _provision_assistant(
         team_id,
-        app_id,
+        binding,
         spec,
         owner,
-        team_name,
-        binding=binding,
         authorize_start=authorize_start,
     )
 
 
-def _admit_existing_app(
+def _admit_existing_assistant(
     team_id: str,
-    app_id: str,
-    spec: marketplace.AppSpec,
+    binding: dynamic_assistants.DynamicAssistantBinding,
+    spec: assistant_registry.AssistantSpec,
     owner: str,
     existing,
-    *,
-    binding: dynamic_assistants.DynamicAssistantBinding | None = None,
 ) -> dict[str, object]:
+    assistant_id = binding.assistant_id
     egress_store = _egress_store()
     try:
         existing.reload()
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            f"cannot verify installed app {app_id!r}",
+            f"cannot verify installed Assistant {assistant_id!r}",
         ) from exc
     expected_labels = {
-        "team.app.runtime": "1",
+        "team.assistant.runtime": "1",
+        "team.assistant.dynamic": "1",
         "team.id": team_id,
-        "team.app": app_id,
+        "team.assistant": assistant_id,
         "team.owner": owner,
-        **(
-            {
-                "team.app.dynamic": "1",
-                "team.app.source": binding.resolution["source_digest"],
-                "team.app.image": spec.image,
-            }
-            if binding is not None
-            else {}
-        ),
+        "team.assistant.source": binding.resolution["source_digest"],
+        "team.assistant.image": spec.image,
     }
     if any(str(existing.labels.get(key, "")) != value for key, value in expected_labels.items()):
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
-            f"existing container for app {app_id!r} has invalid ownership metadata; uninstall it first",
+            f"existing container for Assistant {assistant_id!r} has invalid ownership metadata",
         )
-    hosted_resources._require_team_isolation(existing)
+    hosted_resources._require_team_isolation(existing, workload_spec=spec)
     configured_image = str(existing.attrs.get("Config", {}).get("Image", ""))
     if configured_image != spec.image:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
-            f"installed app {app_id!r} uses a different image; uninstall it before reinstalling",
+            f"installed Assistant {assistant_id!r} uses a different image",
         )
-    admitted_hosts = _admit_app_contract(spec, existing)
-    token = _validate_admitted_egress(team_id, app_id, admitted_hosts, egress_store)
-    _validate_assistant_proxy_environment(existing, token, admitted_hosts, egress_store)
-    ready, status = _registered_app_ready_now(existing, spec)
+    admitted_hosts = _admit_assistant_contract(spec, existing)
+    token = _validate_admitted_egress(
+        team_id,
+        assistant_id,
+        admitted_hosts,
+        egress_store,
+    )
+    _validate_assistant_proxy_environment(
+        existing,
+        token,
+        admitted_hosts,
+        egress_store,
+    )
+    ready, status = _assistant_ready_now(existing)
     if not ready:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
-            f"installed app {app_id!r} is not ready ({status}); uninstall it before reinstalling",
+            f"installed Assistant {assistant_id!r} is not ready ({status})",
         )
-    _retain_admitted_assistant_accounts(team_id, app_id, spec)
-    return {"team_id": team_id, "app": app_id, "status": status, "installed": False}
+    _retain_admitted_assistant_accounts(team_id, assistant_id, spec)
+    return {
+        "team_id": team_id,
+        "assistant": assistant_id,
+        "status": status,
+        "installed": False,
+    }
 
 
-def _provision_app(
+def _provision_assistant(
     team_id: str,
-    app_id: str,
-    spec: marketplace.AppSpec,
+    binding: dynamic_assistants.DynamicAssistantBinding,
+    spec: assistant_registry.AssistantSpec,
     owner: str,
-    team_name: str,
     *,
-    binding: dynamic_assistants.DynamicAssistantBinding | None = None,
-    authorize_start: Callable[[], None] | None = None,
+    authorize_start: Callable[[], None],
 ) -> dict[str, object]:
-    if len(_team_app_containers(team_id)) >= runtime_state.MAX_APPS_PER_TEAM:
+    if len(_team_assistant_containers(team_id)) >= runtime_state.MAX_ASSISTANTS_PER_TEAM:
         raise runtime_state.ApiError(
-            HTTPStatus.TOO_MANY_REQUESTS, f"app limit reached for {team_id!r} ({runtime_state.MAX_APPS_PER_TEAM})"
+            HTTPStatus.TOO_MANY_REQUESTS,
+            f"Assistant limit reached for {team_id!r} ({runtime_state.MAX_ASSISTANTS_PER_TEAM})",
         )
-    key = f"app:{team_id}:{app_id}"
-    with hosted_resources._reserve_capacity(key, owner, manifests.APP_MEM_LIMIT_BYTES, team_slot=False):
-        committed_status = _provision_app_transaction(
+    assistant_id = binding.assistant_id
+    key = f"assistant:{team_id}:{assistant_id}"
+    with hosted_resources._reserve_capacity(
+        key,
+        owner,
+        manifests.ASSISTANT_MEM_LIMIT_BYTES,
+        team_slot=False,
+    ):
+        committed_status = _provision_assistant_transaction(
             team_id,
-            app_id,
+            binding,
             spec,
             owner,
-            team_name,
-            binding=binding,
             authorize_start=authorize_start,
         )
     return {
         "team_id": team_id,
-        "app": app_id,
+        "assistant": assistant_id,
         "status": committed_status,
         "installed": True,
-        **({"database": manifests.team_app_db_project(team_id, app_id)} if spec.db else {}),
     }
 
 
-def _provision_app_transaction(
+def _provision_assistant_transaction(
     team_id: str,
-    app_id: str,
-    spec: marketplace.AppSpec,
+    binding: dynamic_assistants.DynamicAssistantBinding,
+    spec: assistant_registry.AssistantSpec,
     owner: str,
-    team_name: str,
     *,
-    binding: dynamic_assistants.DynamicAssistantBinding | None = None,
-    authorize_start: Callable[[], None] | None = None,
+    authorize_start: Callable[[], None],
 ) -> str:
+    assistant_id = binding.assistant_id
     egress_store = _egress_store()
     try:
-        database_url = postgresql_service_client.create_app_db(team_id, app_id)["database_url"] if spec.db else ""
         network = hosted_resources._ensure_team_network(team_id)
-        token, proxy_env = _reserve_egress_environment(team_id, app_id, spec.allowed_hosts, egress_store)
-        if binding is None:
-            kwargs = manifests.build_team_app_kwargs(
-                team_id,
-                app_id,
-                spec,
-                database_url=database_url,
-                proxy_env=proxy_env,
-                owner=owner,
-                team_name=team_name,
-            )
-        else:
-            kwargs = manifests.build_dynamic_assistant_kwargs(
-                team_id,
-                app_id,
-                spec,
-                proxy_env=proxy_env,
-                owner=owner,
-                source_digest=binding.resolution["source_digest"],
-            )
-        # Check hostile-tenant runtime posture at the Docker create boundary. Earlier setup does
-        # not execute tenant code and the transaction rolls it back if this admission fails.
+        token, proxy_env = _reserve_egress_environment(
+            team_id,
+            assistant_id,
+            spec.allowed_hosts,
+            egress_store,
+        )
+        kwargs = manifests.build_assistant_kwargs(
+            team_id,
+            assistant_id,
+            spec,
+            proxy_env=proxy_env,
+            owner=owner,
+            source_digest=binding.resolution["source_digest"],
+        )
         hosted_resources._require_team_runtime()
         container = runtime_state._docker.containers.create(**kwargs)
         network.disconnect(container)
-        network.connect(container, aliases=[app_id, f"{app_id}.team"])
-        admitted_hosts = _admit_app_contract(spec, container)
-        _validate_assistant_proxy_environment(container, token, admitted_hosts, egress_store)
-        _activate_admitted_egress(network, token, admitted_hosts, egress_store)
-        if binding is not None:
-            if authorize_start is None:
-                raise runtime_state.ApiError(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "dynamic Assistant start authorization is unavailable",
-                )
-            authorize_start()
-        hosted_resources._start_team_with_isolation(container)
-        healthy, reason = _wait_registered_app_ready(container, spec)
+        network.connect(
+            container,
+            aliases=[assistant_id, f"{assistant_id}.team"],
+        )
+        admitted_hosts = _admit_assistant_contract(spec, container)
+        _validate_assistant_proxy_environment(
+            container,
+            token,
+            admitted_hosts,
+            egress_store,
+        )
+        _activate_admitted_egress(
+            network,
+            token,
+            admitted_hosts,
+            egress_store,
+        )
+        authorize_start()
+        hosted_resources._start_team_with_isolation(
+            container,
+            workload_spec=spec,
+        )
+        healthy, reason = _wait_assistant_ready(container)
         if not healthy:
             raise runtime_state.ApiError(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"app {app_id!r} failed its health probe ({reason}; rolled back)",
+                f"Assistant {assistant_id!r} failed readiness ({reason}; rolled back)",
             )
-        hosted_resources._require_team_isolation(container)
-        ready, committed_status = _registered_app_ready_now(container, spec)
+        hosted_resources._require_team_isolation(
+            container,
+            workload_spec=spec,
+        )
+        ready, committed_status = _assistant_ready_now(container)
         if not ready:
             raise runtime_state.ApiError(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                f"app {app_id!r} lost readiness before install commit ({committed_status}; rolled back)",
+                f"Assistant {assistant_id!r} lost readiness before install commit ({committed_status}; rolled back)",
             )
-        _retain_admitted_assistant_accounts(team_id, app_id, spec)
+        _retain_admitted_assistant_accounts(team_id, assistant_id, spec)
     except Exception as exc:
-        cleanup = _teardown_app(team_id, app_id, drop_db=spec.db)
+        cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
             raise _IncompleteInstallRollback(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                "app install failed and rollback is incomplete; retry uninstall or contact the operator",
+                "Assistant install failed and rollback is incomplete",
             ) from exc
         if isinstance(exc, runtime_state.ApiError):
             raise
         raise runtime_state.ApiError(
-            HTTPStatus.INTERNAL_SERVER_ERROR, "app install failed and was rolled back"
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "Assistant install failed and was rolled back",
         ) from exc
-    else:
-        return committed_status
+    return committed_status
 
 
 @runtime_state._serialize_against_team_chat
-def _uninstall_app(team_id: str, app_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
+def _uninstall_assistant(
+    team_id: str,
+    assistant_id: str,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
     with runtime_state._lock_for(team_id):
-        # Removal remains available when isolation drift blocks normal Team operations.
-        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        hosted_resources._require_current_authorization(
+            team_id,
+            lease,
+            require_isolation=False,
+        )
         runtime_state._assistant_account_challenges.cancel_team(team_id)
-        cleanup = _teardown_app(team_id, app_id)
+        cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
             raise runtime_state.ApiError(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
-                "app teardown is incomplete; retry uninstall or contact the operator",
+                "Assistant teardown is incomplete",
             )
         try:
-            runtime_state._assistant_accounts.delete_assistant(team_id, app_id)
+            runtime_state._assistant_accounts.delete_assistant(
+                team_id,
+                assistant_id,
+            )
+            runtime_state._dynamic_assistants.delete(team_id, assistant_id)
         except oauth_account_store.OAuthAccountStoreError as exc:
             raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Assistant account state is unavailable"
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant account state is unavailable",
             ) from exc
-        if app_id not in marketplace.APPS:
-            try:
-                runtime_state._dynamic_assistants.delete(team_id, app_id)
-            except dynamic_assistants.DynamicAssistantError as exc:
-                raise runtime_state.ApiError(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "dynamic Assistant metadata could not be removed",
-                ) from exc
-        return {"team_id": team_id, "app": app_id, "uninstalled": True, "db_dropped": cleanup.db_dropped}
+        except dynamic_assistants.DynamicAssistantError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant metadata could not be removed",
+            ) from exc
+        return {
+            "team_id": team_id,
+            "assistant": assistant_id,
+            "uninstalled": True,
+        }
 
 
-def _list_apps(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
+def _list_assistants(
+    team_id: str,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
     with runtime_state._lock_for(team_id):
-        # Read-only inventory lets the owner see and remove residual Apps without executing tenant code.
-        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
-        apps = [
+        hosted_resources._require_current_authorization(
+            team_id,
+            lease,
+            require_isolation=False,
+        )
+        containers = _team_assistant_containers(team_id)
+        ids = tuple(
+            assistant_id
+            for container in containers
+            if isinstance(
+                assistant_id := (container.labels or {}).get("team.assistant"),
+                str,
+            )
+        )
+        bindings = _dynamic_binding_snapshot(team_id, ids)
+        assistants = [
             {
-                "app": app_id,
-                "status": c.status,
-                "container": c.name,
-                "powers": sorted(spec.assistant.powers) if spec is not None and spec.assistant is not None else [],
+                "assistant": assistant_id,
+                "status": container.status,
+                "container": container.name,
+                "powers": sorted(spec.contract.powers),
             }
-            for c in _team_app_containers(team_id)
-            for app_id in [c.labels.get("team.app")]
-            for spec in [_resolve_team_app(team_id, app_id)[1] if isinstance(app_id, str) else None]
+            for container in containers
+            if isinstance(
+                assistant_id := (container.labels or {}).get("team.assistant"),
+                str,
+            )
+            for _resolved_id, spec in [_resolve_team_assistant(team_id, assistant_id, bindings)]
         ]
-        return {"team_id": team_id, "apps": apps}
+        return {"team_id": team_id, "assistants": assistants}

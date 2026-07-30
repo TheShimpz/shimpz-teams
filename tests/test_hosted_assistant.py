@@ -15,7 +15,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from hosted_app_fixture import (
+from hosted_assistant_fixture import (
+    HOSTED_BINDING,
+    HOSTED_SPEC,
     app,
     hosted_apps,
     hosted_chat_segment,
@@ -29,7 +31,7 @@ assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 manifests = hosted_apps.manifests
-marketplace = hosted_apps.marketplace
+assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
 oauth_account_store = runtime_state.oauth_account_store
 oauth_http_client = runtime_state.oauth_http_client
@@ -69,6 +71,25 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         )
         self.assertEqual(set().union(*dispatch_groups), hosted_operations)
         self.assertEqual(sum(map(len, dispatch_groups)), len(hosted_operations))
+
+    def test_legacy_app_routes_are_absent(self) -> None:
+        strict_http = hosted_controller.strict_http
+        for method, parts in (
+            ("GET", ("v1", "teams", "team_1", "apps")),
+            ("POST", ("v1", "teams", "team_1", "apps")),
+            (
+                "DELETE",
+                ("v1", "teams", "team_1", "apps", "notification-center"),
+            ),
+        ):
+            with self.subTest(method=method):
+                self.assertIsNone(
+                    strict_http.resolve_controller_route(
+                        strict_http.HOSTED_CONTROLLER,
+                        method,
+                        parts,
+                    )
+                )
 
     @staticmethod
     def _handler(body: bytes, *headers: tuple[str, str]) -> app.Handler:
@@ -171,13 +192,13 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             ),
             mock.patch.object(
                 hosted_controller.publication,
-                "app_spec",
+                "assistant_spec",
                 return_value=mock.sentinel.spec,
             ),
-            mock.patch.object(hosted_resources, "_prepare_marketplace_image"),
+            mock.patch.object(hosted_resources, "_prepare_assistant_image"),
             mock.patch.object(
                 hosted_apps,
-                "_install_dynamic_assistant",
+                "_install_assistant",
                 side_effect=install,
             ) as install_assistant,
         ):
@@ -254,21 +275,17 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         )
         handler = object.__new__(app.Handler)
         handler._send_json = mock.Mock()
-        bindings = (
-            SimpleNamespace(assistant_id="example-assistant"),
-            SimpleNamespace(assistant_id="other-assistant"),
-        )
         inventory = {
             "team_id": "team_1",
-            "apps": [
-                {"app": "example-assistant", "status": "running"},
-                {"app": "notification-center", "status": "running"},
+            "assistants": [
+                {"assistant": "example-assistant", "status": "running"},
             ],
         }
 
-        with (
-            mock.patch.object(runtime_state._dynamic_assistants, "list", return_value=bindings),
-            mock.patch.object(hosted_apps, "_list_apps", return_value=inventory),
+        with mock.patch.object(
+            hosted_apps,
+            "_list_assistants",
+            return_value=inventory,
         ):
             handler._route_assistant_list(request)
 
@@ -297,7 +314,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             ),
             mock.patch.object(
                 hosted_apps,
-                "_uninstall_app",
+                "_uninstall_assistant",
                 return_value={"uninstalled": True},
             ) as uninstall,
             mock.patch.object(hosted_controller.audit, "log", return_value="trace"),
@@ -328,7 +345,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         )
 
     def test_manifest_must_match_reviewed_hosts_before_admission(self) -> None:
-        spec = marketplace.APPS["shimpz-cloudflare"]
+        spec = HOSTED_SPEC
         container = types.SimpleNamespace(id="assistant-generation")
         reviewed_contracts: list[assistant_manifest.ManifestContract] = []
 
@@ -352,14 +369,14 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 return_value="Use reviewed Powers.",
             ),
         ):
-            self.assertEqual(hosted_apps._admit_app_contract(spec, container), tuple(sorted(spec.allowed_hosts)))
+            self.assertEqual(hosted_apps._admit_assistant_contract(spec, container), tuple(sorted(spec.allowed_hosts)))
         self.assertEqual(len(reviewed_contracts), 1)
 
         self.assertEqual(
             {account.id: (account.provider, account.scopes) for account in reviewed_contracts[0].accounts},
             {
                 account_id: (account.provider, tuple(sorted(account.scopes)))
-                for account_id, account in spec.assistant.accounts.items()
+                for account_id, account in spec.contract.accounts.items()
             },
         )
         exact = reviewed_contracts[0]
@@ -406,51 +423,39 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_apps._admit_app_contract(spec, container)
+            hosted_apps._admit_assistant_contract(spec, container)
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
-    def test_prebuilt_assistant_readiness_does_not_require_http(self) -> None:
+    def test_assistant_readiness_does_not_require_http(self) -> None:
         container = types.SimpleNamespace(status="running", reload=mock.Mock())
-        spec = marketplace.APPS["shimpz-cloudflare"]
-        with mock.patch.object(hosted_apps, "_probe_app_health") as probe:
-            self.assertEqual(hosted_apps._wait_registered_app_ready(container, spec), (True, "running"))
-            self.assertEqual(hosted_apps._registered_app_ready_now(container, spec), (True, "running"))
-        probe.assert_not_called()
+        self.assertEqual(hosted_apps._wait_assistant_ready(container), (True, "running"))
+        self.assertEqual(hosted_apps._assistant_ready_now(container), (True, "running"))
 
-    def test_teardown_requires_the_current_database_label(self) -> None:
-        for db_label, expected_drop in (("0", False), ("1", True)):
-            container = types.SimpleNamespace(
-                attrs={},
-                labels={"team.app.db": db_label},
-                reload=mock.Mock(),
+    def test_teardown_refuses_a_container_without_exact_assistant_identity(self) -> None:
+        container = types.SimpleNamespace(attrs={}, reload=mock.Mock())
+        with mock.patch.object(
+            network_policy,
+            "assistant_identity_valid",
+            return_value=False,
+        ):
+            result = hosted_apps._teardown_assistant(
+                "team_1",
+                "shimpz-cloudflare",
+                container=container,
             )
-            with (
-                self.subTest(db_label=db_label),
-                mock.patch.object(network_policy, "app_identity_valid", return_value=True),
-            ):
-                self.assertEqual(
-                    hosted_apps._admit_teardown_app("team_1", "assistant", container, True),
-                    (container, expected_drop),
-                )
-
-        for labels in ({}, {"team.app.db": "yes"}):
-            container = types.SimpleNamespace(attrs={}, labels=labels, reload=mock.Mock())
-            with (
-                self.subTest(labels=labels),
-                mock.patch.object(network_policy, "app_identity_valid", return_value=True),
-            ):
-                rejected = hosted_apps._admit_teardown_app("team_1", "assistant", container, True)
-            self.assertIsInstance(rejected, hosted_resources._CleanupResult)
-            self.assertFalse(rejected.complete)
+        self.assertFalse(result.artifacts_removed)
 
     def test_manifest_mismatch_rolls_back_before_policy_proxy_or_start(self) -> None:
         events: list[object] = []
-        spec = marketplace.APPS["shimpz-cloudflare"]
         state = {"created": False}
         container = types.SimpleNamespace(
             id="assistant-generation",
             attrs={},
-            labels={"team.app.db": "0"},
+            labels={
+                "team.assistant.runtime": "1",
+                "team.id": "team_1",
+                "team.assistant": "shimpz-cloudflare",
+            },
             reload=lambda: None,
         )
         network = types.SimpleNamespace(
@@ -485,32 +490,37 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     _require_current_authorization=lambda *_args, **_kwargs: types.SimpleNamespace(
                         labels={"team.name": "Marketing"}
                     ),
-                    _prepare_marketplace_image=lambda _spec: None,
+                    _prepare_assistant_image=lambda _spec: None,
                     _get_container=lambda _name: container if state["created"] else None,
                     _reserve_capacity=lambda *_args, **_kwargs: contextlib.nullcontext(),
                     _require_team_runtime=require_runtime,
                     _ensure_team_network=lambda _team_id: network,
                     _safe_connect=lambda *_args, **_kwargs: events.append("connect-proxy"),
-                    _start_team_with_isolation=lambda _container: events.append("start"),
+                    _start_team_with_isolation=lambda _container, **_kwargs: events.append("start"),
                     _remove_team_container=lambda target: events.append(("remove-container", target.id)) or True,
                 ),
-                mock.patch.object(hosted_apps, "_admit_app_contract", side_effect=reject),
+                mock.patch.object(hosted_apps, "_admit_assistant_contract", side_effect=reject),
                 mock.patch.object(
                     hosted_apps,
                     "_write_egress_policy",
                     side_effect=lambda *_args: events.append("write-policy"),
                 ),
-                mock.patch.object(hosted_apps, "_team_app_containers", return_value=[]),
-                mock.patch.object(manifests, "build_team_app_kwargs", return_value={}),
-                mock.patch.object(network_policy, "app_identity_valid", return_value=True),
+                mock.patch.object(
+                    hosted_apps.publication,
+                    "assistant_spec",
+                    return_value=HOSTED_SPEC,
+                ),
+                mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=[]),
+                mock.patch.object(manifests, "build_assistant_kwargs", return_value={}),
+                mock.patch.object(network_policy, "assistant_identity_valid", return_value=True),
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
-                hosted_apps._install_app(
+                hosted_apps._install_assistant(
                     "team_1",
-                    "shimpz-cloudflare",
-                    spec,
+                    HOSTED_BINDING,
                     "account_1",
                     types.SimpleNamespace(owner="account_1"),
+                    authorize_start=lambda: None,
                 )
             self.assertEqual(list(Path(directory).rglob("*")), [Path(directory) / ".tokens"])
 
@@ -537,7 +547,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 APP_EGRESS_POLICY_DIR=Path(directory),
                 APP_EGRESS_POLICY_GID=os.getgid(),
             ):
-                token = hosted_apps._app_egress_token("team_1", "shimpz-cloudflare")
+                token = hosted_apps._assistant_egress_token("team_1", "shimpz-cloudflare")
                 assert token is not None
                 hosted_apps._write_egress_policy(token, hosts)
                 self.assertEqual(
@@ -623,8 +633,14 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_empty_hosts_build_no_proxy_environment(self) -> None:
-        spec = marketplace.APPS["shimpz-cloudflare"]
-        kwargs = manifests.build_team_app_kwargs("team_1", "shimpz-cloudflare", spec)
+        spec = HOSTED_SPEC
+        kwargs = manifests.build_assistant_kwargs(
+            "team_1",
+            "shimpz-cloudflare",
+            spec,
+            owner="account_1",
+            source_digest="sha256:" + ("c" * 64),
+        )
         environment = kwargs["environment"]
 
         self.assertFalse({key for key in environment if key.upper().endswith("_PROXY")})
@@ -634,9 +650,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
     @staticmethod
     def _resolution() -> dict[str, object]:
         vectors = json.loads(
-            (
-                Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1" / "vectors.json"
-            ).read_bytes()
+            (Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1" / "vectors.json").read_bytes()
         )
         resolution = copy.deepcopy(vectors["fixtures"]["resolve_response"]["value"])
         power = resolution["machine_contract"]["powers"][0]
@@ -651,9 +665,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
             store.put("team_1", resolution)
             with mock.patch.object(runtime_state, "_dynamic_assistants", store):
-                assistant_id, spec = hosted_apps._resolve_team_app("team_1", "hello-world")
-                with self.assertRaises(marketplace.MarketplaceError):
-                    hosted_apps._resolve_team_app("team_2", "hello-world")
+                assistant_id, spec = hosted_apps._resolve_team_assistant("team_1", "hello-world")
+                with self.assertRaises(assistant_registry.AssistantSpecError):
+                    hosted_apps._resolve_team_assistant("team_2", "hello-world")
 
         self.assertEqual(assistant_id, "hello-world")
         self.assertEqual(spec.image, resolution["image_reference"])
@@ -666,9 +680,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 "Config": {
                     "Labels": {
                         "team.id": "team_1",
-                        "team.app": "hello-world",
-                        "team.app.runtime": "1",
-                        "team.app.dynamic": "1",
+                        "team.assistant": "hello-world",
+                        "team.assistant.runtime": "1",
+                        "team.assistant.dynamic": "1",
                     }
                 }
             }
@@ -693,9 +707,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 "Config": {
                     "Labels": {
                         "team.id": "team_1",
-                        "team.app": "hello-world",
-                        "team.app.runtime": "1",
-                        "team.app.dynamic": "1",
+                        "team.assistant": "hello-world",
+                        "team.assistant.runtime": "1",
+                        "team.assistant.dynamic": "1",
                     }
                 },
                 "State": {"Running": True},
@@ -705,7 +719,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
             binding = store.put("team_1", resolution)
-            spec = hosted_apps.publication.app_spec(binding)
+            spec = hosted_apps.publication.assistant_spec(binding)
             with (
                 mock.patch.object(network_policy, "brain_identity_valid", return_value=False),
                 mock.patch.object(hosted_resources, "_trusted_image_id", return_value="sha256:image"),
@@ -739,12 +753,17 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             )
 
         self.assertIs(trusted_image.call_args.args[2], spec)
-        self.assertTrue(posture.call_args.kwargs["compact_app_runtime"])
+        self.assertTrue(posture.call_args.kwargs["compact_assistant_runtime"])
 
     def test_dynamic_install_persists_the_binding_and_returns_immutable_evidence(self) -> None:
         resolution = self._resolution()
         lease = types.SimpleNamespace(owner="creator_1")
-        installed = {"team_id": "team_1", "app": "hello-world", "status": "running", "installed": True}
+        installed = {
+            "team_id": "team_1",
+            "assistant": "hello-world",
+            "status": "running",
+            "installed": True,
+        }
 
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -755,9 +774,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             retained = dynamic_assistants.DynamicAssistantStore(root / "retained.json")
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
-                mock.patch.object(hosted_apps, "_install_app_locked", return_value=installed),
+                mock.patch.object(hosted_apps, "_install_assistant_locked", return_value=installed),
             ):
-                result = hosted_apps._install_dynamic_assistant(
+                result = hosted_apps._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",
@@ -786,7 +805,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
                     hosted_apps,
-                    "_install_app_locked",
+                    "_install_assistant_locked",
                     side_effect=runtime_state.ApiError(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         "rolled back",
@@ -794,7 +813,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 ),
                 self.assertRaises(runtime_state.ApiError),
             ):
-                hosted_apps._install_dynamic_assistant(
+                hosted_apps._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",
@@ -819,7 +838,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
                     hosted_apps,
-                    "_install_app_locked",
+                    "_install_assistant_locked",
                     side_effect=hosted_apps._IncompleteInstallRollback(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         "rollback is incomplete",
@@ -827,7 +846,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 ),
                 self.assertRaises(hosted_apps._IncompleteInstallRollback),
             ):
-                hosted_apps._install_dynamic_assistant(
+                hosted_apps._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",

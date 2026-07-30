@@ -14,13 +14,13 @@ import docker.errors
 
 import manifests
 import validate
-from assistant_human import marketplace
+from assistant_human import assistant_registry
 from container_policy import network as network_policy
 from controller_runtime import cleanup_state
 from hosted.install import publication
 from http_boundary import runtime_state
 from inference import config as inference_config
-from install import artifact as marketplace_image
+from install import artifact as assistant_artifact
 from install import bindings as dynamic_assistants
 
 _CAPACITY_SNAPSHOT_MAX_ATTEMPTS = 8
@@ -121,53 +121,52 @@ def _trusted_image_id(image_ref: str) -> str:
     return image_id
 
 
-def _prepare_marketplace_image(spec: marketplace.AppSpec) -> None:
-    """Materialize and prove only registry-owned digest artifacts before a new App can run."""
-    if not marketplace.is_digest_image(spec.image):
+def _prepare_assistant_image(spec: assistant_registry.AssistantSpec) -> None:
+    """Materialize and prove only the exact reviewed Assistant artifact."""
+    if not assistant_registry.is_digest_image(spec.image):
         return
     try:
-        marketplace_image.ensure_digest_artifact(
+        assistant_artifact.ensure_digest_artifact(
             runtime_state._docker.images,
             spec,
             runtime_state._registry_auth,
         )
-    except marketplace_image.ImageTrustError as exc:
+    except assistant_artifact.ImageTrustError as exc:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, str(exc)) from exc
 
 
 def _trusted_workload_image(
     container,
     team_id: str,
-    workload_spec: marketplace.AppSpec | None = None,
+    workload_spec: assistant_registry.AssistantSpec | None = None,
 ) -> tuple[str, str, bool]:
     """Resolve this exact workload role's configured ref to the currently trusted immutable ID."""
     labels = container.attrs.get("Config", {}).get("Labels", {})
-    compact_app_runtime = False
+    compact_assistant_runtime = False
     if network_policy.brain_identity_valid(container.attrs, team_id):
         provider = labels.get("team.brain")
         provider_spec = manifests.BRAINS.get(provider) if isinstance(provider, str) else None
         image_ref = provider_spec.get("image") if provider_spec is not None else None
     else:
-        app_id = labels.get("team.app")
-        dynamic_app_role = isinstance(app_id, str) and app_id not in marketplace.APPS
-        compact_app_runtime = workload_spec is not None and dynamic_app_role
-        app_spec = workload_spec or (marketplace.APPS.get(app_id) if isinstance(app_id, str) else None)
-        if app_spec is None and isinstance(app_id, str):
+        assistant_id = labels.get("team.assistant")
+        assistant_spec = workload_spec
+        compact_assistant_runtime = workload_spec is not None
+        if assistant_spec is None and isinstance(assistant_id, str):
             try:
-                binding = runtime_state._dynamic_assistants.get(team_id, app_id)
-                app_spec = publication.app_spec(binding) if binding is not None else None
-                compact_app_runtime = binding is not None and dynamic_app_role
+                binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+                assistant_spec = publication.assistant_spec(binding) if binding is not None else None
+                compact_assistant_runtime = binding is not None
             except dynamic_assistants.DynamicAssistantError as exc:
                 raise runtime_state.ApiError(
                     HTTPStatus.SERVICE_UNAVAILABLE,
                     "Team isolation is blocked: untrusted workload image role",
                 ) from exc
-        image_ref = app_spec.image if app_spec is not None else None
+        image_ref = assistant_spec.image if assistant_spec is not None else None
     if not isinstance(image_ref, str) or not image_ref:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "Team isolation is blocked: untrusted workload image role"
         )
-    return image_ref, _trusted_image_id(image_ref), compact_app_runtime
+    return image_ref, _trusted_image_id(image_ref), compact_assistant_runtime
 
 
 def _require_team_isolation_mode(
@@ -176,7 +175,7 @@ def _require_team_isolation_mode(
     require_running: bool,
     inspect_memo: dict[str, object] | None = None,
     refreshed: bool = False,
-    workload_spec: marketplace.AppSpec | None = None,
+    workload_spec: assistant_registry.AssistantSpec | None = None,
 ) -> None:
     """Validate exact static posture, plus live network membership whenever the workload is running."""
     runtime = _team_runtime(container, refresh=not refreshed)
@@ -199,14 +198,18 @@ def _require_team_isolation_mode(
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "Team isolation is blocked: invalid workload identity"
         )
-    image_ref, image_id, compact_app_runtime = _trusted_workload_image(container, team_id, workload_spec)
+    image_ref, image_id, compact_assistant_runtime = _trusted_workload_image(
+        container,
+        team_id,
+        workload_spec,
+    )
     if not network_policy.workload_security_valid(
         container.attrs,
         team_id,
         manifests.RUNTIME,
         expected_image_ref=image_ref,
         expected_image_id=image_id,
-        compact_app_runtime=compact_app_runtime,
+        compact_assistant_runtime=compact_assistant_runtime,
     ):
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -258,9 +261,17 @@ def _require_team_isolation_mode(
         )
 
 
-def _require_team_isolation(container) -> None:
+def _require_team_isolation(
+    container,
+    *,
+    workload_spec: assistant_registry.AssistantSpec | None = None,
+) -> None:
     """State-aware admission: stopped is exact/static; running additionally proves live membership."""
-    _require_team_isolation_mode(container, require_running=False)
+    _require_team_isolation_mode(
+        container,
+        require_running=False,
+        workload_spec=workload_spec,
+    )
 
 
 def _require_running_team_isolation(
@@ -268,7 +279,7 @@ def _require_running_team_isolation(
     inspect_memo: dict[str, object] | None = None,
     *,
     refreshed: bool = False,
-    workload_spec: marketplace.AppSpec | None = None,
+    workload_spec: assistant_registry.AssistantSpec | None = None,
 ) -> None:
     """Require a running workload and its complete live core-network membership."""
     _require_team_isolation_mode(
@@ -350,9 +361,13 @@ def _remaining_container(container_id: str):
         return _CONTAINER_LOOKUP_FAILED
 
 
-def _start_team_with_isolation(container) -> None:
+def _start_team_with_isolation(
+    container,
+    *,
+    workload_spec: assistant_registry.AssistantSpec | None = None,
+) -> None:
     """Prove a stopped workload, start it, then fail-stop unless live membership also proves."""
-    _require_team_isolation(container)
+    _require_team_isolation(container, workload_spec=workload_spec)
     # Re-read Docker's daemon posture at the final mutation boundary. A registration or default-profile
     # drift after create/preflight must leave the hostile workload stopped.
     _require_team_runtime()
@@ -367,7 +382,7 @@ def _start_team_with_isolation(container) -> None:
             "Team start could not be proved; workload was stopped",
         ) from exc
     try:
-        _require_running_team_isolation(container)
+        _require_running_team_isolation(container, workload_spec=workload_spec)
     except runtime_state.ApiError:
         _fail_stop_team(container)
         raise
@@ -401,8 +416,8 @@ class _CleanupResult:
 
 def _capacity_key(container) -> str:
     team_id = str(container.labels.get("team.id", ""))
-    if container.labels.get("team.app.runtime"):
-        return f"app:{team_id}:{container.labels.get('team.app', '')}"
+    if container.labels.get("team.assistant.runtime"):
+        return f"assistant:{team_id}:{container.labels.get('team.assistant', '')}"
     return f"team:{team_id}"
 
 
@@ -411,7 +426,7 @@ def _admitted_resource_containers() -> list:
     try:
         resources = {
             container.id: container
-            for label in ("team.runtime", "team.app.runtime")
+            for label in ("team.runtime", "team.assistant.runtime")
             for container in runtime_state._docker.containers.list(all=True, filters={"label": label})
         }
     except docker.errors.DockerException as exc:

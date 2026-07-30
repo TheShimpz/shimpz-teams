@@ -19,7 +19,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hosted_app_fixture import hosted_assistants, runtime_state
+from hosted_assistant_fixture import hosted_assistants, runtime_state
 
 import manifests
 from container_policy import local as local_container_policy

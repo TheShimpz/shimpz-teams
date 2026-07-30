@@ -10,8 +10,8 @@ import manifests
 from assistant_human import (
     assistant_account_challenges,
     assistant_account_flow,
+    assistant_registry,
     hosted_assistants,
-    marketplace,
     oauth_account_store,
 )
 from chat import orchestrator as chat_orchestrator
@@ -448,7 +448,7 @@ def _hosted_account_challenge_payload(
                 hosted_assistants._hosted_account_spec(active)
             )
         return assistant_account_flow.challenge_payload(challenge, bindings)
-    except (marketplace.MarketplaceError, assistant_account_flow.AccountFlowError) as exc:
+    except (assistant_registry.AssistantSpecError, assistant_account_flow.AccountFlowError) as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT, "Assistant account contract changed; retry the message"
         ) from exc

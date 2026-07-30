@@ -14,9 +14,9 @@ TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(TESTS))
 
-import hosted_app_fixture as hosted_harness
+import hosted_assistant_fixture as hosted_harness
 
-from assistant_human import assistant_registry, marketplace
+from assistant_human import assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from controller_runtime import brain_runtime_client
@@ -275,16 +275,14 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
     def test_hosted_and_local_controllers_build_equivalent_real_segment_strategies(self) -> None:
         assistant_id = "shimpz-cloudflare"
-        declared_contract = marketplace.APPS[assistant_id].assistant
-        if declared_contract is None:
-            self.fail("the hosted Assistant contract is unavailable")
+        declared_contract = hosted_harness.HOSTED_SPEC.contract
         declared_power = declared_contract.powers["list-zones"]
-        hosted_power = marketplace.PowerSpec(
+        hosted_power = assistant_registry.PowerSpec(
             declared_power.summary,
             declared_power.input_schema,
             declared_power.output_schema,
         )
-        hosted_contract = marketplace.AssistantContract(
+        hosted_contract = assistant_registry.AssistantContract(
             {"list-zones": hosted_power},
             {},
         )

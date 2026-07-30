@@ -16,7 +16,12 @@ import docker
 
 import audit
 import validate
-from assistant_human import hosted_assistants, hosted_chat_api, hosted_chat_segment, marketplace
+from assistant_human import (
+    assistant_registry,
+    hosted_assistants,
+    hosted_chat_api,
+    hosted_chat_segment,
+)
 from container_policy import hosted_apps, hosted_lifecycle, hosted_resources
 from controller_runtime import accounts_client, brain_runtime_token_store
 from core.http import stdlib
@@ -256,7 +261,7 @@ class Handler(BaseHTTPRequestHandler):
                 exc,
                 runtime_state.ApiError,
                 validate.ValidationError,
-                marketplace.MarketplaceError,
+                assistant_registry.AssistantSpecError,
             ),
             emit=lambda failure: self._emit_failure(method, failure),
             unexpected_message="internal Team error",
@@ -345,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         binding = dynamic_assistants.binding_from_resolution(body["team_id"], resolution)
         # Pull outside the Team lifecycle lock; the in-lock install path re-resolves the same
         # digest locally immediately before create, preserving the execution-boundary proof.
-        hosted_resources._prepare_marketplace_image(publication.app_spec(binding))
+        hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
 
         def authorize_start() -> None:
             request = {
@@ -364,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
             if not _install_authorization_matches(receipt, expected, now):
                 raise developers_client.InstallAuthorizationDeniedError("installation authorization does not match")
 
-        installed = hosted_apps._install_dynamic_assistant(
+        installed = hosted_apps._install_assistant(
             body["team_id"],
             binding,
             claims["account_id"],
@@ -658,33 +663,6 @@ class Handler(BaseHTTPRequestHandler):
             hosted_chat_api._stop_chat(request.team_id, request.lease),
         )
 
-    def _route_app_install(self, request: _AuthorizedRequest) -> None:
-        kind, account_id = request.principal
-        runtime_state._enforce_rate("install", request.principal)
-        app_id, spec = marketplace.resolve(self._read_body().get("app"))
-        # A non-first-party app requires a verified Shimpz account.
-        if not spec.first_party and kind != "account":
-            raise runtime_state.ApiError(
-                HTTPStatus.UNAUTHORIZED,
-                f"installing {app_id!r} requires a valid Shimpz account",
-            )
-        owner = account_id or request.lease.owner
-        result = hosted_apps._install_app(
-            request.team_id,
-            app_id,
-            spec,
-            owner,
-            request.lease,
-        )
-        trace = audit.log(
-            "install",
-            request.team_id,
-            result="ok",
-            app=app_id,
-            installed=result["installed"],
-        )
-        self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
-
     def _route_assistant_install(self, request: _AuthorizedRequest) -> None:
         kind, account_id = request.principal
         if kind != "account" or account_id is None:
@@ -693,7 +671,7 @@ class Handler(BaseHTTPRequestHandler):
                 "Assistant publication installation requires a Shimpz Account",
             )
         body = self._read_team_body({"assistant_id", "source_digest"})
-        assistant_id = marketplace.validate_app_id(body["assistant_id"])
+        assistant_id = assistant_registry.validate_assistant_id(body["assistant_id"])
         source_digest = body["source_digest"]
         if not isinstance(source_digest, str) or _SOURCE_DIGEST.fullmatch(source_digest) is None:
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "source digest is invalid")
@@ -707,19 +685,16 @@ class Handler(BaseHTTPRequestHandler):
                 )
             trust.verify(resolution)
             binding = dynamic_assistants.binding_from_resolution(request.team_id, resolution)
-            hosted_resources._prepare_marketplace_image(publication.app_spec(binding))
+            hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
 
             def authorize_start() -> None:
                 current = client.resolve(source_digest)
-                if (
-                    current["assistant_id"] != assistant_id
-                    or current["oci_digest"] != resolution["oci_digest"]
-                ):
+                if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
                     raise developers_client.InstallAuthorizationDeniedError(
                         "Assistant publication changed before installation"
                     )
 
-            installed = hosted_apps._install_dynamic_assistant(
+            installed = hosted_apps._install_assistant(
                 request.team_id,
                 binding,
                 account_id,
@@ -754,30 +729,15 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, {**response, "trace_id": trace}, no_store=True)
 
     def _route_assistant_list(self, request: _AuthorizedRequest) -> None:
-        try:
-            assistant_ids = {
-                binding.assistant_id
-                for binding in runtime_state._dynamic_assistants.list(request.team_id)
-            }
-        except dynamic_assistants.DynamicAssistantError as exc:
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant metadata is unavailable",
-            ) from exc
-        inventory = hosted_apps._list_apps(request.team_id, request.lease)
-        assistants = [
-            {"assistant": item["app"], "status": item["status"]}
-            for item in inventory["apps"]
-            if item["app"] in assistant_ids
-        ]
+        inventory = hosted_apps._list_assistants(request.team_id, request.lease)
         self._send_json(
             HTTPStatus.OK,
-            {"assistants": assistants},
+            {"assistants": inventory["assistants"]},
             no_store=True,
         )
 
     def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
-        assistant_id = marketplace.validate_app_id(request.params["assistant_id"])
+        assistant_id = assistant_registry.validate_assistant_id(request.params["assistant_id"])
         try:
             binding = runtime_state._dynamic_assistants.get(request.team_id, assistant_id)
         except dynamic_assistants.DynamicAssistantError as exc:
@@ -787,7 +747,11 @@ class Handler(BaseHTTPRequestHandler):
             ) from exc
         if binding is None:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed")
-        result = hosted_apps._uninstall_app(request.team_id, assistant_id, request.lease)
+        result = hosted_apps._uninstall_assistant(
+            request.team_id,
+            assistant_id,
+            request.lease,
+        )
         trace = audit.log(
             "assistant_uninstall",
             request.team_id,
@@ -803,25 +767,6 @@ class Handler(BaseHTTPRequestHandler):
             },
             no_store=True,
         )
-
-    def _route_app_list(self, request: _AuthorizedRequest) -> None:
-        self._send_json(
-            HTTPStatus.OK,
-            hosted_apps._list_apps(request.team_id, request.lease),
-        )
-
-    def _route_app_uninstall(self, request: _AuthorizedRequest) -> None:
-        # Shape-validated only: a delisted app must remain uninstallable.
-        app_id = marketplace.validate_app_id(request.params["app_id"])
-        result = hosted_apps._uninstall_app(request.team_id, app_id, request.lease)
-        trace = audit.log(
-            "uninstall",
-            request.team_id,
-            result="ok",
-            app=app_id,
-            db_dropped=result["db_dropped"],
-        )
-        self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
 
 
 _GLOBAL_ROUTES = {
@@ -846,12 +791,9 @@ _AUTHORIZED_ROUTES = {
     "assistant-account-list": Handler._route_assistant_account_list,
     "assistant-account-authorize": Handler._route_assistant_account_authorize,
     "assistant-account-disconnect": Handler._route_assistant_account_disconnect,
-    "app-list": Handler._route_app_list,
-    "app-install": Handler._route_app_install,
     "assistant-install": Handler._route_assistant_install,
     "assistant-list": Handler._route_assistant_list,
     "assistant-uninstall": Handler._route_assistant_uninstall,
-    "app-uninstall": Handler._route_app_uninstall,
     "team-status": Handler._route_team_status,
     "team-logs": Handler._route_team_logs,
     "team-stop": functools.partial(Handler._route_team_lifecycle, operation="stop"),

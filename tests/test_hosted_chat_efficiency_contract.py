@@ -6,8 +6,9 @@ import unittest
 from collections import Counter
 from unittest import mock
 
-from hosted_app_fixture import (
+from hosted_assistant_fixture import (
     ANCHOR_ID,
+    HOSTED_SPEC,
     hosted_apps,
     hosted_assistants,
     hosted_chat_segment,
@@ -17,7 +18,7 @@ from hosted_app_fixture import (
 
 dynamic_assistants = hosted_resources.dynamic_assistants
 manifests = hosted_resources.manifests
-marketplace = hosted_assistants.marketplace
+assistant_registry = hosted_assistants.assistant_registry
 network_policy = hosted_resources.network_policy
 
 TEAM_ID = "team_1"
@@ -99,7 +100,7 @@ class CountingEgressStore:
 class HostedCheckHarness:
     def __init__(self, assistant_count: int, member_count: int) -> None:
         self.calls: Counter = Counter()
-        self.spec = marketplace.APPS["shimpz-cloudflare"]
+        self.spec = HOSTED_SPEC
         self.config = types.SimpleNamespace(provider="openai", model="gpt-test")
         self.files = [{"id": "f" * 32, "name": "brief.txt", "media_type": "text/plain", "size": 5}]
         selected_ids = ASSISTANT_IDS[:assistant_count]
@@ -112,10 +113,10 @@ class HostedCheckHarness:
         self.assistants = tuple(
             hosted_assistants._ActiveAssistant(
                 assistant_id,
-                self.spec.assistant,
+                self.spec.contract,
                 CountingContainer(
                     str(index + 1) * 64,
-                    {"team.id": TEAM_ID, "team.app": assistant_id},
+                    {"team.id": TEAM_ID, "team.assistant": assistant_id},
                     self.spec.image,
                     self.calls,
                 ),
@@ -145,7 +146,7 @@ class HostedCheckHarness:
             manifests.team_container_name(TEAM_ID): self.anchor,
             self.anchor.id: self.anchor,
             **{
-                manifests.team_app_container_name(TEAM_ID, active.assistant_id): active.container
+                manifests.team_assistant_container_name(TEAM_ID, active.assistant_id): active.container
                 for active in self.assistants
             },
             **{member.id: member for member in self.members},
@@ -203,7 +204,7 @@ class HostedCheckHarness:
             mock.patch.object(runtime_state, "_dynamic_assistants", CountingDynamicStore(self.bindings, self.calls)),
             mock.patch.object(runtime_state, "_storage", side_effect=self._storage),
             mock.patch.object(runtime_state, "_inference_store", types.SimpleNamespace(load=self._inference)),
-            mock.patch.object(hosted_apps.publication, "app_spec", side_effect=self._app_spec),
+            mock.patch.object(hosted_apps.publication, "assistant_spec", side_effect=self._app_spec),
             mock.patch.object(hosted_apps, "_egress_store", side_effect=self._egress_store),
             mock.patch.object(hosted_apps, "_require_assistant_allowed_hosts", return_value=("api.example.test",)),
             mock.patch.object(
@@ -213,7 +214,7 @@ class HostedCheckHarness:
             ),
             mock.patch.multiple(
                 network_policy,
-                app_identity_valid=lambda *_args: True,
+                assistant_identity_valid=lambda *_args: True,
                 brain_identity_valid=lambda attrs, _team_id: "team.brain" in attrs.get("Config", {}).get("Labels", {}),
                 network_members_valid=lambda *_args, **_kwargs: True,
                 workload_endpoint_valid=lambda *_args: True,

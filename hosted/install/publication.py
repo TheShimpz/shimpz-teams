@@ -1,4 +1,4 @@
-"""Convert a verified publication binding into a Hosted App contract."""
+"""Convert a verified publication binding into a Hosted Assistant contract."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ from copy import deepcopy
 from functools import lru_cache
 from typing import Any
 
-from assistant_human import assistant_manifest, assistant_registry, marketplace
+from assistant_human import assistant_manifest, assistant_registry
 from install import bindings
 
 
-def _build_app_spec(assistant_id: str, resolution: dict[str, Any]) -> marketplace.AppSpec:
+def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assistant_registry.AssistantSpec:
     try:
         declarations = tuple(
             assistant_manifest.AccountDeclaration(
@@ -50,18 +50,15 @@ def _build_app_spec(assistant_id: str, resolution: dict[str, Any]) -> marketplac
         platforms = tuple(platform.removeprefix("linux/") for platform in resolution["platforms"])
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid") from exc
-    return marketplace.AppSpec(
+    return assistant_registry.AssistantSpec(
         image=resolution["image_reference"],
-        port=1,
-        db=False,
         allowed_hosts=reviewed.allowed_hosts,
-        first_party=False,
         archs=platforms,
         required_image_labels=(
             ("org.shimpz.assistant.id", assistant_id),
             ("org.shimpz.source.digest", resolution["source_digest"]),
         ),
-        assistant=marketplace.AssistantContract(
+        contract=assistant_registry.AssistantContract(
             powers=powers,
             accounts=accounts,
             machine_contract=machine_contract,
@@ -70,7 +67,7 @@ def _build_app_spec(assistant_id: str, resolution: dict[str, Any]) -> marketplac
 
 
 @lru_cache(maxsize=4096)
-def _cached_app_spec(binding_digest: str, encoded_resolution: bytes) -> marketplace.AppSpec:
+def _cached_assistant_spec(binding_digest: str, encoded_resolution: bytes) -> assistant_registry.AssistantSpec:
     try:
         resolution = json.loads(encoded_resolution)
         assistant_id = resolution["assistant_id"]
@@ -78,15 +75,15 @@ def _cached_app_spec(binding_digest: str, encoded_resolution: bytes) -> marketpl
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid") from exc
     if not isinstance(assistant_id, str):
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid")
-    return _build_app_spec(assistant_id, resolution)
+    return _build_assistant_spec(assistant_id, resolution)
 
 
-def app_spec(binding: bindings.DynamicAssistantBinding) -> marketplace.AppSpec:
+def assistant_spec(binding: bindings.DynamicAssistantBinding) -> assistant_registry.AssistantSpec:
     expected = bindings.binding_from_resolution(binding.team_id, binding.resolution)
     if expected.binding_digest != binding.binding_digest:
         raise bindings.DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
     return deepcopy(
-        _cached_app_spec(
+        _cached_assistant_spec(
             binding.binding_digest,
             json.dumps(
                 binding.resolution,

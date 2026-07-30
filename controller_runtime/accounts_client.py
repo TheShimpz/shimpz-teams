@@ -7,7 +7,7 @@ verifies the token here and ties/authorizes Teams by the returned account_id. St
 SELF-HOST PHONE-HOME: on shimpz.com's own Space this points at the internal `accounts` container; a
 self-hosted Space instead sets SHIMPZ_ACCOUNTS_URL=https://shimpz.com/api/accounts — the SAME verify
 call then validates the account against shimpz.com (the store's public passthrough), which is what
-makes a marketplace install on a self-hosted Space require a real Shimpz account.
+makes an Assistant publication install on a self-hosted Space require a real Shimpz Account.
 """
 
 from __future__ import annotations

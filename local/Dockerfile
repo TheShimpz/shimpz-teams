@@ -50,7 +50,7 @@ COPY controller_runtime/__init__.py controller_runtime/brain_runtime_client.py \
     controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py \
     controller_runtime/local_token_store.py ./controller_runtime/
-COPY container_policy/__init__.py container_policy/local.py ./container_policy/
+COPY container_policy/__init__.py container_policy/local.py container_policy/network.py ./container_policy/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/

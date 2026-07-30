@@ -28,14 +28,14 @@ def classify_failure(
     exc: Exception,
     api_error_type: type[Exception],
     validation_error_type: type[Exception],
-    marketplace_error_type: type[Exception],
+    assistant_spec_error_type: type[Exception],
 ) -> stdlib.HttpFailure | None:
     if isinstance(exc, api_error_type):
         return stdlib.HttpFailure(exc.status, exc.message, exc.message, "denied")
     if isinstance(exc, validation_error_type):
         message = str(exc)
         return stdlib.HttpFailure(HTTPStatus.BAD_REQUEST, message, message, "denied")
-    if isinstance(exc, marketplace_error_type):
+    if isinstance(exc, assistant_spec_error_type):
         message = str(exc)
         return stdlib.HttpFailure(HTTPStatus.NOT_FOUND, message, message, "denied")
     return None

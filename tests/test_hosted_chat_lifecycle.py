@@ -10,8 +10,10 @@ from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
-from hosted_app_fixture import (
+from hosted_assistant_fixture import (
     ANCHOR_ID,
+    HOSTED_BINDING,
+    HOSTED_SPEC,
     app,
     hosted_apps,
     hosted_assistants,
@@ -27,7 +29,7 @@ assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 manifests = hosted_apps.manifests
-marketplace = hosted_apps.marketplace
+assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
 oauth_account_store = runtime_state.oauth_account_store
 oauth_http_client = runtime_state.oauth_http_client
@@ -86,12 +88,12 @@ class HostedChatLifecycleTests(unittest.TestCase):
     def _journal_chat_environment(self, journal, runtime, rpc, require_current=None):
         if require_current is None:
             require_current = ignore_credential_check
-        contract = marketplace.APPS["shimpz-cloudflare"].assistant
-        assert contract is not None
+        contract = HOSTED_SPEC.contract
         assistant = hosted_assistants._ActiveAssistant(
             "shimpz-cloudflare",
             contract,
             types.SimpleNamespace(id="b" * 64),
+            HOSTED_SPEC.image,
         )
         anchor = types.SimpleNamespace(
             id=ANCHOR_ID,
@@ -173,11 +175,20 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 hosted_resources._validated_team_name(invalid)
 
     def test_hosted_lifecycle_rejects_an_active_chat_before_any_mutation(self) -> None:
-        spec = marketplace.APPS["shimpz-cloudflare"]
         lease = types.SimpleNamespace(owner="account_1")
         operations = (
-            lambda: hosted_apps._install_app("team_1", "shimpz-cloudflare", spec, "account_1", lease),
-            lambda: hosted_apps._uninstall_app("team_1", "shimpz-cloudflare", lease),
+            lambda: hosted_apps._install_assistant(
+                "team_1",
+                HOSTED_BINDING,
+                "account_1",
+                lease,
+                authorize_start=lambda: None,
+            ),
+            lambda: hosted_apps._uninstall_assistant(
+                "team_1",
+                "shimpz-cloudflare",
+                lease,
+            ),
             lambda: hosted_lifecycle._lifecycle("team_1", "restart", lease),
         )
         chat_lock = runtime_state._chat_lock_for("team_1")
@@ -649,7 +660,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             operation = hosted_assistants.power_execution.power_operation(
                 normalized,
                 "b" * 64,
-                marketplace.APPS["shimpz-cloudflare"].image,
+                HOSTED_SPEC.image,
                 account_generations=(("cloudflare", 1),),
             )
             batch = journal.prepare_batch(ANCHOR_ID, thread_id, (operation,))

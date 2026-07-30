@@ -9,7 +9,7 @@ import docker.errors
 
 import audit
 import manifests
-from assistant_human import hosted_assistants, marketplace, oauth_account_store
+from assistant_human import assistant_registry, hosted_assistants, oauth_account_store
 from container_policy import hosted_apps, hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import (
@@ -121,19 +121,22 @@ def _stop_teardown_brain(brain) -> bool:
     return True
 
 
-def _teardown_apps(team_id: str) -> bool:
+def _teardown_assistants(team_id: str) -> bool:
     try:
-        app_containers = hosted_apps._team_app_containers(team_id)
+        assistant_containers = hosted_apps._team_assistant_containers(team_id)
     except docker.errors.DockerException:
         return False
     cleanup_complete = True
-    for app_container in app_containers:
-        app_id = app_container.labels.get("team.app", "")
-        if not isinstance(app_id, str) or marketplace.APP_ID_RE.fullmatch(app_id) is None:
+    for assistant_container in assistant_containers:
+        assistant_id = assistant_container.labels.get("team.assistant", "")
+        if not isinstance(assistant_id, str) or assistant_registry.ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
             cleanup_complete = False
             continue
-        # The Team-level database drop removes every registered App database in one scoped call.
-        result = hosted_apps._teardown_app(team_id, app_id, container=app_container, drop_db=False)
+        result = hosted_apps._teardown_assistant(
+            team_id,
+            assistant_id,
+            container=assistant_container,
+        )
         cleanup_complete = result.artifacts_removed and cleanup_complete
     return cleanup_complete
 
@@ -228,7 +231,7 @@ def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._C
         return hosted_resources._CleanupResult(False, False)
     if (
         not _stop_teardown_brain(brain)
-        or not _teardown_apps(team_id)
+        or not _teardown_assistants(team_id)
         or not _teardown_storage(team_id)
         or not _teardown_inference(team_id)
         or not _teardown_assistant_accounts(team_id)

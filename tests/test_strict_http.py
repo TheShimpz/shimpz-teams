@@ -13,7 +13,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from hosted_app_fixture import app, runtime_state
+from hosted_assistant_fixture import app, runtime_state
 
 from core.http import strict as strict_http
 from local import app as local_app

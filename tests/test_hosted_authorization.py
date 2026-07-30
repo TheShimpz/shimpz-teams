@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hosted_app_fixture import app, hosted_controller, hosted_resources, runtime_state
+from hosted_assistant_fixture import app, hosted_controller, hosted_resources, runtime_state
 
 manifests = hosted_resources.manifests
 network_policy = hosted_resources.network_policy
@@ -181,13 +181,18 @@ class HostedAuthorizationTests(unittest.TestCase):
     def test_sensitive_route_drives_the_real_current_authorization_chain(self) -> None:
         container = _routable_container()
         handler = self._handler()
-        handler.path = f"/v1/teams/{TEAM_ID}/apps"
+        handler.path = f"/v1/teams/{TEAM_ID}/assistants"
         sent: list[tuple[HTTPStatus, dict]] = []
         handler._send_json = lambda status, payload, **_kwargs: sent.append((status, payload))
 
         with (
             mock.patch.object(hosted_resources, "_get_container", return_value=container),
             mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
+            mock.patch.object(
+                hosted_controller.hosted_apps,
+                "_team_assistant_containers",
+                return_value=[],
+            ),
             mock.patch.object(
                 hosted_resources,
                 "_require_current_authorization",
@@ -196,7 +201,7 @@ class HostedAuthorizationTests(unittest.TestCase):
         ):
             handler._route("GET", ("account", "account_1"))
 
-        self.assertEqual(sent, [(HTTPStatus.OK, {"team_id": TEAM_ID, "apps": []})])
+        self.assertEqual(sent, [(HTTPStatus.OK, {"assistants": []})])
         require_current.assert_called_once()
         self.assertEqual(require_current.call_args.args[0], TEAM_ID)
         self.assertEqual(require_current.call_args.args[1].container_id, CONTAINER_ID)

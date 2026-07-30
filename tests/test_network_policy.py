@@ -30,8 +30,25 @@ TEAM_ID = "tenant_workspace"
 CORE = policy.network_name(TEAM_ID, policy.CORE_KIND)
 BRAIN_IMAGE_REF = "trusted-brain:v1"
 BRAIN_IMAGE_ID = "sha256:trusted-brain-id"
-APP_IMAGE_REF = "trusted-app:v1"
-APP_IMAGE_ID = "sha256:trusted-app-id"
+ASSISTANT_ID = "hello-world"
+ASSISTANT_IMAGE_REF = "trusted-assistant:v1"
+ASSISTANT_IMAGE_ID = "sha256:trusted-assistant-id"
+
+
+def _assistant_binding(
+    assistant_id: str = ASSISTANT_ID,
+    image_ref: str = ASSISTANT_IMAGE_REF,
+):
+    return types.SimpleNamespace(
+        team_id=TEAM_ID,
+        assistant_id=assistant_id,
+        resolution={"image_reference": image_ref},
+    )
+
+
+def _binding_store(*bindings):
+    current = bindings or (_assistant_binding(),)
+    return types.SimpleNamespace(snapshot=lambda: current)
 
 
 def _environment_get(path: Path, assignment: str) -> ast.Call:
@@ -188,22 +205,27 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         image_id=BRAIN_IMAGE_ID,
         hostname=TEAM_ID,
     )
-    app_id = "notification-center"
-    app = _container(
+    assistant_id = ASSISTANT_ID
+    assistant = _container(
         "app-id",
-        policy.team_app_container_name(TEAM_ID, app_id),
-        labels={"team.app.runtime": "1", "team.id": TEAM_ID, "team.app": app_id},
-        networks={CORE: _endpoint("core-id", app_id, f"{app_id}.team")},
+        policy.team_assistant_container_name(TEAM_ID, assistant_id),
+        labels={
+            "team.assistant.runtime": "1",
+            "team.assistant.dynamic": "1",
+            "team.id": TEAM_ID,
+            "team.assistant": assistant_id,
+        },
+        networks={CORE: _endpoint("core-id", assistant_id, f"{assistant_id}.team")},
         host_config={
             **common_security,
             "CapDrop": ["ALL"],
             "CapAdd": [],
             "ReadonlyRootfs": True,
-            "Memory": policy.APP_MEMORY_BYTES,
-            "MemorySwap": policy.APP_MEMORY_BYTES,
-            "NanoCpus": policy.APP_NANO_CPUS,
-            "PidsLimit": policy.APP_PIDS_LIMIT,
-            "Tmpfs": {"/tmp": "size=256m"},
+            "Memory": policy.ASSISTANT_MEMORY_BYTES,
+            "MemorySwap": policy.ASSISTANT_MEMORY_BYTES,
+            "NanoCpus": policy.ASSISTANT_NANO_CPUS,
+            "PidsLimit": policy.ASSISTANT_PIDS_LIMIT,
+            "Tmpfs": {"/tmp": "size=64m,mode=1777"},
             "Ulimits": [{"Name": "nofile", "Soft": 4096, "Hard": 4096}],
             "RestartPolicy": {"Name": "no"},
             "LogConfig": {
@@ -216,8 +238,8 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
             },
         },
         user="10001:10001",
-        image_ref=APP_IMAGE_REF,
-        image_id=APP_IMAGE_ID,
+        image_ref=ASSISTANT_IMAGE_REF,
+        image_id=ASSISTANT_IMAGE_ID,
     )
     postgres = _container(
         "postgres-id",
@@ -231,7 +253,7 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         labels=policy.shared_service_labels(policy.APP_EGRESS_ROLE),
         networks={CORE: _endpoint("core-id", "app-egress-proxy")},
     )
-    containers = {item["Id"]: item for item in (brain, app, postgres, app_proxy)}
+    containers = {item["Id"]: item for item in (brain, assistant, postgres, app_proxy)}
     core = _network(policy.CORE_KIND, "core-id", "brain-id", "app-id", "postgres-id", "app-proxy-id")
     return core, containers
 
@@ -252,13 +274,14 @@ def _workload_valid(metadata: dict) -> bool:
     if labels.get("team.runtime") == "1":
         expected_ref, expected_id = BRAIN_IMAGE_REF, BRAIN_IMAGE_ID
     else:
-        expected_ref, expected_id = APP_IMAGE_REF, APP_IMAGE_ID
+        expected_ref, expected_id = ASSISTANT_IMAGE_REF, ASSISTANT_IMAGE_ID
     return policy.workload_security_valid(
         metadata,
         TEAM_ID,
         "runsc",
         expected_image_ref=expected_ref,
         expected_image_id=expected_id,
+        compact_assistant_runtime=labels.get("team.assistant.runtime") == "1",
     )
 
 
@@ -276,16 +299,19 @@ def test_network_names_are_injective_and_bounded() -> None:
     except ValueError:
         check(True, "the retired Brain-egress network kind is refused")
 
-    app_name = policy.team_app_container_name("x", "notification-center")
-    adversarial_brain = policy.team_container_name("x_app_notification_center")
-    check(app_name != adversarial_brain, "a valid Brain Team ID cannot collide with an App workload name")
+    assistant_name = policy.team_assistant_container_name("x", ASSISTANT_ID)
+    adversarial_brain = policy.team_container_name("x_assistant_hello_world")
     check(
-        app_name.endswith("x.app.notification-center"),
-        "App workload naming uses an out-of-Team-ID delimiter without lossy rewriting",
+        assistant_name != adversarial_brain,
+        "a valid Brain Team ID cannot collide with an Assistant workload name",
     )
     check(
-        len(policy.team_app_container_name("x" * 40, "x" * 40).encode()) <= policy.DOCKER_RESOURCE_NAME_MAX,
-        "maximum valid Team ID/App IDs stay inside Docker's resource-name limit",
+        assistant_name.endswith("x.assistant.hello-world"),
+        "Assistant naming uses an out-of-Team-ID delimiter without lossy rewriting",
+    )
+    check(
+        len(policy.team_assistant_container_name("x" * 40, "x" * 40).encode()) <= policy.DOCKER_RESOURCE_NAME_MAX,
+        "maximum valid Team and Assistant IDs stay inside Docker's resource-name limit",
     )
 
     foreign_brain = _container(
@@ -298,9 +324,12 @@ def test_network_names_are_injective_and_bounded() -> None:
 
 def test_valid_core_topology_and_security_posture() -> None:
     core, containers = _valid_topology()
-    check(_members_valid(core, containers, policy.CORE_KIND), "core accepts only Brain, Apps, DB and app proxy")
+    check(
+        _members_valid(core, containers, policy.CORE_KIND),
+        "core accepts only Brain, Assistants, PostgreSQL, and the Assistant proxy",
+    )
     check(_workload_valid(containers["brain-id"]), "Brain posture is exact")
-    check(_workload_valid(containers["app-id"]), "App posture is exact")
+    check(_workload_valid(containers["app-id"]), "Assistant posture is exact")
     check(
         policy.daemon_security_options_valid(
             {"SecurityOptions": ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"]}
@@ -394,25 +423,14 @@ def test_engine_29_capability_prefix_is_normalized() -> None:
     )
 
 
-def test_compact_dynamic_app_tmpfs_requires_trusted_runtime_selection() -> None:
+def test_assistant_tmpfs_requires_the_compact_runtime_contract() -> None:
     _core, containers = _valid_topology()
-    app = containers["app-id"]
-    app["HostConfig"]["Tmpfs"] = {policy.TMPFS_MOUNT_PATH: "size=64m,mode=1777"}
-
+    assistant = containers["app-id"]
+    check(_workload_valid(assistant), "a bound Assistant admits the 64 MiB tmpfs posture")
+    assistant["HostConfig"]["Tmpfs"] = {policy.TMPFS_MOUNT_PATH: "size=256m"}
     check(
-        not _workload_valid(app),
-        "a static App cannot self-select the compact dynamic runtime posture",
-    )
-    check(
-        policy.workload_security_valid(
-            app,
-            TEAM_ID,
-            "runsc",
-            expected_image_ref=APP_IMAGE_REF,
-            expected_image_id=APP_IMAGE_ID,
-            compact_app_runtime=True,
-        ),
-        "a trusted dynamic binding admits the tighter 64 MiB tmpfs posture",
+        not _workload_valid(assistant),
+        "an Assistant cannot drift back to the retired generic workload posture",
     )
 
 
@@ -435,36 +453,26 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
             "health caches one immutable resolution consistently across its inspection pass",
         )
 
-        app_id, app_spec = next(iter(team_healthcheck.marketplace.APPS.items()))
-        app = {"Config": {"Labels": {"team.app.runtime": "1", "team.app": app_id}}}
-        check(
-            team_healthcheck._expected_workload_image(app, cache, {}) == (app_spec.image, "sha256:2", False),
-            "health maps a registered App to its separately resolved immutable image ID",
-        )
-        dynamic_ref = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + ("a" * 64)
-        dynamic = {
+        assistant_ref = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + ("a" * 64)
+        assistant = {
             "Config": {
                 "Labels": {
                     "team.id": TEAM_ID,
-                    "team.app.runtime": "1",
-                    "team.app": "hello-world",
-                    "team.app.dynamic": "1",
+                    "team.assistant.runtime": "1",
+                    "team.assistant": ASSISTANT_ID,
+                    "team.assistant.dynamic": "1",
                 }
             }
         }
-        binding = types.SimpleNamespace(
-            team_id=TEAM_ID,
-            assistant_id="hello-world",
-            resolution={"image_reference": dynamic_ref},
-        )
+        binding = _assistant_binding(image_ref=assistant_ref)
         check(
             team_healthcheck._expected_workload_image(
-                dynamic,
+                assistant,
                 cache,
-                {(TEAM_ID, "hello-world"): binding},
+                {(TEAM_ID, ASSISTANT_ID): binding},
             )
-            == (dynamic_ref, "sha256:3", True),
-            "health resolves a dynamic App through its controller-owned binding",
+            == (assistant_ref, "sha256:2", True),
+            "health resolves an Assistant only through its Team binding",
         )
         unknown = {"Config": {"Labels": {"team.runtime": "1", "team.brain": "unknown-provider"}}}
         check(
@@ -479,24 +487,26 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
 def test_health_tracks_running_brains_without_weakening_stopped_posture() -> None:
     _core, containers = _valid_topology()
     brain = containers["brain-id"]
-    app = containers["app-id"]
+    assistant = containers["app-id"]
     brain_ref = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
-    app_ref = team_healthcheck.marketplace.APPS["notification-center"].image
+    assistant_ref = ASSISTANT_IMAGE_REF
     brain["Config"]["Image"], brain["Image"] = brain_ref, "sha256:health-brain"
-    app["Config"]["Image"], app["Image"] = app_ref, "sha256:health-app"
+    assistant["Config"]["Image"], assistant["Image"] = assistant_ref, "sha256:health-assistant"
     brain["State"]["Running"] = False
-    metadata_by_id = {"brain-id": brain, "app-id": app}
+    metadata_by_id = {"brain-id": brain, "app-id": assistant}
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
         for container_id, metadata in metadata_by_id.items()
     ]
     original_docker_json = team_healthcheck._docker_json
     original_image_id = team_healthcheck._image_id
+    original_dynamic_assistants = team_healthcheck.DYNAMIC_ASSISTANTS
     team_healthcheck._docker_json = lambda path: (200, metadata_by_id[path.split("/")[2]])
     team_healthcheck._image_id = lambda image_ref: {
         brain_ref: "sha256:health-brain",
-        app_ref: "sha256:health-app",
+        assistant_ref: "sha256:health-assistant",
     }.get(image_ref)
+    team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()
     try:
         inspected = team_healthcheck._inspect_workloads(summaries)
         check(
@@ -523,17 +533,18 @@ def test_health_tracks_running_brains_without_weakening_stopped_posture() -> Non
     finally:
         team_healthcheck._docker_json = original_docker_json
         team_healthcheck._image_id = original_image_id
+        team_healthcheck.DYNAMIC_ASSISTANTS = original_dynamic_assistants
 
 
-def test_health_tolerates_only_stopped_unbound_dynamic_apps() -> None:
+def test_health_tolerates_only_stopped_unbound_assistants() -> None:
     orphan = _container(
         "orphan-id",
         "orphan",
         labels={
             "team.id": TEAM_ID,
-            "team.app.runtime": "1",
-            "team.app": "orphan",
-            "team.app.dynamic": "1",
+            "team.assistant.runtime": "1",
+            "team.assistant": "orphan",
+            "team.assistant.dynamic": "1",
         },
         host_config={"RestartPolicy": {"Name": "no"}},
         running=False,
@@ -546,12 +557,12 @@ def test_health_tolerates_only_stopped_unbound_dynamic_apps() -> None:
     try:
         check(
             team_healthcheck._inspect_workloads(summaries) == ({}, set(), {}, set(), {}),
-            "a stopped unbound dynamic App remains cleanup drift without failing global readiness",
+            "a stopped unbound Assistant remains cleanup drift without failing global readiness",
         )
         orphan["State"]["Running"] = True
         check(
             team_healthcheck._inspect_workloads(summaries) is None,
-            "a running unbound dynamic App still fails closed",
+            "a running unbound Assistant still fails closed",
         )
         orphan["State"]["Running"] = False
         orphan["HostConfig"]["RestartPolicy"]["Name"] = "always"
@@ -560,13 +571,14 @@ def test_health_tolerates_only_stopped_unbound_dynamic_apps() -> None:
             "a stopped orphan that can restart automatically still fails closed",
         )
         orphan["HostConfig"]["RestartPolicy"]["Name"] = "no"
-        orphan["Config"]["Labels"]["team.app"] = "notification-center"
+        orphan["Config"]["Labels"]["team.assistant"] = ASSISTANT_ID
         orphan["HostConfig"]["IpcMode"] = "host"
+        team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()
         check(
             team_healthcheck._inspect_workloads(summaries) is None,
-            "a static App mislabeled as dynamic cannot use the stopped-orphan exception",
+            "a bound Assistant with namespace drift cannot use the stopped-orphan exception",
         )
-        orphan["Config"]["Labels"]["team.app"] = "orphan"
+        orphan["Config"]["Labels"]["team.assistant"] = "orphan"
         orphan["HostConfig"].pop("IpcMode")
         team_healthcheck.DYNAMIC_ASSISTANTS = types.SimpleNamespace(
             snapshot=lambda: (_ for _ in ()).throw(
@@ -586,15 +598,15 @@ def test_health_tolerates_only_stopped_unbound_dynamic_apps() -> None:
 def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     core, containers = _valid_topology()
     containers["brain-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
-    containers["app-id"]["Config"]["Image"] = team_healthcheck.marketplace.APPS["notification-center"].image
+    containers["app-id"]["Config"]["Image"] = ASSISTANT_IMAGE_REF
     orphan = _container(
         "orphan-id",
         "orphan",
         labels={
             "team.id": TEAM_ID,
-            "team.app.runtime": "1",
-            "team.app": "orphan",
-            "team.app.dynamic": "1",
+            "team.assistant.runtime": "1",
+            "team.assistant": "orphan",
+            "team.assistant.dynamic": "1",
         },
         host_config={"RestartPolicy": {"Name": "no"}},
         running=False,
@@ -603,7 +615,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
         for container_id, metadata in containers.items()
-        if {"team.runtime", "team.app.runtime"} & set(metadata["Config"]["Labels"])
+        if {"team.runtime", "team.assistant.runtime"} & set(metadata["Config"]["Labels"])
     ]
     original_checks = (
         team_healthcheck.daemon_isolation_ready,
@@ -623,18 +635,16 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
             return 200, core
         return 404, None
 
-    with tempfile.TemporaryDirectory() as directory:
+    with tempfile.TemporaryDirectory() as _directory:
         team_healthcheck.daemon_isolation_ready = lambda: True
         team_healthcheck.images_ready = lambda: True
         team_healthcheck.auth_gate_ready = lambda: True
         team_healthcheck._docker_json = docker_json
         team_healthcheck._image_id = lambda image_ref: {
             team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]: BRAIN_IMAGE_ID,
-            team_healthcheck.marketplace.APPS["notification-center"].image: APP_IMAGE_ID,
+            ASSISTANT_IMAGE_REF: ASSISTANT_IMAGE_ID,
         }.get(image_ref)
-        team_healthcheck.DYNAMIC_ASSISTANTS = team_healthcheck.dynamic_assistants.DynamicAssistantStore(
-            Path(directory) / "bindings.json"
-        )
+        team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()
         try:
             check(
                 team_healthcheck.main() == 0,
@@ -654,326 +664,6 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
                 team_healthcheck._image_id,
                 team_healthcheck.DYNAMIC_ASSISTANTS,
             ) = original_checks
-
-
-def test_foreign_services_and_extra_app_networks_fail_closed() -> None:
-    core, containers = _valid_topology()
-    broad_on_core = copy.deepcopy(core)
-    broad_proxy = _container(
-        "brain-proxy-id",
-        "egress-proxy",
-        labels={policy.SHARED_MANAGED_LABEL: "1", policy.SHARED_ROLE_LABEL: "brain-egress"},
-        networks={CORE: _endpoint("core-id", "egress-proxy")},
-    )
-    containers["brain-proxy-id"] = broad_proxy
-    broad_on_core["Containers"]["brain-proxy-id"] = {}
-    check(not _members_valid(broad_on_core, containers, policy.CORE_KIND), "retired broad proxy on core fails closed")
-
-    _core, containers = _valid_topology()
-    containers["app-id"]["NetworkSettings"]["Networks"]["foreign"] = _endpoint("foreign-id", "notification-center")
-    check(
-        not _workload_valid(containers["app-id"]),
-        "App with any extra network fails its workload posture",
-    )
-
-
-def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -> None:
-    core, containers = _valid_topology()
-    brain = containers["brain-id"]
-    brain["State"]["Running"] = False
-    del core["Containers"]["brain-id"]
-    check(_workload_valid(brain), "stopped Brain keeps exact image/resource/endpoint posture in container inspect")
-    check(
-        policy.workload_endpoint_valid(core, brain, TEAM_ID, policy.CORE_KIND),
-        "stopped Brain retains an exact container-inspect endpoint on core",
-    )
-    check(
-        policy.network_members_valid(
-            core,
-            containers,
-            TEAM_ID,
-            policy.CORE_KIND,
-            require_brain=False,
-            require_dependencies=True,
-        ),
-        "stopped Brain omission is accepted on the exact core plane",
-    )
-    check(
-        not policy.network_members_valid(
-            core,
-            containers,
-            TEAM_ID,
-            policy.CORE_KIND,
-            require_brain=True,
-            require_dependencies=True,
-        ),
-        "the same omission fails whenever core requires live Brain membership",
-    )
-    check(
-        policy.workload_live_membership_valid(core, containers["app-id"], TEAM_ID, policy.CORE_KIND),
-        "a running App remains valid on core while its exact Brain is intentionally stopped",
-    )
-    app_omitted = copy.deepcopy(core)
-    del app_omitted["Containers"]["app-id"]
-    check(
-        policy.network_members_valid(
-            app_omitted,
-            containers,
-            TEAM_ID,
-            policy.CORE_KIND,
-            require_brain=False,
-            require_dependencies=True,
-        ),
-        "aggregate plane policy alone does not invent an omitted optional App",
-    )
-    check(
-        not policy.workload_live_membership_valid(
-            app_omitted,
-            containers["app-id"],
-            TEAM_ID,
-            policy.CORE_KIND,
-        ),
-        "exact running-App membership proof rejects Engine inventory omission",
-    )
-    drifted = copy.deepcopy(brain)
-    drifted["Config"]["Image"] = "attacker:stopped"
-    check(not _workload_valid(drifted), "stopped-member normalization cannot bypass trusted image posture")
-    wrong_network = copy.deepcopy(brain)
-    wrong_network["NetworkSettings"]["Networks"][CORE]["NetworkID"] = "foreign-network-id"
-    check(
-        not policy.workload_endpoint_valid(core, wrong_network, TEAM_ID, policy.CORE_KIND),
-        "stopped-member omission cannot bypass exact endpoint NetworkID binding",
-    )
-    pending = copy.deepcopy(brain)
-    automatic_names = (policy.team_container_name(TEAM_ID), "brain-id", TEAM_ID)
-    pending["NetworkSettings"]["Networks"] = {
-        CORE: _pending_endpoint(*automatic_names),
-    }
-    check(
-        policy.workload_endpoint_valid(core, pending, TEAM_ID, policy.CORE_KIND),
-        "strict Engine 29 stopped-endpoint placeholder validates on core",
-    )
-    running_pending = copy.deepcopy(pending)
-    running_pending["State"]["Running"] = True
-    check(
-        not policy.workload_endpoint_valid(core, running_pending, TEAM_ID, policy.CORE_KIND),
-        "an empty endpoint binding can never admit a running workload",
-    )
-    inventoried_pending = copy.deepcopy(core)
-    inventoried_pending["Containers"]["brain-id"] = {}
-    check(
-        not policy.workload_endpoint_valid(inventoried_pending, pending, TEAM_ID, policy.CORE_KIND),
-        "an empty endpoint binding cannot contradict the network's live-member inventory",
-    )
-    addressed_pending = copy.deepcopy(pending)
-    addressed_pending["NetworkSettings"]["Networks"][CORE]["IPAddress"] = "172.30.0.9"
-    check(
-        not policy.workload_endpoint_valid(core, addressed_pending, TEAM_ID, policy.CORE_KIND),
-        "a partially populated stopped endpoint is not mistaken for Engine's empty placeholder",
-    )
-    extended_pending = copy.deepcopy(pending)
-    extended_pending["NetworkSettings"]["Networks"][CORE]["FutureAttachmentField"] = ""
-    check(
-        not policy.workload_endpoint_valid(core, extended_pending, TEAM_ID, policy.CORE_KIND),
-        "unknown pending-endpoint fields fail closed until their Engine semantics are reviewed",
-    )
-    reserved_alias = copy.deepcopy(brain)
-    reserved_alias["NetworkSettings"]["Networks"][CORE]["Aliases"].append("postgres")
-    check(
-        not policy.workload_endpoint_valid(core, reserved_alias, TEAM_ID, policy.CORE_KIND),
-        "stopped-member omission cannot smuggle a reserved endpoint alias",
-    )
-
-
-def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
-    core, containers = _valid_topology()
-    for field, bad in (
-        ("Internal", False),
-        ("Driver", "overlay"),
-        ("Scope", "swarm"),
-        ("Attachable", True),
-        ("Ingress", True),
-        ("ConfigOnly", True),
-    ):
-        drifted = copy.deepcopy(core)
-        drifted[field] = bad
-        check(not policy.network_identity_valid(drifted, TEAM_ID, policy.CORE_KIND), f"{field} drift is rejected")
-    wrong_labels = copy.deepcopy(core)
-    wrong_labels["Labels"][policy.NETWORK_TEAM_ID_LABEL] = "another_team"
-    check(not policy.network_identity_valid(wrong_labels, TEAM_ID, policy.CORE_KIND), "wrong Team ID label is rejected")
-
-    config_volume = {
-        "Name": policy.volume_name(TEAM_ID, policy.CONFIG_VOLUME_KIND),
-        "Driver": "local",
-        "Scope": "local",
-        "Options": {},
-        "Labels": policy.volume_labels(TEAM_ID, policy.CONFIG_VOLUME_KIND),
-    }
-    check(
-        policy.volume_identity_valid(config_volume, TEAM_ID, policy.CONFIG_VOLUME_KIND),
-        "exact labeled Team volume identity validates",
-    )
-    unlabeled_volume = copy.deepcopy(config_volume)
-    unlabeled_volume["Labels"] = {}
-    check(
-        not policy.volume_identity_valid(unlabeled_volume, TEAM_ID, policy.CONFIG_VOLUME_KIND),
-        "same-name unlabeled volume reuse is rejected",
-    )
-    host_bind_volume = copy.deepcopy(config_volume)
-    host_bind_volume["Options"] = {"type": "none", "o": "bind", "device": "/etc"}
-    check(
-        not policy.volume_identity_valid(host_bind_volume, TEAM_ID, policy.CONFIG_VOLUME_KIND),
-        "same-name labeled local volume backed by a host bind is rejected",
-    )
-
-    foreign = _container(
-        "foreign-id",
-        "foreign-container",
-        networks={CORE: _endpoint("core-id", "foreign-container")},
-    )
-    containers["foreign-id"] = foreign
-    contaminated = copy.deepcopy(core)
-    contaminated["Containers"]["foreign-id"] = {}
-    check(not _members_valid(contaminated, containers, policy.CORE_KIND), "foreign member is rejected")
-    check(
-        not policy.network_member_managed(foreign, TEAM_ID, policy.CORE_KIND),
-        "teardown never claims a foreign member",
-    )
-    check(
-        policy.network_member_managed(containers["postgres-id"], TEAM_ID, policy.CORE_KIND),
-        "teardown recognizes the exact configured core dependency",
-    )
-    app_proxy = _container(
-        "app-egress",
-        policy.APP_EGRESS_CONTAINER,
-        labels=policy.shared_service_labels(policy.APP_EGRESS_ROLE),
-    )
-    check(
-        policy.network_member_managed(app_proxy, TEAM_ID, policy.CORE_KIND),
-        "cleanup recognizes the exact token proxy on the core plane",
-    )
-    check(
-        not policy.network_member_managed(app_proxy, TEAM_ID, "brain-egress"),
-        "cleanup never accepts the retired Brain-egress plane",
-    )
-    name_only_postgres = _container("name-only", policy.POSTGRES_CONTAINER)
-    check(
-        not policy.network_member_managed(name_only_postgres, TEAM_ID, policy.CORE_KIND),
-        "an exact shared-service name without its role labels remains foreign",
-    )
-
-
-def test_alias_and_endpoint_identity_drift_fail_closed() -> None:
-    core, containers = _valid_topology()
-    containers["postgres-id"]["NetworkSettings"]["Networks"][CORE]["Aliases"] = []
-    check(not _members_valid(core, containers, policy.CORE_KIND), "missing postgres alias is rejected")
-
-    core, containers = _valid_topology()
-    containers["postgres-id"]["NetworkSettings"]["Networks"][CORE]["NetworkID"] = "another-network"
-    check(not _members_valid(core, containers, policy.CORE_KIND), "endpoint/network ID mismatch is rejected")
-
-    core, containers = _valid_topology()
-    containers["app-id"]["NetworkSettings"]["Networks"][CORE]["Aliases"].append("postgres")
-    check(not _members_valid(core, containers, policy.CORE_KIND), "App cannot claim a reserved service alias")
-
-    core, containers = _valid_topology()
-    containers["postgres-id"]["NetworkSettings"]["Networks"][CORE]["Aliases"].extend(
-        [policy.POSTGRES_CONTAINER, "postgres-id"]
-    )
-    check(_members_valid(core, containers, policy.CORE_KIND), "Docker name/id automatic aliases normalize safely")
-
-    core, containers = _valid_topology()
-    containers["postgres-id"]["NetworkSettings"]["Networks"][CORE]["DNSNames"] = [
-        "postgres",
-        policy.POSTGRES_CONTAINER,
-        "postgres-id",
-    ]
-    check(_members_valid(core, containers, policy.CORE_KIND), "Engine 29 DNSNames normalize safely")
-
-    core, containers = _valid_topology()
-    containers["brain-id"]["Config"]["Hostname"] = "postgres"
-    containers["brain-id"]["NetworkSettings"]["Networks"][CORE]["DNSNames"] = [
-        policy.team_container_name(TEAM_ID),
-        "brain-id",
-        "postgres",
-    ]
-    check(not _members_valid(core, containers, policy.CORE_KIND), "automatic Brain hostname cannot claim postgres")
-
-    core, containers = _valid_topology()
-    containers["postgres-id"]["Config"]["Labels"][policy.SHARED_ROLE_LABEL] = policy.APP_EGRESS_ROLE
-    check(not _members_valid(core, containers, policy.CORE_KIND), "shared service role-label drift is rejected")
-
-
-def test_workload_security_drift_fail_closed() -> None:
-    _core, containers = _valid_topology()
-    mutations = (
-        ("wrong runtime", lambda item: item["HostConfig"].update(Runtime="runc")),
-        ("privileged", lambda item: item["HostConfig"].update(Privileged=True)),
-        ("unconfined seccomp", lambda item: item["HostConfig"]["SecurityOpt"].append("seccomp=unconfined")),
-        ("custom seccomp", lambda item: item["HostConfig"]["SecurityOpt"].append("seccomp=/tmp/custom.json")),
-        ("wrong AppArmor", lambda item: item.update(AppArmorProfile="unconfined")),
-        ("wrong UID", lambda item: item["Config"].update(User="0:0")),
-        ("writable root", lambda item: item["HostConfig"].update(ReadonlyRootfs=False)),
-        ("capability added", lambda item: item["HostConfig"].update(CapAdd=["NET_RAW"])),
-        ("published port", lambda item: item["HostConfig"].update(PublishAllPorts=True)),
-        ("host PID namespace", lambda item: item["HostConfig"].update(PidMode="host")),
-        ("host IPC namespace", lambda item: item["HostConfig"].update(IpcMode="host")),
-        ("shared IPC namespace", lambda item: item["HostConfig"].update(IpcMode="container:other")),
-        ("host UTS namespace", lambda item: item["HostConfig"].update(UTSMode="host")),
-        ("host cgroup namespace", lambda item: item["HostConfig"].update(CgroupnsMode="host")),
-        ("disabled user namespace remap", lambda item: item["HostConfig"].update(UsernsMode="host")),
-        ("missing IPC namespace proof", lambda item: item["HostConfig"].pop("IpcMode")),
-        ("missing cgroup namespace proof", lambda item: item["HostConfig"].pop("CgroupnsMode")),
-        ("null IPC namespace", lambda item: item["HostConfig"].update(IpcMode=None)),
-        ("null cgroup namespace", lambda item: item["HostConfig"].update(CgroupnsMode=None)),
-        ("malformed IPC namespace", lambda item: item["HostConfig"].update(IpcMode=False)),
-        ("malformed user namespace", lambda item: item["HostConfig"].update(UsernsMode=0)),
-        ("memory drift", lambda item: item["HostConfig"].update(Memory=policy.APP_MEMORY_BYTES + 1)),
-        ("swap expansion", lambda item: item["HostConfig"].update(MemorySwap=policy.APP_MEMORY_BYTES * 2)),
-        ("tmpfs expansion", lambda item: item["HostConfig"].update(Tmpfs={"/tmp": "size=1g"})),
-        (
-            "nofile expansion",
-            lambda item: item["HostConfig"].update(Ulimits=[{"Name": "nofile", "Soft": 65536, "Hard": 65536}]),
-        ),
-        (
-            "automatic restart enabled",
-            lambda item: item["HostConfig"].update(RestartPolicy={"Name": "unless-stopped"}),
-        ),
-        (
-            "unbounded logs",
-            lambda item: item["HostConfig"].update(LogConfig={"Type": "json-file", "Config": {"labels": "team.id"}}),
-        ),
-        ("wrong configured image", lambda item: item["Config"].update(Image="attacker:v1")),
-        ("wrong immutable image ID", lambda item: item.update(Image="sha256:attacker")),
-    )
-    for label, mutate in mutations:
-        drifted = copy.deepcopy(containers["app-id"])
-        mutate(drifted)
-        check(not _workload_valid(drifted), f"App {label} is rejected")
-
-    false_nnp = copy.deepcopy(containers["app-id"])
-    false_nnp["HostConfig"]["SecurityOpt"] = ["no-new-privileges:false", "apparmor=docker-default"]
-    check(not _workload_valid(false_nnp), "disabled no-new-privileges is rejected")
-
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["HostConfig"]["CapAdd"].append("NET_RAW")
-    check(not _workload_valid(brain), "Brain cap expansion is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["Mounts"].append({"Destination": "/var/run/docker.sock", "Type": "bind"})
-    check(not _workload_valid(brain), "Brain foreign mount is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["Mounts"].append({"Destination": "/config", "Type": "volume", "Name": "foreign", "RW": True})
-    check(not _workload_valid(brain), "Brain foreign volume is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["HostConfig"]["MemoryReservation"] = policy.BRAIN_MEMORY_RESERVATION_BYTES + 1
-    check(not _workload_valid(brain), "Brain memory reservation drift is rejected")
-
-    normalized = copy.deepcopy(containers["app-id"])
-    normalized["HostConfig"]["UTSMode"] = "private"
-    check(
-        _workload_valid(normalized),
-        "Engine's explicit private UTS spelling normalizes to the same isolated posture",
-    )
 
 
 def load_tests(

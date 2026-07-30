@@ -9,9 +9,7 @@ filesystem, browser, or application authority. Inference runs in the separate La
 
 from __future__ import annotations
 
-import hashlib
 import io
-import ipaddress
 import os
 import re
 import tarfile
@@ -20,7 +18,7 @@ from pathlib import PurePosixPath
 import docker
 import docker.types
 
-from assistant_human.marketplace import AppSpec
+from assistant_human.assistant_registry import AssistantSpec
 from container_policy import network as network_policy
 from power import execution as power_execution
 
@@ -36,7 +34,6 @@ IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
 # defaults, and every existing workload proves this exact runtime.
 RUNTIME = "runsc"
 RUNTIME_PATH = network_policy.TEAM_RUNTIME_PATH
-CONTAINER_ALL_INTERFACES = str(ipaddress.IPv4Address(0))
 CONTAINER_TMP = str(PurePosixPath("/") / "tmp")
 
 # The lifecycle identity is intentionally not a model provider. Keeping this small trusted registry
@@ -66,7 +63,7 @@ def build_inbox_tar(filename: str, data: bytes) -> bytes:
     return buf.getvalue()
 
 
-# Shared-service identities are suffix-aware. Postgres and installed Apps live on the Team core
+# Shared-service identities are suffix-aware. PostgreSQL and installed Assistants live on the Team core
 # network; inference egress belongs to the separate shared LangGraph runtime.
 POSTGRES_CONTAINER = network_policy.POSTGRES_CONTAINER
 
@@ -107,14 +104,12 @@ def model_for_brain(brain: str, value: object = None) -> str:
     return model
 
 
-# Per-Team App envelope: 1g because real uvicorn backends idle near 500 MiB, 0.5 vCPU, and capped
-# PIDs. One installed App is one container inside the Team's own network.
-APP_MEM_LIMIT = os.environ.get("SHIMPZ_TEAM_APP_MEM_LIMIT", "1g")
-APP_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_APP_NANO_CPUS", str(500_000_000)))
-APP_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_APP_PIDS_LIMIT", "256"))
-APP_MEM_LIMIT_BYTES = network_policy.APP_MEMORY_BYTES
-# The MANY-tenant egress proxy (per-app token-gated) is connected into a Team's core network only
-# when an installed App declares egress.
+# Per-Team Assistant envelope. One installed Assistant is one hostile container inside its Team network.
+ASSISTANT_MEM_LIMIT = os.environ.get("SHIMPZ_TEAM_ASSISTANT_MEM_LIMIT", "1g")
+ASSISTANT_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_NANO_CPUS", str(500_000_000)))
+ASSISTANT_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_PIDS_LIMIT", "256"))
+ASSISTANT_MEM_LIMIT_BYTES = network_policy.ASSISTANT_MEMORY_BYTES
+# The many-tenant egress proxy is attached only when an installed Assistant declares egress.
 APP_EGRESS_CONTAINER = network_policy.APP_EGRESS_CONTAINER
 
 # Keep Docker's json-file logs bounded: a hostile workload could otherwise fill the host filesystem
@@ -155,24 +150,8 @@ def team_db_project(team_id: str) -> str:
     return f"team_{team_id}"
 
 
-def team_app_sane(app_id: str) -> str:
-    """The catalog id ('notification-center') as a Docker/Postgres-safe token ('notification_center')."""
-    return app_id.replace("-", "_")
-
-
-def team_app_container_name(team_id: str, app_id: str) -> str:
-    return network_policy.team_app_container_name(team_id, app_id)
-
-
-def team_app_db_project(team_id: str, app_id: str) -> str:
-    """The per-(team, app) DB project: 'team_<sha10(team_id)>_<app>'.
-
-    Deterministic (uninstall/teardown re-derive it with no lookup) and always within postgresql-service's
-    58-char project cap: a readable 'team_<team_id>_<app>' would overflow at the 40-char team-id
-    maximum, so the team contributes a fixed 10-hex digest instead.
-    """
-    digest = hashlib.sha256(team_id.encode()).hexdigest()[:10]
-    return f"team_{digest}_{team_app_sane(app_id)}"
+def team_assistant_container_name(team_id: str, assistant_id: str) -> str:
+    return network_policy.team_assistant_container_name(team_id, assistant_id)
 
 
 def core_deps() -> list[tuple[str, list[str]]]:
@@ -213,7 +192,7 @@ def build_team_kwargs(
         "cgroupns": "private",
         "cap_drop": ["ALL"],
         "cap_add": [],
-        # The anchor and installed Apps share only the Team's internal core network.
+        # The anchor and installed Assistants share only the Team's internal core network.
         "network": team_network_name(team_id),
         "mounts": [],
         "tmpfs": {CONTAINER_TMP: "size=16m,mode=1777"},
@@ -241,91 +220,23 @@ def build_team_kwargs(
     }
 
 
-def build_team_app_kwargs(
-    team_id: str,
-    app_id: str,
-    spec: AppSpec,
-    *,
-    database_url: str = "",
-    proxy_env: dict[str, str] | None = None,
-    owner: str = "",
-    team_name: str = "",
-) -> dict:
-    """Kwargs for an installed APP container inside team `team_id`'s own core/data network.
-
-    Tighter than the team brain (the packaging contract allows it): non-root fixed uid, cap_drop ALL,
-    read-only rootfs with a /tmp tmpfs, no mounts at all — the app's ONLY state is its scoped DB, so an
-    app container is disposable by construction. `proxy_env` is the app-egress lock (HTTPS_PROXY with the
-    app's own token) — injected here by app.py only when the registry spec declares egress, never
-    caller-suppliable. NOTE: the label is `team.app.runtime`, NOT `team.runtime` — app containers must
-    never count against the team quota or appear in the team list.
-    """
-    env = {
-        # The contract: the app answers HTTP on $PORT on its own interface.
-        "PORT": str(spec.port),
-        "HOST": CONTAINER_ALL_INTERFACES,
-        "SHIMPZ_TEAM_ID": team_id,
-        # The team's DISPLAY name — the owner-given identity ("the hero's name"), so every app can
-        # speak AS its team ("Zyon asks your approval") instead of leaking an internal id.
-        "SHIMPZ_TEAM_NAME": team_name or team_id,
-        "SHIMPZ_APP": app_id,
-        **({"DATABASE_URL": database_url} if database_url else {}),
-        **(proxy_env or {}),
-    }
-    return {
-        "image": spec.image,
-        "name": team_app_container_name(team_id, app_id),
-        "runtime": RUNTIME,
-        "environment": env,
-        "user": power_execution.ASSISTANT_RPC_USER,
-        "cap_drop": ["ALL"],
-        "security_opt": ["no-new-privileges:true", "apparmor=docker-default"],
-        "privileged": False,
-        "ipc_mode": "private",
-        "cgroupns": "private",
-        # ONE network at create: the team's OWN internal bridge (app.py re-attaches with the app-id
-        # alias so the team brain reaches it as http://<app-id>:<port>). Never a shared app net —
-        # apps are per-Team (ADR-0002); a shared instance would mix tenant data.
-        "network": team_network_name(team_id),
-        "read_only": True,
-        "tmpfs": {CONTAINER_TMP: "size=256m"},
-        "mem_limit": APP_MEM_LIMIT,
-        "memswap_limit": APP_MEM_LIMIT,
-        "nano_cpus": APP_NANO_CPUS,
-        "pids_limit": APP_PIDS_LIMIT,
-        "ulimits": [docker.types.Ulimit(name="nofile", soft=4096, hard=4096)],
-        "restart_policy": {"Name": "no"},
-        "labels": {
-            "team.app.runtime": "1",
-            "team.id": team_id,
-            "team.app": app_id,
-            "team.app.db": "1" if spec.db else "0",
-            "team.owner": owner,
-        },
-        "log_config": TEAM_LOG_CONFIG,
-        "detach": True,
-    }
-
-
-def build_dynamic_assistant_kwargs(
+def build_assistant_kwargs(
     team_id: str,
     assistant_id: str,
-    spec: AppSpec,
+    spec: AssistantSpec,
     *,
     proxy_env: dict[str, str] | None = None,
     owner: str,
     source_digest: str,
 ) -> dict:
     """Exact direct-v1 runtime envelope for one digest-bound published Assistant."""
-    if spec.db or spec.assistant is None:
-        raise ValueError("a dynamic Assistant must use the direct runtime contract")
     return {
         "image": spec.image,
-        "name": team_app_container_name(team_id, assistant_id),
+        "name": team_assistant_container_name(team_id, assistant_id),
         "runtime": RUNTIME,
         "environment": {
             "SHIMPZ_TEAM_ID": team_id,
-            "SHIMPZ_APP": assistant_id,
+            "SHIMPZ_ASSISTANT_ID": assistant_id,
             **(proxy_env or {}),
         },
         "user": power_execution.ASSISTANT_RPC_USER,
@@ -337,21 +248,20 @@ def build_dynamic_assistant_kwargs(
         "network": team_network_name(team_id),
         "read_only": True,
         "tmpfs": {CONTAINER_TMP: "size=64m,mode=1777"},
-        "mem_limit": APP_MEM_LIMIT,
-        "memswap_limit": APP_MEM_LIMIT,
-        "nano_cpus": APP_NANO_CPUS,
-        "pids_limit": APP_PIDS_LIMIT,
+        "mem_limit": ASSISTANT_MEM_LIMIT,
+        "memswap_limit": ASSISTANT_MEM_LIMIT,
+        "nano_cpus": ASSISTANT_NANO_CPUS,
+        "pids_limit": ASSISTANT_PIDS_LIMIT,
         "ulimits": [docker.types.Ulimit(name="nofile", soft=4096, hard=4096)],
         "restart_policy": {"Name": "no"},
         "labels": {
-            "team.app.runtime": "1",
-            "team.app.dynamic": "1",
+            "team.assistant.runtime": "1",
+            "team.assistant.dynamic": "1",
             "team.id": team_id,
-            "team.app": assistant_id,
-            "team.app.db": "0",
+            "team.assistant": assistant_id,
             "team.owner": owner,
-            "team.app.source": source_digest,
-            "team.app.image": spec.image,
+            "team.assistant.source": source_digest,
+            "team.assistant.image": spec.image,
         },
         "log_config": TEAM_LOG_CONFIG,
         "detach": True,

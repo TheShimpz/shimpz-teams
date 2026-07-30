@@ -11,9 +11,9 @@ import docker.errors
 import audit
 from assistant_human import (
     assistant_account_challenges,
+    assistant_registry,
     hosted_assistants,
     hosted_chat_segment,
-    marketplace,
     oauth_account_service,
 )
 from chat import turn as chat_turn_engine
@@ -94,7 +94,7 @@ def _current_account_declaration(team_id: str, assistant_id: str, account_id: st
         declaration = contract.accounts.get(account_id)
         if installed_id != assistant_id or declaration is None:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant account declaration changed")
-    except runtime_state.ApiError, marketplace.MarketplaceError:
+    except runtime_state.ApiError, assistant_registry.AssistantSpecError:
         # The OAuth service intentionally receives one opaque typed failure so
         # registry, Docker, and manifest details cannot reach the callback response.
         raise oauth_account_service.OAuthAccountDeclarationError(

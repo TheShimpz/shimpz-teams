@@ -5,8 +5,8 @@ import unittest
 import docker
 from local_assistant_fixture import hosted_spec
 
-from assistant_human import assistant_registry, marketplace
-from install import artifact as marketplace_image
+from assistant_human import assistant_registry
+from install import artifact as assistant_artifact
 
 AUTH_CONFIG = {"username": "registry-reader", "password": "x" * 20}
 AUTH = type("_Auth", (), {"docker_auth_config": lambda self: AUTH_CONFIG})()
@@ -57,44 +57,45 @@ def _assistant_image(
     *,
     digest: str = TEST_IMAGE,
     assistant_id: str = "shimpz-cloudflare",
-    assistant_api: str = "1",
+    source_digest: str = "sha256:" + ("c" * 64),
 ) -> _Image:
     return _Image(
         repo_digests=[digest],
-        labels={"org.shimpz.assistant.id": assistant_id, "org.shimpz.assistant.api": assistant_api},
+        labels={
+            "org.shimpz.assistant.id": assistant_id,
+            "org.shimpz.source.digest": source_digest,
+        },
     )
 
 
-class MarketplaceImageTests(unittest.TestCase):
+class AssistantArtifactTests(unittest.TestCase):
     def test_publication_fixture_carries_the_verified_runtime_contract(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
         self.assertEqual(spec.image, TEST_IMAGE)
-        self.assertTrue(marketplace.is_digest_image(spec.image))
-        self.assertEqual(spec.port, 8080)
-        self.assertFalse(spec.db)
+        self.assertTrue(assistant_registry.is_digest_image(spec.image))
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
-        self.assertFalse(spec.first_party)
         self.assertEqual(
             dict(spec.required_image_labels),
-            {"org.shimpz.assistant.id": "shimpz-cloudflare", "org.shimpz.assistant.api": "1"},
+            {
+                "org.shimpz.assistant.id": "shimpz-cloudflare",
+                "org.shimpz.source.digest": "sha256:" + ("c" * 64),
+            },
         )
-        self.assertIsNotNone(spec.assistant)
-        assert spec.assistant is not None
-        self.assertFalse(hasattr(spec.assistant, "rpc_command"))
-        self.assertEqual(set(spec.assistant.powers), {"list-zones", "list-dns-records"})
-        self.assertEqual(spec.assistant.accounts["cloudflare"].provider, "cloudflare")
+        self.assertFalse(hasattr(spec.contract, "rpc_command"))
+        self.assertEqual(set(spec.contract.powers), {"list-zones", "list-dns-records"})
+        self.assertEqual(spec.contract.accounts["cloudflare"].provider, "cloudflare")
         self.assertEqual(
-            spec.assistant.accounts["cloudflare"].scopes,
+            spec.contract.accounts["cloudflare"].scopes,
             ("dns.read", "offline_access", "zone.read"),
         )
-        self.assertTrue(all(power.accounts == ("cloudflare",) for power in spec.assistant.powers.values()))
-        self.assertTrue(all(not hasattr(power, "approval") for power in spec.assistant.powers.values()))
+        self.assertTrue(all(power.accounts == ("cloudflare",) for power in spec.contract.powers.values()))
+        self.assertTrue(all(not hasattr(power, "approval") for power in spec.contract.powers.values()))
 
     def test_missing_digest_is_pulled_by_the_exact_registry_reference_then_rechecked(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
         images = _Images(_assistant_image(), missing_once=True)
         self.assertEqual(
-            marketplace_image.ensure_digest_artifact(images, spec, AUTH),
+            assistant_artifact.ensure_digest_artifact(images, spec, AUTH),
             "sha256:" + "b" * 64,
         )
         self.assertEqual(images.gets, [spec.image, spec.image])
@@ -105,28 +106,29 @@ class MarketplaceImageTests(unittest.TestCase):
         mismatches = (
             _assistant_image(digest="ghcr.io/theshimpz/shimpz-space@sha256:" + "c" * 64),
             _assistant_image(assistant_id="other-assistant"),
-            _assistant_image(assistant_api="2"),
+            _assistant_image(source_digest="sha256:" + ("d" * 64)),
         )
         for image in mismatches:
             with self.subTest(attrs=image.attrs):
                 images = _Images(image)
-                with self.assertRaises(marketplace_image.ImageTrustError):
-                    marketplace_image.ensure_digest_artifact(images, spec, AUTH)
+                with self.assertRaises(assistant_artifact.ImageTrustError):
+                    assistant_artifact.ensure_digest_artifact(images, spec, AUTH)
                 self.assertEqual(images.pulls, [])
 
-    def test_tag_backed_notification_center_is_not_eligible_for_registry_pull(self) -> None:
-        spec = marketplace.APPS["notification-center"]
+    def test_tag_backed_artifact_is_not_eligible_for_registry_pull(self) -> None:
+        spec = hosted_spec(TEST_IMAGE)
+        object.__setattr__(spec, "image", "ghcr.io/example/example-assistant:latest")
         images = _Images(_assistant_image())
-        self.assertFalse(marketplace.is_digest_image(spec.image))
-        with self.assertRaises(marketplace_image.ImageTrustError):
-            marketplace_image.ensure_digest_artifact(images, spec, AUTH)
+        self.assertFalse(assistant_registry.is_digest_image(spec.image))
+        with self.assertRaises(assistant_artifact.ImageTrustError):
+            assistant_artifact.ensure_digest_artifact(images, spec, AUTH)
         self.assertEqual(images.gets, [])
         self.assertEqual(images.pulls, [])
 
     def test_cloudflare_power_input_and_output_contracts_are_closed(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
-        assert spec.assistant is not None
-        power = spec.assistant.powers["list-zones"]
+        assert spec.contract is not None
+        power = spec.contract.powers["list-zones"]
         request = {"page": 1, "per_page": 25}
         self.assertEqual(assistant_registry.validate_power_payload(power, "input", request), request)
         zones = {

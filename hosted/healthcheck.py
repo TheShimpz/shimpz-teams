@@ -4,7 +4,7 @@
 The probe reads raw Engine responses over Docker's local Unix socket with stdlib HTTP, avoiding client
 construction and keeping its startup dependency closure narrow. The configured hostile-tenant runtime
 must remain bound to the reviewed absolute handler while Docker advertises its built-in seccomp and
-AppArmor defaults; every advertised Brain image must be present, and every existing Team Brain/App
+AppArmor defaults; every advertised Brain image must be present, and every Team Brain/Assistant
 must actually use that runtime. The probe never accepts Docker's default runc, a running workload left
 outside the current registry, or a missing provider. Then an unauthenticated Team GET must be
 refused with 403 — a 2xx means the auth gate is not enforced.
@@ -20,7 +20,6 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from assistant_human import marketplace
 from container_policy import network as network_policy
 from install import bindings as dynamic_assistants
 
@@ -104,21 +103,20 @@ def _expected_workload_image(
     if labels.get("team.runtime") == "1":
         provider = labels.get("team.brain")
         image_ref = REQUIRED_BRAIN_IMAGES.get(provider) if isinstance(provider, str) else None
-        compact_app_runtime = False
-    elif labels.get("team.app.runtime") == "1":
-        app_id = labels.get("team.app")
-        app_spec = marketplace.APPS.get(app_id) if isinstance(app_id, str) else None
-        if app_spec is not None:
-            image_ref = app_spec.image
-            compact_app_runtime = False
-        else:
-            team_id = labels.get("team.id")
-            binding = bindings.get((team_id, app_id)) if isinstance(team_id, str) and isinstance(app_id, str) else None
-            try:
-                image_ref = binding.resolution["image_reference"] if binding is not None else None
-                compact_app_runtime = binding is not None
-            except KeyError, TypeError:
-                return None
+        compact_assistant_runtime = False
+    elif labels.get("team.assistant.runtime") == "1":
+        assistant_id = labels.get("team.assistant")
+        team_id = labels.get("team.id")
+        binding = (
+            bindings.get((team_id, assistant_id))
+            if isinstance(team_id, str) and isinstance(assistant_id, str)
+            else None
+        )
+        try:
+            image_ref = binding.resolution["image_reference"] if binding is not None else None
+            compact_assistant_runtime = binding is not None
+        except KeyError, TypeError:
+            return None
     else:
         return None
     if not isinstance(image_ref, str) or not image_ref:
@@ -128,7 +126,7 @@ def _expected_workload_image(
         if resolved is None:
             return None
         image_ids[image_ref] = resolved
-    return image_ref, image_ids[image_ref], compact_app_runtime
+    return image_ref, image_ids[image_ref], compact_assistant_runtime
 
 
 def _workload_network_kinds(
@@ -144,13 +142,13 @@ def _workload_network_kinds(
         REQUIRED_RUNTIME,
         expected_image_ref=expected_image[0],
         expected_image_id=expected_image[1],
-        compact_app_runtime=expected_image[2],
+        compact_assistant_runtime=expected_image[2],
     ):
         return None
     return network_policy.workload_network_kinds(metadata, team_id)
 
 
-def _stopped_unbound_dynamic_app(
+def _stopped_unbound_assistant(
     metadata: dict,
     running: bool,
     bindings: dict[tuple[str, str], dynamic_assistants.DynamicAssistantBinding],
@@ -161,8 +159,8 @@ def _stopped_unbound_dynamic_app(
     labels = config.get("Labels") if isinstance(config, dict) else None
     if (
         not isinstance(labels, dict)
-        or labels.get("team.app.runtime") != "1"
-        or labels.get("team.app.dynamic") != "1"
+        or labels.get("team.assistant.runtime") != "1"
+        or labels.get("team.assistant.dynamic") != "1"
         or "team.runtime" in labels
     ):
         return False
@@ -171,10 +169,10 @@ def _stopped_unbound_dynamic_app(
     if not isinstance(restart_policy, dict) or restart_policy.get("Name") != "no":
         return False
     team_id = labels.get("team.id")
-    app_id = labels.get("team.app")
-    if not isinstance(team_id, str) or not team_id or not isinstance(app_id, str) or not app_id:
+    assistant_id = labels.get("team.assistant")
+    if not isinstance(team_id, str) or not team_id or not isinstance(assistant_id, str) or not assistant_id:
         return False
-    return app_id not in marketplace.APPS and (team_id, app_id) not in bindings
+    return (team_id, assistant_id) not in bindings
 
 
 def _inspect_workloads(
@@ -201,19 +199,14 @@ def _inspect_workloads(
         if not isinstance(summary, dict):
             return None
         labels = summary.get("Labels")
-        if not isinstance(labels, dict) or not ({"team.runtime", "team.app.runtime"} & set(labels)):
+        if not isinstance(labels, dict) or not ({"team.runtime", "team.assistant.runtime"} & set(labels)):
             continue
         container_id = summary.get("Id")
         team_id = labels.get("team.id")
         if not isinstance(container_id, str) or not container_id or not isinstance(team_id, str) or not team_id:
             return None
-        app_id = labels.get("team.app")
-        if (
-            not bindings_loaded
-            and labels.get("team.app.runtime") == "1"
-            and isinstance(app_id, str)
-            and app_id not in marketplace.APPS
-        ):
+        assistant_id = labels.get("team.assistant")
+        if not bindings_loaded and labels.get("team.assistant.runtime") == "1" and isinstance(assistant_id, str):
             bindings = {(binding.team_id, binding.assistant_id): binding for binding in DYNAMIC_ASSISTANTS.snapshot()}
             bindings_loaded = True
         inspect_status, metadata = _docker_json(f"/containers/{container_id}/json")
@@ -227,7 +220,7 @@ def _inspect_workloads(
         if expected_kinds is None:
             # A current rollback can leave its stopped container after deleting the binding. It
             # cannot execute and remains visible for cleanup; a running or ambiguous orphan fails closed.
-            if _stopped_unbound_dynamic_app(metadata, running, bindings):
+            if _stopped_unbound_assistant(metadata, running, bindings):
                 continue
             return None
         inspections[container_id] = metadata

@@ -13,7 +13,7 @@ from unittest import mock
 from assistant_human import (
     assistant_account_challenges,
     assistant_account_flow,
-    marketplace,
+    assistant_registry,
     oauth_account_store,
     oauth_http_client,
 )
@@ -23,7 +23,7 @@ from controller_runtime import brain_runtime_client
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
 
-import hosted_app_fixture as harness
+import hosted_assistant_fixture as harness
 
 app = harness.app
 hosted_chat_api = harness.hosted_chat_api
@@ -67,8 +67,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
             root / "state" / "accounts.json",
             root / "key" / "aes256.key",
         )
-        trusted = marketplace.APPS[ASSISTANT_ID].assistant
-        assert trusted is not None
+        trusted = harness.HOSTED_SPEC.contract
         self.contract = replace(
             trusted,
             powers={
@@ -78,10 +77,15 @@ class HostedOAuthAccountTests(unittest.TestCase):
                 )
                 for power_id, power in trusted.powers.items()
             },
-            accounts={"cloudflare": marketplace.AccountSpec("cloudflare", SCOPES)},
+            accounts={"cloudflare": assistant_registry.AccountSpec("cloudflare", SCOPES)},
         )
         self.container = types.SimpleNamespace(id="b" * 64)
-        self.active = hosted_assistants._ActiveAssistant(ASSISTANT_ID, self.contract, self.container)
+        self.active = hosted_assistants._ActiveAssistant(
+            ASSISTANT_ID,
+            self.contract,
+            self.container,
+            harness.HOSTED_SPEC.image,
+        )
 
     def _connect(self) -> None:
         self.store.put(
@@ -254,8 +258,8 @@ class HostedOAuthAccountTests(unittest.TestCase):
         )
         challenge_store.create(TEAM_ID, (requirement,), object())
         without_accounts = replace(
-            marketplace.APPS[ASSISTANT_ID],
-            assistant=replace(self.contract, accounts={}),
+            harness.HOSTED_SPEC,
+            contract=replace(self.contract, accounts={}),
         )
 
         with (

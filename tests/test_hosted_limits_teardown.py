@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hosted_app_fixture import hosted_lifecycle, hosted_resources, runtime_state
+from hosted_assistant_fixture import hosted_lifecycle, hosted_resources, runtime_state
 
 cleanup_state = hosted_lifecycle.cleanup_state
 postgresql_service_client = hosted_lifecycle.postgresql_service_client
@@ -42,7 +42,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             self.assertIn("team:one", runtime_state._capacity_reservations)
             with (
                 self.assertRaises(runtime_state.ApiError) as exhausted,
-                hosted_resources._reserve_capacity("app:one:extra", "account_1", 41, team_slot=False),
+                hosted_resources._reserve_capacity("assistant:one:extra", "account_1", 41, team_slot=False),
             ):
                 self.fail("an over-budget reservation was admitted")
             self.assertEqual(exhausted.exception.status, HTTPStatus.TOO_MANY_REQUESTS)
@@ -145,7 +145,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 hosted_lifecycle,
                 _owned_teardown_brain=lambda *_args: (True, brain),
                 _stop_teardown_brain=phase("stop"),
-                _teardown_apps=phase("apps"),
+                _teardown_assistants=phase("assistants"),
                 _teardown_storage=phase("storage"),
                 _teardown_inference=phase("inference"),
                 _teardown_assistant_accounts=phase("accounts"),
@@ -165,7 +165,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             events,
             [
                 "stop",
-                "apps",
+                "assistants",
                 "storage",
                 "inference",
                 "accounts",
@@ -186,7 +186,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 hosted_lifecycle,
                 _owned_teardown_brain=lambda *_args: (True, brain),
                 _stop_teardown_brain=lambda _brain: True,
-                _teardown_apps=lambda _team_id: False,
+                _teardown_assistants=lambda _team_id: False,
             ),
         ):
             result = hosted_lifecycle._teardown("team_1", owner="account_1", brain_id=brain.id)

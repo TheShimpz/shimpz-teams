@@ -18,7 +18,7 @@ from assistant_human import (
     assistant_account_flow,
     assistant_chat,
     assistant_manifest,
-    marketplace,
+    assistant_registry,
     oauth_account_store,
     oauth_http_client,
 )
@@ -47,7 +47,7 @@ CHAT_PAUSED_STATUSES = chat_turn_engine.CHAT_PAUSED_STATUSES
 @dataclass(frozen=True, slots=True)
 class _ActiveAssistant:
     assistant_id: str
-    contract: marketplace.AssistantContract
+    contract: assistant_registry.AssistantContract
     container: object
     image: str = ""
 
@@ -59,7 +59,7 @@ class _HostedAssistantSpec:
     assistant_id: str
     name: str
     powers: dict[str, object]
-    accounts: dict[str, marketplace.AccountSpec]
+    accounts: dict[str, assistant_registry.AccountSpec]
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,8 +112,7 @@ def _hosted_power_identity(active: _ActiveAssistant) -> tuple[object, object]:
     config = getattr(active.container, "attrs", {}).get("Config", {})
     image = config.get("Image") if isinstance(config, dict) else None
     if not isinstance(image, str) or not image:
-        static = marketplace.APPS.get(active.assistant_id)
-        image = active.image or (static.image if static is not None else "")
+        image = active.image
     return active.container.id, image
 
 
@@ -129,13 +128,11 @@ def _installed_assistant(
     dynamic_bindings: dict[str, object] | None = None,
     egress_store=None,
 ):
-    assistant_id, spec = hosted_apps._resolve_team_app(team_id, assistant_id, dynamic_bindings)
-    contract = spec.assistant
-    if contract is None:
-        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"{assistant_id!r} is not an Assistant")
+    assistant_id, spec = hosted_apps._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
+    contract = spec.contract
     container = candidate
     if container is None:
-        container = hosted_resources._get_container(manifests.team_app_container_name(team_id, assistant_id))
+        container = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, assistant_id))
     if container is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"Assistant {assistant_id!r} is not installed in this Team")
     with runtime_state._active_chat_guard:
@@ -145,7 +142,7 @@ def _installed_assistant(
                 "Assistant Power execution is blocked until this Assistant is reinstalled",
             )
     if (
-        not network_policy.app_identity_valid(container.attrs, team_id, assistant_id)
+        not network_policy.assistant_identity_valid(container.attrs, team_id, assistant_id)
         or str(container.attrs.get("Config", {}).get("Image", "")) != spec.image
     ):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant failed its identity contract")
@@ -167,7 +164,7 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
     seen: set[str] = set()
     inspect_memo: dict[str, object] = {}
     try:
-        installed = hosted_apps._team_app_containers(team_id)
+        installed = hosted_apps._team_assistant_containers(team_id)
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "installed Assistants could not be listed"
@@ -175,19 +172,17 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
     candidate_ids = tuple(
         assistant_id
         for candidate in installed
-        if isinstance((assistant_id := (candidate.labels or {}).get("team.app")), str)
+        if isinstance((assistant_id := (candidate.labels or {}).get("team.assistant")), str)
     )
     dynamic_bindings = hosted_apps._dynamic_binding_snapshot(team_id, candidate_ids)
     egress_store = hosted_apps._egress_store() if candidate_ids else None
     for candidate in installed:
-        assistant_id = (candidate.labels or {}).get("team.app")
+        assistant_id = (candidate.labels or {}).get("team.assistant")
         if not isinstance(assistant_id, str):
             continue
         try:
-            _resolved_id, spec = hosted_apps._resolve_team_app(team_id, assistant_id, dynamic_bindings)
-        except marketplace.MarketplaceError:
-            continue
-        if spec.assistant is None:
+            _resolved_id, spec = hosted_apps._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
+        except assistant_registry.AssistantSpecError:
             continue
         try:
             candidate.reload()
@@ -221,8 +216,8 @@ def _chat_assistant_ids(value: object) -> tuple[str, ...]:
             f"assistant_ids must contain at most {MAX_CHAT_ASSISTANTS} ids",
         )
     try:
-        assistant_ids = tuple(marketplace.validate_app_id(item) for item in value)
-    except marketplace.MarketplaceError:
+        assistant_ids = tuple(assistant_registry.validate_assistant_id(item) for item in value)
+    except assistant_registry.AssistantSpecError:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "assistant_ids contains an invalid id") from None
     if len(set(assistant_ids)) != len(assistant_ids):
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "assistant_ids must not contain duplicate ids")
@@ -453,25 +448,23 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
     specs: list[_HostedAssistantSpec] = []
     seen: set[str] = set()
     try:
-        containers = hosted_apps._team_app_containers(team_id)
+        containers = hosted_apps._team_assistant_containers(team_id)
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "installed Assistants could not be listed"
         ) from exc
     for container in containers:
-        assistant_id = (container.labels or {}).get("team.app")
+        assistant_id = (container.labels or {}).get("team.assistant")
         if not isinstance(assistant_id, str):
             continue
         try:
-            _resolved_id, app_spec = hosted_apps._resolve_team_app(team_id, assistant_id)
-        except marketplace.MarketplaceError:
-            continue
-        if app_spec.assistant is None:
+            _resolved_id, assistant_spec = hosted_apps._resolve_team_assistant(team_id, assistant_id)
+        except assistant_registry.AssistantSpecError:
             continue
         if assistant_id in seen:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "duplicate installed Assistant identity")
         seen.add(assistant_id)
-        specs.append(_hosted_account_spec(_ActiveAssistant(assistant_id, app_spec.assistant, container)))
+        specs.append(_hosted_account_spec(_ActiveAssistant(assistant_id, assistant_spec.contract, container)))
     return tuple(specs)
 
 
@@ -480,7 +473,7 @@ class PowerInvocationRequest:
     team_id: str
     token: str
     assistant_id: str
-    contract: marketplace.AssistantContract
+    contract: assistant_registry.AssistantContract
     container: object
     power: object
     payload: object
@@ -602,7 +595,7 @@ def _validate_assistant_power_input(bindings, assistant_id: str, power: str, pow
 
 
 def _validate_power_payload(
-    contract: marketplace.AssistantContract,
+    contract: assistant_registry.AssistantContract,
     power_id: str,
     payload: object,
     *,

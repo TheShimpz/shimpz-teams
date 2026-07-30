@@ -17,11 +17,15 @@ class PostgreSQLServiceClientTests(unittest.TestCase):
             mock.patch.object(postgresql_service_client.http.client, "HTTPConnection", return_value=connection),
             self.assertRaises(postgresql_service_client.PostgreSQLServiceError) as raised,
         ):
-            postgresql_service_client._call("/v1/teams/apps/create", {"team_id": "alpha"}, "a" * 64)
+            postgresql_service_client._call(
+                "/v1/teams/provision",
+                {"team_id": "alpha"},
+                "a" * 64,
+            )
 
         self.assertEqual(
             str(raised.exception),
-            "postgresql-service /v1/teams/apps/create failed with status 502",
+            "postgresql-service /v1/teams/provision failed with status 502",
         )
         self.assertNotIn(response.read.return_value.decode(), str(raised.exception))
         self.assertNotIn("password secret", str(raised.exception))
@@ -34,7 +38,11 @@ class PostgreSQLServiceClientTests(unittest.TestCase):
         connection.getresponse.return_value = response
 
         with mock.patch.object(postgresql_service_client.http.client, "HTTPConnection", return_value=connection):
-            result = postgresql_service_client._call("/v1/teams/apps/create", {"team_id": "alpha"}, "a" * 64)
+            result = postgresql_service_client._call(
+                "/v1/teams/provision",
+                {"team_id": "alpha"},
+                "a" * 64,
+            )
 
         self.assertEqual(result, {"created": True})
 

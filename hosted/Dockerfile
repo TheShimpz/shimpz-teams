@@ -97,7 +97,7 @@ COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py
      assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
      assistant_human/challenge_store.py assistant_human/hosted_assistants.py \
      assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
-     assistant_human/marketplace.py assistant_human/oauth_account_service.py \
+     assistant_human/oauth_account_service.py \
      assistant_human/oauth_account_store.py assistant_human/oauth_broker_client.py \
      assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
      assistant_human/oauth_providers.py assistant_human/private_state.py \

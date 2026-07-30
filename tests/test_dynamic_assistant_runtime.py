@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 import manifests
-from hosted.install.publication import app_spec
+from hosted.install.publication import assistant_spec
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
 
@@ -25,9 +25,9 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
         power["output_schema"]["additionalProperties"] = False
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
-            spec = app_spec(store.put("team_1", resolution))
+            spec = assistant_spec(store.put("team_1", resolution))
 
-        kwargs = manifests.build_dynamic_assistant_kwargs(
+        kwargs = manifests.build_assistant_kwargs(
             "team_1",
             "hello-world",
             spec,
@@ -53,8 +53,8 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
         self.assertNotIn("entrypoint", kwargs)
         self.assertNotIn("PORT", kwargs["environment"])
         self.assertNotIn("DATABASE_URL", kwargs["environment"])
-        self.assertEqual(kwargs["labels"]["team.app.dynamic"], "1")
-        self.assertEqual(kwargs["labels"]["team.app.source"], RESOLUTION["source_digest"])
+        self.assertEqual(kwargs["labels"]["team.assistant.dynamic"], "1")
+        self.assertEqual(kwargs["labels"]["team.assistant.source"], RESOLUTION["source_digest"])
 
 
 if __name__ == "__main__":

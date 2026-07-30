@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from container_policy import network as network_policy
 from install.contract import ContractValidationError, ContractValidator
 
 _FORMAT_VERSION = 1
@@ -205,6 +206,9 @@ def binding_from_resolution(
         _CONTRACTS.validate("resolve-response.schema.json", resolution)
     except ContractValidationError as exc:
         raise DynamicAssistantError("the dynamic Assistant resolution is invalid") from exc
+    assistant_id = resolution["assistant_id"]
+    if assistant_id in network_policy.RESERVED_SERVICE_ALIASES:
+        raise DynamicAssistantError("the Assistant id is reserved for Team infrastructure")
     digest_value = {
         "version": _FORMAT_VERSION,
         "team_id": team_id,

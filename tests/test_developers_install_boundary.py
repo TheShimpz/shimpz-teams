@@ -10,7 +10,7 @@ import unittest
 from http import HTTPStatus
 from unittest import mock
 
-from hosted_app_fixture import hosted_apps, hosted_controller, hosted_lifecycle, hosted_resources, runtime_state
+from hosted_assistant_fixture import hosted_apps, hosted_controller, hosted_lifecycle, hosted_resources, runtime_state
 
 CONTRACT_ROOT = __import__("pathlib").Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1"
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
@@ -79,7 +79,6 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
         lease = types.SimpleNamespace(owner=CLAIMS["account_id"])
         materialized_spec = types.SimpleNamespace(
             image=RESOLUTION["image_reference"],
-            assistant=types.SimpleNamespace(assistant_id=RESOLUTION["assistant_id"]),
         )
 
         def install(team_id, binding, owner, supplied_lease, *, authorize_start):
@@ -97,7 +96,6 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
         def prepare_image(spec):
             events.append("prepare-image")
             self.assertEqual(spec.image, RESOLUTION["image_reference"])
-            self.assertEqual(spec.assistant.assistant_id, RESOLUTION["assistant_id"])
 
         with (
             mock.patch.multiple(
@@ -110,11 +108,11 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
             mock.patch.object(hosted_resources, "_authorize", return_value=lease) as authorize,
             mock.patch.object(
                 hosted_controller.publication,
-                "app_spec",
+                "assistant_spec",
                 return_value=materialized_spec,
-            ) as app_spec,
-            mock.patch.object(hosted_resources, "_prepare_marketplace_image", side_effect=prepare_image),
-            mock.patch.object(hosted_apps, "_install_dynamic_assistant", side_effect=install),
+            ) as assistant_spec,
+            mock.patch.object(hosted_resources, "_prepare_assistant_image", side_effect=prepare_image),
+            mock.patch.object(hosted_apps, "_install_assistant", side_effect=install),
         ):
             handler._route_developers_install()
 
@@ -123,7 +121,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
             ("account", CLAIMS["account_id"]),
         )
         trust.verify.assert_called_once_with(RESOLUTION)
-        app_spec.assert_called_once()
+        assistant_spec.assert_called_once()
         self.assertEqual(events, ["resolve", "trust", "prepare-image", "install", "authorize-start"])
         self.assertEqual(client.authorization["delegation_jti"], CLAIMS["jti"])
         status, response = handler._send_json.call_args.args

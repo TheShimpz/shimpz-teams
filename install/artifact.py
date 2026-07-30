@@ -1,10 +1,10 @@
-"""Resolve immutable marketplace artifacts without accepting caller-controlled image references."""
+"""Resolve immutable Assistant artifacts without accepting caller-controlled image references."""
 
 from __future__ import annotations
 
 import docker
 
-from assistant_human import marketplace
+from assistant_human import assistant_registry
 
 from . import registry_auth
 
@@ -19,33 +19,33 @@ def _get(images, image_ref: str):
     except docker.errors.NotFound:
         return None
     except docker.errors.DockerException as exc:
-        raise ImageTrustError("trusted marketplace artifact is unavailable") from exc
+        raise ImageTrustError("trusted Assistant artifact is unavailable") from exc
 
 
 def ensure_digest_artifact(
     images,
-    spec: marketplace.AppSpec,
+    spec: assistant_registry.AssistantSpec,
     credentials: registry_auth.RegistryAuth,
 ) -> str:
     """Get or pull one registry-owned digest, then prove its digest and declared OCI identity."""
     image_ref = spec.image
-    if not marketplace.is_digest_image(image_ref):
-        raise ImageTrustError("marketplace artifact is not digest-pinned")
+    if not assistant_registry.is_digest_image(image_ref):
+        raise ImageTrustError("Assistant artifact is not digest-pinned")
 
     image = _get(images, image_ref)
     if image is None:
         try:
-            # image_ref is the exact reviewed registry digest from AppSpec. No request field can
+            # image_ref is the exact reviewed registry digest from AssistantSpec. No request field can
             # influence this pull, and tags are deliberately rejected above.
             images.pull(
                 image_ref,
                 auth_config=credentials.docker_auth_config(),
             )
         except docker.errors.DockerException as exc:
-            raise ImageTrustError("trusted marketplace artifact is unavailable") from exc
+            raise ImageTrustError("trusted Assistant artifact is unavailable") from exc
         image = _get(images, image_ref)
         if image is None:
-            raise ImageTrustError("trusted marketplace artifact is unavailable")
+            raise ImageTrustError("trusted Assistant artifact is unavailable")
 
     attrs = getattr(image, "attrs", None)
     repo_digests = attrs.get("RepoDigests") if isinstance(attrs, dict) else None
@@ -60,5 +60,5 @@ def ensure_digest_artifact(
         or not image_id.startswith("sha256:")
         or any(labels.get(key) != value for key, value in spec.required_image_labels)
     ):
-        raise ImageTrustError("trusted marketplace artifact identity does not match its registry contract")
+        raise ImageTrustError("trusted Assistant artifact identity does not match its registry contract")
     return image_id
