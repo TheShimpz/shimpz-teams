@@ -17,9 +17,9 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
+from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.labels import ASSISTANT_LABEL
+from local.labels import ASSISTANT_LABEL
 from storage import files as team_storage
 
 log = logging.getLogger("shimpz-team-local")

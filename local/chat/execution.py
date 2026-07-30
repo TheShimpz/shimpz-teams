@@ -12,7 +12,7 @@ from integrations import flow as integration_flow
 from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
-from local_support.errors import ApiProblemError as ApiProblem
+from local.errors import ApiProblemError as ApiProblem
 from power import journal as power_journal
 
 

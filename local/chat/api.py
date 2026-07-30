@@ -6,8 +6,8 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.validation import validate_chat_assistant_ids, validate_team_id
+from local.errors import ApiProblemError as ApiProblem
+from local.validation import validate_chat_assistant_ids, validate_team_id
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
 

@@ -9,10 +9,10 @@ from docker.errors import DockerException
 
 from chat import turn as chat_turn_engine
 from core.http import strict as strict_http
-from http_boundary import local
-from local_support import audit as local_audit
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.validation import (
+from local import audit as local_audit
+from local.errors import ApiProblemError as ApiProblem
+from local.http import dispatch as local
+from local.validation import (
     validate_model_credential_headers,
     validate_team_id,
     validate_team_name,

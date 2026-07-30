@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from local.chat import continuation as local_chat_continuations
+from local.errors import ApiProblemError
 from local.install.runtime import AssistantSpec
-from local_support.errors import ApiProblemError
 
 
 @dataclass(frozen=True, slots=True)

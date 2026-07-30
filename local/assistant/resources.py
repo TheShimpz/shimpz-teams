@@ -7,9 +7,9 @@ from docker.errors import DockerException, ImageNotFound, NotFound
 from assistant import manifest as assistant_manifest
 from local.assistant import isolation as local_container_policy
 from local.assistant.egress import PROFILE
+from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.labels import (
+from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
     KIND_LABEL,

@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from local_support import audit
+from local import audit
 
 
 def _crash_after_acknowledged_audit(path: str, sync_marker: str) -> None:

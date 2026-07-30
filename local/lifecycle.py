@@ -10,8 +10,8 @@ from docker.errors import DockerException
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local.assistant.egress import PROFILE
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.labels import (
+from local.errors import ApiProblemError as ApiProblem
+from local.labels import (
     ASSISTANT_LABEL,
     IMAGE_LABEL,
     KIND_LABEL,
@@ -20,10 +20,10 @@ from local_support.labels import (
     SPACE_LABEL,
     TEAM_LABEL,
 )
-from local_support.validation import ASSISTANT_ID_RE as _ASSISTANT_ID
-from local_support.validation import MAX_ASSISTANT_ID_LENGTH, MAX_TEAM_ID_LENGTH, validate_team_id
-from local_support.validation import TEAM_ID_RE as _TEAM_ID
-from local_support.validation import brain_thread_id as _brain_thread_id
+from local.validation import ASSISTANT_ID_RE as _ASSISTANT_ID
+from local.validation import MAX_ASSISTANT_ID_LENGTH, MAX_TEAM_ID_LENGTH, validate_team_id
+from local.validation import TEAM_ID_RE as _TEAM_ID
+from local.validation import brain_thread_id as _brain_thread_id
 from power import journal as power_journal
 from storage import files as team_storage
 

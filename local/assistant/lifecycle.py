@@ -9,9 +9,9 @@ from docker.types import LogConfig, Ulimit
 
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.validation import validate_team_id
+from local.validation import validate_team_id
 from power import execution as power_execution
 
 ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY

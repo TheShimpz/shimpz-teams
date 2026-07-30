@@ -24,7 +24,6 @@ PRODUCTION_PACKAGES = {
     "install",
     "integrations",
     "local",
-    "local_support",
     "power",
     "storage",
 }

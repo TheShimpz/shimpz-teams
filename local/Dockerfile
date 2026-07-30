@@ -33,17 +33,16 @@ ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
-COPY local/__init__.py local/app.py local/healthcheck.py ./local/
+COPY local/__init__.py local/app.py local/audit.py local/errors.py local/healthcheck.py \
+    local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
 COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
-COPY controller_runtime/__init__.py controller_runtime/local_token_store.py ./controller_runtime/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
-COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
 COPY inference/__init__.py inference/client.py inference/config.py inference/model_catalog.json \
     inference/token.py ./inference/
 COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \
@@ -57,15 +56,12 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/continuation.py \
     local/chat/continuation_store.py local/chat/execution.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py \
     local/chat/state.py local/chat/types.py ./local/chat/
+COPY local/http/__init__.py local/http/dispatch.py local/http/server.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py \
     install/registry_auth.py ./install/
 COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
     protocol/install/v1/schema_validator.py protocol/install/v1/verify.py \
     ./protocol/install/v1/
-COPY local_support/__init__.py local_support/audit.py local_support/errors.py \
-    local_support/http.py local_support/labels.py local_support/team_lifecycle.py \
-    local_support/validation.py \
-    ./local_support/
 COPY power/__init__.py power/execution.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 

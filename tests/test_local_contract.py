@@ -16,15 +16,15 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
 from assistant import spec as assistant_registry
-from controller_runtime import local_token_store
 from inference import config as inference_config
 from local import app as local_app
+from local import audit as local_audit
 from local import healthcheck as local_healthcheck
+from local import token as local_token_store
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
-from local_support import audit as local_audit
-from local_support import http as local_http
-from local_support.validation import validate_model_credential_headers
+from local.http import server as local_http
+from local.validation import validate_model_credential_headers
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {

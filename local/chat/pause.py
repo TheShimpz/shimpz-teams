@@ -8,7 +8,7 @@ from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
-from local_support.errors import ApiProblemError as ApiProblem
+from local.errors import ApiProblemError as ApiProblem
 
 
 def _commit_suspension(

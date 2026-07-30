@@ -4,9 +4,9 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.labels import ASSISTANT_LABEL
-from local_support.validation import validate_team_id
+from local.errors import ApiProblemError as ApiProblem
+from local.labels import ASSISTANT_LABEL
+from local.validation import validate_team_id
 
 
 def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:

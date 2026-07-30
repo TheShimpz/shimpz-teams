@@ -5,7 +5,7 @@ import re
 from http import HTTPStatus
 
 from inference import config as inference_config
-from local_support.errors import ApiProblemError
+from local.errors import ApiProblemError
 
 TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}")
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")

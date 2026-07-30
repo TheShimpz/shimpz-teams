@@ -1,6 +1,6 @@
 """Local chat stop API operation."""
 
-from local_support.validation import validate_team_id
+from local.validation import validate_team_id
 
 
 def stop_chat(self, team_id: str) -> dict[str, object]:

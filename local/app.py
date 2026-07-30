@@ -25,7 +25,6 @@ from docker.errors import APIError, DockerException
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_power_payload
-from controller_runtime import local_token_store
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -35,6 +34,10 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from local import audit as local_audit
+from local import labels as local_labels
+from local import lifecycle as local_team_lifecycle
+from local import token as local_token_store
 from local.assistant import api as local_assistant_api
 from local.assistant import egress as local_egress
 from local.assistant import lifecycle as local_assistant_lifecycle
@@ -49,15 +52,12 @@ from local.chat import private as local_chat_private
 from local.chat import resume as local_chat_resume
 from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
+from local.errors import ApiProblemError as ApiProblem
+from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry
-from local_support import audit as local_audit
-from local_support import labels as local_labels
-from local_support import team_lifecycle as local_team_lifecycle
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.http import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
-from local_support.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
-from local_support.labels import (
+from local.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
+from local.labels import (
     KIND_LABEL,
     MANAGED_LABEL,
     PROFILE_LABEL,
@@ -65,8 +65,8 @@ from local_support.labels import (
     TEAM_LABEL,
     TEAM_NAME_LABEL,
 )
-from local_support.validation import brain_thread_id as _local_brain_thread_id
-from local_support.validation import (
+from local.validation import brain_thread_id as _local_brain_thread_id
+from local.validation import (
     half_cpu_set,
     validate_space_id,
     validate_team_id,

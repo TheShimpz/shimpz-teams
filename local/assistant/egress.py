@@ -9,9 +9,9 @@ from typing import NoReturn
 from docker.errors import DockerException, NotFound
 
 from egress import policy as egress_policy
+from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
-from local_support.errors import ApiProblemError as ApiProblem
-from local_support.labels import (
+from local.labels import (
     ASSISTANT_LABEL,
     KIND_LABEL,
     MANAGED_LABEL,
@@ -20,8 +20,8 @@ from local_support.labels import (
     TEAM_LABEL,
     TEAM_NAME_LABEL,
 )
-from local_support.validation import space_prefix as _space_prefix
-from local_support.validation import validate_team_id, validate_team_name
+from local.validation import space_prefix as _space_prefix
+from local.validation import validate_team_id, validate_team_name
 
 PROFILE = "single-owner-local-v1"
 MAX_EGRESS_POLICY_BYTES = egress_policy.MAX_POLICY_BYTES
