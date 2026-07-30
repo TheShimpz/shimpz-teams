@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "missing_is_invalid": true,
+  "valid": [
+    "a",
+    "hello-world",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "invalid": [
+    null,
+    "",
+    "Hello",
+    "hello_world",
+    "hello--world",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "postgres",
+    "app-egress-proxy"
+  ]
+}

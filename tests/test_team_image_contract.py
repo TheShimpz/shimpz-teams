@@ -30,34 +30,35 @@ PRODUCTION_PACKAGES = {
 HOSTED_PACKAGE_DATA = {
     "assistant_human": set(),
     "inference": {"inference/model_catalog.json"},
-    "install": {
-        "install/protocol/upstream.json",
-        "install/protocol/v1/README.md",
-        "install/protocol/v1/contract-files.sha256",
-        "install/protocol/v1/controller-install-request.schema.json",
-        "install/protocol/v1/controller-install-response.schema.json",
-        "install/protocol/v1/definitions.schema.json",
-        "install/protocol/v1/delegation-claims.schema.json",
-        "install/protocol/v1/install-authorization-receipt.schema.json",
-        "install/protocol/v1/install-authorization-request.schema.json",
-        "install/protocol/v1/resolve-response.schema.json",
-        "install/protocol/v1/team-list-response.schema.json",
-        "install/protocol/v1/vectors.json",
-    },
+    "install": set(),
 }
 LOCAL_PACKAGE_DATA = {
     "assistant_human": HOSTED_PACKAGE_DATA["assistant_human"],
     "inference": HOSTED_PACKAGE_DATA["inference"],
-    "install": {
-        "install/protocol/v1/definitions.schema.json",
-        "install/protocol/v1/resolve-response.schema.json",
-    },
+    "install": set(),
 }
-PACKAGE_TOOLS = {
-    "install": {
-        "install/protocol/v1/schema_validator.py",
-        "install/protocol/v1/verify.py",
-    },
+PACKAGE_TOOLS: dict[str, set[str]] = {}
+HOSTED_PROTOCOL_DATA = {
+    "protocol/install/upstream.json",
+    "protocol/install/v1/README.md",
+    "protocol/install/v1/contract-files.sha256",
+    "protocol/install/v1/controller-install-request.schema.json",
+    "protocol/install/v1/controller-install-response.schema.json",
+    "protocol/install/v1/definitions.schema.json",
+    "protocol/install/v1/delegation-claims.schema.json",
+    "protocol/install/v1/install-authorization-receipt.schema.json",
+    "protocol/install/v1/install-authorization-request.schema.json",
+    "protocol/install/v1/resolve-response.schema.json",
+    "protocol/install/v1/schema_validator.py",
+    "protocol/install/v1/team-list-response.schema.json",
+    "protocol/install/v1/vectors.json",
+    "protocol/install/v1/verify.py",
+}
+LOCAL_PROTOCOL_DATA = {
+    "protocol/install/v1/definitions.schema.json",
+    "protocol/install/v1/resolve-response.schema.json",
+    "protocol/install/v1/schema_validator.py",
+    "protocol/install/v1/verify.py",
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
 
@@ -184,17 +185,21 @@ class StaticTeamImageContractTests(unittest.TestCase):
         logical_lines: list[str],
         entrypoints: tuple[str, ...],
         package_data: dict[str, set[str]],
+        protocol_data: set[str],
     ) -> None:
         root_copy_sources = self._root_copy_sources(logical_lines)
         packaged = {source for source in root_copy_sources if re.fullmatch(r"[a-z][a-z0-9_]*[.]py", source)}
         modules, packages, imported_paths = _runtime_import_closure(*entrypoints)
         self.assertEqual(packaged, modules)
         self.assertEqual(root_copy_sources, modules | ROOT_RUNTIME_DATA)
-        modeled_destinations = {"./", "/opt/venv"}
+        modeled_destinations = {"./", "/opt/venv", "./protocol/install/", "./protocol/install/v1/"}
+        copied_protocol = set()
         for line in logical_lines:
             copy_parts = _copy_parts(line)
             if copy_parts:
-                _sources, destination = copy_parts
+                sources, destination = copy_parts
+                if destination.startswith("./protocol/install/"):
+                    copied_protocol.update(sources)
                 package_destination = re.fullmatch(
                     r"[.]\/([a-z][a-z0-9_]*)(?:/[a-z0-9_]+)*/",
                     destination,
@@ -204,6 +209,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
                     or (package_destination and package_destination.group(1) in PRODUCTION_PACKAGES),
                     f"unmodeled COPY destination: {line}",
                 )
+        self.assertEqual(copied_protocol, protocol_data)
         self._assert_package_copy_closure(
             packages,
             _copied_package_sources(logical_lines),
@@ -247,10 +253,15 @@ class StaticTeamImageContractTests(unittest.TestCase):
             logical_lines,
         )
         self.assertNotIn("HEALTHCHECK", runtime)
-        self._assert_image_closure(logical_lines, HOSTED_ENTRYPOINTS, HOSTED_PACKAGE_DATA)
+        self._assert_image_closure(
+            logical_lines,
+            HOSTED_ENTRYPOINTS,
+            HOSTED_PACKAGE_DATA,
+            HOSTED_PROTOCOL_DATA,
+        )
         self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", runtime)
         self.assertIn("source=uv.lock,target=/app/uv.lock,ro", runtime)
-        protocol = ROOT / "install" / "protocol"
+        protocol = ROOT / "protocol" / "install"
         self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
         for package in PRODUCTION_PACKAGES:
             package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))
@@ -299,7 +310,12 @@ class StaticTeamImageContractTests(unittest.TestCase):
             f'ENTRYPOINT ["/opt/venv/bin/python", "-m", "{LOCAL_ENTRYPOINTS[0]}"]',
             logical_lines,
         )
-        self._assert_image_closure(logical_lines, LOCAL_ENTRYPOINTS, LOCAL_PACKAGE_DATA)
+        self._assert_image_closure(
+            logical_lines,
+            LOCAL_ENTRYPOINTS,
+            LOCAL_PACKAGE_DATA,
+            LOCAL_PROTOCOL_DATA,
+        )
         self.assertIn("/var/lib/shimpz-local/chat-continuations/state", runtime)
         self.assertIn("/var/lib/shimpz-local/chat-continuations/key", runtime)
         self.assertNotIn("uv-install.sh", dockerfile)
@@ -343,6 +359,12 @@ class StaticTeamImageContractTests(unittest.TestCase):
             for path in paths
         }
         self.assertEqual(source_package_data, declared_package_data)
+        protocol_install_data = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "protocol" / "install").rglob("*")
+            if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
+        }
+        self.assertEqual(protocol_install_data, HOSTED_PROTOCOL_DATA)
         production_sources = [*ROOT.glob("*.py")]
         production_sources.extend(path for package in PRODUCTION_PACKAGES for path in (ROOT / package).rglob("*.py"))
         for path in production_sources:

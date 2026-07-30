@@ -8,15 +8,15 @@ import re
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1] / "install" / "protocol"
+ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install"
 AUTHORITY = ROOT / "v1"
 MANIFEST = AUTHORITY / "contract-files.sha256"
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz",
-    "commit": "805a1377e25de6dc1fc5592798257801693f8d20",
-    "path": "contracts/developers-controller/v1",
-    "tree": "7c69bc07c5cd34434fdda584d7c4512ba04e0a72",
-    "contract_files_sha256": "4c3848b10e7dfc7c13f4c496ad4ab3b762a8c9c86623032c914387c8dfb8d290",
+    "commit": "fcffe20b89460c03cdd205ea3385bfa6085899d4",
+    "path": "standards/assistant-install/v1",
+    "tree": "296ae30a4a28f8be9448589869aa485a35bd767d",
+    "contract_files_sha256": "8eb6795414de89fd4470dd54bb254588f071d76bfa349c4b0b8a940888d49688",
 }
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 
@@ -33,7 +33,7 @@ class DevelopersControllerContractTests(unittest.TestCase):
         self.assertTrue(all(rows))
         expected = {match[2]: match[1] for match in rows if match is not None}
         self.assertEqual(
-            sorted(path.name for path in AUTHORITY.iterdir()),
+            sorted(path.name for path in AUTHORITY.iterdir() if path.name != "__pycache__"),
             sorted([*expected, MANIFEST.name]),
         )
         for filename, digest in expected.items():

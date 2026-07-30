@@ -9,7 +9,7 @@ from pathlib import Path
 
 from install.contract import ContractValidationError, ContractValidator
 
-CONTRACT = Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1"
+CONTRACT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 VECTORS = json.loads((CONTRACT / "vectors.json").read_bytes())
 
 

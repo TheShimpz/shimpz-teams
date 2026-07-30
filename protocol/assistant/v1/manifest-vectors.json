@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "minimal",
+      "valid": true,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "public_hosts_and_multiple_creators",
+      "valid": true,
+      "manifest": "spec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@TheShimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n"
+    },
+    {
+      "name": "missing_id",
+      "valid": false,
+      "manifest": "spec = 1\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "unknown_top_level_field",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\nundeclared = true\n"
+    },
+    {
+      "name": "reserved_assistant_id",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"postgres\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "uppercase_assistant_id",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"Hello-World\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "prerelease_version",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0-beta.1\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "duplicate_creators",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\", \"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "duplicate_allowed_hosts",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = [\"api.example.org\", \"api.example.org\"]\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "empty_genesis",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"\"\n"
+    },
+    {
+      "name": "invalid_github_repository",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world-\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "unknown_account_field",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n\n[accounts.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
+    }
+  ]
+}

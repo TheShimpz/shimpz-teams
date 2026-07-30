@@ -58,9 +58,9 @@ COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
 COPY inference/__init__.py inference/config.py inference/model_catalog.json ./inference/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py \
     install/registry_auth.py ./install/
-COPY install/protocol/v1/definitions.schema.json install/protocol/v1/resolve-response.schema.json \
-    install/protocol/v1/schema_validator.py install/protocol/v1/verify.py \
-    ./install/protocol/v1/
+COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
+    protocol/install/v1/schema_validator.py protocol/install/v1/verify.py \
+    ./protocol/install/v1/
 COPY local_support/__init__.py local_support/assistant_api.py local_support/assistant_lifecycle.py \
     local_support/assistant_resources.py local_support/assistant_rpc.py local_support/audit.py \
     local_support/chat_api.py local_support/chat_execution.py local_support/chat_pause.py \

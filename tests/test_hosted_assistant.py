@@ -650,7 +650,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
     @staticmethod
     def _resolution() -> dict[str, object]:
         vectors = json.loads(
-            (Path(__file__).resolve().parents[1] / "install" / "protocol" / "v1" / "vectors.json").read_bytes()
+            (Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1" / "vectors.json").read_bytes()
         )
         resolution = copy.deepcopy(vectors["fixtures"]["resolve_response"]["value"])
         power = resolution["machine_contract"]["powers"][0]

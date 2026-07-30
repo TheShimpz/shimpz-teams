@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Validate Team HTTP protocol integrity and golden vectors."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+from pathlib import Path
+
+import payload
+import websocket
+
+HERE = Path(__file__).resolve().parent
+MANIFEST = HERE / "contract-files.sha256"
+ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
+
+
+def fail(message: str) -> None:
+    raise SystemExit(message)
+
+
+rows: dict[str, str] = {}
+for line in MANIFEST.read_text(encoding="ascii").splitlines():
+    match = ROW.fullmatch(line)
+    if match is None or match[2] in rows:
+        fail("Team HTTP checksum manifest is invalid")
+    rows[match[2]] = match[1]
+actual = {path.name for path in HERE.iterdir() if path.is_file() and path.name != MANIFEST.name}
+if set(rows) != actual:
+    fail("Team HTTP artifact set differs from its checksum manifest")
+for filename, expected in rows.items():
+    digest = hashlib.sha256((HERE / filename).read_bytes()).hexdigest()
+    if digest != expected:
+        fail(f"{filename} SHA-256 is {digest}, expected {expected}")
+
+vectors = json.loads((HERE / "vectors.json").read_bytes())
+if not isinstance(vectors, dict) or vectors.get("version") != 1:
+    fail("Team HTTP vectors have an invalid root")
+for case in vectors.get("frames", []):
+    message = dict(case["message"])
+    if "bytes_hex" in message:
+        message["bytes"] = bytes.fromhex(message.pop("bytes_hex"))
+    try:
+        value = websocket.decode_bounded_json_frame(message, case["max_bytes"])
+    except websocket.FrameError as exc:
+        if case["valid"] or (exc.status, exc.close_code) != (case["status"], case["close_code"]):
+            fail(f"Team HTTP frame vector differs: {case['name']}")
+    else:
+        if not case["valid"] or value != case["value"]:
+            fail(f"Team HTTP frame vector differs: {case['name']}")
+
+identifiers = vectors.get("identifiers", {})
+validators = {
+    "team": payload.canonical_team_id,
+    "assistant": payload.canonical_assistant_id,
+    "source_digest": payload.canonical_source_digest,
+}
+for kind, validator in validators.items():
+    cases = identifiers.get(kind, {})
+    if any(validator(value) != value for value in cases.get("valid", [])):
+        fail(f"Team HTTP {kind} positive vector differs")
+    if any(validator(value) is not None for value in cases.get("invalid", [])):
+        fail(f"Team HTTP {kind} negative vector differs")
+
+print("Team HTTP protocol integrity and golden vectors are valid")

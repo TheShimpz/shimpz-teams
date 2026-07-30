@@ -116,16 +116,16 @@ COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/insta
      ./hosted/install/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
      install/contract.py install/registry_auth.py ./install/
-COPY install/protocol/upstream.json ./install/protocol/
-COPY install/protocol/v1/README.md install/protocol/v1/contract-files.sha256 \
-     install/protocol/v1/controller-install-request.schema.json \
-     install/protocol/v1/controller-install-response.schema.json \
-     install/protocol/v1/definitions.schema.json install/protocol/v1/delegation-claims.schema.json \
-     install/protocol/v1/install-authorization-receipt.schema.json \
-     install/protocol/v1/install-authorization-request.schema.json \
-     install/protocol/v1/resolve-response.schema.json install/protocol/v1/schema_validator.py \
-     install/protocol/v1/team-list-response.schema.json install/protocol/v1/vectors.json \
-     install/protocol/v1/verify.py ./install/protocol/v1/
+COPY protocol/install/upstream.json ./protocol/install/
+COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
+     protocol/install/v1/controller-install-request.schema.json \
+     protocol/install/v1/controller-install-response.schema.json \
+     protocol/install/v1/definitions.schema.json protocol/install/v1/delegation-claims.schema.json \
+     protocol/install/v1/install-authorization-receipt.schema.json \
+     protocol/install/v1/install-authorization-request.schema.json \
+     protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
+     protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
+     protocol/install/v1/verify.py ./protocol/install/v1/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/

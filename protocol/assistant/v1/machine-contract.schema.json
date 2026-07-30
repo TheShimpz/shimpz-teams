@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shimpz.com/assistant/v1/machine-contract.schema.json",
+  "title": "Shimpz Assistant SDK machine contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "powers"],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "powers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {
+        "$ref": "#/$defs/power"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
+    "objectSchema": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "const": "object"
+        }
+      }
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "input_schema", "output_schema", "accounts"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "input_schema": {
+          "$ref": "#/$defs/objectSchema"
+        },
+        "output_schema": {
+          "$ref": "#/$defs/objectSchema"
+        },
+        "accounts": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      }
+    }
+  }
+}

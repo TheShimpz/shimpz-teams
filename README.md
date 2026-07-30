@@ -9,9 +9,10 @@ does not own Brain, Account, Assistant-release, or egress-proxy responsibilities
 ## Source organization
 
 - `hosted/` contains the Hosted entrypoint, healthcheck, and Hosted-only responsibilities.
-- `install/` owns profile-neutral publication contracts; `hosted/install/` owns Hosted-only authorization and
-  materialization adapters.
-- `install/protocol/` is the verified wire-protocol mirror consumed by both Team profiles.
+- `install/` owns profile-neutral publication verification and binding; `hosted/install/` owns Hosted-only
+  authorization and materialization adapters.
+- `protocol/http/` is Team's HTTP authority; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
+  used for independent admission and installation conformance.
 - `local/` contains the Local entrypoint, healthcheck, and image definition used by `install.shimpz.com`.
 - `chat/`, `egress/`, `inference/`, and `power/` are profile-neutral Team responsibilities.
 - `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.

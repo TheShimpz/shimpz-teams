@@ -62,18 +62,17 @@ every entry point. A case may apply one deterministic mutation:
 This small mutation format keeps security-sensitive resolve vectors readable
 without making consumers implement a general patch language.
 
-Validate the frozen authority and every vector from the umbrella root:
+Validate the frozen authority and every vector from this directory:
 
 ```console
-python contracts/developers-controller/v1/verify.py
+python verify.py
 ```
 
 Synchronize the already-verified authority into an empty or previously
 synchronized consumer directory:
 
 ```console
-python contracts/developers-controller/v1/verify.py \
-  --sync ../consumer/contracts/developers-controller/v1
+python verify.py --sync /path/to/consumer/protocol/install/v1
 ```
 
 The sync rejects symlinks, special files, and unknown destination entries.

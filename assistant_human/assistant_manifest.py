@@ -38,7 +38,10 @@ DEFAULT_CACHE_ENTRIES = 256
 _ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _CREATOR_RE = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\Z")
-_GITHUB_RE = re.compile(r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}\Z")
+_GITHUB_RE = re.compile(
+    r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
+    r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\Z"
+)
 _SECRET_VALUE_RE = re.compile(
     r"(?i)(?:bearer\s+[a-z0-9._~-]{12,}|(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)"
     r"\s*[:=]\s*\S+|(?:sk|ghp|github_pat|glpat|xox[baprs])[-_][a-z0-9_-]{12,})"
@@ -479,7 +482,9 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     manifest = _manifest_table(raw)
     if manifest["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
-    _identifier(manifest["id"], kind="id")
+    assistant_id = _identifier(manifest["id"], kind="id")
+    if assistant_id in {"postgres", "app-egress-proxy"}:
+        raise ManifestError("Assistant id is reserved")
     version = manifest["version"]
     if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")

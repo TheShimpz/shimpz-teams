@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "frames": [
+    {
+      "name": "valid_object",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"type\":\"chat\",\"message\":\"hello\"}"
+      },
+      "max_bytes": 128,
+      "valid": true,
+      "value": {
+        "type": "chat",
+        "message": "hello"
+      }
+    },
+    {
+      "name": "valid_utf8_boundary",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"v\":\"é\"}"
+      },
+      "max_bytes": 10,
+      "valid": true,
+      "value": {
+        "v": "é"
+      }
+    },
+    {
+      "name": "duplicate_key",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"type\":\"chat\",\"type\":\"error\"}"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 400,
+      "close_code": 1007
+    },
+    {
+      "name": "binary_frame",
+      "message": {
+        "type": "websocket.receive",
+        "bytes_hex": "00"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 415,
+      "close_code": 1003
+    },
+    {
+      "name": "oversized_utf8_frame",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"v\":\"é\"}"
+      },
+      "max_bytes": 9,
+      "valid": false,
+      "status": 413,
+      "close_code": 1009
+    },
+    {
+      "name": "non_object_json",
+      "message": {
+        "type": "websocket.receive",
+        "text": "[]"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 400,
+      "close_code": 1007
+    },
+    {
+      "name": "non_finite_number",
+      "message": {
+        "type": "websocket.receive",
+        "text": "{\"value\":NaN}"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 400,
+      "close_code": 1007
+    },
+    {
+      "name": "non_receive_event",
+      "message": {
+        "type": "websocket.disconnect"
+      },
+      "max_bytes": 128,
+      "valid": false,
+      "status": 400,
+      "close_code": 1007
+    }
+  ],
+  "identifiers": {
+    "team": {
+      "valid": ["a", "team_01"],
+      "invalid": ["", "Team", "team-name", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    },
+    "assistant": {
+      "valid": ["a", "hello-world"],
+      "invalid": ["", "Hello", "hello_world", "hello--world"]
+    },
+    "source_digest": {
+      "valid": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+      "invalid": ["", "sha256:abc", "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
+    }
+  }
+}
