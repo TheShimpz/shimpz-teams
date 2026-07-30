@@ -8,9 +8,9 @@ from http import HTTPStatus
 
 import docker.errors
 
-import audit
 from assistant import spec as assistant_registry
 from chat import turn as chat_turn_engine
+from hosted import audit
 from hosted import state as runtime_state
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import segment as hosted_chat_segment

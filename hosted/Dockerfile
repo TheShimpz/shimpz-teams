@@ -89,9 +89,9 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
     UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
     rm -rf /root/.cache/uv
 
-COPY hosted/__init__.py hosted/app.py hosted/authority.py hosted/cleanup.py hosted/container.py \
-     hosted/healthcheck.py hosted/state.py hosted/token.py ./hosted/
-COPY validate.py audit.py ./
+COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
+     hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
+     hosted/validation.py ./hosted/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \

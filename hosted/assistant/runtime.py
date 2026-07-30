@@ -12,13 +12,13 @@ import docker
 import docker.errors
 from jsonschema import Draft202012Validator
 
-import audit
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
+from hosted import audit
 from hosted import container as manifests
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as hosted_apps

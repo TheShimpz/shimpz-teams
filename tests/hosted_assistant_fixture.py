@@ -111,7 +111,7 @@ class _PostgreSQLServiceError(Exception):
 
 
 _stub("hosted.authority", verify=lambda _token: None)
-_stub("audit", log=lambda *_args, **_kwargs: "trace")
+_stub("hosted.audit", log=lambda *_args, **_kwargs: "trace")
 _stub(
     "inference.credentials",
     BrainCredentialError=_BrainCredentialError,
@@ -212,7 +212,7 @@ for module_name in (
     "docker.utils",
     "docker.utils.socket",
     "hosted.authority",
-    "audit",
+    "hosted.audit",
     "inference.credentials",
     "hosted.team.postgresql",
     "hosted.token",

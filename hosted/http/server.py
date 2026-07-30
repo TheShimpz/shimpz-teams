@@ -14,13 +14,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import docker
 
-import audit
-import validate
 from assistant import spec as assistant_registry
 from core.http import stdlib
 from core.http import strict as strict_http
+from hosted import audit
 from hosted import authority as accounts_client
 from hosted import state as runtime_state
+from hosted import validation as validate
 from hosted.assistant import lifecycle as hosted_apps
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import api as hosted_chat_api

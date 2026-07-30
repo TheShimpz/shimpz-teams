@@ -7,9 +7,9 @@ from http import HTTPStatus
 
 import docker.errors
 
-import audit
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
+from hosted import audit
 from hosted import cleanup as cleanup_state
 from hosted import container as manifests
 from hosted import state as runtime_state
