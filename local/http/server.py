@@ -61,12 +61,19 @@ class _RequestAudit:
         self.principal_id = evidence.supervisor_id
         self.principal_class = "human"
         self.credential_state = "assertion_present"
-        self.trace_id = evidence.assertion_id
 
     def absent(self, credential_state: str) -> None:
         self.principal_id = None
         self.principal_class = "absent"
         self.credential_state = credential_state
+
+    def principal(self) -> local_audit.AuditPrincipal:
+        return local_audit.AuditPrincipal(
+            principal_id=self.principal_id,
+            principal_class=self.principal_class,
+            credential_state=self.credential_state,
+            trace_id=self.trace_id,
+        )
 
     def record(
         self,
@@ -81,12 +88,7 @@ class _RequestAudit:
         self.trace_id = local_audit.record(
             selected_operation,
             result=result,
-            principal=local_audit.AuditPrincipal(
-                principal_id=self.principal_id,
-                principal_class=self.principal_class,
-                credential_state=self.credential_state,
-                trace_id=self.trace_id,
-            ),
+            principal=self.principal(),
             team_id=team_id,
             assistant=assistant,
             detail=detail,
@@ -585,7 +587,9 @@ class Handler(BaseHTTPRequestHandler):
         if route.operation in _MACHINE_ONLY_OPERATIONS:
             self._capture_body(route.operation)
             request_audit.machine()
-            return self._route(parts, route)
+            request_audit.record("machine-authority", result="ok")
+            with local_audit.bind_request_principal(request_audit.principal()):
+                return self._route(parts, route)
 
         assertion_state = local_authority.credential_state(self.headers)
         request_audit.absent(assertion_state)
@@ -617,13 +621,7 @@ class Handler(BaseHTTPRequestHandler):
             ) from exc
         request_audit.human(evidence)
         request_audit.record("human-authority", result="ok")
-        principal = local_audit.AuditPrincipal(
-            principal_id=evidence.supervisor_id,
-            principal_class="human",
-            credential_state="assertion_present",
-            trace_id=evidence.assertion_id,
-        )
-        with local_audit.bind_request_principal(principal):
+        with local_audit.bind_request_principal(request_audit.principal()):
             return self._route(parts, route)
 
     def _handle(self) -> None:

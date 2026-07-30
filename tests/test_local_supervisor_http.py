@@ -50,12 +50,16 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         handler = self._handler("GET", "/healthz", controller)
         request_audit = server._RequestAudit()
 
-        with mock.patch.object(authority, "verify") as verify:
+        with (
+            mock.patch.object(authority, "verify") as verify,
+            mock.patch.object(server.local_audit, "record", return_value="d" * 32) as record,
+        ):
             result = handler._authorized_route(request_audit)
 
         self.assertEqual(result[:3], (HTTPStatus.OK, {"status": "ok"}, "health"))
         self.assertEqual(request_audit.principal_class, "machine")
         self.assertEqual(request_audit.principal_id, "admin")
+        self.assertEqual(record.call_args.kwargs["principal"].principal_class, "machine")
         verify.assert_not_called()
 
     def test_human_route_denies_missing_assertion_before_execution(self) -> None:
@@ -76,7 +80,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(request_audit.credential_state, "assertion_absent_or_malformed")
         self.assertEqual(record.call_args.kwargs["principal"].principal_class, "absent")
 
-    def test_exact_evidence_attributes_the_operation_and_reuses_its_nonce_as_trace(self) -> None:
+    def test_exact_evidence_attributes_the_operation_without_persisting_its_nonce(self) -> None:
         list_teams = mock.Mock(return_value={"teams": []})
         handler = self._handler(
             "GET",
@@ -88,7 +92,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(server.local_audit, "record", return_value="c" * 32) as record,
+            mock.patch.object(server.local_audit, "record", return_value="d" * 32) as record,
         ):
             result = handler._authorized_route(request_audit)
             request_audit.record(result[2], result="ok")
@@ -106,9 +110,42 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(record.call_count, 2)
         self.assertEqual(
             {call.kwargs["principal"].trace_id for call in record.call_args_list},
-            {"c" * 32},
+            {None, "d" * 32},
         )
+        self.assertNotIn("c" * 32, {call.kwargs["principal"].trace_id for call in record.call_args_list})
         list_teams.assert_called_once_with()
+
+    def test_machine_route_binds_its_attributable_audit_principal(self) -> None:
+        handler = self._handler(
+            "POST",
+            "/v1/oauth/cloudflare/callback",
+            SimpleNamespace(),
+        )
+        handler._capture_body = mock.Mock()
+
+        def route(_parts, resolved):
+            server.local_audit.record_request(
+                resolved.operation,
+                result="ok",
+            )
+            return HTTPStatus.OK, {"connected": True}, resolved.operation, None, None
+
+        handler._route = route
+        request_audit = server._RequestAudit()
+
+        with mock.patch.object(
+            server.local_audit,
+            "record",
+            return_value="e" * 32,
+        ) as record:
+            result = handler._authorized_route(request_audit)
+
+        self.assertEqual(result[2], "assistant-integration-complete")
+        self.assertEqual(record.call_count, 2)
+        principals = [call.kwargs["principal"] for call in record.call_args_list]
+        self.assertEqual({principal.principal_class for principal in principals}, {"machine"})
+        self.assertEqual({principal.principal_id for principal in principals}, {"admin"})
+        self.assertEqual([principal.trace_id for principal in principals], [None, "e" * 32])
 
     def test_chat_assertion_binds_raw_json_and_model_credential_digest(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'
