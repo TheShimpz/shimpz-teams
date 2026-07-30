@@ -26,11 +26,12 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
+from hosted import container as container_spec
+
 integration_challenges = runtime_state.integration_challenges
 assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
-manifests = hosted_apps.manifests
 assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
@@ -511,7 +512,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     return_value=HOSTED_SPEC,
                 ),
                 mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=[]),
-                mock.patch.object(manifests, "build_assistant_kwargs", return_value={}),
+                mock.patch.object(container_spec, "build_assistant_kwargs", return_value={}),
                 mock.patch.object(network_policy, "assistant_identity_valid", return_value=True),
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
@@ -634,7 +635,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
 
     def test_empty_hosts_build_no_proxy_environment(self) -> None:
         spec = HOSTED_SPEC
-        kwargs = manifests.build_assistant_kwargs(
+        kwargs = container_spec.build_assistant_kwargs(
             "team_1",
             "shimpz-cloudflare",
             spec,
@@ -733,7 +734,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         self.assertEqual(trusted, (resolution["image_reference"], "sha256:image", True))
         network = types.SimpleNamespace(attrs={})
         with (
-            mock.patch.object(hosted_resources, "_team_runtime", return_value=manifests.RUNTIME),
+            mock.patch.object(hosted_resources, "_team_runtime", return_value=container_spec.RUNTIME),
             mock.patch.object(
                 hosted_resources,
                 "_trusted_workload_image",

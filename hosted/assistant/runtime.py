@@ -19,7 +19,7 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
 from hosted import audit
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as hosted_apps
 from hosted.team import resources as hosted_resources
@@ -130,7 +130,7 @@ def _installed_assistant(
     contract = spec.contract
     container = candidate
     if container is None:
-        container = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, assistant_id))
+        container = hosted_resources._get_container(container_spec.team_assistant_container_name(team_id, assistant_id))
     if container is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"Assistant {assistant_id!r} is not installed in this Team")
     with runtime_state._active_chat_guard:
@@ -311,7 +311,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
                 power_execution.RpcExchangeStrategy(
                     api=runtime_state._docker.api,
                     user=power_execution.ASSISTANT_RPC_USER,
-                    workdir=manifests.CONTAINER_TMP,
+                    workdir=container_spec.CONTAINER_TMP,
                     timeout=power_execution.RPC_TIMEOUT_SECONDS,
                     maximum=power_execution.MAX_RPC_RESPONSE_BYTES,
                     transport_errors=(docker.errors.DockerException,),

@@ -16,8 +16,9 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
+from hosted import container as container_spec
+
 dynamic_assistants = hosted_resources.dynamic_assistants
-manifests = hosted_resources.manifests
 assistant_registry = hosted_assistants.assistant_registry
 network_policy = hosted_resources.network_policy
 
@@ -44,7 +45,7 @@ class CountingContainer:
                 "Image": image,
                 "Labels": labels,
             },
-            "HostConfig": {"Runtime": manifests.RUNTIME},
+            "HostConfig": {"Runtime": container_spec.RUNTIME},
             "State": {"Running": True},
         }
         self._calls = calls
@@ -107,7 +108,7 @@ class HostedCheckHarness:
         self.anchor = CountingContainer(
             ANCHOR_ID,
             {"team.id": TEAM_ID, "team.brain": "runtime", "team.name": "Marketing", "team.owner": OWNER},
-            manifests.BRAINS["runtime"]["image"],
+            container_spec.BRAINS["runtime"]["image"],
             self.calls,
         )
         self.assistants = tuple(
@@ -143,10 +144,10 @@ class HostedCheckHarness:
     def _container(self, identity: str):
         self.calls["docker.containers.get"] += 1
         by_identity = {
-            manifests.team_container_name(TEAM_ID): self.anchor,
+            container_spec.team_container_name(TEAM_ID): self.anchor,
             self.anchor.id: self.anchor,
             **{
-                manifests.team_assistant_container_name(TEAM_ID, active.assistant_id): active.container
+                container_spec.team_assistant_container_name(TEAM_ID, active.assistant_id): active.container
                 for active in self.assistants
             },
             **{member.id: member for member in self.members},

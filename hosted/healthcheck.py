@@ -24,7 +24,7 @@ from core.container import network as network_policy
 from install import bindings as dynamic_assistants
 
 DOCKER_SOCKET = os.environ.get("DOCKER_HOST_SOCKET", "/var/run/docker.sock")
-# Must stay identical to manifests.RUNTIME without importing the SDK-backed module. This is not an
+# Must stay identical to container.RUNTIME without importing the SDK-backed module. This is not an
 # operator override: hostile-tenant readiness is always tied to the shipping gVisor runtime.
 REQUIRED_RUNTIME = "runsc"
 REQUIRED_RUNTIME_PATH = "/usr/local/bin/runsc"

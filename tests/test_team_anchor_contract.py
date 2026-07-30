@@ -8,18 +8,18 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from core.container import network as network_policy
-from hosted import container as manifests
+from hosted import container as container_spec
 
 
 class TeamAnchorContractTests(unittest.TestCase):
     def test_anchor_has_no_model_runtime_or_secret_bearing_filesystem(self) -> None:
-        kwargs = manifests.build_team_kwargs(
+        kwargs = container_spec.build_team_kwargs(
             "team_1",
             "Team 1",
             database_url="postgresql://must-not-enter-anchor",
         )
 
-        self.assertEqual(set(manifests.BRAINS), {"runtime"})
+        self.assertEqual(set(container_spec.BRAINS), {"runtime"})
         self.assertIn("registry.k8s.io/pause:3.10.1@sha256:", kwargs["image"])
         self.assertEqual(kwargs["environment"], {"SHIMPZ_TEAM_ID": "team_1", "SHIMPZ_TEAM_NAME": "Team 1"})
         self.assertNotIn("postgresql://", repr(kwargs))
@@ -32,9 +32,9 @@ class TeamAnchorContractTests(unittest.TestCase):
         self.assertEqual(network_policy.NETWORK_KINDS, {network_policy.CORE_KIND})
 
     def test_anchor_reserves_only_a_small_idle_envelope(self) -> None:
-        self.assertEqual(manifests.MEM_LIMIT_BYTES, 64 * 1024 * 1024)
-        self.assertEqual(manifests.NANO_CPUS, 100_000_000)
-        self.assertEqual(manifests.PIDS_LIMIT, 128)
+        self.assertEqual(container_spec.MEM_LIMIT_BYTES, 64 * 1024 * 1024)
+        self.assertEqual(container_spec.NANO_CPUS, 100_000_000)
+        self.assertEqual(container_spec.PIDS_LIMIT, 128)
 
 
 if __name__ == "__main__":

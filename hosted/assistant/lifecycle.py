@@ -15,7 +15,7 @@ from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from egress import policy as egress_policy
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.install import publication
 from hosted.team import resources as hosted_resources
@@ -149,7 +149,7 @@ def _assistant_egress_token(
     try:
         current_store = store if store is not None else _egress_store()
         return current_store.token(
-            manifests.team_assistant_container_name(team_id, assistant_id),
+            container_spec.team_assistant_container_name(team_id, assistant_id),
             create=create,
         )
     except egress_policy.EgressPolicyError as exc:
@@ -177,7 +177,7 @@ def _validate_egress_policy(
     try:
         current_store = store if store is not None else _egress_store()
         return current_store.validate(
-            manifests.team_assistant_container_name(team_id, assistant_id),
+            container_spec.team_assistant_container_name(team_id, assistant_id),
             allowed_hosts,
         )
     except egress_policy.EgressPolicyError as exc:
@@ -272,7 +272,7 @@ def _activate_admitted_egress(
     _write_egress_policy(token, allowed_hosts, store)
     hosted_resources._safe_connect(
         network,
-        manifests.APP_EGRESS_CONTAINER,
+        container_spec.APP_EGRESS_CONTAINER,
         aliases=["app-egress-proxy"],
         required=True,
     )
@@ -280,7 +280,7 @@ def _activate_admitted_egress(
 
 def _remove_egress_policy(team_id: str, assistant_id: str) -> bool:
     try:
-        _egress_store().remove(manifests.team_assistant_container_name(team_id, assistant_id))
+        _egress_store().remove(container_spec.team_assistant_container_name(team_id, assistant_id))
     except egress_policy.EgressPolicyError:
         return False
     return True
@@ -317,7 +317,9 @@ def _teardown_assistant(
     """Remove one exact managed Assistant while preserving retry evidence."""
     if container is None:
         try:
-            container = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, assistant_id))
+            container = hosted_resources._get_container(
+                container_spec.team_assistant_container_name(team_id, assistant_id)
+            )
         except docker.errors.DockerException:
             return hosted_resources._CleanupResult(False, True)
 
@@ -442,7 +444,9 @@ def _install_assistant_locked(
             f"team {team_id!r} not found",
         )
     hosted_resources._prepare_assistant_image(spec)
-    existing = hosted_resources._get_container(manifests.team_assistant_container_name(team_id, binding.assistant_id))
+    existing = hosted_resources._get_container(
+        container_spec.team_assistant_container_name(team_id, binding.assistant_id)
+    )
     if existing is not None:
         return _admit_existing_assistant(
             team_id,
@@ -543,7 +547,7 @@ def _provision_assistant(
     with hosted_resources._reserve_capacity(
         key,
         owner,
-        manifests.ASSISTANT_MEM_LIMIT_BYTES,
+        container_spec.ASSISTANT_MEM_LIMIT_BYTES,
         team_slot=False,
     ):
         committed_status = _provision_assistant_transaction(
@@ -579,7 +583,7 @@ def _provision_assistant_transaction(
             spec.allowed_hosts,
             egress_store,
         )
-        kwargs = manifests.build_assistant_kwargs(
+        kwargs = container_spec.build_assistant_kwargs(
             team_id,
             assistant_id,
             spec,

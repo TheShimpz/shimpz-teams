@@ -13,7 +13,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hosted_assistant_fixture import app, hosted_controller, hosted_resources, runtime_state
 
-manifests = hosted_resources.manifests
+from hosted import container as container_spec
+
 network_policy = hosted_resources.network_policy
 
 TEAM_ID = "team_1"
@@ -26,7 +27,7 @@ def _container(*, container_id: str = CONTAINER_ID, owner: str = "account_1") ->
 
 
 def _routable_container() -> SimpleNamespace:
-    name = manifests.team_container_name(TEAM_ID)
+    name = container_spec.team_container_name(TEAM_ID)
     labels = {
         "team.runtime": "1",
         "team.id": TEAM_ID,

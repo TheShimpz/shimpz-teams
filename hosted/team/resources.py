@@ -15,7 +15,7 @@ import docker.errors
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted import validation as validate
 from hosted.install import publication
@@ -74,10 +74,10 @@ def _require_team_runtime() -> None:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "cannot verify Docker isolation posture") from exc
     if not isinstance(info, dict):
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "cannot verify Docker isolation posture")
-    if not network_policy.daemon_runtime_registration_valid(info, manifests.RUNTIME, manifests.RUNTIME_PATH):
+    if not network_policy.daemon_runtime_registration_valid(info, container_spec.RUNTIME, container_spec.RUNTIME_PATH):
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            f"required Team runtime {manifests.RUNTIME!r} is not loaded from {manifests.RUNTIME_PATH!r}",
+            f"required Team runtime {container_spec.RUNTIME!r} is not loaded from {container_spec.RUNTIME_PATH!r}",
         )
     if not network_policy.daemon_security_options_valid(info):
         raise runtime_state.ApiError(
@@ -145,7 +145,7 @@ def _trusted_workload_image(
     compact_assistant_runtime = False
     if network_policy.brain_identity_valid(container.attrs, team_id):
         provider = labels.get("team.brain")
-        provider_spec = manifests.BRAINS.get(provider) if isinstance(provider, str) else None
+        provider_spec = container_spec.BRAINS.get(provider) if isinstance(provider, str) else None
         image_ref = provider_spec.get("image") if provider_spec is not None else None
     else:
         assistant_id = labels.get("team.assistant")
@@ -179,10 +179,10 @@ def _require_team_isolation_mode(
 ) -> None:
     """Validate exact static posture, plus live network membership whenever the workload is running."""
     runtime = _team_runtime(container, refresh=not refreshed)
-    if runtime != manifests.RUNTIME:
+    if runtime != container_spec.RUNTIME:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            f"Team isolation is blocked: required runtime {manifests.RUNTIME!r}, found {runtime!r}; "
+            f"Team isolation is blocked: required runtime {container_spec.RUNTIME!r}, found {runtime!r}; "
             "destroy and recreate the Team",
         )
     state = container.attrs.get("State")
@@ -206,7 +206,7 @@ def _require_team_isolation_mode(
     if not network_policy.workload_security_valid(
         container.attrs,
         team_id,
-        manifests.RUNTIME,
+        container_spec.RUNTIME,
         expected_image_ref=image_ref,
         expected_image_id=image_id,
         compact_assistant_runtime=compact_assistant_runtime,
@@ -833,7 +833,7 @@ def _authorize(team_id: str, principal: tuple[str, str | None]) -> _Authorizatio
     acquiring its lifecycle/chat lock: authorization that waited behind destroy/recreate is never
     transferable to the new container that happens to reuse the same TEAM_ID.
     """
-    container = _get_container(manifests.team_container_name(team_id))
+    container = _get_container(container_spec.team_container_name(team_id))
     if container is None:
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     return _authorize_container(team_id, principal, container)
@@ -841,7 +841,7 @@ def _authorize(team_id: str, principal: tuple[str, str | None]) -> _Authorizatio
 
 def _authorize_destroy(team_id: str, principal: tuple[str, str | None]) -> _AuthorizationLease:
     """Authorize against the Brain, or its durable non-runnable cleanup successor."""
-    container = _get_container(manifests.team_container_name(team_id))
+    container = _get_container(container_spec.team_container_name(team_id))
     if container is not None:
         return _authorize_container(team_id, principal, container)
     record = _cleanup_record(team_id)
@@ -867,7 +867,7 @@ def _require_cleanup_authorization(team_id: str, lease: _AuthorizationLease) -> 
         or record.owner != lease.owner
         or record.brain_id != lease.container_id
         or not cleanup_state.principal_authorized(record, lease.principal)
-        or _get_container(manifests.team_container_name(team_id)) is not None
+        or _get_container(container_spec.team_container_name(team_id)) is not None
     ):
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     return record
@@ -881,7 +881,7 @@ def _require_current_authorization(
     allow_pending_cleanup: bool = False,
 ):
     """Revalidate owner + immutable Docker identity; caller already holds the operation lock."""
-    container = _get_container(manifests.team_container_name(team_id))
+    container = _get_container(container_spec.team_container_name(team_id))
     if (
         lease.cleanup_nonce
         or lease.team_id != team_id

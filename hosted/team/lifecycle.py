@@ -11,7 +11,7 @@ from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import audit
 from hosted import cleanup as cleanup_state
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as hosted_apps
 from hosted.assistant import runtime as hosted_assistants
@@ -95,7 +95,7 @@ def _remove_volume(team_id: str, kind: str) -> bool:
 
 def _owned_teardown_brain(team_id: str, owner: str, brain_id: str):
     try:
-        brain = hosted_resources._get_container(manifests.team_container_name(team_id))
+        brain = hosted_resources._get_container(container_spec.team_container_name(team_id))
     except docker.errors.DockerException:
         return False, None
     if brain is None:
@@ -262,8 +262,8 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
     # The current hosted Team identity remains a sandboxed lifecycle anchor. Model inference is
     # now a separate service, so changing provider/model never replaces this container.
-    anchor_brain = manifests.DEFAULT_BRAIN
-    anchor_model = manifests.model_for_brain(anchor_brain)
+    anchor_brain = container_spec.DEFAULT_BRAIN
+    anchor_model = container_spec.model_for_brain(anchor_brain)
     with runtime_state._lock_for(team_id):
         pending_cleanup = hosted_resources._cleanup_record(team_id)
         if pending_cleanup is not None:
@@ -273,7 +273,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
                 HTTPStatus.CONFLICT,
                 f"team {team_id!r} has an incomplete teardown; retry destroy before creating it",
             )
-        existing = hosted_resources._get_container(manifests.team_container_name(team_id))
+        existing = hosted_resources._get_container(container_spec.team_container_name(team_id))
         if existing is not None:
             # An account may only "re-create" (get) its OWN team; a name collision with a different
             # owner is invisible (404), never a hijack of someone else's team.
@@ -303,7 +303,9 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             )
         # Reserve count + memory atomically, then let unrelated Teams enter admission while the
         # runtime check, credential service, Postgres, Docker start and health work proceed.
-        with hosted_resources._reserve_capacity(f"team:{team_id}", owner, manifests.MEM_LIMIT_BYTES, team_slot=True):
+        with hosted_resources._reserve_capacity(
+            f"team:{team_id}", owner, container_spec.MEM_LIMIT_BYTES, team_slot=True
+        ):
             # Quotas are an admission decision of their own: an owner already at the limit must receive
             # 429 even while the hostile-tenant runtime is unavailable. A different owner reaches this
             # independent fail-closed host gate and still cannot provision without the required runtime.
@@ -314,7 +316,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             try:
                 db = postgresql_service_client.provision_team(team_id)
                 network = hosted_resources._ensure_team_network(team_id)
-                hosted_resources._wire_network_deps(network, manifests.core_deps())
+                hosted_resources._wire_network_deps(network, container_spec.core_deps())
                 hosted_resources._require_network_policy(
                     network,
                     team_id,
@@ -322,7 +324,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
                     require_brain=False,
                     require_dependencies=True,
                 )
-                kwargs = manifests.build_team_kwargs(
+                kwargs = container_spec.build_team_kwargs(
                     team_id,
                     team_name,
                     database_url=db["database_url"],
@@ -357,7 +359,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             "model": inference.model,
             "status": "running",
             "created": True,
-            "database": manifests.team_db_project(team_id),
+            "database": container_spec.team_db_project(team_id),
         }
 
 

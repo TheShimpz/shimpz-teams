@@ -28,7 +28,6 @@ integration_challenges = runtime_state.integration_challenges
 assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
-manifests = hosted_apps.manifests
 assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store

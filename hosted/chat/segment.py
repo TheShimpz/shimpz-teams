@@ -10,7 +10,7 @@ from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as hosted_apps
 from hosted.assistant import runtime as hosted_assistants
@@ -30,7 +30,7 @@ def _current_team_anchor(
     owner: str,
     inspect_memo: dict[str, object] | None = None,
 ):
-    container = hosted_resources._get_container(manifests.team_container_name(team_id))
+    container = hosted_resources._get_container(container_spec.team_container_name(team_id))
     if container is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team identity changed during the chat turn")
     if (

@@ -13,12 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from local_assistant_fixture import hosted_spec
 from local_controller_harness import LocalContractCase
 
-from hosted import container as manifests
+from hosted import container as container_spec
 
 
 class AssistantTmpfsContracts(LocalContractCase):
     def test_each_profile_applies_its_current_bounded_tmpfs(self):
-        hosted = manifests.build_assistant_kwargs(
+        hosted = container_spec.build_assistant_kwargs(
             "team_1",
             "shimpz-cloudflare",
             hosted_spec("ghcr.io/example/example-assistant@sha256:" + ("a" * 64)),
@@ -48,5 +48,5 @@ class AssistantTmpfsContracts(LocalContractCase):
             SimpleNamespace(id="img-id"),
         )
 
-        self.assertEqual(hosted, {manifests.CONTAINER_TMP: "size=64m,mode=1777"})
-        self.assertEqual(captured["tmpfs"], {manifests.CONTAINER_TMP: "size=256m"})
+        self.assertEqual(hosted, {container_spec.CONTAINER_TMP: "size=64m,mode=1777"})
+        self.assertEqual(captured["tmpfs"], {container_spec.CONTAINER_TMP: "size=256m"})

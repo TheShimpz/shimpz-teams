@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_assistant_fixture import hosted_assistants, runtime_state
 
-from hosted import container as manifests
+from hosted import container as container_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy
@@ -226,7 +226,7 @@ class PowerRpcFrameTests(unittest.TestCase):
         strategy = power_execution.RpcExchangeStrategy(
             api=api,
             user="10001:10001",
-            workdir=manifests.CONTAINER_TMP,
+            workdir=container_spec.CONTAINER_TMP,
             timeout=0.5,
             maximum=power_execution.MAX_RPC_REQUEST_BYTES,
             transport_errors=(),
@@ -375,7 +375,7 @@ class PowerRpcFrameTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
         fail_stop.assert_called_once_with("team_1", container)
         self.assertEqual(create.call_args.args[1], [power_execution.POWER_COMMAND, "test"])
-        self.assertEqual(create.call_args.kwargs["workdir"], manifests.CONTAINER_TMP)
+        self.assertEqual(create.call_args.kwargs["workdir"], container_spec.CONTAINER_TMP)
 
     def test_local_exchange_fail_stops_on_malformed_frame(self) -> None:
         with _socket_bytes(b"truncated") as raw_socket:

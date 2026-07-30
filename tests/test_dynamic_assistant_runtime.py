@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted.install.publication import assistant_spec
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
@@ -27,7 +27,7 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
             spec = assistant_spec(store.put("team_1", resolution))
 
-        kwargs = manifests.build_assistant_kwargs(
+        kwargs = container_spec.build_assistant_kwargs(
             "team_1",
             "hello-world",
             spec,
@@ -41,7 +41,7 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
         self.assertTrue(kwargs["read_only"])
         self.assertEqual(
             kwargs["tmpfs"],
-            {manifests.CONTAINER_TMP: "size=64m,mode=1777"},
+            {container_spec.CONTAINER_TMP: "size=64m,mode=1777"},
         )
         self.assertEqual(kwargs["cap_drop"], ["ALL"])
         self.assertIn("no-new-privileges:true", kwargs["security_opt"])

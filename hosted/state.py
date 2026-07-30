@@ -17,7 +17,7 @@ import docker
 
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from hosted import container as manifests
+from hosted import container as container_spec
 from hosted import token as token_store
 from hosted.install import developers_client, developers_delegation
 from inference import client as brain_runtime_client
@@ -48,15 +48,15 @@ LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 MAX_TEAMS = _positive_int_env("SHIMPZ_MAX_TEAMS", 32)
 MAX_TEAMS_PER_OWNER = _positive_int_env("SHIMPZ_MAX_TEAMS_PER_OWNER", 1)
 MAX_ASSISTANTS_PER_TEAM = _positive_int_env("SHIMPZ_MAX_ASSISTANTS_PER_TEAM", 20)
-GLOBAL_MEMORY_BUDGET_BYTES = manifests.hard_memory_bytes(
+GLOBAL_MEMORY_BUDGET_BYTES = container_spec.hard_memory_bytes(
     os.environ.get("SHIMPZ_TEAM_GLOBAL_MEM_BUDGET", "64g"),
     setting="SHIMPZ_TEAM_GLOBAL_MEM_BUDGET",
 )
-OWNER_MEMORY_BUDGET_BYTES = manifests.hard_memory_bytes(
+OWNER_MEMORY_BUDGET_BYTES = container_spec.hard_memory_bytes(
     os.environ.get("SHIMPZ_TEAM_OWNER_MEM_BUDGET", "8g"),
     setting="SHIMPZ_TEAM_OWNER_MEM_BUDGET",
 )
-_LARGEST_RESOURCE_LIMIT = max(manifests.MEM_LIMIT_BYTES, manifests.ASSISTANT_MEM_LIMIT_BYTES)
+_LARGEST_RESOURCE_LIMIT = max(container_spec.MEM_LIMIT_BYTES, container_spec.ASSISTANT_MEM_LIMIT_BYTES)
 if GLOBAL_MEMORY_BUDGET_BYTES < _LARGEST_RESOURCE_LIMIT:
     raise ValueError("SHIMPZ_TEAM_GLOBAL_MEM_BUDGET is smaller than one Team resource")
 if not _LARGEST_RESOURCE_LIMIT <= OWNER_MEMORY_BUDGET_BYTES <= GLOBAL_MEMORY_BUDGET_BYTES:
