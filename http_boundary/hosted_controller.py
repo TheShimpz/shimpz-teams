@@ -335,7 +335,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_developers_install(self) -> None:
         body = self._read_team_body({"version", "team_id", "source_digest", "request_id", "idempotency_key"})
-        _CONTROLLER_CONTRACTS.validate("controller-install-request.schema.json", body)
+        _CONTROLLER_CONTRACTS.validate("install-request.schema.json", body)
         delegation, client, trust = self._developers_dependencies()
         claims = delegation.verify(
             self.headers,
@@ -386,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
             "binding_digest": installed["binding_digest"],
         }
         _CONTROLLER_CONTRACTS.validate(
-            "controller-install-response.schema.json",
+            "install-response.schema.json",
             response,
         )
         audit.log(

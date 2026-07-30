@@ -118,8 +118,8 @@ COPY install/__init__.py install/artifact.py install/artifact_trust.py install/b
      install/contract.py install/registry_auth.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/
 COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
-     protocol/install/v1/controller-install-request.schema.json \
-     protocol/install/v1/controller-install-response.schema.json \
+     protocol/install/v1/install-request.schema.json \
+     protocol/install/v1/install-response.schema.json \
      protocol/install/v1/definitions.schema.json protocol/install/v1/delegation-claims.schema.json \
      protocol/install/v1/install-authorization-receipt.schema.json \
      protocol/install/v1/install-authorization-request.schema.json \

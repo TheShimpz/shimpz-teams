@@ -1,4 +1,4 @@
-"""Security contract for Developers-to-Controller Ed25519 delegations."""
+"""Security contract for Assistant-install Ed25519 delegations."""
 
 from __future__ import annotations
 

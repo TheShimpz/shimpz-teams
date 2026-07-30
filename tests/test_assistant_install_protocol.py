@@ -1,4 +1,4 @@
-"""Pin the byte-identical Developers-to-Controller v1 authority."""
+"""Pin the byte-identical Assistant-install v1 authority."""
 
 from __future__ import annotations
 
@@ -13,15 +13,15 @@ AUTHORITY = ROOT / "v1"
 MANIFEST = AUTHORITY / "contract-files.sha256"
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz",
-    "commit": "fcffe20b89460c03cdd205ea3385bfa6085899d4",
+    "commit": "70a3d1ed127a80acc65aea76324be75e28c18cfc",
     "path": "standards/assistant-install/v1",
-    "tree": "296ae30a4a28f8be9448589869aa485a35bd767d",
-    "contract_files_sha256": "8eb6795414de89fd4470dd54bb254588f071d76bfa349c4b0b8a940888d49688",
+    "tree": "6cb0ec9d29b1942aaeb0ef23f47f57f4da005de3",
+    "contract_files_sha256": "e6efc2862915a93552422416cf1b633b3a02ca010c146ebdd42246e4554fff6c",
 }
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 
 
-class DevelopersControllerContractTests(unittest.TestCase):
+class AssistantInstallProtocolTests(unittest.TestCase):
     def test_vendored_authority_matches_pinned_umbrella_tree(self) -> None:
         upstream = json.loads((ROOT / "upstream.json").read_bytes())
         self.assertEqual(upstream, EXPECTED_UPSTREAM)

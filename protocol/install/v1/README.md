@@ -1,7 +1,7 @@
-# Shimpz Developers-to-Controller contract v1
+# Shimpz Assistant-install contract v1
 
 This directory is the language-neutral authority for the narrow boundary
-between Developers and the hosted Team Controller.
+between Developers and the Team.
 
 It covers:
 
@@ -24,17 +24,17 @@ through operation-specific helpers. Their values are fixed:
 
 ```text
 issuer:   https://developers.shimpz.com
-audience: https://developers.shimpz.com/team-controller
+audience: https://developers.shimpz.com/assistant-install
 ```
 
 A delegation is valid for at most 60 seconds. An install authorization is valid
 for at most 120 seconds. JSON Schema validates their shape; the reference
 verifier and every consumer also enforce these lifetime relationships.
 
-The Controller install JSON is never authority by itself. The internal request
+The install JSON is never authority by itself. The internal request
 must also carry the named Developers service credential and the compact
 delegation JWS. The claims and body must bind the same account, Team, source
-digest, request ID, and idempotency key before the Controller invokes its
+digest, request ID, and idempotency key before Team invokes its
 existing ownership authorization.
 
 Resolve returns only an unblocked, installable publication. It contains a full

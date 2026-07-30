@@ -1,4 +1,4 @@
-"""Closed Developers-to-Controller v1 contract validation."""
+"""Closed Assistant-install v1 contract validation."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from jsonschema.exceptions import SchemaError, ValidationError
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 DEFINITIONS = "definitions.schema.json"
 ENTRY_POINTS = {
-    "controller-install-request.schema.json": "controllerInstallRequest",
-    "controller-install-response.schema.json": "controllerInstallResponse",
+    "install-request.schema.json": "installRequest",
+    "install-response.schema.json": "installResponse",
     "delegation-claims.schema.json": "delegationClaims",
     "install-authorization-receipt.schema.json": "installAuthorizationReceipt",
     "install-authorization-request.schema.json": "installAuthorizationRequest",
@@ -22,7 +22,7 @@ ENTRY_POINTS = {
 
 
 class ContractValidationError(ValueError):
-    """A Developers-to-Controller value is malformed or inconsistent."""
+    """An Assistant-install value is malformed or inconsistent."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -36,7 +36,7 @@ class ContractValidator:
         definitions = _load_json(root / DEFINITIONS)
         shared = definitions.get("$defs")
         if not isinstance(shared, dict):
-            raise RuntimeError("Developers Controller definitions are invalid")
+            raise RuntimeError("Assistant-install definitions are invalid")
         self._validators = {
             filename: _build_validator(root, filename, definition, shared)
             for filename, definition in ENTRY_POINTS.items()
@@ -57,9 +57,9 @@ def _load_json(path: Path) -> dict[str, object]:
     try:
         value = json.loads(path.read_bytes())
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Developers Controller schema cannot be loaded") from exc
+        raise RuntimeError("Assistant-install schema cannot be loaded") from exc
     if not isinstance(value, dict):
-        raise RuntimeError("Developers Controller schema must be an object")
+        raise RuntimeError("Assistant-install schema must be an object")
     return value
 
 
@@ -71,7 +71,7 @@ def _build_validator(
 ) -> Draft202012Validator:
     entry = _load_json(root / filename)
     if entry.get("$ref") != f"{DEFINITIONS}#/$defs/{definition}":
-        raise RuntimeError("Developers Controller schema entry point is invalid")
+        raise RuntimeError("Assistant-install schema entry point is invalid")
     local = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$defs": shared,
@@ -80,7 +80,7 @@ def _build_validator(
     try:
         Draft202012Validator.check_schema(local)
     except SchemaError as exc:
-        raise RuntimeError("Developers Controller schema is invalid") from exc
+        raise RuntimeError("Assistant-install schema is invalid") from exc
     return Draft202012Validator(local)
 
 

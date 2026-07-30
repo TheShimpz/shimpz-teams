@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.shimpz.com/developers-controller/v1/definitions.schema.json",
-  "title": "Shimpz Developers to Controller contract definitions v1",
+  "$id": "https://schemas.shimpz.com/assistant-install/v1/definitions.schema.json",
+  "title": "Shimpz Assistant-install contract definitions v1",
   "$defs": {
     "accountIdentifier": {
       "type": "string",
@@ -74,7 +74,7 @@
           "const": "https://developers.shimpz.com"
         },
         "aud": {
-          "const": "https://developers.shimpz.com/team-controller"
+          "const": "https://developers.shimpz.com/assistant-install"
         },
         "account_id": {
           "$ref": "#/$defs/accountIdentifier"
@@ -120,7 +120,7 @@
           "const": "https://developers.shimpz.com"
         },
         "aud": {
-          "const": "https://developers.shimpz.com/team-controller"
+          "const": "https://developers.shimpz.com/assistant-install"
         },
         "account_id": {
           "$ref": "#/$defs/accountIdentifier"
@@ -559,7 +559,7 @@
         }
       }
     },
-    "controllerInstallRequest": {
+    "installRequest": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -587,7 +587,7 @@
         }
       }
     },
-    "controllerInstallResponse": {
+    "installResponse": {
       "type": "object",
       "additionalProperties": false,
       "required": [

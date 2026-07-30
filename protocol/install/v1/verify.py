@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and copy the frozen Developers-to-Controller v1 authority."""
+"""Validate and copy the frozen Assistant-install v1 authority."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from schema_validator import SchemaViolationError, check_schema, validate
 HERE = Path(__file__).resolve().parent
 MANIFEST = "contract-files.sha256"
 SCHEMAS = (
-    "controller-install-request.schema.json",
-    "controller-install-response.schema.json",
+    "install-request.schema.json",
+    "install-response.schema.json",
     "definitions.schema.json",
     "delegation-claims.schema.json",
     "install-authorization-receipt.schema.json",
@@ -26,7 +26,7 @@ SCHEMAS = (
     "team-list-response.schema.json",
 )
 AUTHORITY_FILES = (*SCHEMAS, "README.md", "schema_validator.py", "vectors.json", "verify.py")
-SCHEMA_ORIGIN = "https://schemas.shimpz.com/developers-controller/v1/"
+SCHEMA_ORIGIN = "https://schemas.shimpz.com/assistant-install/v1/"
 
 
 class ContractViolationError(ValueError):
@@ -277,9 +277,9 @@ def main() -> None:
     verify_vectors(documents)
     if args.sync is not None:
         sync_authority(args.sync)
-        print(f"Developers-to-Controller v1 authority synchronized to {args.sync}")
+        print(f"Assistant-install v1 authority synchronized to {args.sync}")
         return
-    print("Developers-to-Controller v1 authority and golden vectors are valid")
+    print("Assistant-install v1 authority and golden vectors are valid")
 
 
 if __name__ == "__main__":
