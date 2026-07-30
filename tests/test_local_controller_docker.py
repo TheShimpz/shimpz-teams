@@ -452,7 +452,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.controller,
             "/opt/venv/bin/python",
             "-c",
-            "import os,stat,time; from local_chat_continuation_store import EncryptedContinuationStore; "
+            "import os,stat,time; from local.chat.continuation_store import EncryptedContinuationStore; "
             "s=EncryptedContinuationStore(); "
             "s.put('demo_team','integrations','0'*32,int(time.time())+60,['thread:test'],b'opaque'); "
             "assert s.delete('demo_team'); "
