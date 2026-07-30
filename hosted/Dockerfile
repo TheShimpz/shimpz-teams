@@ -89,7 +89,7 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
     UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
     rm -rf /root/.cache/uv
 
-COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
+COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py hosted/state.py ./hosted/
 COPY validate.py manifests.py audit.py ./
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY assistant_human/__init__.py assistant_human/hosted_assistants.py \
@@ -106,6 +106,7 @@ COPY container_policy/__init__.py container_policy/hosted_apps.py container_poli
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/publication.py \
      ./hosted/install/
+COPY hosted/http/__init__.py hosted/http/routes.py hosted/http/server.py ./hosted/http/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
      install/contract.py install/registry_auth.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/
@@ -122,8 +123,6 @@ COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
-COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \
-     http_boundary/runtime_state.py ./http_boundary/
 COPY inference/__init__.py inference/client.py inference/config.py inference/credentials.py \
      inference/model_catalog.json inference/token.py ./inference/
 COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \

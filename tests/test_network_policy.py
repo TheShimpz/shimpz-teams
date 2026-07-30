@@ -394,7 +394,7 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
         "shipping readiness pins the same Brain image registry as lifecycle admission",
     )
     health_port = _environment_get(ROOT / "hosted" / "healthcheck.py", "LISTEN_PORT")
-    runtime_port = _environment_get(ROOT / "http_boundary" / "runtime_state.py", "LISTEN_PORT")
+    runtime_port = _environment_get(ROOT / "hosted" / "state.py", "LISTEN_PORT")
     check(
         tuple(ast.literal_eval(argument) for argument in health_port.args)
         == tuple(ast.literal_eval(argument) for argument in runtime_port.args),
@@ -402,7 +402,7 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
     )
     health_bindings = _environment_get(ROOT / "hosted" / "healthcheck.py", "DYNAMIC_ASSISTANTS")
     runtime_bindings = _environment_get(
-        ROOT / "http_boundary" / "runtime_state.py",
+        ROOT / "hosted" / "state.py",
         "DYNAMIC_ASSISTANT_PATH",
     )
     check(

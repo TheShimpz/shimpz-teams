@@ -1,6 +1,6 @@
 """Hosted Team entrypoint."""
 
-from http_boundary.hosted_controller import Handler, _BoundedThreadingHTTPServer, main
+from hosted.http.server import Handler, _BoundedThreadingHTTPServer, main
 
 __all__ = ["Handler", "_BoundedThreadingHTTPServer", "main"]
 

@@ -133,14 +133,14 @@ assert spec.loader is not None
 sys.modules[spec.name] = app
 spec.loader.exec_module(app)
 
-runtime_state = sys.modules["http_boundary.runtime_state"]
+runtime_state = sys.modules["hosted.state"]
 hosted_resources = sys.modules["container_policy.hosted_resources"]
 hosted_apps = sys.modules["container_policy.hosted_apps"]
 hosted_lifecycle = sys.modules["container_policy.hosted_lifecycle"]
 hosted_assistants = sys.modules["assistant_human.hosted_assistants"]
 hosted_chat_api = sys.modules["assistant_human.hosted_chat_api"]
 hosted_chat_segment = sys.modules["assistant_human.hosted_chat_segment"]
-hosted_controller = sys.modules["http_boundary.hosted_controller"]
+hosted_controller = sys.modules["hosted.http.server"]
 
 from local_assistant_fixture import hosted_spec as _hosted_spec
 

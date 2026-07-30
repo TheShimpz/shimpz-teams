@@ -17,8 +17,8 @@ from assistant import spec as assistant_registry
 from container_policy import hosted_resources
 from core.container import network as network_policy
 from egress import policy as egress_policy
+from hosted import state as runtime_state
 from hosted.install import publication
-from http_boundary import runtime_state
 from install import bindings as dynamic_assistants
 from integrations import store as integration_store
 

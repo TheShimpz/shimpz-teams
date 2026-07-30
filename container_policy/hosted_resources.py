@@ -17,8 +17,8 @@ import validate
 from assistant import spec as assistant_registry
 from controller_runtime import cleanup_state
 from core.container import network as network_policy
+from hosted import state as runtime_state
 from hosted.install import publication
-from http_boundary import runtime_state
 from inference import config as inference_config
 from install import artifact as assistant_artifact
 from install import bindings as dynamic_assistants

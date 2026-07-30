@@ -13,7 +13,7 @@ from assistant import spec as assistant_registry
 from assistant_human import hosted_assistants, hosted_chat_segment
 from chat import turn as chat_turn_engine
 from container_policy import hosted_resources
-from http_boundary import runtime_state
+from hosted import state as runtime_state
 from integrations import challenges as integration_challenges
 from integrations import service as integration_service
 

@@ -19,7 +19,6 @@ PRODUCTION_PACKAGES = {
     "core",
     "egress",
     "hosted",
-    "http_boundary",
     "inference",
     "install",
     "integrations",
