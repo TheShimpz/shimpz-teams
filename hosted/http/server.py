@@ -17,12 +17,14 @@ import docker
 import audit
 import validate
 from assistant import spec as assistant_registry
-from assistant_human import hosted_assistants, hosted_chat_api, hosted_chat_segment
-from container_policy import hosted_apps
 from core.http import stdlib
 from core.http import strict as strict_http
 from hosted import authority as accounts_client
 from hosted import state as runtime_state
+from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import api as hosted_chat_api
+from hosted.chat import segment as hosted_chat_segment
 from hosted.http import routes as hosted
 from hosted.install import (
     developers_client,

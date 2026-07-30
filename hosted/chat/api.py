@@ -10,9 +10,10 @@ import docker.errors
 
 import audit
 from assistant import spec as assistant_registry
-from assistant_human import hosted_assistants, hosted_chat_segment
 from chat import turn as chat_turn_engine
 from hosted import state as runtime_state
+from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 from integrations import challenges as integration_challenges
 from integrations import service as integration_service

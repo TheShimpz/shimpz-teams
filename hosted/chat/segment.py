@@ -7,13 +7,13 @@ from http import HTTPStatus
 from typing import NoReturn
 
 from assistant import spec as assistant_registry
-from assistant_human import hosted_assistants
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
-from container_policy import hosted_apps
 from core.container import network as network_policy
 from hosted import container as manifests
 from hosted import state as runtime_state
+from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import runtime as hosted_assistants
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config

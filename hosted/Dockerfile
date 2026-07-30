@@ -93,11 +93,10 @@ COPY hosted/__init__.py hosted/app.py hosted/authority.py hosted/cleanup.py host
      hosted/healthcheck.py hosted/state.py hosted/token.py ./hosted/
 COPY validate.py audit.py ./
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
-COPY assistant_human/__init__.py assistant_human/hosted_assistants.py \
-     assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
-     ./assistant_human/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
-COPY container_policy/__init__.py container_policy/hosted_apps.py ./container_policy/
+COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
+     ./hosted/assistant/
+COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/segment.py ./hosted/chat/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/publication.py \

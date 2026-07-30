@@ -136,11 +136,11 @@ spec.loader.exec_module(app)
 
 runtime_state = sys.modules["hosted.state"]
 hosted_resources = sys.modules["hosted.team.resources"]
-hosted_apps = sys.modules["container_policy.hosted_apps"]
+hosted_apps = sys.modules["hosted.assistant.lifecycle"]
 hosted_lifecycle = sys.modules["hosted.team.lifecycle"]
-hosted_assistants = sys.modules["assistant_human.hosted_assistants"]
-hosted_chat_api = sys.modules["assistant_human.hosted_chat_api"]
-hosted_chat_segment = sys.modules["assistant_human.hosted_chat_segment"]
+hosted_assistants = sys.modules["hosted.assistant.runtime"]
+hosted_chat_api = sys.modules["hosted.chat.api"]
+hosted_chat_segment = sys.modules["hosted.chat.segment"]
 hosted_controller = sys.modules["hosted.http.server"]
 
 from local_assistant_fixture import hosted_spec as _hosted_spec
