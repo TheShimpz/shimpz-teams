@@ -118,6 +118,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 power_state=SimpleNamespace(),
                 assistant_integrations=injected_store,
                 integration_challenges=injected_challenges,
+                oauth_broker=SimpleNamespace(),
                 oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
@@ -268,6 +269,32 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         service_type.assert_called_once_with(challenge=pkce, store=integrations, broker=broker)
         self.assertIs(controller.oauth_broker, broker)
         self.assertIs(controller.oauth_service, service)
+
+    def test_local_controller_requires_complete_account_egress_configuration(self) -> None:
+        invalid = (
+            {},
+            {"SHIMPZ_OAUTH_BROKER_PROXY_HOST": "oauth-broker-proxy"},
+            {"SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token"},
+        )
+        for environment in invalid:
+            with (
+                self.subTest(environment=set(environment)),
+                mock.patch.dict(os.environ, environment, clear=True),
+                self.assertRaisesRegex(RuntimeError, "Local Account egress configuration is unavailable"),
+            ):
+                local_app.LocalController(
+                    SimpleNamespace(),
+                    "local-space",
+                    self._registry(),
+                    SimpleNamespace(),
+                    local_app.LocalControllerDependencies(
+                        inference_store=SimpleNamespace(),
+                        brain_runtime=SimpleNamespace(),
+                        power_state=SimpleNamespace(),
+                        developers=SimpleNamespace(),
+                        artifact_trust=SimpleNamespace(),
+                    ),
+                )
 
     def test_authorization_and_callback_delegate_to_one_brokered_service(self) -> None:
         requirement = integration_challenges.IntegrationRequirement(

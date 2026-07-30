@@ -253,6 +253,8 @@ class LocalContractTests(LocalContractCase):
             local_app.LocalControllerDependencies(
                 brain_runtime=SimpleNamespace(),
                 power_state=injected,
+                oauth_broker=SimpleNamespace(),
+                oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
             ),

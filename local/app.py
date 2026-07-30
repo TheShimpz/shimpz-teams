@@ -347,6 +347,17 @@ class ChatTurnService:
     _clear_chat_continuations = local_chat_state._clear_chat_continuations
 
 
+def _account_egress_transport() -> integration_broker.FixedBrokerTransport:
+    proxy_host = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_HOST")
+    capability_file = os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE")
+    if proxy_host is None or capability_file is None:
+        raise RuntimeError("Local Account egress configuration is unavailable")
+    return integration_broker.FixedBrokerTransport(
+        proxy_host=proxy_host,
+        proxy_capability_file=capability_file,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
@@ -407,10 +418,7 @@ class LocalController:
         )
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
-            transport=integration_broker.FixedBrokerTransport(
-                proxy_host=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_HOST"),
-                proxy_capability_file=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE"),
-            ),
+            transport=_account_egress_transport(),
             callback_mode=os.environ.get("SHIMPZ_OAUTH_CALLBACK_MODE", "loopback"),
         )
         self.oauth_service = dependencies.oauth_service or integration_service.BrokeredOAuthIntegrationService(
