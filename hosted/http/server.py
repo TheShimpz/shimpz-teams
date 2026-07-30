@@ -719,7 +719,7 @@ class Handler(BaseHTTPRequestHandler):
             no_store=paused,
         )
 
-    def _route_chat_accounts(
+    def _route_chat_integrations(
         self,
         request: _AuthorizedRequest,
         *,
@@ -740,7 +740,7 @@ class Handler(BaseHTTPRequestHandler):
         runtime_state._enforce_rate("chat", request.principal)
         body = self._read_body()
         if not isinstance(body, dict) or set(body) != {"challenge_id"}:
-            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "account continuation is invalid")
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "integration continuation is invalid")
         result = hosted_chat_api._resume_chat_integrations(
             request.team_id,
             body["challenge_id"],
@@ -878,8 +878,8 @@ _AUTHORIZED_ROUTES = {
     "inference-configure": Handler._route_inference_configure,
     "chat": functools.partial(Handler._route_chat_turn, stream=False),
     "chat-stream": functools.partial(Handler._route_chat_turn, stream=True),
-    "chat-integration-pending": functools.partial(Handler._route_chat_accounts, submit=False),
-    "chat-integration-submit": functools.partial(Handler._route_chat_accounts, submit=True),
+    "chat-integration-pending": functools.partial(Handler._route_chat_integrations, submit=False),
+    "chat-integration-submit": functools.partial(Handler._route_chat_integrations, submit=True),
     "chat-stop": Handler._route_chat_stop,
     "assistant-integration-list": Handler._route_assistant_integration_list,
     "assistant-integration-authorize": Handler._route_assistant_integration_authorize,

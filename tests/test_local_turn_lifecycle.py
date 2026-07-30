@@ -28,8 +28,8 @@ DNS_RESULT = {
 }
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "a" * 64
+CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "b" * 64
+OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "a" * 64
 LOCAL_TEAM_RESIDUES = [
     "assistant_containers",
     "brain_checkpoints",
@@ -52,7 +52,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
         controller.assistant_integrations = SimpleNamespace(
-            delete_team=lambda team_id: events.append(("accounts-delete", team_id))
+            delete_team=lambda team_id: events.append(("integrations-delete", team_id))
         )
 
         class ChatLock:
@@ -127,7 +127,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "storage-destroy",
                 "inference-delete",
                 "network-remove",
-                ("accounts-delete", "team_1"),
+                ("integrations-delete", "team_1"),
                 "lifecycle-release",
                 "chat-release",
             ],
@@ -172,7 +172,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
             ("validate-network", team_id)
         )
-        controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-accounts")
+        controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )
@@ -190,7 +190,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
         self.assertIn(("purge-power", "a" * 64), events)
         self.assertEqual(controller.registry.identities(), set())
-        self.assertLess(events.index("delete-accounts"), events.index("network-remove"))
+        self.assertLess(events.index("delete-integrations"), events.index("network-remove"))
 
     def test_destroy_brain_failure_is_redacted_and_mutates_nothing(self) -> None:
         events: list[str] = []

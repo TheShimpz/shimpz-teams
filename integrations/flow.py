@@ -21,7 +21,7 @@ from integrations import providers as integration_providers
 MAX_BATCH_POWERS = 64
 MAX_INTEGRATION_REQUIREMENTS = 64
 MAX_INVENTORY_ASSISTANTS = 64
-MAX_INVENTORY_ACCOUNTS = 256
+MAX_INVENTORY_INTEGRATIONS = 256
 MAX_INTEGRATIONS_PER_POWER = 16
 MAX_ACCESS_TOKEN_BYTES = 16 * 1024
 MAX_PUBLIC_TEXT_BYTES = 512
@@ -439,7 +439,7 @@ def inventory_payload(
                     "expires_at": _expiry_payload(item.expires_at),
                 }
             )
-            if len(listing) > MAX_INVENTORY_ACCOUNTS:
+            if len(listing) > MAX_INVENTORY_INTEGRATIONS:
                 raise IntegrationFlowError("Assistant integration inventory is too large")
     payload = {"integrations": listing}
     _assert_public_payload(payload)

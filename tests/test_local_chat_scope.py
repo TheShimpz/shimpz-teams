@@ -39,8 +39,8 @@ TEST_SECRET_VALUES = {
 }
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "a" * 64
+CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "b" * 64
+OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "a" * 64
 
 
 class LocalChatScopeTests(LocalContractCase):
