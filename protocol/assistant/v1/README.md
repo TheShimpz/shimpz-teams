@@ -11,6 +11,8 @@ id after replacing underscores with hyphens. `lib/` and `tests/` are optional au
 
 The manifest is represented by `manifest.schema.json`. Its required `id` is the stable public
 Assistant identity: 1–40 lowercase dash-separated characters, excluding Team infrastructure aliases.
+Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
+lowercase username using only letters, digits, and internal dashes.
 `manifest-vectors.json` freezes complete positive and negative manifests across schema, publication,
 Team admission, and SDK implementations. `manifest-id-vectors.json` retains the focused portable-ID
 boundary. Each implementation runs the vectors independently. Shimpz Genesis also enforces

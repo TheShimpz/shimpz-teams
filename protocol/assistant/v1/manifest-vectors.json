@@ -9,7 +9,7 @@
     {
       "name": "public_hosts_and_multiple_creators",
       "valid": true,
-      "manifest": "spec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@TheShimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n"
+      "manifest": "spec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@the-shimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n"
     },
     {
       "name": "missing_id",
@@ -40,6 +40,11 @@
       "name": "duplicate_creators",
       "valid": false,
       "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\", \"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "noncanonical_creator",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@TheShimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
     },
     {
       "name": "duplicate_allowed_hosts",

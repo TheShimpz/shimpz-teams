@@ -37,7 +37,7 @@ MAX_GENESIS_LENGTH = 65_536
 DEFAULT_CACHE_ENTRIES = 256
 _ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
-_CREATOR_RE = re.compile(r"@[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?\Z")
+_CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
 _GITHUB_RE = re.compile(
     r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
     r"[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?\Z"
