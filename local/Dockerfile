@@ -83,7 +83,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
     chown shimpzlocal:shimpzbrain-runtime-token /run/shimpz-brain-runtime && \
     chmod 0750 /run/shimpz-brain-runtime && \
     chown root:shimpzsupervisor-key /run/shimpz-local-supervisor && \
-    chmod 0750 /run/shimpz-local-supervisor && \
+    chmod 2770 /run/shimpz-local-supervisor && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
