@@ -1,6 +1,6 @@
 # Account authority protocol v1
 
-Accounts owns this protocol. Hosted Team uses it to turn one current Account
+Account owns this protocol. Hosted Team uses it to turn one current Account
 session into request-bound human authority; no consumer may infer human
 authority from a machine bearer.
 
@@ -17,7 +17,7 @@ cannot be represented; they must never omit, normalize, or truncate one:
 
 The Account session is intentionally outside `binding_digest`: it selects the
 human principal, while the digest identifies the exact request that the Team
-must compare. Accounts returns no wall-clock validity window or security epoch.
+must compare. Account returns no wall-clock validity window or security epoch.
 Team accepts the evidence only on the same synchronous connection and enforces
 a short monotonic round trip.
 
@@ -27,7 +27,7 @@ authority; 404 is reserved for an unavailable target Owner. Statuses 400, 429,
 and 5xx mean that the consumer could not obtain valid authority evidence.
 
 Ordinary Accounts create self-owned Teams. A request may include
-`owner_account_id` only for `team-create`; Accounts accepts it only from a
+`owner_account_id` only for `team-create`; Account accepts it only from a
 Supervisor and only when the exact target Account is enabled and not erased.
 
 Every object is closed. Tokens and protected request contents must never appear

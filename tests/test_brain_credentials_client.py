@@ -102,7 +102,7 @@ class BrainCredentialsClientTests(unittest.TestCase):
                 brain_credentials_client.resolve("account-1", "anthropic")
             post.assert_called_once()
 
-    def test_generation_check_keeps_revocation_authority_in_accounts(self):
+    def test_generation_check_keeps_revocation_authority_in_account(self):
         with mock.patch.object(
             brain_credentials_client,
             "_post",
@@ -149,14 +149,14 @@ class BrainCredentialsClientTests(unittest.TestCase):
                 brain_credentials_client.BrainCredentialSession() as session,
             ):
                 first = brain_credentials_client._post(
-                    "http://accounts:7079",
+                    "http://account:7079",
                     "/v1/internal/brains/generation-check",
                     {"generation": 1},
                     token_path,
                     session,
                 )
                 second = brain_credentials_client._post(
-                    "http://accounts:7079",
+                    "http://account:7079",
                     "/v1/internal/brains/generation-check",
                     {"generation": 1},
                     token_path,
@@ -165,7 +165,7 @@ class BrainCredentialsClientTests(unittest.TestCase):
 
         self.assertEqual(first, (200, {"valid": True}))
         self.assertEqual(second, first)
-        constructors.assert_called_once_with("accounts", 7079, timeout=10)
+        constructors.assert_called_once_with("account", 7079, timeout=10)
         self.assertEqual(connection.requests, 2)
         self.assertEqual(connection.closes, 1)
 
@@ -207,14 +207,14 @@ class BrainCredentialsClientTests(unittest.TestCase):
                 brain_credentials_client.BrainCredentialSession() as session,
             ):
                 first = brain_credentials_client._post(
-                    "http://accounts:7079",
+                    "http://account:7079",
                     "/v1/internal/brains/generation-check",
                     {"generation": 1},
                     token_path,
                     session,
                 )
                 second = brain_credentials_client._post(
-                    "http://accounts:7079",
+                    "http://account:7079",
                     "/v1/internal/brains/generation-check",
                     {"generation": 2},
                     token_path,

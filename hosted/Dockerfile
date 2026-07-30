@@ -42,7 +42,7 @@ ARG SHIMPZ_TEAM_TOKEN_GID=10010
 # MUST match the Service image's SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID so the shared 0440 token is readable.
 ARG SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID=10004
 ARG SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID=10012
-ARG SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID=10013
+ARG SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID=10013
 ARG SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID=10019
 # Controller-owned token shared read-only with the isolated Brain runtime.
 ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016
@@ -75,7 +75,7 @@ RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_TEAM_TOKEN_GID}" shimpzteam-token \
     && groupadd -g "${SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID}" shimpzpostgresql-token \
     && groupadd -g "${SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID}" shimpzbraincred-unseal-token \
-    && groupadd -g "${SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
+    && groupadd -g "${SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
     && groupadd -g "${SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID}" shimpzaccount-team-authority \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
     && groupadd -g "${SHIMPZ_APP_EGRESS_POLICY_GID}" shimpzapp-egress-policy \
@@ -150,14 +150,14 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
-        /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
+        /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-account-brain-resolve \
         /run/shimpz-account-team-authority \
         /run/shimpz-brain-runtime \
     && chown shimpzteam:shimpzteam-token /run/shimpz-team && chmod 750 /run/shimpz-team \
     && chown shimpzteam:shimpzbraincred-unseal-token /run/shimpz-braincred-unseal \
-    && chown shimpzteam:shimpzbrain-resolve /run/shimpz-accounts-brain-resolve \
+    && chown shimpzteam:shimpzbrain-resolve /run/shimpz-account-brain-resolve \
     && chown shimpzteam:shimpzaccount-team-authority /run/shimpz-account-team-authority \
-    && chmod 0750 /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
+    && chmod 0750 /run/shimpz-braincred-unseal /run/shimpz-account-brain-resolve \
         /run/shimpz-account-team-authority \
     && chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
     && chmod 0750 /run/shimpz-brain-runtime \

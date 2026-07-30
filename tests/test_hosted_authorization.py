@@ -201,10 +201,10 @@ class HostedAuthorizationTests(unittest.TestCase):
             self.assertEqual(caught.exception.status, HTTPStatus.FORBIDDEN)
 
         route = hosted_controller.strict_http.ControllerRouteMatch("team-list", {})
-        evidence = hosted_controller.accounts_client.Evaluation("a" * 32, True, "b" * 64, None)
+        evidence = hosted_controller.account_authority.Evaluation("a" * 32, True, "b" * 64, None)
         account._owner_target = mock.Mock(return_value=None)
         with mock.patch.object(
-            hosted_controller.accounts_client,
+            hosted_controller.account_authority,
             "evaluate",
             return_value=evidence,
         ) as evaluate:
@@ -214,7 +214,7 @@ class HostedAuthorizationTests(unittest.TestCase):
                 route,
                 {},
                 {},
-                {"kind": "none", "length": 0, "sha256": hosted_controller.accounts_client.EMPTY_SHA256},
+                {"kind": "none", "length": 0, "sha256": hosted_controller.account_authority.EMPTY_SHA256},
             )
         self.assertEqual(result, evidence)
         evaluate.assert_called_once()
@@ -238,13 +238,13 @@ class HostedAuthorizationTests(unittest.TestCase):
     def test_account_denial_and_unavailability_project_with_distinct_audit_outcomes(self) -> None:
         cases = (
             (
-                hosted_controller.accounts_client.AuthorityDeniedError("denied"),
+                hosted_controller.account_authority.AuthorityDeniedError("denied"),
                 HTTPStatus.FORBIDDEN,
                 "denied",
                 "credential_rejected",
             ),
             (
-                hosted_controller.accounts_client.AuthorityUnavailableError("unavailable"),
+                hosted_controller.account_authority.AuthorityUnavailableError("unavailable"),
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "error",
                 "credential_present",
@@ -258,7 +258,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             )
             with (
                 self.subTest(status=status),
-                mock.patch.object(hosted_controller.accounts_client, "evaluate", side_effect=error),
+                mock.patch.object(hosted_controller.account_authority, "evaluate", side_effect=error),
                 mock.patch.object(hosted_controller.audit, "log", return_value="d" * 32) as audit_log,
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
@@ -277,11 +277,11 @@ class HostedAuthorizationTests(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                hosted_controller.accounts_client,
+                hosted_controller.account_authority,
                 "binding_digest",
-                side_effect=hosted_controller.accounts_client.AuthorityUnavailableError("invalid"),
+                side_effect=hosted_controller.account_authority.AuthorityUnavailableError("invalid"),
             ),
-            mock.patch.object(hosted_controller.accounts_client, "evaluate") as evaluate,
+            mock.patch.object(hosted_controller.account_authority, "evaluate") as evaluate,
             mock.patch.object(hosted_controller.audit, "log", return_value="d" * 32) as audit_log,
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
@@ -299,10 +299,10 @@ class HostedAuthorizationTests(unittest.TestCase):
             ("X-Shimpz-Account", "current-account-session"),
         )
         handler._route = mock.Mock()
-        evidence = hosted_controller.accounts_client.Evaluation("a" * 32, False, "c" * 64, None)
+        evidence = hosted_controller.account_authority.Evaluation("a" * 32, False, "c" * 64, None)
 
         with mock.patch.object(
-            hosted_controller.accounts_client,
+            hosted_controller.account_authority,
             "evaluate",
             return_value=evidence,
         ) as evaluate:
@@ -347,10 +347,10 @@ class HostedAuthorizationTests(unittest.TestCase):
             ("Authorization", "Bearer team-machine-token"),
         )
         handler._route = mock.Mock()
-        evidence = hosted_controller.accounts_client.Evaluation("a" * 32, True, "c" * 64, owner)
+        evidence = hosted_controller.account_authority.Evaluation("a" * 32, True, "c" * 64, owner)
 
         with mock.patch.object(
-            hosted_controller.accounts_client,
+            hosted_controller.account_authority,
             "evaluate",
             return_value=evidence,
         ) as evaluate:
@@ -387,10 +387,10 @@ class HostedAuthorizationTests(unittest.TestCase):
             ("X-Shimpz-Account", "current-account-session"),
         )
         handler._route = mock.Mock()
-        evidence = hosted_controller.accounts_client.Evaluation("a" * 32, False, "c" * 64, None)
+        evidence = hosted_controller.account_authority.Evaluation("a" * 32, False, "c" * 64, None)
 
         with mock.patch.object(
-            hosted_controller.accounts_client,
+            hosted_controller.account_authority,
             "evaluate",
             return_value=evidence,
         ) as evaluate:
@@ -418,7 +418,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             ("Authorization", "Bearer team-machine-token"),
         )
         accepted._route_assistant_integration_complete = mock.Mock()
-        with mock.patch.object(hosted_controller.accounts_client, "evaluate") as evaluate:
+        with mock.patch.object(hosted_controller.account_authority, "evaluate") as evaluate:
             accepted._dispatch_resolved("POST")
         accepted._route_assistant_integration_complete.assert_called_once_with()
         evaluate.assert_not_called()
@@ -467,7 +467,7 @@ class HostedAuthorizationTests(unittest.TestCase):
                 route,
                 {"team_id": TEAM_ID},
                 {},
-                hosted_controller.accounts_client.Evaluation("account_1", False, "b" * 64, None),
+                hosted_controller.account_authority.Evaluation("account_1", False, "b" * 64, None),
             )
 
         self.assertEqual(sent, [(HTTPStatus.OK, {"assistants": []})])

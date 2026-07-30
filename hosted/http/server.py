@@ -18,7 +18,7 @@ from assistant import spec as assistant_registry
 from core.http import stdlib
 from core.http import strict as strict_http
 from hosted import audit
-from hosted import authority as accounts_client
+from hosted import authority as account_authority
 from hosted import state as runtime_state
 from hosted import validation as validate
 from hosted.assistant import lifecycle as hosted_apps
@@ -239,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
         return {
             "kind": "none",
             "length": 0,
-            "sha256": accounts_client.EMPTY_SHA256,
+            "sha256": account_authority.EMPTY_SHA256,
         }
 
     def _read_team_body(self, keys: set[str]) -> dict[str, object]:
@@ -332,8 +332,8 @@ class Handler(BaseHTTPRequestHandler):
         if len(values) != 1:
             raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials")
         try:
-            value = accounts_client.session_token(values[0])
-        except accounts_client.AuthorityDeniedError as exc:
+            value = account_authority.session_token(values[0])
+        except account_authority.AuthorityDeniedError as exc:
             raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
         self._audit_credential_state = "credential_present"
         return value
@@ -346,7 +346,7 @@ class Handler(BaseHTTPRequestHandler):
         params: dict[str, str],
         query: dict[str, str],
         body_binding: dict[str, object],
-    ) -> accounts_client.Evaluation:
+    ) -> account_authority.Evaluation:
         binding: dict[str, object] = {
             "method": method,
             "operation": route.operation,
@@ -360,9 +360,9 @@ class Handler(BaseHTTPRequestHandler):
         target = params.get("team_id", route.operation)
         binding_digest: str | None = None
         try:
-            binding_digest = accounts_client.binding_digest(binding)
-            evaluation = accounts_client.evaluate(session_token, binding)
-        except accounts_client.AuthorityDeniedError as exc:
+            binding_digest = account_authority.binding_digest(binding)
+            evaluation = account_authority.evaluate(session_token, binding)
+        except account_authority.AuthorityDeniedError as exc:
             self._audit_credential_state = "credential_rejected"
             self._audit_trace_id = audit.log(
                 "human_authority",
@@ -375,7 +375,7 @@ class Handler(BaseHTTPRequestHandler):
                 **({"binding_digest": binding_digest} if binding_digest is not None else {}),
             )
             raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
-        except accounts_client.AuthorityUnavailableError as exc:
+        except account_authority.AuthorityUnavailableError as exc:
             self._audit_trace_id = audit.log(
                 "human_authority",
                 target,
@@ -476,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
         route: strict_http.ControllerRouteMatch,
         params: dict[str, str],
         query: dict[str, str],
-        evaluation: accounts_client.Evaluation,
+        evaluation: account_authority.Evaluation,
     ) -> None:
         principal = evaluation.principal
         global_handler = _GLOBAL_ROUTES.get(route.operation)

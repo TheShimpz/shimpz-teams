@@ -1,7 +1,7 @@
 """Deliver one account model API key to the LangGraph runtime in memory.
 
 The Team controller receives neither the encryption key nor the seal token. It first obtains only
-an opaque envelope from accounts, then presents that envelope plus a one-use X25519 public key to the
+an opaque envelope from Account, then presents that envelope plus a one-use X25519 public key to the
 separately authorized delivery API. The endpoint returns only AES-GCM ciphertext. Plaintext exists
 transiently in this process so it can be sent to the private Brain runtime for one turn; it is never
 written to a Team volume, HTTP response, Docker metadata, argv, labels, or logs.
@@ -28,11 +28,11 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from inference.config import PROVIDERS as MODEL_PROVIDERS
 
-ACCOUNTS_URL = os.environ.get("SHIMPZ_ACCOUNTS_URL", "http://accounts:7079")
+ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNT_URL", "http://account:7079")
 RESOLVE_TOKEN_FILE = Path(
     os.environ.get(
-        "SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_FILE",
-        "/run/shimpz-accounts-brain-resolve/token",
+        "SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_FILE",
+        "/run/shimpz-account-brain-resolve/token",
     )
 )
 BRAINCRED_URL = os.environ.get("SHIMPZ_BRAINCRED_URL", "http://brain-credentials:7080")
@@ -299,7 +299,7 @@ def resolve(
     """Return ``('api_key', plaintext, generation)`` via one encrypted delivery."""
     _require_provider(provider)
     status, resolved = _post(
-        ACCOUNTS_URL,
+        ACCOUNT_URL,
         "/v1/internal/brains/resolve",
         {"account_id": account_id, "provider": provider},
         RESOLVE_TOKEN_FILE,
@@ -352,7 +352,7 @@ def generation_is_current(
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
         raise BrainCredentialError("Brain credential generation is invalid")
     status, result = _post(
-        ACCOUNTS_URL,
+        ACCOUNT_URL,
         "/v1/internal/brains/generation-check",
         {
             "account_id": account_id,

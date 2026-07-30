@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
 
-ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNTS_URL", "http://accounts:7079")
+ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNT_URL", "http://account:7079")
 CAPABILITY_FILE = Path(
     os.environ.get(
         "SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_FILE",

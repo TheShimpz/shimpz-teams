@@ -25,7 +25,7 @@ ACCOUNT_B = "b" * 32
 from docker_harness import DockerHarnessMixin
 
 
-class _AccountsHandler(BaseHTTPRequestHandler):
+class _AccountHandler(BaseHTTPRequestHandler):
     sessions: ClassVar[dict[str, str]] = {"session-a": ACCOUNT_A, "session-b": ACCOUNT_B}
     capability: ClassVar[str] = ""
 
@@ -156,13 +156,13 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
             "--format",
             "{{(index .IPAM.Config 0).Gateway}}",
         ).stdout.strip()
-        accounts = ThreadingHTTPServer((bridge_gateway, 0), _AccountsHandler)
-        accounts_thread = threading.Thread(
-            target=accounts.serve_forever,
+        account = ThreadingHTTPServer((bridge_gateway, 0), _AccountHandler)
+        account_thread = threading.Thread(
+            target=account.serve_forever,
             kwargs={"poll_interval": 0.01},
             daemon=True,
         )
-        accounts_thread.start()
+        account_thread.start()
         developers_secrets = tempfile.TemporaryDirectory()
         developers_secrets_path = Path(developers_secrets.name)
         _developers_secrets(developers_secrets_path)
@@ -173,7 +173,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
         authority_token_path = authority_secrets_path / "token"
         authority_token_path.write_text(authority_token, encoding="ascii")
         authority_token_path.chmod(0o440)
-        _AccountsHandler.capability = authority_token
+        _AccountHandler.capability = authority_token
 
         try:
             self._run(
@@ -241,7 +241,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                 "--volume",
                 f"{authority_secrets_path}:/run/shimpz-account-team-authority:ro",
                 "--env",
-                f"SHIMPZ_ACCOUNTS_URL=http://{bridge_gateway}:{accounts.server_port}",
+                f"SHIMPZ_ACCOUNT_URL=http://{bridge_gateway}:{account.server_port}",
                 "--publish",
                 "127.0.0.1::7077",
                 image,
@@ -297,9 +297,9 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                     self.assertEqual(status, HTTPStatus.NOT_FOUND)
                     self.assertEqual(payload, expected)
         finally:
-            accounts.shutdown()
-            accounts.server_close()
-            accounts_thread.join(timeout=2)
+            account.shutdown()
+            account.server_close()
+            account_thread.join(timeout=2)
             self._remove("rm", "--force", controller, anchor)
             self._remove("image", "rm", "--force", image)
             developers_secrets.cleanup()

@@ -20,7 +20,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from hosted import authority as accounts_client
+from hosted import authority as account_authority
 
 ACCOUNT_ID = "a" * 32
 OWNER_ID = "b" * 32
@@ -45,7 +45,7 @@ def _binding(operation: str = "team-list", *, owner: str | None = None) -> dict[
     return value
 
 
-class _AccountsHandler(BaseHTTPRequestHandler):
+class _AccountHandler(BaseHTTPRequestHandler):
     requests: ClassVar[list[dict[str, object]]] = []
 
     def log_message(self, *_args) -> None:
@@ -62,7 +62,7 @@ class _AccountsHandler(BaseHTTPRequestHandler):
             }
         )
         session = request["session_token"]
-        digest = accounts_client.binding_digest(request["binding"])
+        digest = account_authority.binding_digest(request["binding"])
         response: dict[str, object] = {
             "version": 1,
             "account_id": ACCOUNT_ID,
@@ -127,32 +127,32 @@ def _server(server_type, handler_type):
             handler_type.release.clear()
 
 
-class AccountsClientTests(unittest.TestCase):
+class AccountAuthorityTests(unittest.TestCase):
     def setUp(self) -> None:
-        _AccountsHandler.requests = []
+        _AccountHandler.requests = []
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.capability = Path(self.temporary.name) / "authority.token"
         self.capability.write_text(CAPABILITY, encoding="ascii")
         self.capability.chmod(0o440)
-        self.capability_patch = mock.patch.object(accounts_client, "CAPABILITY_FILE", self.capability)
+        self.capability_patch = mock.patch.object(account_authority, "CAPABILITY_FILE", self.capability)
         self.capability_patch.start()
         self.addCleanup(self.capability_patch.stop)
 
     def test_exact_evidence_is_uncached_and_bound_to_the_request(self) -> None:
         binding = _binding()
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
         ):
-            first = accounts_client.evaluate("ordinary", binding)
-            second = accounts_client.evaluate("ordinary", binding)
+            first = account_authority.evaluate("ordinary", binding)
+            second = account_authority.evaluate("ordinary", binding)
 
-        self.assertEqual(first, accounts_client.Evaluation(ACCOUNT_ID, False, first.binding_digest, None))
+        self.assertEqual(first, account_authority.Evaluation(ACCOUNT_ID, False, first.binding_digest, None))
         self.assertEqual(second, first)
-        self.assertEqual(len(_AccountsHandler.requests), 2)
-        request = _AccountsHandler.requests[0]
-        self.assertEqual(request["path"], accounts_client.EVALUATE_PATH)
+        self.assertEqual(len(_AccountHandler.requests), 2)
+        request = _AccountHandler.requests[0]
+        self.assertEqual(request["path"], account_authority.EVALUATE_PATH)
         self.assertEqual(request["authorization"], f"Bearer {CAPABILITY}")
         self.assertEqual(
             request["request"],
@@ -162,58 +162,58 @@ class AccountsClientTests(unittest.TestCase):
     def test_supervisor_owner_assignment_must_match_exact_account_evidence(self) -> None:
         binding = _binding("team-create", owner=OWNER_ID)
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
         ):
-            evaluation = accounts_client.evaluate("supervisor", binding)
+            evaluation = account_authority.evaluate("supervisor", binding)
 
         self.assertEqual(evaluation.principal, ("supervisor", ACCOUNT_ID))
         self.assertEqual(evaluation.owner_account_id, OWNER_ID)
 
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-            self.assertRaises(accounts_client.AuthorityUnavailableError),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            self.assertRaises(account_authority.AuthorityUnavailableError),
         ):
-            accounts_client.evaluate("ordinary", binding)
+            account_authority.evaluate("ordinary", binding)
 
         self_owned = _binding("team-create", owner=ACCOUNT_ID)
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
         ):
-            evaluation = accounts_client.evaluate("ordinary", self_owned)
+            evaluation = account_authority.evaluate("ordinary", self_owned)
         self.assertEqual(evaluation.owner_account_id, ACCOUNT_ID)
 
     def test_denial_mismatch_extra_fields_and_bad_session_fail_closed(self) -> None:
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
         ):
-            with self.assertRaises(accounts_client.AuthorityDeniedError):
-                accounts_client.evaluate("denied", _binding())
+            with self.assertRaises(account_authority.AuthorityDeniedError):
+                account_authority.evaluate("denied", _binding())
             for session in ("mismatch", "extra"):
-                with self.subTest(session=session), self.assertRaises(accounts_client.AuthorityUnavailableError):
-                    accounts_client.evaluate(session, _binding())
-            before = len(_AccountsHandler.requests)
+                with self.subTest(session=session), self.assertRaises(account_authority.AuthorityUnavailableError):
+                    account_authority.evaluate(session, _binding())
+            before = len(_AccountHandler.requests)
             for session in ("", "line\ninjection", None, "x" * 2049):
-                with self.subTest(session=session), self.assertRaises(accounts_client.AuthorityDeniedError):
-                    accounts_client.evaluate(session, _binding())
-            self.assertEqual(len(_AccountsHandler.requests), before)
+                with self.subTest(session=session), self.assertRaises(account_authority.AuthorityDeniedError):
+                    account_authority.evaluate(session, _binding())
+            self.assertEqual(len(_AccountHandler.requests), before)
 
     def test_bad_endpoint_capability_and_transport_fail_closed(self) -> None:
         with (
-            mock.patch.object(accounts_client, "ACCOUNT_URL", "http://accounts:not-a-port"),
-            self.assertRaises(accounts_client.AuthorityUnavailableError),
+            mock.patch.object(account_authority, "ACCOUNT_URL", "http://account:not-a-port"),
+            self.assertRaises(account_authority.AuthorityUnavailableError),
         ):
-            accounts_client.evaluate("ordinary", _binding())
+            account_authority.evaluate("ordinary", _binding())
 
         self.capability.chmod(0o640)
         with (
-            mock.patch.object(accounts_client.http.client, "HTTPConnection") as connection,
-            self.assertRaises(accounts_client.AuthorityUnavailableError),
+            mock.patch.object(account_authority.http.client, "HTTPConnection") as connection,
+            self.assertRaises(account_authority.AuthorityUnavailableError),
         ):
-            accounts_client.evaluate("ordinary", _binding())
+            account_authority.evaluate("ordinary", _binding())
         connection.return_value.request.assert_not_called()
 
         with socket.socket() as probe:
@@ -221,10 +221,10 @@ class AccountsClientTests(unittest.TestCase):
             port = probe.getsockname()[1]
         self.capability.chmod(0o440)
         with (
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-            self.assertRaises(accounts_client.AuthorityUnavailableError),
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            self.assertRaises(account_authority.AuthorityUnavailableError),
         ):
-            accounts_client.evaluate("ordinary", _binding())
+            account_authority.evaluate("ordinary", _binding())
 
     def test_bad_status_line_and_timeout_fail_closed(self) -> None:
         for server_type, handler_type in (
@@ -234,28 +234,28 @@ class AccountsClientTests(unittest.TestCase):
             with (
                 self.subTest(handler=handler_type.__name__),
                 _server(server_type, handler_type) as port,
-                mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
-                mock.patch.object(accounts_client, "EVALUATION_TIMEOUT_SECONDS", 0.05),
-                self.assertRaises(accounts_client.AuthorityUnavailableError),
+                mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+                mock.patch.object(account_authority, "EVALUATION_TIMEOUT_SECONDS", 0.05),
+                self.assertRaises(account_authority.AuthorityUnavailableError),
             ):
-                accounts_client.evaluate("ordinary", _binding())
+                account_authority.evaluate("ordinary", _binding())
 
     def test_only_semantic_account_denials_project_as_denied_authority(self) -> None:
         with (
-            _server(ThreadingHTTPServer, _AccountsHandler) as port,
-            mock.patch.object(accounts_client, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
         ):
-            with self.assertRaises(accounts_client.AuthorityDeniedError):
-                accounts_client.evaluate("missing-owner", _binding())
+            with self.assertRaises(account_authority.AuthorityDeniedError):
+                account_authority.evaluate("missing-owner", _binding())
             for session in ("bad-request", "rate-limited"):
-                with self.subTest(session=session), self.assertRaises(accounts_client.AuthorityUnavailableError):
-                    accounts_client.evaluate(session, _binding())
+                with self.subTest(session=session), self.assertRaises(account_authority.AuthorityUnavailableError):
+                    account_authority.evaluate(session, _binding())
 
     def test_consumer_digest_matches_every_producer_vector(self) -> None:
-        vectors = json.loads((accounts_client._PROTOCOL / "vectors.json").read_bytes())
+        vectors = json.loads((account_authority._PROTOCOL / "vectors.json").read_bytes())
         for vector in vectors["vectors"]:
             with self.subTest(vector=vector["name"]):
-                self.assertEqual(accounts_client.binding_digest(vector["binding"]), vector["binding_digest"])
+                self.assertEqual(account_authority.binding_digest(vector["binding"]), vector["binding_digest"])
 
 
 if __name__ == "__main__":
