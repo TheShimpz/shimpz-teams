@@ -224,8 +224,8 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
         self.assertTrue(local_runtime.is_digest_ref(OUTDATED_ASSISTANT_IMAGE))
-        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-space@sha256:" + "0" * 64))
-        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-space:latest"))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistants@sha256:" + "0" * 64))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistants:latest"))
 
         for drift in ("missing-label", "image-label-mismatch", "foreign-repository", "wrong-name"):
             with self.subTest(drift=drift):
@@ -235,7 +235,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 elif drift == "image-label-mismatch":
                     container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
                 elif drift == "foreign-repository":
-                    foreign = "evil.example/shimpz-space@sha256:" + "c" * 64
+                    foreign = "evil.example/shimpz-assistants@sha256:" + "c" * 64
                     container.labels[local_app.IMAGE_LABEL] = foreign
                     container.attrs["Config"]["Image"] = foreign
                 else:
