@@ -328,7 +328,12 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self._run("volume", "create", flow.egress_policy_volume)
         self._run("volume", "create", flow.egress_audit_volume)
         self._run("network", "create", flow.outbound_network)
-        self._run("build", "--tag", flow.egress_proxy_tag, str(TEAM.parent / "app-egress"))
+        self._run(
+            "build",
+            "--tag",
+            flow.egress_proxy_tag,
+            str(TEAM.parent / "assistants" / "egress"),
+        )
         self._run(
             "run",
             "--detach",
