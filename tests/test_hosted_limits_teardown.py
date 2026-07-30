@@ -170,7 +170,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
 
     def test_teardown_advances_and_removes_real_durable_cleanup_record(self) -> None:
         events: list[object] = []
-        brain = SimpleNamespace(id="a" * 64)
+        runtime = SimpleNamespace(id="a" * 64)
 
         def phase(name: str, result=True):
             def run(*_args, **_kwargs):
@@ -184,20 +184,20 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             mock.patch.object(cleanup_state, "STATE_DIR", Path(directory)),
             mock.patch.multiple(
                 hosted_lifecycle,
-                _owned_teardown_brain=lambda *_args: (True, brain),
-                _stop_teardown_brain=phase("stop"),
+                _owned_teardown_runtime=lambda *_args: (True, runtime),
+                _stop_teardown_runtime=phase("stop"),
                 _teardown_assistants=phase("assistants"),
                 _teardown_storage=phase("storage"),
                 _teardown_inference=phase("inference"),
                 _teardown_assistant_integrations=phase("integrations"),
                 _teardown_network_planes=phase("networks"),
-                _remove_teardown_brain=phase("brain"),
+                _remove_teardown_runtime=phase("runtime"),
                 _teardown_volumes=phase("volumes"),
             ),
             mock.patch.object(postgresql_service_client, "drop_team", side_effect=phase("database")),
             mock.patch.object(postgresql_service_client, "finalize_team_drop", side_effect=phase("finalize")),
         ):
-            result = hosted_lifecycle._teardown("team_1", owner="account_1", brain_id=brain.id)
+            result = hosted_lifecycle._teardown("team_1", owner="account_1", runtime_id=runtime.id)
             pending = cleanup_state.load("team_1")
 
         self.assertTrue(result.complete)
@@ -205,7 +205,6 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             result.residue_absent,
             (
                 "assistant_containers",
-                "brain_container",
                 "cleanup_authority",
                 "database",
                 "database_role",
@@ -213,6 +212,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 "inference_configuration",
                 "integration_credentials",
                 "publication_bindings",
+                "runtime_container",
                 "team_networks",
                 "team_storage",
                 "team_volumes",
@@ -228,7 +228,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 "inference",
                 "integrations",
                 "networks",
-                "brain",
+                "runtime",
                 "volumes",
                 "database",
                 "finalize",
@@ -236,24 +236,24 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
         )
 
     def test_teardown_failure_preserves_owner_bound_cleanup_record(self) -> None:
-        brain = SimpleNamespace(id="b" * 64)
+        runtime = SimpleNamespace(id="b" * 64)
         with (
             tempfile.TemporaryDirectory() as directory,
             mock.patch.object(cleanup_state, "STATE_DIR", Path(directory)),
             mock.patch.multiple(
                 hosted_lifecycle,
-                _owned_teardown_brain=lambda *_args: (True, brain),
-                _stop_teardown_brain=lambda _brain: True,
+                _owned_teardown_runtime=lambda *_args: (True, runtime),
+                _stop_teardown_runtime=lambda _brain: True,
                 _teardown_assistants=lambda _team_id: False,
             ),
         ):
-            result = hosted_lifecycle._teardown("team_1", owner="account_1", brain_id=brain.id)
+            result = hosted_lifecycle._teardown("team_1", owner="account_1", runtime_id=runtime.id)
             pending = cleanup_state.load("team_1")
 
         self.assertFalse(result.complete)
         self.assertEqual(result.residue_absent, ())
         self.assertIsNotNone(pending)
-        self.assertEqual((pending.owner, pending.brain_id, pending.db_dropped), ("account_1", brain.id, False))
+        self.assertEqual((pending.owner, pending.runtime_id, pending.db_dropped), ("account_1", runtime.id, False))
 
 
 if __name__ == "__main__":

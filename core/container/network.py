@@ -43,7 +43,7 @@ POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgr
 ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"assistant-egress{SUFFIX}")
 
 ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
-EXPECTED_BRAIN_CAP_ADD = frozenset()
+EXPECTED_RUNTIME_CAP_ADD = frozenset()
 SHARED_MANAGED_LABEL = "shimpz.team.shared"
 SHARED_ROLE_LABEL = "shimpz.team.shared.role"
 POSTGRES_ROLE = "postgres"
@@ -78,16 +78,16 @@ def hard_memory_bytes(value: str | int | float, *, setting: str) -> int:
     return int(parsed)
 
 
-BRAIN_MEMORY_BYTES = hard_memory_bytes(
+RUNTIME_MEMORY_BYTES = hard_memory_bytes(
     os.environ.get("SHIMPZ_TEAM_MEM_LIMIT", "64m"),
     setting="SHIMPZ_TEAM_MEM_LIMIT",
 )
-BRAIN_MEMORY_RESERVATION_BYTES = hard_memory_bytes(
+RUNTIME_MEMORY_RESERVATION_BYTES = hard_memory_bytes(
     os.environ.get("SHIMPZ_TEAM_MEM_RESERVATION", "16m"),
     setting="SHIMPZ_TEAM_MEM_RESERVATION",
 )
-BRAIN_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_NANO_CPUS", str(100_000_000)))
-BRAIN_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_PIDS_LIMIT", "128"))
+RUNTIME_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_NANO_CPUS", str(100_000_000)))
+RUNTIME_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_PIDS_LIMIT", "128"))
 ASSISTANT_MEMORY_BYTES = hard_memory_bytes(
     os.environ.get("SHIMPZ_TEAM_ASSISTANT_MEM_LIMIT", "1g"),
     setting="SHIMPZ_TEAM_ASSISTANT_MEM_LIMIT",
@@ -96,7 +96,7 @@ ASSISTANT_NANO_CPUS = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_NANO_CPUS", str(
 ASSISTANT_PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_ASSISTANT_PIDS_LIMIT", "256"))
 TEAM_LOG_MAX_SIZE = "5m"
 TEAM_LOG_MAX_FILE = "2"
-if min(BRAIN_NANO_CPUS, BRAIN_PIDS_LIMIT, ASSISTANT_NANO_CPUS, ASSISTANT_PIDS_LIMIT) < 1:
+if min(RUNTIME_NANO_CPUS, RUNTIME_PIDS_LIMIT, ASSISTANT_NANO_CPUS, ASSISTANT_PIDS_LIMIT) < 1:
     raise ValueError("Team CPU and PID limits must be positive")
 
 
@@ -107,13 +107,13 @@ def _bounded_resource_name(name: str, resource: str) -> str:
 
 
 def team_container_name(team_id: str) -> str:
-    return _bounded_resource_name(f"{TEAM_PREFIX}{team_id}", "Brain container")
+    return _bounded_resource_name(f"{TEAM_PREFIX}{team_id}", "runtime container")
 
 
 def team_assistant_container_name(team_id: str, assistant_id: str) -> str:
     if ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
         raise ValueError(f"invalid Team Assistant id: {assistant_id!r}")
-    # Dot is outside the TEAM_ID alphabet, so no valid Brain TEAM_ID can impersonate an Assistant workload.
+    # Dot is outside the TEAM_ID alphabet, so no valid Team runtime name can impersonate an Assistant workload.
     name = f"{TEAM_PREFIX}{team_id}{ASSISTANT_WORKLOAD_DELIMITER}{assistant_id}"
     return _bounded_resource_name(name, "Assistant container")
 
@@ -215,7 +215,7 @@ def _workload_role(metadata: Mapping, team_id: str) -> tuple[str, str] | None:
     labels = _container_labels(metadata)
     name = _container_name(metadata)
     if labels.get("team.runtime") == "1" and labels.get("team.id") == team_id and name == team_container_name(team_id):
-        return "brain", ""
+        return "runtime", ""
     assistant_id = labels.get("team.assistant")
     if (
         labels.get("team.assistant.runtime") == "1"
@@ -229,9 +229,9 @@ def _workload_role(metadata: Mapping, team_id: str) -> tuple[str, str] | None:
     return None
 
 
-def brain_identity_valid(metadata: Mapping, team_id: str) -> bool:
-    """Require both the deterministic Docker name and exact Brain ownership labels."""
-    return _workload_role(metadata, team_id) == ("brain", "")
+def runtime_identity_valid(metadata: Mapping, team_id: str) -> bool:
+    """Require both the deterministic Docker name and exact Team-runtime ownership labels."""
+    return _workload_role(metadata, team_id) == ("runtime", "")
 
 
 def assistant_identity_valid(metadata: Mapping, team_id: str, assistant_id: str) -> bool:
@@ -351,7 +351,7 @@ def _aliases_valid(metadata: Mapping, role: tuple[str, str], endpoint: Mapping) 
         return False
     required = _required_aliases(role)
     automatic = _automatic_aliases(metadata)
-    # An automatic name is still security-relevant DNS. In particular, a Brain whose hostname/TEAM_ID is
+    # An automatic name is still security-relevant DNS. In particular, a Team runtime whose hostname/TEAM_ID is
     # ``postgres`` must not become a second claimant for the database role merely because Docker added
     # that hostname itself.
     if (automatic & RESERVED_SERVICE_ALIASES) - required:
@@ -450,7 +450,7 @@ def network_members_valid(
     team_id: str,
     kind: str,
     *,
-    require_brain: bool,
+    require_runtime: bool,
     require_dependencies: bool,
 ) -> bool:
     """Reject foreign, wrong-plane, duplicate, or alias-less network members."""
@@ -482,7 +482,7 @@ def network_members_valid(
             break
     return (
         valid
-        and (not require_brain or seen.get("brain") == 1)
+        and (not require_runtime or seen.get("runtime") == 1)
         and (not require_dependencies or seen.get("postgres") == 1)
     )
 
@@ -567,12 +567,12 @@ def _resource_and_namespace_posture_reason(
     *,
     compact_assistant_runtime: bool = False,
 ) -> str | None:
-    if role == "brain":
+    if role == "runtime":
         expected = (
-            BRAIN_MEMORY_BYTES,
-            BRAIN_MEMORY_RESERVATION_BYTES,
-            BRAIN_NANO_CPUS,
-            BRAIN_PIDS_LIMIT,
+            RUNTIME_MEMORY_BYTES,
+            RUNTIME_MEMORY_RESERVATION_BYTES,
+            RUNTIME_NANO_CPUS,
+            RUNTIME_PIDS_LIMIT,
         )
         tmpfs_size = 16 * 1024**2
         nofile = 256
@@ -670,7 +670,7 @@ def workload_security_valid(
     if not isinstance(mounts, list):
         return False
     return (
-        (role[0] == "brain" or config.get("User") == "10001:10001")
+        (role[0] == "runtime" or config.get("User") == "10001:10001")
         and host_config.get("ReadonlyRootfs") is True
         and cap_drop == {"ALL"}
         and not cap_add

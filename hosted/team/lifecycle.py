@@ -27,7 +27,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
     {
         "assistant_containers",
         "brain_checkpoints",
-        "brain_container",
+        "runtime_container",
         "cleanup_authority",
         "database",
         "database_role",
@@ -113,30 +113,30 @@ def _remove_volume(team_id: str, kind: str) -> bool:
     return True
 
 
-def _owned_teardown_brain(team_id: str, owner: str, brain_id: str):
+def _owned_teardown_runtime(team_id: str, owner: str, runtime_id: str):
     try:
-        brain = hosted_resources._get_container(container_spec.team_container_name(team_id))
+        runtime = hosted_resources._get_container(container_spec.team_container_name(team_id))
     except docker.errors.DockerException:
         return False, None
-    if brain is None:
+    if runtime is None:
         return True, None
     try:
-        brain.reload()
+        runtime.reload()
     except docker.errors.DockerException:
         return False, None
     valid = (
-        network_policy.brain_identity_valid(brain.attrs, team_id)
-        and brain.id == brain_id
-        and str(brain.labels.get("team.owner", "")) == owner
+        network_policy.runtime_identity_valid(runtime.attrs, team_id)
+        and runtime.id == runtime_id
+        and str(runtime.labels.get("team.owner", "")) == owner
     )
-    return valid, brain
+    return valid, runtime
 
 
-def _stop_teardown_brain(brain) -> bool:
-    if brain is None:
+def _stop_teardown_runtime(runtime) -> bool:
+    if runtime is None:
         return True
     try:
-        hosted_resources._fail_stop_team(brain, timeout=30)
+        hosted_resources._fail_stop_team(runtime, timeout=30)
     except runtime_state.ApiError:
         return False
     return True
@@ -189,10 +189,10 @@ def _teardown_network_planes(team_id: str) -> bool:
     return hosted_resources._teardown_team_networks(team_id)
 
 
-def _remove_teardown_brain(brain) -> bool:
-    if brain is None:
+def _remove_teardown_runtime(runtime) -> bool:
+    if runtime is None:
         return True
-    return hosted_resources._remove_team_container(brain, timeout=30)
+    return hosted_resources._remove_team_container(runtime, timeout=30)
 
 
 def _teardown_volumes(team_id: str) -> bool:
@@ -262,10 +262,10 @@ def _finalize_teardown(team_id: str, record: cleanup_state.Record) -> bool:
     return True
 
 
-def _teardown_artifacts(team_id: str, brain) -> tuple[bool, set[str]]:
+def _teardown_artifacts(team_id: str, runtime) -> tuple[bool, set[str]]:
     absent: set[str] = set()
     phases = (
-        (lambda: _stop_teardown_brain(brain), ()),
+        (lambda: _stop_teardown_runtime(runtime), ()),
         (
             lambda: _teardown_assistants(team_id),
             ("assistant_containers", "publication_bindings", "egress_policies"),
@@ -277,7 +277,7 @@ def _teardown_artifacts(team_id: str, brain) -> tuple[bool, set[str]]:
             ("integration_credentials",),
         ),
         (lambda: _teardown_network_planes(team_id), ("team_networks",)),
-        (lambda: _remove_teardown_brain(brain), ("brain_container",)),
+        (lambda: _remove_teardown_runtime(runtime), ("runtime_container",)),
         (lambda: _teardown_volumes(team_id), ("team_volumes",)),
     )
     for phase, residues in phases:
@@ -287,19 +287,19 @@ def _teardown_artifacts(team_id: str, brain) -> tuple[bool, set[str]]:
     return True, absent
 
 
-def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._CleanupResult:
+def _teardown(team_id: str, *, owner: str, runtime_id: str) -> hosted_resources._CleanupResult:
     """Remove every Team artifact, preserving a durable owner-bound retry anchor throughout."""
-    brain_valid, brain = _owned_teardown_brain(team_id, owner, brain_id)
-    if not brain_valid:
+    runtime_valid, runtime = _owned_teardown_runtime(team_id, owner, runtime_id)
+    if not runtime_valid:
         return hosted_resources._CleanupResult(False, False)
 
-    # Persist the immutable tenant/Brain identity before the first mutation. Once Docker releases the
-    # Brain's volume references this record—not a runnable workload—authorizes only a retrying DELETE.
+    # Persist the immutable tenant/runtime identity before the first mutation. Once Docker releases the
+    # runtime's volume references this record—not a runnable workload—authorizes only a retrying DELETE.
     try:
-        record = cleanup_state.begin(team_id, owner, brain_id)
+        record = cleanup_state.begin(team_id, owner, runtime_id)
     except cleanup_state.CleanupStateError:
         return hosted_resources._CleanupResult(False, False)
-    artifacts_removed, absent = _teardown_artifacts(team_id, brain)
+    artifacts_removed, absent = _teardown_artifacts(team_id, runtime)
     if not artifacts_removed:
         return hosted_resources._CleanupResult(
             False,
@@ -329,8 +329,6 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
     # The current hosted Team identity remains a sandboxed lifecycle anchor. Model inference is
     # now a separate service, so changing provider/model never replaces this container.
-    anchor_brain = container_spec.DEFAULT_BRAIN
-    anchor_model = container_spec.model_for_brain(anchor_brain)
     with runtime_state._lock_for(team_id):
         pending_cleanup = hosted_resources._cleanup_record(team_id)
         if pending_cleanup is not None:
@@ -381,23 +379,20 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
             # never leak an orphan DB/role, network, or volume for a Supervisor to hunt down later.
             container = None
             try:
-                db = postgresql_service_client.provision_team(team_id)
+                postgresql_service_client.provision_team(team_id)
                 network = hosted_resources._ensure_team_network(team_id)
                 hosted_resources._wire_network_deps(network, container_spec.core_deps())
                 hosted_resources._require_network_policy(
                     network,
                     team_id,
                     network_policy.CORE_KIND,
-                    require_brain=False,
+                    require_runtime=False,
                     require_dependencies=True,
                 )
                 kwargs = container_spec.build_team_kwargs(
                     team_id,
                     team_name,
-                    database_url=db["database_url"],
                     owner=owner,
-                    brain=anchor_brain,
-                    model=anchor_model,
                 )
                 hosted_resources._require_team_runtime()
                 container = runtime_state._docker.containers.create(**kwargs)
@@ -407,7 +402,7 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
                 cleanup = _teardown(
                     team_id,
                     owner=owner,
-                    brain_id=container.id if container is not None else "",
+                    runtime_id=container.id if container is not None else "",
                 )
                 if not cleanup.complete:
                     raise runtime_state.ApiError(
@@ -465,7 +460,7 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
                 require_isolation=False,
                 allow_pending_cleanup=True,
             )
-            # A running chat is terminated by stopping the Brain before its lock can drain. Commit
+            # A running chat is terminated by stopping the Team runtime before its lock can drain. Commit
             # the retry authorization first so even a timeout or ambiguous Docker stop leaves the
             # owner with a durable path back into DELETE.
             try:
@@ -484,7 +479,7 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
         try:
             residue_absent = _delete_generation_state(team_id, lease.container_id)
-            cleanup = _teardown(team_id, owner=lease.owner, brain_id=lease.container_id)
+            cleanup = _teardown(team_id, owner=lease.owner, runtime_id=lease.container_id)
             runtime_state._clear_team_id_runtime_state(team_id)
             residue_absent.update(cleanup.residue_absent)
             residue_absent.add("runtime_state")

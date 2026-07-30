@@ -35,7 +35,7 @@ def _current_team_anchor(
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team identity changed during the chat turn")
     if (
         container.id != container_id
-        or not network_policy.brain_identity_valid(container.attrs, team_id)
+        or not network_policy.runtime_identity_valid(container.attrs, team_id)
         or str(container.labels.get("team.owner", "")) != owner
     ):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team identity changed during the chat turn")

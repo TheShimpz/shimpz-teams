@@ -29,7 +29,7 @@ class SingleMemoryParser(unittest.TestCase):
         self.assertEqual(network_policy.hard_memory_bytes(1024, setting="x"), 1024)
 
     def test_envelope_and_log_agree(self):
-        self.assertEqual(container_spec.MEM_LIMIT_BYTES, network_policy.BRAIN_MEMORY_BYTES)
+        self.assertEqual(container_spec.MEM_LIMIT_BYTES, network_policy.RUNTIME_MEMORY_BYTES)
         self.assertEqual(container_spec.ASSISTANT_MEM_LIMIT_BYTES, network_policy.ASSISTANT_MEMORY_BYTES)
         self.assertEqual(container_spec.TEAM_LOG_MAX_SIZE, network_policy.TEAM_LOG_MAX_SIZE)
         self.assertEqual(container_spec.TEAM_LOG_MAX_FILE, network_policy.TEAM_LOG_MAX_FILE)

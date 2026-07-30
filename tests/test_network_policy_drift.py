@@ -27,13 +27,13 @@ def test_foreign_services_and_extra_app_networks_fail_closed() -> None:
     core, containers = _valid_topology()
     broad_on_core = copy.deepcopy(core)
     broad_proxy = _container(
-        "brain-proxy-id",
+        "runtime-proxy-id",
         "egress-proxy",
         labels={policy.SHARED_MANAGED_LABEL: "1", policy.SHARED_ROLE_LABEL: "brain-egress"},
         networks={CORE: _endpoint("core-id", "egress-proxy")},
     )
-    containers["brain-proxy-id"] = broad_proxy
-    broad_on_core["Containers"]["brain-proxy-id"] = {}
+    containers["runtime-proxy-id"] = broad_proxy
+    broad_on_core["Containers"]["runtime-proxy-id"] = {}
     check(not _members_valid(broad_on_core, containers, policy.CORE_KIND), "retired broad proxy on core fails closed")
 
     _core, containers = _valid_topology()
@@ -46,13 +46,13 @@ def test_foreign_services_and_extra_app_networks_fail_closed() -> None:
 
 def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -> None:
     core, containers = _valid_topology()
-    brain = containers["brain-id"]
-    brain["State"]["Running"] = False
-    del core["Containers"]["brain-id"]
-    check(_workload_valid(brain), "stopped Brain keeps exact image/resource/endpoint posture in container inspect")
+    runtime = containers["runtime-id"]
+    runtime["State"]["Running"] = False
+    del core["Containers"]["runtime-id"]
+    check(_workload_valid(runtime), "stopped Runtime keeps exact image/resource/endpoint posture in container inspect")
     check(
-        policy.workload_endpoint_valid(core, brain, TEAM_ID, policy.CORE_KIND),
-        "stopped Brain retains an exact container-inspect endpoint on core",
+        policy.workload_endpoint_valid(core, runtime, TEAM_ID, policy.CORE_KIND),
+        "stopped Runtime retains an exact container-inspect endpoint on core",
     )
     check(
         policy.network_members_valid(
@@ -60,10 +60,10 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
             containers,
             TEAM_ID,
             policy.CORE_KIND,
-            require_brain=False,
+            require_runtime=False,
             require_dependencies=True,
         ),
-        "stopped Brain omission is accepted on the exact core plane",
+        "stopped Runtime omission is accepted on the exact core plane",
     )
     check(
         not policy.network_members_valid(
@@ -71,14 +71,14 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
             containers,
             TEAM_ID,
             policy.CORE_KIND,
-            require_brain=True,
+            require_runtime=True,
             require_dependencies=True,
         ),
-        "the same omission fails whenever core requires live Brain membership",
+        "the same omission fails whenever core requires live Runtime membership",
     )
     check(
         policy.workload_live_membership_valid(core, containers["app-id"], TEAM_ID, policy.CORE_KIND),
-        "a running Assistant remains valid on core while its exact Brain is intentionally stopped",
+        "a running Assistant remains valid on core while its exact Runtime is intentionally stopped",
     )
     app_omitted = copy.deepcopy(core)
     del app_omitted["Containers"]["app-id"]
@@ -88,7 +88,7 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
             containers,
             TEAM_ID,
             policy.CORE_KIND,
-            require_brain=False,
+            require_runtime=False,
             require_dependencies=True,
         ),
         "aggregate plane policy alone does not invent an omitted optional Assistant",
@@ -102,17 +102,17 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
         ),
         "exact running-Assistant membership proof rejects Engine inventory omission",
     )
-    drifted = copy.deepcopy(brain)
+    drifted = copy.deepcopy(runtime)
     drifted["Config"]["Image"] = "attacker:stopped"
     check(not _workload_valid(drifted), "stopped-member normalization cannot bypass trusted image posture")
-    wrong_network = copy.deepcopy(brain)
+    wrong_network = copy.deepcopy(runtime)
     wrong_network["NetworkSettings"]["Networks"][CORE]["NetworkID"] = "foreign-network-id"
     check(
         not policy.workload_endpoint_valid(core, wrong_network, TEAM_ID, policy.CORE_KIND),
         "stopped-member omission cannot bypass exact endpoint NetworkID binding",
     )
-    pending = copy.deepcopy(brain)
-    automatic_names = (policy.team_container_name(TEAM_ID), "brain-id", TEAM_ID)
+    pending = copy.deepcopy(runtime)
+    automatic_names = (policy.team_container_name(TEAM_ID), "runtime-id", TEAM_ID)
     pending["NetworkSettings"]["Networks"] = {
         CORE: _pending_endpoint(*automatic_names),
     }
@@ -127,7 +127,7 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
         "an empty endpoint binding can never admit a running workload",
     )
     inventoried_pending = copy.deepcopy(core)
-    inventoried_pending["Containers"]["brain-id"] = {}
+    inventoried_pending["Containers"]["runtime-id"] = {}
     check(
         not policy.workload_endpoint_valid(inventoried_pending, pending, TEAM_ID, policy.CORE_KIND),
         "an empty endpoint binding cannot contradict the network's live-member inventory",
@@ -144,7 +144,7 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
         not policy.workload_endpoint_valid(core, extended_pending, TEAM_ID, policy.CORE_KIND),
         "unknown pending-endpoint fields fail closed until their Engine semantics are reviewed",
     )
-    reserved_alias = copy.deepcopy(brain)
+    reserved_alias = copy.deepcopy(runtime)
     reserved_alias["NetworkSettings"]["Networks"][CORE]["Aliases"].append("postgres")
     check(
         not policy.workload_endpoint_valid(core, reserved_alias, TEAM_ID, policy.CORE_KIND),
@@ -221,7 +221,7 @@ def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
     )
     check(
         not policy.network_member_managed(app_proxy, TEAM_ID, "brain-egress"),
-        "cleanup never accepts the retired Brain-egress plane",
+        "cleanup never accepts the retired Runtime-egress plane",
     )
     name_only_postgres = _container("name-only", policy.POSTGRES_CONTAINER)
     check(
@@ -258,13 +258,13 @@ def test_alias_and_endpoint_identity_drift_fail_closed() -> None:
     check(_members_valid(core, containers, policy.CORE_KIND), "Engine 29 DNSNames normalize safely")
 
     core, containers = _valid_topology()
-    containers["brain-id"]["Config"]["Hostname"] = "postgres"
-    containers["brain-id"]["NetworkSettings"]["Networks"][CORE]["DNSNames"] = [
+    containers["runtime-id"]["Config"]["Hostname"] = "postgres"
+    containers["runtime-id"]["NetworkSettings"]["Networks"][CORE]["DNSNames"] = [
         policy.team_container_name(TEAM_ID),
-        "brain-id",
+        "runtime-id",
         "postgres",
     ]
-    check(not _members_valid(core, containers, policy.CORE_KIND), "automatic Brain hostname cannot claim postgres")
+    check(not _members_valid(core, containers, policy.CORE_KIND), "automatic Runtime hostname cannot claim postgres")
 
     core, containers = _valid_topology()
     containers["postgres-id"]["Config"]["Labels"][policy.SHARED_ROLE_LABEL] = policy.ASSISTANT_EGRESS_ROLE
@@ -322,18 +322,18 @@ def test_workload_security_drift_fail_closed() -> None:
     false_nnp["HostConfig"]["SecurityOpt"] = ["no-new-privileges:false", "apparmor=docker-default"]
     check(not _workload_valid(false_nnp), "disabled no-new-privileges is rejected")
 
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["HostConfig"]["CapAdd"].append("NET_RAW")
-    check(not _workload_valid(brain), "Brain cap expansion is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["Mounts"].append({"Destination": "/var/run/docker.sock", "Type": "bind"})
-    check(not _workload_valid(brain), "Brain foreign mount is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["Mounts"].append({"Destination": "/config", "Type": "volume", "Name": "foreign", "RW": True})
-    check(not _workload_valid(brain), "Brain foreign volume is rejected")
-    brain = copy.deepcopy(containers["brain-id"])
-    brain["HostConfig"]["MemoryReservation"] = policy.BRAIN_MEMORY_RESERVATION_BYTES + 1
-    check(not _workload_valid(brain), "Brain memory reservation drift is rejected")
+    runtime = copy.deepcopy(containers["runtime-id"])
+    runtime["HostConfig"]["CapAdd"].append("NET_RAW")
+    check(not _workload_valid(runtime), "Runtime cap expansion is rejected")
+    runtime = copy.deepcopy(containers["runtime-id"])
+    runtime["Mounts"].append({"Destination": "/var/run/docker.sock", "Type": "bind"})
+    check(not _workload_valid(runtime), "Runtime foreign mount is rejected")
+    runtime = copy.deepcopy(containers["runtime-id"])
+    runtime["Mounts"].append({"Destination": "/config", "Type": "volume", "Name": "foreign", "RW": True})
+    check(not _workload_valid(runtime), "Runtime foreign volume is rejected")
+    runtime = copy.deepcopy(containers["runtime-id"])
+    runtime["HostConfig"]["MemoryReservation"] = policy.RUNTIME_MEMORY_RESERVATION_BYTES + 1
+    check(not _workload_valid(runtime), "Runtime memory reservation drift is rejected")
 
     normalized = copy.deepcopy(containers["app-id"])
     normalized["HostConfig"]["UTSMode"] = "private"

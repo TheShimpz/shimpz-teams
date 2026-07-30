@@ -1,9 +1,9 @@
-"""Turn a validated team id into docker-py kwargs for an isolated Team anchor.
+"""Turn a validated Team id into docker-py kwargs for an isolated Team runtime anchor.
 
 The ONE place that decides what a Team container actually gets. Every security-relevant field
 (security_opt, network, mounts, limits, host/browser access OFF) is a hardcoded constant here; the caller
-never carries any of them, so there is nothing to override. A Team is a `shimpz-brain` with:
-its OWN internal network and resource envelope, but no provider runtime, credential, Docker socket,
+never carries any of them, so there is nothing to override. A Team anchor has its own internal network
+and resource envelope, but no model provider runtime, credential, Docker socket,
 filesystem, browser, or application authority. Inference runs in the separate LangGraph service.
 """
 
@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import io
 import os
-import re
 import tarfile
 from pathlib import PurePosixPath
 
@@ -36,22 +35,10 @@ RUNTIME = "runsc"
 RUNTIME_PATH = network_policy.TEAM_RUNTIME_PATH
 CONTAINER_TMP = str(PurePosixPath("/") / "tmp")
 
-# The lifecycle identity is intentionally not a model provider. Keeping this small trusted registry
-# lets existing isolation code resolve the exact immutable image while provider/model live elsewhere.
-BRAINS: dict[str, dict[str, str]] = {
-    "runtime": {
-        "image": IMAGE,
-        "title": "Team runtime",
-        "default_model": "",
-    },
-}
-DEFAULT_BRAIN = "runtime"
-
-
 def build_inbox_tar(filename: str, data: bytes) -> bytes:
     """A single-file tar for put_archive into the team's workspace inbox.
 
-    Owned by the runtime user (uid/gid 1000 = abc) so the brain can read AND clean it up.
+    Owned by the runtime user (uid/gid 1000 = abc) so the workload can read and clean it up.
     """
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w") as tar:
@@ -83,25 +70,7 @@ PIDS_LIMIT = int(os.environ.get("SHIMPZ_TEAM_PIDS_LIMIT", "128"))
 
 
 hard_memory_bytes = network_policy.hard_memory_bytes
-MEM_LIMIT_BYTES = network_policy.BRAIN_MEMORY_BYTES
-
-MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
-
-
-def model_for_brain(brain: str, value: object = None) -> str:
-    """Return one Team's validated provider model, or that provider's explicit default."""
-    if brain not in BRAINS:
-        raise ValueError(f"unsupported brain: {brain!r}")
-    if value is None or value == "":
-        return BRAINS[brain]["default_model"]
-    if not isinstance(value, str):
-        raise ValueError("model must be a string")
-    model = value.strip()
-    if not model:
-        return BRAINS[brain]["default_model"]
-    if MODEL_RE.fullmatch(model) is None:
-        raise ValueError("model must be 1-128 safe identifier characters")
-    return model
+MEM_LIMIT_BYTES = network_policy.RUNTIME_MEMORY_BYTES
 
 
 # Per-Team Assistant envelope. One installed Assistant is one hostile container inside its Team network.
@@ -163,24 +132,20 @@ def build_team_kwargs(
     team_id: str,
     team_name: str,
     *,
-    database_url: str,
     owner: str = "",
-    brain: str = DEFAULT_BRAIN,
-    model: object = None,
 ) -> dict:
     """Kwargs for docker-py's low-level `containers.create` — never `run`.
 
     `run` would risk an accidental host-port publish or default-network attach; the whole isolation
-    model depends on create + one explicit network. `brain` picks the agent runtime image from the
-    trusted BRAINS registry (validated by the caller) and is recorded as the team.brain label.
+    model depends on create + one explicit network. The anchor image is an immutable platform
+    constant; provider/model selection belongs to the separate inference configuration.
     """
-    selected_model = model_for_brain(brain, model)
     env = {
         "SHIMPZ_TEAM_ID": team_id,
         "SHIMPZ_TEAM_NAME": team_name,
     }
     return {
-        "image": BRAINS[brain]["image"],
+        "image": IMAGE,
         "name": team_container_name(team_id),
         "hostname": team_id,
         "runtime": RUNTIME,
@@ -212,8 +177,6 @@ def build_team_kwargs(
             "team.id": team_id,
             "team.name": team_name,
             "team.owner": owner,
-            "team.brain": brain,
-            "team.model": selected_model,
         },
         "log_config": TEAM_LOG_CONFIG,
         "detach": True,

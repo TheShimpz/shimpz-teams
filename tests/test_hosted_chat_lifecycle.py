@@ -36,7 +36,6 @@ power_journal = runtime_state.power_journal
 hosted_egress_policy = hosted_apps.egress_policy
 TEARDOWN_RESIDUES = (
     "assistant_containers",
-    "brain_container",
     "cleanup_authority",
     "database",
     "database_role",
@@ -44,6 +43,7 @@ TEARDOWN_RESIDUES = (
     "inference_configuration",
     "integration_credentials",
     "publication_bindings",
+    "runtime_container",
     "team_networks",
     "team_storage",
     "team_volumes",
@@ -51,7 +51,6 @@ TEARDOWN_RESIDUES = (
 TEAM_RESIDUES = [
     "assistant_containers",
     "brain_checkpoints",
-    "brain_container",
     "cleanup_authority",
     "database",
     "database_role",
@@ -60,6 +59,7 @@ TEAM_RESIDUES = [
     "integration_credentials",
     "power_checkpoints",
     "publication_bindings",
+    "runtime_container",
     "runtime_state",
     "team_networks",
     "team_storage",
@@ -750,8 +750,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
         def delete_thread(thread_id: str) -> None:
             events.append(("thread-deleted", thread_id))
 
-        def teardown(team_id: str, *, owner: str, brain_id: str):
-            events.append(("teardown", team_id, owner, brain_id))
+        def teardown(team_id: str, *, owner: str, runtime_id: str):
+            events.append(("teardown", team_id, owner, runtime_id))
             return hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
 
         journal = types.SimpleNamespace(purge=lambda generation: events.append(("journal-purged", generation)))
@@ -833,8 +833,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
             mock.patch.object(
                 hosted_lifecycle,
                 "_teardown",
-                side_effect=lambda team_id, *, owner, brain_id: (
-                    events.append(("teardown", team_id, owner, brain_id))
+                side_effect=lambda team_id, *, owner, runtime_id: (
+                    events.append(("teardown", team_id, owner, runtime_id))
                     or hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
                 ),
             ),
@@ -915,7 +915,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         expected_thread = hosted_resources._brain_thread_id("team_1", ANCHOR_ID)
         self.assertEqual(delete_calls, [expected_thread, expected_thread])
         self.assertEqual(purge_calls, [ANCHOR_ID])
-        teardown.assert_called_once_with("team_1", owner="account_1", brain_id=ANCHOR_ID)
+        teardown.assert_called_once_with("team_1", owner="account_1", runtime_id=ANCHOR_ID)
         clear.assert_called_once_with("team_1")
         self.assertTrue(result["destroyed"])
 

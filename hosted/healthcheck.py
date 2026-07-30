@@ -4,9 +4,9 @@
 The probe reads raw Engine responses over Docker's local Unix socket with stdlib HTTP, avoiding client
 construction and keeping its startup dependency closure narrow. The configured hostile-tenant runtime
 must remain bound to the reviewed absolute handler while Docker advertises its built-in seccomp and
-AppArmor defaults; every advertised Brain image must be present, and every Team Brain/Assistant
+AppArmor defaults; the Team runtime image must be present, and every Team runtime/Assistant
 must actually use that runtime. The probe never accepts Docker's default runc, a running workload left
-outside the current registry, or a missing provider. Then an unauthenticated Team GET must be
+outside the exact image contract, or an Assistant without a current binding. Then an unauthenticated Team GET must be
 refused with 403 — a 2xx means the auth gate is not enforced.
 """
 
@@ -28,13 +28,11 @@ DOCKER_SOCKET = os.environ.get("DOCKER_HOST_SOCKET", "/var/run/docker.sock")
 # deployment override: hostile-tenant readiness is always tied to the shipping gVisor runtime.
 REQUIRED_RUNTIME = "runsc"
 REQUIRED_RUNTIME_PATH = "/usr/local/bin/runsc"
-DEFAULT_BRAIN_IMAGE = (
+DEFAULT_TEAM_IMAGE = (
     "registry.k8s.io/pause:3.10.1@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
 )
-REQUIRED_BRAIN_IMAGES = {
-    "runtime": os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_BRAIN_IMAGE),
-}
-REQUIRED_IMAGES = tuple(REQUIRED_BRAIN_IMAGES.values())
+REQUIRED_TEAM_IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
+REQUIRED_IMAGES = (REQUIRED_TEAM_IMAGE,)
 LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 DYNAMIC_ASSISTANTS = dynamic_assistants.DynamicAssistantStore(
     Path(
@@ -101,8 +99,7 @@ def _expected_workload_image(
     if not isinstance(labels, dict):
         return None
     if labels.get("team.runtime") == "1":
-        provider = labels.get("team.brain")
-        image_ref = REQUIRED_BRAIN_IMAGES.get(provider) if isinstance(provider, str) else None
+        image_ref = REQUIRED_TEAM_IMAGE
         compact_assistant_runtime = False
     elif labels.get("team.assistant.runtime") == "1":
         assistant_id = labels.get("team.assistant")
@@ -189,8 +186,8 @@ def _inspect_workloads(
 ):
     inspections: dict[str, dict] = {}
     team_ids: set[str] = set()
-    brains_by_team_id: dict[str, int] = {}
-    running_brains: set[str] = set()
+    runtimes_by_team_id: dict[str, int] = {}
+    running_runtimes: set[str] = set()
     workloads: dict[str, tuple[str, frozenset[str], bool]] = {}
     image_ids: dict[str, str] = {}
     bindings: dict[tuple[str, str], dynamic_assistants.DynamicAssistantBinding] = {}
@@ -226,11 +223,11 @@ def _inspect_workloads(
         inspections[container_id] = metadata
         team_ids.add(team_id)
         if labels.get("team.runtime") == "1":
-            brains_by_team_id[team_id] = brains_by_team_id.get(team_id, 0) + 1
+            runtimes_by_team_id[team_id] = runtimes_by_team_id.get(team_id, 0) + 1
             if running:
-                running_brains.add(team_id)
+                running_runtimes.add(team_id)
         workloads[container_id] = (team_id, expected_kinds, running)
-    return inspections, team_ids, brains_by_team_id, running_brains, workloads
+    return inspections, team_ids, runtimes_by_team_id, running_runtimes, workloads
 
 
 def _load_network_members(network: dict, inspections: dict[str, dict]) -> bool:
@@ -250,7 +247,7 @@ def _load_network_members(network: dict, inspections: dict[str, dict]) -> bool:
 def _team_network_ready(
     team_id: str,
     inspections: dict[str, dict],
-    running_brains: set[str],
+    running_runtimes: set[str],
     workloads: dict[str, tuple[str, frozenset[str], bool]],
 ) -> bool:
     kind = network_policy.CORE_KIND
@@ -266,7 +263,7 @@ def _team_network_ready(
         kind,
         # Engine omits an intentionally stopped anchor from network inventory. Its immutable
         # image/resource/endpoint was proved above; only a running anchor must be a live member.
-        require_brain=team_id in running_brains,
+        require_runtime=team_id in running_runtimes,
         require_dependencies=True,
     ):
         return False
@@ -307,11 +304,11 @@ def network_topology_ready() -> bool:
         return False
     if inspected is None:
         return False
-    inspections, team_ids, brains_by_team_id, running_brains, workloads = inspected
-    if any(brains_by_team_id.get(team_id) != 1 for team_id in team_ids):
+    inspections, team_ids, runtimes_by_team_id, running_runtimes, workloads = inspected
+    if any(runtimes_by_team_id.get(team_id) != 1 for team_id in team_ids):
         return False
 
-    return all(_team_network_ready(team_id, inspections, running_brains, workloads) for team_id in team_ids)
+    return all(_team_network_ready(team_id, inspections, running_runtimes, workloads) for team_id in team_ids)
 
 
 def auth_gate_ready() -> bool:

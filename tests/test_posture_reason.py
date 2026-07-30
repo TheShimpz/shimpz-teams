@@ -14,11 +14,11 @@ from core.container import network as net
 class PostureReasonTests(unittest.TestCase):
     def test_first_failing_posture_reason_is_named(self):
         valid = {
-            "Memory": net.BRAIN_MEMORY_BYTES,
-            "MemoryReservation": net.BRAIN_MEMORY_RESERVATION_BYTES,
-            "NanoCpus": net.BRAIN_NANO_CPUS,
-            "PidsLimit": net.BRAIN_PIDS_LIMIT,
-            "MemorySwap": net.BRAIN_MEMORY_BYTES,
+            "Memory": net.RUNTIME_MEMORY_BYTES,
+            "MemoryReservation": net.RUNTIME_MEMORY_RESERVATION_BYTES,
+            "NanoCpus": net.RUNTIME_NANO_CPUS,
+            "PidsLimit": net.RUNTIME_PIDS_LIMIT,
+            "MemorySwap": net.RUNTIME_MEMORY_BYTES,
             "Tmpfs": {net.TMPFS_MOUNT_PATH: "size=16m"},
             "Ulimits": [{"Name": "nofile", "Soft": 256, "Hard": 256}],
             "RestartPolicy": {"Name": "no"},
@@ -43,7 +43,7 @@ class PostureReasonTests(unittest.TestCase):
         }
         flipped = {**valid, "PidMode": "host"}
 
-        self.assertIsNone(net._resource_and_namespace_posture_reason(valid, "brain"))
-        self.assertEqual(net._resource_and_namespace_posture_reason(flipped, "brain"), "pid-mode")
-        self.assertTrue(net._resource_and_namespace_posture_valid(valid, "brain"))
-        self.assertFalse(net._resource_and_namespace_posture_valid(flipped, "brain"))
+        self.assertIsNone(net._resource_and_namespace_posture_reason(valid, "runtime"))
+        self.assertEqual(net._resource_and_namespace_posture_reason(flipped, "runtime"), "pid-mode")
+        self.assertTrue(net._resource_and_namespace_posture_valid(valid, "runtime"))
+        self.assertFalse(net._resource_and_namespace_posture_valid(flipped, "runtime"))

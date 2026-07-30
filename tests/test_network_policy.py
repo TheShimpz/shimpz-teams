@@ -28,8 +28,8 @@ def check(condition: object, message: str) -> None:
 
 TEAM_ID = "tenant_workspace"
 CORE = policy.network_name(TEAM_ID, policy.CORE_KIND)
-BRAIN_IMAGE_REF = "trusted-brain:v1"
-BRAIN_IMAGE_ID = "sha256:trusted-brain-id"
+RUNTIME_IMAGE_REF = "trusted-runtime:v1"
+RUNTIME_IMAGE_ID = "sha256:trusted-runtime-id"
 ASSISTANT_ID = "hello-world"
 ASSISTANT_IMAGE_REF = "trusted-assistant:v1"
 ASSISTANT_IMAGE_ID = "sha256:trusted-assistant-id"
@@ -173,21 +173,21 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         "CgroupnsMode": "private",
         "UsernsMode": "",
     }
-    brain = _container(
-        "brain-id",
+    runtime = _container(
+        "runtime-id",
         policy.team_container_name(TEAM_ID),
-        labels={"team.runtime": "1", "team.id": TEAM_ID, "team.brain": "runtime"},
+        labels={"team.runtime": "1", "team.id": TEAM_ID},
         networks={CORE: _endpoint("core-id", policy.team_container_name(TEAM_ID))},
         host_config={
             **common_security,
             "CapDrop": ["ALL"],
-            "CapAdd": sorted(policy.EXPECTED_BRAIN_CAP_ADD),
+            "CapAdd": sorted(policy.EXPECTED_RUNTIME_CAP_ADD),
             "ReadonlyRootfs": True,
-            "Memory": policy.BRAIN_MEMORY_BYTES,
-            "MemorySwap": policy.BRAIN_MEMORY_BYTES,
-            "MemoryReservation": policy.BRAIN_MEMORY_RESERVATION_BYTES,
-            "NanoCpus": policy.BRAIN_NANO_CPUS,
-            "PidsLimit": policy.BRAIN_PIDS_LIMIT,
+            "Memory": policy.RUNTIME_MEMORY_BYTES,
+            "MemorySwap": policy.RUNTIME_MEMORY_BYTES,
+            "MemoryReservation": policy.RUNTIME_MEMORY_RESERVATION_BYTES,
+            "NanoCpus": policy.RUNTIME_NANO_CPUS,
+            "PidsLimit": policy.RUNTIME_PIDS_LIMIT,
             "Tmpfs": {"/tmp": "mode=1777,size=16m"},
             "Ulimits": [{"Name": "nofile", "Soft": 256, "Hard": 256}],
             "RestartPolicy": {"Name": "no", "MaximumRetryCount": 0},
@@ -201,8 +201,8 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
             },
         },
         mounts=[],
-        image_ref=BRAIN_IMAGE_REF,
-        image_id=BRAIN_IMAGE_ID,
+        image_ref=RUNTIME_IMAGE_REF,
+        image_id=RUNTIME_IMAGE_ID,
         hostname=TEAM_ID,
     )
     assistant_id = ASSISTANT_ID
@@ -253,8 +253,8 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
         networks={CORE: _endpoint("core-id", "assistant-egress")},
     )
-    containers = {item["Id"]: item for item in (brain, assistant, postgres, app_proxy)}
-    core = _network(policy.CORE_KIND, "core-id", "brain-id", "app-id", "postgres-id", "app-proxy-id")
+    containers = {item["Id"]: item for item in (runtime, assistant, postgres, app_proxy)}
+    core = _network(policy.CORE_KIND, "core-id", "runtime-id", "app-id", "postgres-id", "app-proxy-id")
     return core, containers
 
 
@@ -264,7 +264,7 @@ def _members_valid(network: dict, containers: dict[str, dict], kind: str) -> boo
         containers,
         TEAM_ID,
         kind,
-        require_brain=True,
+        require_runtime=True,
         require_dependencies=True,
     )
 
@@ -272,7 +272,7 @@ def _members_valid(network: dict, containers: dict[str, dict], kind: str) -> boo
 def _workload_valid(metadata: dict) -> bool:
     labels = metadata["Config"]["Labels"]
     if labels.get("team.runtime") == "1":
-        expected_ref, expected_id = BRAIN_IMAGE_REF, BRAIN_IMAGE_ID
+        expected_ref, expected_id = RUNTIME_IMAGE_REF, RUNTIME_IMAGE_ID
     else:
         expected_ref, expected_id = ASSISTANT_IMAGE_REF, ASSISTANT_IMAGE_ID
     return policy.workload_security_valid(
@@ -297,13 +297,13 @@ def test_network_names_are_injective_and_bounded() -> None:
         policy.network_name("x", "brain-egress")
         check(False, "a retired network kind must be refused")
     except ValueError:
-        check(True, "the retired Brain-egress network kind is refused")
+        check(True, "the retired Runtime-egress network kind is refused")
 
     assistant_name = policy.team_assistant_container_name("x", ASSISTANT_ID)
     adversarial_brain = policy.team_container_name("x_assistant_hello_world")
     check(
         assistant_name != adversarial_brain,
-        "a valid Brain Team ID cannot collide with an Assistant workload name",
+        "a valid Runtime Team ID cannot collide with an Assistant workload name",
     )
     check(
         assistant_name.endswith("x.assistant.hello-world"),
@@ -315,20 +315,20 @@ def test_network_names_are_injective_and_bounded() -> None:
     )
 
     foreign_brain = _container(
-        "foreign-brain",
+        "foreign-runtime",
         policy.team_container_name("x"),
         labels={"team.runtime": "1", "team.id": "somebody_else"},
     )
-    check(not policy.brain_identity_valid(foreign_brain, "x"), "a matching name cannot forge Brain identity")
+    check(not policy.runtime_identity_valid(foreign_brain, "x"), "a matching name cannot forge Runtime identity")
 
 
 def test_valid_core_topology_and_security_posture() -> None:
     core, containers = _valid_topology()
     check(
         _members_valid(core, containers, policy.CORE_KIND),
-        "core accepts only Brain, Assistants, PostgreSQL, and the Assistant proxy",
+        "core accepts only Runtime, Assistants, PostgreSQL, and the Assistant proxy",
     )
-    check(_workload_valid(containers["brain-id"]), "Brain posture is exact")
+    check(_workload_valid(containers["runtime-id"]), "Runtime posture is exact")
     check(_workload_valid(containers["app-id"]), "Assistant posture is exact")
     check(
         policy.daemon_security_options_valid(
@@ -380,18 +380,18 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_container() -> None:
         "shipping readiness pins the same runtime name as lifecycle admission",
     )
     check(
-        team_healthcheck.DEFAULT_BRAIN_IMAGE == container.DEFAULT_TEAM_IMAGE,
-        "shipping readiness pins the same default Brain image as lifecycle admission",
+        team_healthcheck.DEFAULT_TEAM_IMAGE == container.DEFAULT_TEAM_IMAGE,
+        "shipping readiness pins the same default Runtime image as lifecycle admission",
     )
-    health_image = _environment_get(ROOT / "hosted" / "healthcheck.py", "REQUIRED_BRAIN_IMAGES")
+    health_image = _environment_get(ROOT / "hosted" / "healthcheck.py", "REQUIRED_TEAM_IMAGE")
     manifest_image = _environment_get(ROOT / "hosted" / "container.py", "IMAGE")
     check(
         ast.literal_eval(health_image.args[0]) == ast.literal_eval(manifest_image.args[0]),
-        "shipping readiness and lifecycle admission use the same Brain image environment key",
+        "shipping readiness and lifecycle admission use the same Team runtime image environment key",
     )
     check(
-        {name: brain["image"] for name, brain in container.BRAINS.items()} == team_healthcheck.REQUIRED_BRAIN_IMAGES,
-        "shipping readiness pins the same Brain image registry as lifecycle admission",
+        team_healthcheck.REQUIRED_TEAM_IMAGE == container.IMAGE,
+        "shipping readiness pins the same Team runtime image as lifecycle admission",
     )
     health_port = _environment_get(ROOT / "hosted" / "healthcheck.py", "LISTEN_PORT")
     runtime_port = _environment_get(ROOT / "hosted" / "state.py", "LISTEN_PORT")
@@ -414,11 +414,11 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_container() -> None:
 
 def test_engine_29_capability_prefix_is_normalized() -> None:
     _core, containers = _valid_topology()
-    brain = containers["brain-id"]
-    brain["HostConfig"]["CapDrop"] = ["CAP_ALL"]
-    brain["HostConfig"]["CapAdd"] = [f"CAP_{capability}" for capability in sorted(policy.EXPECTED_BRAIN_CAP_ADD)]
+    runtime = containers["runtime-id"]
+    runtime["HostConfig"]["CapDrop"] = ["CAP_ALL"]
+    runtime["HostConfig"]["CapAdd"] = [f"CAP_{capability}" for capability in sorted(policy.EXPECTED_RUNTIME_CAP_ADD)]
     check(
-        _workload_valid(brain),
+        _workload_valid(runtime),
         "Engine 29 CAP_-prefixed inspect values preserve the exact capability contract",
     )
 
@@ -441,15 +441,15 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
     team_healthcheck._image_id = lambda image_ref: requested_refs.append(image_ref) or f"sha256:{len(requested_refs)}"
     try:
         cache: dict[str, str] = {}
-        brain_ref = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
-        brain = {"Config": {"Labels": {"team.runtime": "1", "team.brain": "runtime"}}}
+        runtime_ref = team_healthcheck.REQUIRED_TEAM_IMAGE
+        runtime = {"Config": {"Labels": {"team.runtime": "1"}}}
         check(
-            team_healthcheck._expected_workload_image(brain, cache, {}) == (brain_ref, "sha256:1", False),
-            "health maps the registered Brain provider to its resolved immutable image ID",
+            team_healthcheck._expected_workload_image(runtime, cache, {}) == (runtime_ref, "sha256:1", False),
+            "health maps the Team runtime to its resolved immutable image ID",
         )
         check(
-            team_healthcheck._expected_workload_image(brain, cache, {}) == (brain_ref, "sha256:1", False)
-            and requested_refs == [brain_ref],
+            team_healthcheck._expected_workload_image(runtime, cache, {}) == (runtime_ref, "sha256:1", False)
+            and requested_refs == [runtime_ref],
             "health caches one immutable resolution consistently across its inspection pass",
         )
 
@@ -474,26 +474,21 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
             == (assistant_ref, "sha256:2", True),
             "health resolves an Assistant only through its Team binding",
         )
-        unknown = {"Config": {"Labels": {"team.runtime": "1", "team.brain": "unknown-provider"}}}
-        check(
-            team_healthcheck._expected_workload_image(unknown, cache, {}) is None,
-            "health fails closed for an unregistered Brain provider",
-        )
     finally:
         team_healthcheck._image_id = original_image_id
         team_healthcheck.DYNAMIC_ASSISTANTS = original_dynamic_assistants
 
 
-def test_health_tracks_running_brains_without_weakening_stopped_posture() -> None:
+def test_health_tracks_running_runtimes_without_weakening_stopped_posture() -> None:
     _core, containers = _valid_topology()
-    brain = containers["brain-id"]
+    runtime = containers["runtime-id"]
     assistant = containers["app-id"]
-    brain_ref = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
+    runtime_ref = team_healthcheck.REQUIRED_TEAM_IMAGE
     assistant_ref = ASSISTANT_IMAGE_REF
-    brain["Config"]["Image"], brain["Image"] = brain_ref, "sha256:health-brain"
+    runtime["Config"]["Image"], runtime["Image"] = runtime_ref, "sha256:health-runtime"
     assistant["Config"]["Image"], assistant["Image"] = assistant_ref, "sha256:health-assistant"
-    brain["State"]["Running"] = False
-    metadata_by_id = {"brain-id": brain, "app-id": assistant}
+    runtime["State"]["Running"] = False
+    metadata_by_id = {"runtime-id": runtime, "app-id": assistant}
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
         for container_id, metadata in metadata_by_id.items()
@@ -503,7 +498,7 @@ def test_health_tracks_running_brains_without_weakening_stopped_posture() -> Non
     original_dynamic_assistants = team_healthcheck.DYNAMIC_ASSISTANTS
     team_healthcheck._docker_json = lambda path: (200, metadata_by_id[path.split("/")[2]])
     team_healthcheck._image_id = lambda image_ref: {
-        brain_ref: "sha256:health-brain",
+        runtime_ref: "sha256:health-runtime",
         assistant_ref: "sha256:health-assistant",
     }.get(image_ref)
     team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()
@@ -514,18 +509,18 @@ def test_health_tracks_running_brains_without_weakening_stopped_posture() -> Non
             and inspected[3] == set()
             and inspected[4]
             == {
-                "brain-id": (TEAM_ID, frozenset({policy.CORE_KIND}), False),
+                "runtime-id": (TEAM_ID, frozenset({policy.CORE_KIND}), False),
                 "app-id": (TEAM_ID, frozenset({policy.CORE_KIND}), True),
             },
             "health tracks stopped and running workloads separately for static/live endpoint proof",
         )
-        brain["State"]["Running"] = True
+        runtime["State"]["Running"] = True
         inspected = team_healthcheck._inspect_workloads(summaries)
         check(
-            inspected is not None and inspected[3] == {TEAM_ID}, "health requires live membership for a running Brain"
+            inspected is not None and inspected[3] == {TEAM_ID}, "health requires live membership for a running Runtime"
         )
-        brain["State"]["Running"] = False
-        brain["HostConfig"]["IpcMode"] = "host"
+        runtime["State"]["Running"] = False
+        runtime["HostConfig"]["IpcMode"] = "host"
         check(
             team_healthcheck._inspect_workloads(summaries) is None,
             "stopped health normalization still rejects static namespace drift",
@@ -597,7 +592,7 @@ def test_health_tolerates_only_stopped_unbound_assistants() -> None:
 
 def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     core, containers = _valid_topology()
-    containers["brain-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]
+    containers["runtime-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_TEAM_IMAGE
     containers["app-id"]["Config"]["Image"] = ASSISTANT_IMAGE_REF
     orphan = _container(
         "orphan-id",
@@ -641,7 +636,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
         team_healthcheck.auth_gate_ready = lambda: True
         team_healthcheck._docker_json = docker_json
         team_healthcheck._image_id = lambda image_ref: {
-            team_healthcheck.REQUIRED_BRAIN_IMAGES["runtime"]: BRAIN_IMAGE_ID,
+            team_healthcheck.REQUIRED_TEAM_IMAGE: RUNTIME_IMAGE_ID,
             ASSISTANT_IMAGE_REF: ASSISTANT_IMAGE_ID,
         }.get(image_ref)
         team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()

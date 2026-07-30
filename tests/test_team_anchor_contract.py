@@ -16,13 +16,13 @@ class TeamAnchorContractTests(unittest.TestCase):
         kwargs = container_spec.build_team_kwargs(
             "team_1",
             "Team 1",
-            database_url="postgresql://must-not-enter-anchor",
         )
 
-        self.assertEqual(set(container_spec.BRAINS), {"runtime"})
         self.assertIn("registry.k8s.io/pause:3.10.1@sha256:", kwargs["image"])
         self.assertEqual(kwargs["environment"], {"SHIMPZ_TEAM_ID": "team_1", "SHIMPZ_TEAM_NAME": "Team 1"})
         self.assertNotIn("postgresql://", repr(kwargs))
+        self.assertNotIn("team.brain", kwargs["labels"])
+        self.assertNotIn("team.model", kwargs["labels"])
         self.assertTrue(kwargs["read_only"])
         self.assertEqual(kwargs["cap_drop"], ["ALL"])
         self.assertEqual(kwargs["cap_add"], [])

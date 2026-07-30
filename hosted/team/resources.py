@@ -143,10 +143,8 @@ def _trusted_workload_image(
     """Resolve this exact workload role's configured ref to the currently trusted immutable ID."""
     labels = container.attrs.get("Config", {}).get("Labels", {})
     compact_assistant_runtime = False
-    if network_policy.brain_identity_valid(container.attrs, team_id):
-        provider = labels.get("team.brain")
-        provider_spec = container_spec.BRAINS.get(provider) if isinstance(provider, str) else None
-        image_ref = provider_spec.get("image") if provider_spec is not None else None
+    if network_policy.runtime_identity_valid(container.attrs, team_id):
+        image_ref = container_spec.IMAGE
     else:
         assistant_id = labels.get("team.assistant")
         assistant_spec = workload_spec
@@ -234,8 +232,8 @@ def _require_team_isolation_mode(
         kind,
         # Engine 29 omits created/stopped endpoints from network inspect while preserving their
         # exact attachments in container inspect. Static workload posture above proves those
-        # endpoints; a running anchor must additionally be visible as the live Brain role.
-        require_brain=running and network_policy.brain_identity_valid(container.attrs, team_id),
+        # endpoints; a running anchor must additionally be visible as the live runtime role.
+        require_runtime=running and network_policy.runtime_identity_valid(container.attrs, team_id),
         require_dependencies=True,
         inspect_memo=inspect_memo,
     )
@@ -613,7 +611,7 @@ def _require_network_policy(
     team_id: str,
     kind: str,
     *,
-    require_brain: bool,
+    require_runtime: bool,
     require_dependencies: bool,
     inspect_memo: dict[str, object] | None = None,
 ) -> None:
@@ -623,7 +621,7 @@ def _require_network_policy(
         containers,
         team_id,
         kind,
-        require_brain=require_brain,
+        require_runtime=require_runtime,
         require_dependencies=require_dependencies,
     ):
         raise runtime_state.ApiError(
@@ -659,7 +657,7 @@ def _ensure_team_network_kind(team_id: str, kind: str):
         network,
         team_id,
         kind,
-        require_brain=False,
+        require_runtime=False,
         require_dependencies=False,
     )
     return network
@@ -825,7 +823,7 @@ def _principal(team_id: str, principal: object) -> tuple[str, str]:
 
 
 def _authorize_container(team_id: str, principal: tuple[str, str | None], container) -> _AuthorizationLease:
-    if not network_policy.brain_identity_valid(container.attrs, team_id):
+    if not network_policy.runtime_identity_valid(container.attrs, team_id):
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     owner = str(container.labels.get("team.owner", ""))
     kind, account_id = _principal(team_id, principal)
@@ -853,7 +851,7 @@ def _authorize(team_id: str, principal: tuple[str, str | None]) -> _Authorizatio
 
 
 def _authorize_destroy(team_id: str, principal: tuple[str, str | None]) -> _AuthorizationLease:
-    """Authorize against the Brain, or its durable non-runnable cleanup successor."""
+    """Authorize against the Team runtime, or its durable non-runnable cleanup successor."""
     _principal(team_id, principal)
     container = _get_container(container_spec.team_container_name(team_id))
     if container is not None:
@@ -863,7 +861,7 @@ def _authorize_destroy(team_id: str, principal: tuple[str, str | None]) -> _Auth
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     return _AuthorizationLease(
         team_id=team_id,
-        container_id=record.brain_id,
+        container_id=record.runtime_id,
         owner=record.owner,
         principal=principal,
         cleanup_nonce=record.nonce,
@@ -879,7 +877,7 @@ def _require_cleanup_authorization(team_id: str, lease: _AuthorizationLease) -> 
         or record is None
         or record.nonce != lease.cleanup_nonce
         or record.owner != lease.owner
-        or record.brain_id != lease.container_id
+        or record.runtime_id != lease.container_id
         or not cleanup_state.principal_authorized(record, lease.principal)
         or _get_container(container_spec.team_container_name(team_id)) is not None
     ):
@@ -900,7 +898,7 @@ def _require_current_authorization(
         lease.cleanup_nonce
         or lease.team_id != team_id
         or container is None
-        or not network_policy.brain_identity_valid(container.attrs, team_id)
+        or not network_policy.runtime_identity_valid(container.attrs, team_id)
         or container.id != lease.container_id
         or str(container.labels.get("team.owner", "")) != lease.owner
     ):

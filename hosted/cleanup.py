@@ -1,6 +1,6 @@
 """Durable, bounded authorization state for retrying an incomplete Team destroy.
 
-The Brain container is normally the ownership anchor. Named volumes cannot be removed until that
+The Team runtime container is normally the ownership anchor. Named volumes cannot be removed until that
 container is gone, so a failed volume removal needs a smaller non-runnable anchor that survives a
 Team/container restart. Records live in a Team-only volume, contain no credential, and are removed
 only after every runtime/database artifact has been removed.
@@ -24,7 +24,7 @@ MAX_RECORD_BYTES = 4096
 VERSION = 1
 
 _TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-_BRAIN_ID_RE = re.compile(r"^(?:[a-f0-9]{12,64})?$")
+_RUNTIME_ID_RE = re.compile(r"^(?:[a-f0-9]{12,64})?$")
 _NONCE_RE = re.compile(r"^[a-f0-9]{32}$")
 _guard = threading.RLock()
 
@@ -41,7 +41,7 @@ class Record:
     version: int
     team_id: str
     owner: str
-    brain_id: str
+    runtime_id: str
     nonce: str
     db_dropped: bool = False
 
@@ -62,9 +62,9 @@ def _validate_record(record: Record) -> Record:
     except UnicodeEncodeError as exc:
         raise CleanupStateError("cleanup record has an invalid owner") from exc
     if (
-        not isinstance(record.brain_id, str)
+        not isinstance(record.runtime_id, str)
         or not isinstance(record.nonce, str)
-        or _BRAIN_ID_RE.fullmatch(record.brain_id) is None
+        or _RUNTIME_ID_RE.fullmatch(record.runtime_id) is None
         or _NONCE_RE.fullmatch(record.nonce) is None
     ):
         raise CleanupStateError("cleanup record has invalid immutable metadata")
@@ -167,14 +167,14 @@ def _write_unlocked(record: Record) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def begin(team_id: str, owner: str, brain_id: str) -> Record:
+def begin(team_id: str, owner: str, runtime_id: str) -> Record:
     """Create one immutable ownership anchor, or return the exact matching pending anchor."""
     candidate = _validate_record(
         Record(
             version=VERSION,
             team_id=team_id,
             owner=owner,
-            brain_id=brain_id,
+            runtime_id=runtime_id,
             nonce=secrets.token_hex(16),
         )
     )
@@ -182,7 +182,7 @@ def begin(team_id: str, owner: str, brain_id: str) -> Record:
         _ensure_directory()
         existing = _load_unlocked(team_id)
         if existing is not None:
-            if (existing.owner, existing.brain_id) != (owner, brain_id):
+            if (existing.owner, existing.runtime_id) != (owner, runtime_id):
                 raise CleanupStateError("cleanup record identity does not match this Team")
             return existing
         try:
@@ -205,7 +205,7 @@ def mark_db_dropped(record: Record) -> Record:
             version=record.version,
             team_id=record.team_id,
             owner=record.owner,
-            brain_id=record.brain_id,
+            runtime_id=record.runtime_id,
             nonce=record.nonce,
             db_dropped=True,
         )

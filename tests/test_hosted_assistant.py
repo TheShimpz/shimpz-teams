@@ -670,7 +670,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             store.put("team_1", resolution)
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", store),
-                mock.patch.object(network_policy, "brain_identity_valid", return_value=False),
+                mock.patch.object(network_policy, "runtime_identity_valid", return_value=False),
                 mock.patch.object(hosted_resources, "_trusted_image_id", return_value="sha256:image"),
             ):
                 trusted = hosted_resources._trusted_workload_image(container, "team_1")
@@ -698,7 +698,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             binding = store.put("team_1", resolution)
             spec = hosted_apps.publication.assistant_spec(binding)
             with (
-                mock.patch.object(network_policy, "brain_identity_valid", return_value=False),
+                mock.patch.object(network_policy, "runtime_identity_valid", return_value=False),
                 mock.patch.object(hosted_resources, "_trusted_image_id", return_value="sha256:image"),
             ):
                 trusted = hosted_resources._trusted_workload_image(
@@ -717,7 +717,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 return_value=(resolution["image_reference"], "sha256:image", True),
             ) as trusted_image,
             mock.patch.object(network_policy, "workload_security_valid", return_value=True) as posture,
-            mock.patch.object(network_policy, "brain_identity_valid", return_value=False),
+            mock.patch.object(network_policy, "runtime_identity_valid", return_value=False),
             mock.patch.object(network_policy, "workload_endpoint_valid", return_value=True),
             mock.patch.object(network_policy, "workload_live_membership_valid", return_value=True),
             mock.patch.object(hosted_resources, "_require_network_policy"),

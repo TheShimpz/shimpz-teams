@@ -107,8 +107,8 @@ class HostedCheckHarness:
         selected_ids = ASSISTANT_IDS[:assistant_count]
         self.anchor = CountingContainer(
             ANCHOR_ID,
-            {"team.id": TEAM_ID, "team.brain": "runtime", "team.name": "Marketing", "team.owner": OWNER},
-            container_spec.BRAINS["runtime"]["image"],
+            {"team.id": TEAM_ID, "team.runtime": "1", "team.name": "Marketing", "team.owner": OWNER},
+            container_spec.IMAGE,
             self.calls,
         )
         self.assistants = tuple(
@@ -216,7 +216,9 @@ class HostedCheckHarness:
             mock.patch.multiple(
                 network_policy,
                 assistant_identity_valid=lambda *_args: True,
-                brain_identity_valid=lambda attrs, _team_id: "team.brain" in attrs.get("Config", {}).get("Labels", {}),
+                runtime_identity_valid=lambda attrs, _team_id: (
+                    attrs.get("Config", {}).get("Labels", {}).get("team.runtime") == "1"
+                ),
                 network_members_valid=lambda *_args, **_kwargs: True,
                 workload_endpoint_valid=lambda *_args: True,
                 workload_live_membership_valid=lambda *_args: True,
