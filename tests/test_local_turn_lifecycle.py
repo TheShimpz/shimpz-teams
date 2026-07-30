@@ -138,6 +138,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller._locks = (threading.RLock(),)
         controller.registry = TestPublicationRegistry({"shimpz-cloudflare": SimpleNamespace()})
         network = SimpleNamespace(
+            id="a" * 64,
             attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}},
             remove=lambda: events.append("network-remove"),
         )
@@ -148,6 +149,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(
             delete=lambda team_id: events.append(("delete-inference", team_id))
+        )
+        controller.brain_runtime = SimpleNamespace(
+            delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
+        )
+        controller.power_state = SimpleNamespace(
+            purge=lambda generation: events.append(("purge-power", generation))
         )
         controller._wire_collaborators()
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
@@ -165,6 +172,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(result["assistants_removed"], 0)
         self.assertEqual(result["teams_removed"], 1)
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
+        self.assertIn(("purge-power", "a" * 64), events)
         self.assertEqual(controller.registry.identities(), set())
         self.assertLess(events.index("delete-accounts"), events.index("network-remove"))
 

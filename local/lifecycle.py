@@ -250,6 +250,9 @@ def _remove_space_resources(
     owned_assistants: set[tuple[str, str]],
 ) -> bool:
     self.chat_turn_service._delete_all_integration_state()
+    for network in networks:
+        team_id = network.attrs["Labels"][TEAM_LABEL]
+        self._delete_team_conversation(team_id, network)
     for container in containers:
         container.remove(force=True)
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
