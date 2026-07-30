@@ -36,15 +36,14 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY local/__init__.py local/app.py local/healthcheck.py ./local/
 COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
+COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
     assistant_human/assistant_integration_flow.py \
-    assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
-    assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
     assistant_human/challenge_store.py assistant_human/oauth_integration_service.py \
     assistant_human/oauth_integration_store.py assistant_human/oauth_broker_client.py \
     assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
     assistant_human/oauth_providers.py assistant_human/private_state.py ./assistant_human/
-COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py \
     controller_runtime/local_token_store.py ./controller_runtime/

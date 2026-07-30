@@ -16,7 +16,7 @@ sys.path.insert(0, str(TESTS))
 
 import hosted_assistant_fixture as hosted_harness
 
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client

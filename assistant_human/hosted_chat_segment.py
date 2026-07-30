@@ -7,10 +7,10 @@ from http import HTTPStatus
 from typing import NoReturn
 
 import manifests
+from assistant import spec as assistant_registry
 from assistant_human import (
     assistant_integration_challenges,
     assistant_integration_flow,
-    assistant_registry,
     hosted_assistants,
     oauth_integration_store,
 )

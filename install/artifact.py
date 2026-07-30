@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import docker
 
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 
 from . import registry_auth
 

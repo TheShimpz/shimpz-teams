@@ -9,9 +9,9 @@ from http import HTTPStatus
 import docker.errors
 
 import audit
+from assistant import spec as assistant_registry
 from assistant_human import (
     assistant_integration_challenges,
-    assistant_registry,
     hosted_assistants,
     hosted_chat_segment,
     oauth_integration_service,

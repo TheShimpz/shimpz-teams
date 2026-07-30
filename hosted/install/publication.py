@@ -7,7 +7,8 @@ from copy import deepcopy
 from functools import lru_cache
 from typing import Any
 
-from assistant_human import assistant_manifest, assistant_registry
+from assistant import manifest as assistant_manifest
+from assistant import spec as assistant_registry
 from install import bindings
 
 

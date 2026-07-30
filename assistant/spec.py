@@ -9,7 +9,7 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 
-from assistant_human import assistant_manifest
+from assistant import manifest as assistant_manifest
 
 ALL_ZERO_SHA256 = "0" * 64
 ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")

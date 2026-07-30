@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections import OrderedDict
 
-from assistant_human import assistant_manifest
+from assistant import manifest as assistant_manifest
 
 GENESIS_PATH = assistant_manifest.MANIFEST_PATH
 DEFAULT_CACHE_ENTRIES = 256

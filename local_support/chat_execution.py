@@ -3,8 +3,8 @@
 from http import HTTPStatus
 from typing import NoReturn
 
+from assistant.spec import validate_power_payload
 from assistant_human import assistant_integration_flow, oauth_integration_store
-from assistant_human.assistant_registry import validate_power_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client

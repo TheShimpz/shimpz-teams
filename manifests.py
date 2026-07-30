@@ -18,7 +18,7 @@ from pathlib import PurePosixPath
 import docker
 import docker.types
 
-from assistant_human.assistant_registry import AssistantSpec
+from assistant.spec import AssistantSpec
 from core.container import network as network_policy
 from power import execution as power_execution
 

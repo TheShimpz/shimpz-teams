@@ -7,7 +7,7 @@ import json
 import unittest
 from pathlib import Path
 
-from assistant_human.assistant_manifest import ManifestError, parse_manifest_contract, parse_manifest_genesis
+from assistant.manifest import ManifestError, parse_manifest_contract, parse_manifest_genesis
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "manifest-vectors.json"
 PROTOCOL = VECTORS.parent

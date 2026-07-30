@@ -14,14 +14,10 @@ from jsonschema import Draft202012Validator
 
 import audit
 import manifests
-from assistant_human import (
-    assistant_chat,
-    assistant_integration_flow,
-    assistant_manifest,
-    assistant_registry,
-    oauth_http_client,
-    oauth_integration_store,
-)
+from assistant import manifest as assistant_manifest
+from assistant import spec as assistant_registry
+from assistant_human import assistant_integration_flow, oauth_http_client, oauth_integration_store
+from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from container_policy import hosted_apps, hosted_resources

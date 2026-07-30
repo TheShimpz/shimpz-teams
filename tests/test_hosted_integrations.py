@@ -10,10 +10,10 @@ from http import HTTPStatus
 from pathlib import Path
 from unittest import mock
 
+from assistant import spec as assistant_registry
 from assistant_human import (
     assistant_integration_challenges,
     assistant_integration_flow,
-    assistant_registry,
     oauth_http_client,
     oauth_integration_store,
 )

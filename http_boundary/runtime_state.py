@@ -16,10 +16,10 @@ from pathlib import Path
 import docker
 
 import manifests
+from assistant import genesis as assistant_genesis
+from assistant import manifest as assistant_manifest
 from assistant_human import (
-    assistant_genesis,
     assistant_integration_challenges,
-    assistant_manifest,
     oauth_http_client,
     oauth_integration_service,
     oauth_integration_store,

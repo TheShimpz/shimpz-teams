@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from assistant_human import assistant_manifest, assistant_registry
+from assistant import manifest as assistant_manifest
+from assistant import spec as assistant_registry
 from install import bindings
 from local.install.runtime import AssistantSpec
 

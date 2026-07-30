@@ -1,6 +1,6 @@
 """Runtime-only Assistant fixture; no product registry or installation authority."""
 
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 from local.install.runtime import AssistantSpec
 
 _PAGINATION = {

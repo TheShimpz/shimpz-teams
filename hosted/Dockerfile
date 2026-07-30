@@ -91,10 +91,9 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
 
 COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
 COPY validate.py manifests.py audit.py ./
+COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
      assistant_human/assistant_integration_flow.py \
-     assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
-     assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
      assistant_human/challenge_store.py assistant_human/hosted_assistants.py \
      assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
      assistant_human/oauth_integration_service.py \
@@ -102,7 +101,7 @@ COPY assistant_human/__init__.py assistant_human/assistant_integration_challenge
      assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
      assistant_human/oauth_providers.py assistant_human/private_state.py \
      ./assistant_human/
-COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/cleanup_state.py \
      controller_runtime/postgresql_service_client.py \

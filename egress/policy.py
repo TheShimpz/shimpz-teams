@@ -13,7 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
-from assistant_human import assistant_manifest
+from assistant import manifest as assistant_manifest
 
 MAX_POLICY_BYTES = 16 * 1024
 TOKEN_FILE_BYTES = 33

@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 from local.install import runtime as local_runtime
 
 

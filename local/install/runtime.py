@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from assistant_human.assistant_registry import IntegrationSpec, PowerSpec, digest_is_bound
+from assistant.spec import IntegrationSpec, PowerSpec, digest_is_bound
 
 _DIGEST_REF = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]{1,5})?/)?"

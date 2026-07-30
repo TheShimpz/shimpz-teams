@@ -11,12 +11,10 @@ from typing import NoReturn
 import docker.errors
 
 import manifests
-from assistant_human import (
-    assistant_genesis,
-    assistant_manifest,
-    assistant_registry,
-    oauth_integration_store,
-)
+from assistant import genesis as assistant_genesis
+from assistant import manifest as assistant_manifest
+from assistant import spec as assistant_registry
+from assistant_human import oauth_integration_store
 from container_policy import hosted_resources
 from core.container import network as network_policy
 from egress import policy as egress_policy

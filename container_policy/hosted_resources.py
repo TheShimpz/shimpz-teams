@@ -14,7 +14,7 @@ import docker.errors
 
 import manifests
 import validate
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 from controller_runtime import cleanup_state
 from core.container import network as network_policy
 from hosted.install import publication

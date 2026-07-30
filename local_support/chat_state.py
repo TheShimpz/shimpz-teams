@@ -8,12 +8,9 @@ from typing import NoReturn
 
 from docker.errors import DockerException
 
-from assistant_human import (
-    assistant_genesis,
-    assistant_integration_challenges,
-    assistant_manifest,
-    oauth_integration_store,
-)
+from assistant import genesis as assistant_genesis
+from assistant import manifest as assistant_manifest
+from assistant_human import assistant_integration_challenges, oauth_integration_store
 from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import config as inference_config
 from local.install.runtime import AssistantSpec

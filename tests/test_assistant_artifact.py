@@ -5,7 +5,7 @@ import unittest
 import docker
 from local_assistant_fixture import hosted_spec
 
-from assistant_human import assistant_registry
+from assistant import spec as assistant_registry
 from install import artifact as assistant_artifact
 
 AUTH_CONFIG = {"username": "registry-reader", "password": "x" * 20}

@@ -9,7 +9,8 @@ import docker.errors
 
 import audit
 import manifests
-from assistant_human import assistant_registry, hosted_assistants, oauth_integration_store
+from assistant import spec as assistant_registry
+from assistant_human import hosted_assistants, oauth_integration_store
 from container_policy import hosted_apps, hosted_resources
 from controller_runtime import cleanup_state, postgresql_service_client
 from core.container import network as network_policy

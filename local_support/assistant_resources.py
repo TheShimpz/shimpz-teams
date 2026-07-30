@@ -4,7 +4,7 @@ from http import HTTPStatus
 
 from docker.errors import DockerException, ImageNotFound, NotFound
 
-from assistant_human import assistant_manifest
+from assistant import manifest as assistant_manifest
 from container_policy import local as local_container_policy
 from local.install.runtime import AssistantSpec
 from local_support.egress import PROFILE

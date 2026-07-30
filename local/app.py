@@ -22,16 +22,16 @@ from typing import NoReturn
 import docker
 from docker.errors import APIError, DockerException
 
+from assistant import genesis as assistant_genesis
+from assistant import manifest as assistant_manifest
+from assistant.spec import validate_power_payload
 from assistant_human import (
-    assistant_genesis,
     assistant_integration_challenges,
-    assistant_manifest,
     oauth_broker_client,
     oauth_integration_service,
     oauth_integration_store,
     oauth_pkce_challenges,
 )
-from assistant_human.assistant_registry import validate_power_payload
 from controller_runtime import (
     local_chat_continuation_store,
     local_token_store,

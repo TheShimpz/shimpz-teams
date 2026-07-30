@@ -11,6 +11,7 @@ HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck")
 LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
+    "assistant",
     "assistant_human",
     "chat",
     "container_policy",

@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from typing import NoReturn
 
 from assistant_human import (
-    assistant_chat,
     assistant_integration_challenges,
     assistant_integration_flow,
     oauth_integration_store,
 )
+from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from power import journal as power_journal
