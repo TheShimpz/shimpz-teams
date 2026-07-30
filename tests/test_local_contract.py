@@ -20,8 +20,8 @@ from controller_runtime import local_token_store
 from inference import config as inference_config
 from local import app as local_app
 from local import healthcheck as local_healthcheck
+from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
-from local_support import assistant_lifecycle
 from local_support import audit as local_audit
 from local_support import http as local_http
 from local_support.validation import validate_model_credential_headers

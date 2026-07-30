@@ -5,9 +5,9 @@ from http import HTTPStatus
 from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant import manifest as assistant_manifest
-from container_policy import local as local_container_policy
+from local.assistant import isolation as local_container_policy
+from local.assistant.egress import PROFILE
 from local.install.runtime import AssistantSpec
-from local_support.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import (
     ASSISTANT_LABEL,

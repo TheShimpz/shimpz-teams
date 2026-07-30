@@ -13,7 +13,7 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
 from local import app as local_app
-from local_support.egress import APP_EGRESS_PROXY_ALIAS
+from local.assistant.egress import APP_EGRESS_PROXY_ALIAS
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {

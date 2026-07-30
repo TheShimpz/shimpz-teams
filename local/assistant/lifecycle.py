@@ -7,7 +7,7 @@ from http import HTTPStatus
 from docker.errors import DockerException, NotFound
 from docker.types import LogConfig, Ulimit
 
-from container_policy import local as local_container_policy
+from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.install.runtime import AssistantSpec
 from local_support.errors import ApiProblemError as ApiProblem

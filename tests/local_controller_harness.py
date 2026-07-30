@@ -18,10 +18,10 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
 from local import app as local_app
+from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from local_support import assistant_lifecycle
 from power import execution as power_execution
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}

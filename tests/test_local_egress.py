@@ -11,7 +11,7 @@ from unittest import mock
 from local_controller_harness import TestPublicationRegistry
 
 from local import app as local_app
-from local_support import egress as local_egress
+from local.assistant import egress as local_egress
 
 
 class _Proxy:

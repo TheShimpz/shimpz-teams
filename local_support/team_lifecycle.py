@@ -9,7 +9,7 @@ from docker.errors import DockerException
 
 from inference import client as brain_runtime_client
 from inference import config as inference_config
-from local_support.egress import PROFILE
+from local.assistant.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import (
     ASSISTANT_LABEL,

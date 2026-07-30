@@ -35,6 +35,12 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from local.assistant import api as local_assistant_api
+from local.assistant import egress as local_egress
+from local.assistant import lifecycle as local_assistant_lifecycle
+from local.assistant import resources as local_assistant_resources
+from local.assistant import rpc as local_assistant_rpc
+from local.assistant.egress import PROFILE
 from local.chat import api as local_chat_api
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
@@ -45,15 +51,9 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry
-from local_support import assistant_api as local_assistant_api
-from local_support import assistant_lifecycle as local_assistant_lifecycle
-from local_support import assistant_resources as local_assistant_resources
-from local_support import assistant_rpc as local_assistant_rpc
 from local_support import audit as local_audit
-from local_support import egress as local_egress
 from local_support import labels as local_labels
 from local_support import team_lifecycle as local_team_lifecycle
-from local_support.egress import PROFILE
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.http import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local_support.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
