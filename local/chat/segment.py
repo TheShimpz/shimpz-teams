@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
-from local_support.chat_types import ActiveAssistant as _ActiveAssistant
-from local_support.chat_types import required_active_assistant as _required_active_assistant
+from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.chat.types import required_active_assistant as _required_active_assistant
 from local_support.validation import brain_thread_id as _brain_thread_id
 from power import execution as power_execution
 

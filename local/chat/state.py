@@ -10,13 +10,14 @@ from docker.errors import DockerException
 
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import store as integration_store
+from local.chat import continuation as local_chat_continuations
+from local.chat import continuation_store as local_chat_continuation_store
+from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.install.runtime import AssistantSpec
-from local_support.chat_types import ActiveAssistant as _ActiveAssistant
-from local_support.chat_types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.labels import ASSISTANT_LABEL
 from storage import files as team_storage

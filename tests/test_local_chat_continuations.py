@@ -8,10 +8,11 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from chat import orchestrator as chat_orchestrator
-from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
+from local.chat import continuation as local_chat_continuations
+from local.chat import continuation_store as local_chat_continuation_store
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 TURN = brain_runtime_client.RuntimeTurn(

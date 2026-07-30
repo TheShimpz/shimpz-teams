@@ -4,8 +4,8 @@ from http import HTTPStatus
 
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
-from local_support.chat_segment import SegmentRequest as _ChatSegmentRequest
-from local_support.chat_types import PendingLocalChat as _PendingLocalChat
+from local.chat.segment import SegmentRequest as _ChatSegmentRequest
+from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import validate_chat_assistant_ids, validate_team_id
 

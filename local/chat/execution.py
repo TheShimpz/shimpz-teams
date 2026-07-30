@@ -10,8 +10,8 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import flow as integration_flow
 from integrations import store as integration_store
-from local_support.chat_types import ActiveAssistant as _ActiveAssistant
-from local_support.chat_types import required_active_assistant as _required_active_assistant
+from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.chat.types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem
 from power import journal as power_journal
 

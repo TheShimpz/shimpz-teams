@@ -25,10 +25,7 @@ from docker.errors import APIError, DockerException
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_power_payload
-from controller_runtime import (
-    local_chat_continuation_store,
-    local_token_store,
-)
+from controller_runtime import local_token_store
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -38,6 +35,14 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from local.chat import api as local_chat_api
+from local.chat import continuation_store as local_chat_continuation_store
+from local.chat import execution as local_chat_execution
+from local.chat import pause as local_chat_pause
+from local.chat import private as local_chat_private
+from local.chat import resume as local_chat_resume
+from local.chat import segment as local_chat_segment
+from local.chat import state as local_chat_state
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry
 from local_support import assistant_api as local_assistant_api
@@ -45,13 +50,6 @@ from local_support import assistant_lifecycle as local_assistant_lifecycle
 from local_support import assistant_resources as local_assistant_resources
 from local_support import assistant_rpc as local_assistant_rpc
 from local_support import audit as local_audit
-from local_support import chat_api as local_chat_api
-from local_support import chat_execution as local_chat_execution
-from local_support import chat_pause as local_chat_pause
-from local_support import chat_private as local_chat_private
-from local_support import chat_resume as local_chat_resume
-from local_support import chat_segment as local_chat_segment
-from local_support import chat_state as local_chat_state
 from local_support import egress as local_egress
 from local_support import labels as local_labels
 from local_support import team_lifecycle as local_team_lifecycle

@@ -8,11 +8,11 @@ import re
 from dataclasses import asdict, dataclass
 
 from chat import orchestrator as chat_orchestrator
-from controller_runtime import local_chat_continuation_store
 from core import strict_json
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
+from local.chat import continuation_store as local_chat_continuation_store
 
 SCHEMA_VERSION = 1
 MAX_JSON_DEPTH = 16

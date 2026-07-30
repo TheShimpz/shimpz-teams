@@ -26,9 +26,9 @@ from integrations import challenges as integration_challenges
 from integrations import service as integration_service
 from integrations import store as integration_store
 from local import app as local_app
+from local.chat.segment import SegmentRequest
+from local.chat.types import ActiveAssistant, PendingLocalChat
 from local.install.runtime import AssistantSpec
-from local_support.chat_segment import SegmentRequest
-from local_support.chat_types import ActiveAssistant, PendingLocalChat
 
 TEST_ACCESS_TOKEN = "oauth-access-test-token-123456789"
 TEST_REFRESH_TOKEN = "oauth-refresh-test-token-123456789"

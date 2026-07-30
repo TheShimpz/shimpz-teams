@@ -6,8 +6,8 @@ from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
-from local_support.chat_types import ActiveAssistant as _ActiveAssistant
-from local_support.chat_types import PendingLocalChat as _PendingLocalChat
+from local.chat.types import ActiveAssistant as _ActiveAssistant
+from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local_support.errors import ApiProblemError as ApiProblem
 
 

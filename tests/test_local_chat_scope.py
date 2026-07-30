@@ -17,7 +17,7 @@ from local_controller_harness import LocalContractCase
 
 from inference import client as brain_runtime_client
 from local import app as local_app
-from local_support.chat_types import ActiveAssistant
+from local.chat.types import ActiveAssistant
 from local_support.validation import MAX_CHAT_ASSISTANTS
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}

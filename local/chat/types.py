@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from http import HTTPStatus
 
-from controller_runtime import local_chat_continuations
+from local.chat import continuation as local_chat_continuations
 from local.install.runtime import AssistantSpec
 from local_support.errors import ApiProblemError
 

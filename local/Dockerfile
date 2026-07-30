@@ -38,9 +38,7 @@ COPY local/install/__init__.py local/install/developers.py local/install/registr
     local/install/runtime.py ./local/install/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
-COPY controller_runtime/__init__.py controller_runtime/local_chat_continuations.py \
-    controller_runtime/local_chat_continuation_store.py \
-    controller_runtime/local_token_store.py ./controller_runtime/
+COPY controller_runtime/__init__.py controller_runtime/local_token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/local.py ./container_policy/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
@@ -53,6 +51,10 @@ COPY integrations/__init__.py integrations/broker.py integrations/challenge_stor
     integrations/challenges.py integrations/flow.py integrations/http.py \
     integrations/pkce.py integrations/private_state.py integrations/providers.py \
     integrations/service.py integrations/store.py ./integrations/
+COPY local/chat/__init__.py local/chat/api.py local/chat/continuation.py \
+    local/chat/continuation_store.py local/chat/execution.py local/chat/pause.py \
+    local/chat/private.py local/chat/resume.py local/chat/segment.py \
+    local/chat/state.py local/chat/types.py ./local/chat/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py \
     install/registry_auth.py ./install/
 COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
@@ -60,10 +62,8 @@ COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-res
     ./protocol/install/v1/
 COPY local_support/__init__.py local_support/assistant_api.py local_support/assistant_lifecycle.py \
     local_support/assistant_resources.py local_support/assistant_rpc.py local_support/audit.py \
-    local_support/chat_api.py local_support/chat_execution.py local_support/chat_pause.py \
-    local_support/chat_private.py local_support/chat_resume.py local_support/chat_segment.py \
-    local_support/chat_state.py local_support/chat_types.py local_support/egress.py local_support/errors.py \
-    local_support/http.py local_support/labels.py local_support/team_lifecycle.py local_support/validation.py \
+    local_support/egress.py local_support/errors.py local_support/http.py local_support/labels.py \
+    local_support/team_lifecycle.py local_support/validation.py \
     ./local_support/
 COPY power/__init__.py power/execution.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/

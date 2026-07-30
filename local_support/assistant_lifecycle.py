@@ -8,8 +8,8 @@ from docker.errors import DockerException, NotFound
 from docker.types import LogConfig, Ulimit
 
 from container_policy import local as local_container_policy
+from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.install.runtime import AssistantSpec
-from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.errors import ApiProblemError as ApiProblem
 from local_support.validation import validate_team_id
 from power import execution as power_execution

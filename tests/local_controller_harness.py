@@ -13,15 +13,15 @@ sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
 
-from controller_runtime import local_chat_continuation_store
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
 from local import app as local_app
+from local.chat import continuation_store as local_chat_continuation_store
+from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from local_support import assistant_lifecycle
-from local_support.chat_types import ActiveAssistant
 from power import execution as power_execution
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}

@@ -22,10 +22,10 @@ from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
+from local.chat import segment as local_chat_segment
+from local.chat.segment import SegmentRequest
+from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from local_support import chat_segment as local_chat_segment
-from local_support.chat_segment import SegmentRequest
-from local_support.chat_types import ActiveAssistant
 
 hosted_app = hosted_harness.app
 
