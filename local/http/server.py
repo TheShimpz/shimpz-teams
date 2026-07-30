@@ -1,7 +1,9 @@
 """Bounded HTTP adapter for the local Team controller."""
 
+import hashlib
 import json
 import threading
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -10,6 +12,7 @@ from docker.errors import DockerException
 from chat import turn as chat_turn_engine
 from core.http import strict as strict_http
 from local import audit as local_audit
+from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
 from local.validation import (
@@ -17,6 +20,7 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
+from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_CHAT_BODY_BYTES = 24 * 1024
@@ -26,6 +30,68 @@ MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
 MAX_PATH_BYTES = 512
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
+_MACHINE_ONLY_OPERATIONS = frozenset({"health", "assistant-integration-complete"})
+_JSON_BODY_LIMITS = {
+    "assistant-install": MAX_BODY_BYTES,
+    "assistant-integration-authorize": MAX_BODY_BYTES,
+    "assistant-integration-complete": MAX_BODY_BYTES,
+    "assistant-invoke": MAX_BODY_BYTES,
+    "chat": MAX_CHAT_BODY_BYTES,
+    "chat-integration-submit": MAX_BODY_BYTES,
+    "chat-stop": MAX_BODY_BYTES,
+    "inference-configure": MAX_BODY_BYTES,
+    "team-create": MAX_BODY_BYTES,
+}
+
+
+@dataclass(slots=True)
+class _RequestAudit:
+    operation: str = "request"
+    principal_id: str | None = None
+    principal_class: str = "absent"
+    credential_state: str = "machine_bearer_present"
+    trace_id: str | None = None
+
+    def machine(self) -> None:
+        self.principal_id = "admin"
+        self.principal_class = "machine"
+        self.credential_state = "machine_bearer_present"
+
+    def human(self, evidence: local_authority.Evidence) -> None:
+        self.principal_id = evidence.supervisor_id
+        self.principal_class = "human"
+        self.credential_state = "assertion_present"
+        self.trace_id = evidence.assertion_id
+
+    def absent(self, credential_state: str) -> None:
+        self.principal_id = None
+        self.principal_class = "absent"
+        self.credential_state = credential_state
+
+    def record(
+        self,
+        operation: str,
+        *,
+        result: str,
+        team_id: str | None = None,
+        assistant: str | None = None,
+        detail: str | None = None,
+    ) -> str:
+        selected_operation = self.operation if operation == "request" else operation
+        self.trace_id = local_audit.record(
+            selected_operation,
+            result=result,
+            principal=local_audit.AuditPrincipal(
+                principal_id=self.principal_id,
+                principal_class=self.principal_class,
+                credential_state=self.credential_state,
+                trace_id=self.trace_id,
+            ),
+            team_id=team_id,
+            assistant=assistant,
+            detail=detail,
+        )
+        return self.trace_id
 
 
 class BoundedServer(ThreadingHTTPServer):
@@ -87,24 +153,69 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(encoded)
 
     def _body(self, *, max_bytes: int = MAX_BODY_BYTES) -> dict[str, object]:
-        try:
-            return strict_http.read_json_object(
-                self.headers,
-                self.rfile,
-                max_bytes=max_bytes,
+        raw = getattr(self, "_captured_json_raw", None)
+        body = getattr(self, "_captured_json_body", None)
+        if not isinstance(raw, bytes) or not isinstance(body, dict) or len(raw) > max_bytes:
+            raise ApiProblem(
+                HTTPStatus.BAD_REQUEST,
+                "request body is unavailable",
+                code="invalid-body",
             )
-        except strict_http.HttpContractError as exc:
-            raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
+        return body
 
     def _file_body(self) -> tuple[str, bytes, str]:
-        try:
-            return strict_http.read_file_upload(
-                self.headers,
-                self.rfile,
-                max_bytes=MAX_FILE_BODY_BYTES,
+        metadata = getattr(self, "_captured_file_metadata", None)
+        if not isinstance(metadata, strict_http.FileUploadMetadata):
+            raise ApiProblem(
+                HTTPStatus.BAD_REQUEST,
+                "file upload metadata is unavailable",
+                code="invalid-file",
             )
+        try:
+            content = strict_http.read_file_content(self.rfile, metadata)
         except strict_http.HttpContractError as exc:
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
+        return metadata.filename, content, metadata.media_type
+
+    def _capture_body(self, operation: str) -> dict[str, object]:
+        self._captured_json_raw = None
+        self._captured_json_body = None
+        self._captured_file_metadata = None
+        try:
+            if operation == "file-upload":
+                metadata = strict_http.file_upload_metadata(
+                    self.headers,
+                    max_bytes=MAX_FILE_BODY_BYTES,
+                )
+                self._captured_file_metadata = metadata
+                return {
+                    "kind": "file",
+                    "length": metadata.length,
+                    "filename": metadata.filename,
+                    "media_type": metadata.media_type,
+                }
+            limit = _JSON_BODY_LIMITS.get(operation)
+            if limit is not None:
+                raw, body = strict_http.read_json_document(
+                    self.headers,
+                    self.rfile,
+                    max_bytes=limit,
+                )
+                self._captured_json_raw = raw
+                self._captured_json_body = body
+                return {
+                    "kind": "json",
+                    "length": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            strict_http.reject_body(self.headers)
+        except strict_http.HttpContractError as exc:
+            raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
+        return {
+            "kind": "none",
+            "length": 0,
+            "sha256": supervisor_contract.EMPTY_SHA256,
+        }
 
     def _team_create_body(self) -> str:
         body = self._body()
@@ -136,23 +247,44 @@ class Handler(BaseHTTPRequestHandler):
             self.headers.get_all("X-Shimpz-Model-Api-Key", failobj=[]),
         )
 
-    def _reject_body(self) -> None:
+    def _resolved_route(self) -> tuple[list[str], strict_http.ControllerRouteMatch]:
         try:
-            strict_http.reject_body(self.headers)
-        except strict_http.HttpContractError as exc:
-            raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
-
-    def _path_parts(self) -> list[str]:
-        try:
-            return list(
-                strict_http.parse_request_target(
-                    self.path,
-                    allow_query=False,
-                    max_bytes=MAX_PATH_BYTES,
-                ).parts
+            target = strict_http.parse_request_target(
+                self.path,
+                allow_query=False,
+                max_bytes=MAX_PATH_BYTES,
             )
         except strict_http.HttpContractError as exc:
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
+        parts = list(target.parts)
+        canonical_path = "/" + "/".join(parts)
+        if target.path != canonical_path:
+            raise ApiProblem(
+                HTTPStatus.BAD_REQUEST,
+                "request path must be canonical",
+                code="invalid-path",
+            )
+        route = strict_http.resolve_controller_route(
+            strict_http.LOCAL_CONTROLLER,
+            self.command,
+            tuple(parts),
+        )
+        if route is None:
+            raise ApiProblem(
+                HTTPStatus.NOT_FOUND,
+                "route not found",
+                code="route-not-found",
+            )
+        return parts, route
+
+    def _model_binding(self, operation: str) -> dict[str, str] | None:
+        if operation not in {"chat", "chat-integration-submit"}:
+            return None
+        provider, api_key = self._model_credential_headers()
+        return {
+            "provider": provider,
+            "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
+        }
 
     def _fixed_route(
         self, parts: list[str]
@@ -392,15 +524,12 @@ class Handler(BaseHTTPRequestHandler):
             )
         return None
 
-    def _route(self) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
-        parts = self._path_parts()
+    def _route(
+        self,
+        parts: list[str],
+        route: strict_http.ControllerRouteMatch,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
         controller = self.server.controller
-        if self.command not in {"POST", "PUT"}:
-            self._reject_body()
-        route = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, self.command, tuple(parts))
-        if route is None:
-            raise ApiProblem(HTTPStatus.NOT_FOUND, "route not found", code="route-not-found")
-
         operation = route.operation
         grouped_resolver = {
             "fixed": self._fixed_route,
@@ -447,16 +576,68 @@ class Handler(BaseHTTPRequestHandler):
             )
         raise AssertionError("canonical local route was not dispatched")
 
+    def _authorized_route(
+        self,
+        request_audit: _RequestAudit,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
+        parts, route = self._resolved_route()
+        request_audit.operation = route.operation
+        if route.operation in _MACHINE_ONLY_OPERATIONS:
+            self._capture_body(route.operation)
+            request_audit.machine()
+            return self._route(parts, route)
+
+        assertion_state = local_authority.credential_state(self.headers)
+        request_audit.absent(assertion_state)
+        body = self._capture_body(route.operation)
+        model = self._model_binding(route.operation)
+        try:
+            evidence = local_authority.verify(
+                self.headers,
+                method=self.command,
+                path="/" + "/".join(parts),
+                body=body,
+                model=model,
+            )
+        except local_authority.SupervisorDeniedError as exc:
+            if assertion_state == "assertion_present":
+                request_audit.credential_state = "assertion_rejected"
+            request_audit.record("human-authority", result="denied", detail="invalid-supervisor")
+            raise ApiProblem(
+                HTTPStatus.FORBIDDEN,
+                "Supervisor authority is required",
+                code="invalid-supervisor",
+            ) from exc
+        except local_authority.SupervisorUnavailableError as exc:
+            request_audit.record("human-authority", result="error", detail="supervisor-unavailable")
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Supervisor authority is unavailable",
+                code="supervisor-unavailable",
+            ) from exc
+        request_audit.human(evidence)
+        request_audit.record("human-authority", result="ok")
+        principal = local_audit.AuditPrincipal(
+            principal_id=evidence.supervisor_id,
+            principal_class="human",
+            credential_state="assertion_present",
+            trace_id=evidence.assertion_id,
+        )
+        with local_audit.bind_request_principal(principal):
+            return self._route(parts, route)
+
     def _handle(self) -> None:
         self.close_connection = True
+        request_audit = _RequestAudit()
         if not self._authorized():
-            trace_id = local_audit.record("authentication", result="denied", detail="invalid-bearer")
+            request_audit.absent("machine_bearer_rejected")
+            trace_id = request_audit.record("authentication", result="denied", detail="invalid-bearer")
             self._send(HTTPStatus.UNAUTHORIZED, {"error": "authentication required", "trace_id": trace_id})
             return
 
         local.dispatch_route(
-            self._route,
-            local_audit.record,
+            lambda: self._authorized_route(request_audit),
+            request_audit.record,
             self._send,
             ApiProblem,
             DockerException,

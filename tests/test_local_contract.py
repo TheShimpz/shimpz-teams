@@ -473,6 +473,7 @@ class LocalContractTests(LocalContractCase):
         handler.rfile = BytesIO(body)
 
         self.assertTrue(handler._authorized())
+        handler._capture_body("chat")
         status, response, *_audit = handler._chat_route(["v1", "teams", "team_1", "chat"])
 
         self.assertEqual(status, HTTPStatus.OK)
@@ -494,16 +495,11 @@ class LocalContractTests(LocalContractCase):
                 return LOOKUP_RESULT
 
             controller.assistant_lifecycle._rpc = rpc
-            audit = mock.patch.object(local_app.local_audit, "record", return_value="trace")
+            audit = mock.patch.object(local_app.local_audit, "record_request", return_value="trace")
             audit.start()
             self.addCleanup(audit.stop)
-            with mock.patch.object(local_app.local_audit, "record", return_value="trace"):
-                response = controller.invoke(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "list-zones",
-                    LOOKUP_INPUT,
-                )
+            with mock.patch.object(local_app.local_audit, "record_request", return_value="trace"):
+                response = controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         self.assertEqual(
             captured,
@@ -529,15 +525,10 @@ class LocalContractTests(LocalContractCase):
                 "username": "OpenAI",
             }
             with (
-                mock.patch.object(local_app.local_audit, "record", return_value="trace"),
+                mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
                 self.assertRaises(local_app.ApiProblem) as leaked,
             ):
-                controller.invoke(
-                    "team_1",
-                    "shimpz-cloudflare",
-                    "list-zones",
-                    LOOKUP_INPUT,
-                )
+                controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         self.assertEqual(leaked.exception.code, "assistant-secret-exposure")
         self.assertNotIn(raw_secret, str(leaked.exception))

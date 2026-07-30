@@ -33,7 +33,7 @@ ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
-COPY local/__init__.py local/app.py local/audit.py local/errors.py local/healthcheck.py \
+COPY local/__init__.py local/app.py local/audit.py local/authority.py local/errors.py local/healthcheck.py \
     local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
 COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
@@ -62,6 +62,7 @@ COPY install/__init__.py install/artifact_trust.py install/bindings.py install/c
 COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \
     protocol/install/v1/schema_validator.py protocol/install/v1/verify.py \
     ./protocol/install/v1/
+COPY protocol/http/v1/supervisor.py ./protocol/http/v1/
 COPY power/__init__.py power/execution.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 
@@ -69,8 +70,11 @@ RUN groupadd --gid 10001 shimpzlocal && \
     groupadd --gid 10010 shimpzteam-token && \
     groupadd --gid 10016 shimpzbrain-runtime-token && \
     groupadd --gid 10017 shimpzapp-egress-policy && \
-    useradd --uid 10001 --gid 10001 --groups 10010,10016,10017 --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
-    mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /var/log/shimpz-local /var/lib/shimpz-local/storage \
+    groupadd --gid 10021 shimpzsupervisor-key && \
+    useradd --uid 10001 --gid 10001 --groups 10010,10016,10017,10021 \
+        --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
+    mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /run/shimpz-local-supervisor \
+        /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/app-egress \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
@@ -78,6 +82,8 @@ RUN groupadd --gid 10001 shimpzlocal && \
     chown shimpzlocal:shimpzteam-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
     chown shimpzlocal:shimpzbrain-runtime-token /run/shimpz-brain-runtime && \
     chmod 0750 /run/shimpz-brain-runtime && \
+    chown root:shimpzsupervisor-key /run/shimpz-local-supervisor && \
+    chmod 0750 /run/shimpz-local-supervisor && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \

@@ -44,7 +44,7 @@ class SharedStrictHttpTest(unittest.TestCase):
                 with self.assertRaises(runtime_state.ApiError) as hosted_error:
                     hosted._capture_body("team-create")
                 with self.assertRaises(local_app.ApiProblem) as local_error:
-                    local._body()
+                    local._capture_body("team-create")
                 self.assertEqual((hosted_error.exception.status, local_error.exception.status), (expected, expected))
 
     def test_hosted_and_local_wrappers_reject_the_same_encoded_route(self) -> None:
@@ -56,7 +56,8 @@ class SharedStrictHttpTest(unittest.TestCase):
         with self.assertRaises(runtime_state.ApiError) as hosted_error:
             hosted_controller.hosted.route_target(hosted.headers, hosted.path, "GET", runtime_state.ApiError)
         with self.assertRaises(local_app.ApiProblem) as local_error:
-            local._path_parts()
+            local.command = "GET"
+            local._resolved_route()
 
         self.assertEqual(
             (hosted_error.exception.status, local_error.exception.status),
@@ -76,6 +77,7 @@ class SharedStrictHttpTest(unittest.TestCase):
         expected = ("brief ✓.txt", body, "text/plain")
         hosted._capture_body("file-upload")
         self.assertEqual(hosted._read_file_body(), expected)
+        local._capture_body("file-upload")
         self.assertEqual(local._file_body(), expected)
 
     def test_file_size_is_rejected_from_content_length_before_body_read(self) -> None:

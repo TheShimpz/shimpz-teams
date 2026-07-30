@@ -16,6 +16,15 @@ from unittest import mock
 from local import audit
 
 
+def _record(operation: str, *, result: str, **metadata: object) -> str:
+    return audit.record(
+        operation,
+        result=result,
+        principal=audit.AuditPrincipal("team-local", "machine"),
+        **metadata,
+    )
+
+
 def _crash_after_acknowledged_audit(path: str, sync_marker: str) -> None:
     audit.AUDIT_PATH = Path(path)
     audit.GROUP_COMMIT_MAX_SECONDS = 60
@@ -26,7 +35,7 @@ def _crash_after_acknowledged_audit(path: str, sync_marker: str) -> None:
         Path(sync_marker).write_text("synced", encoding="ascii")
 
     audit.os.fsync = mark_sync
-    audit.record("assistant-power", result="ok", team_id="team_1")
+    _record("assistant-power", result="ok", team_id="team_1")
     os._exit(0)
 
 
@@ -60,8 +69,8 @@ class LocalAuditTests(unittest.TestCase):
             mock.patch.object(audit, "GROUP_COMMIT_MAX_SECONDS", 60),
             mock.patch.object(audit.os, "fsync", wraps=os.fsync) as sync,
         ):
-            audit.record("first", result="ok")
-            audit.record("second", result="ok")
+            _record("first", result="ok")
+            _record("second", result="ok")
             self.assertEqual(sync.call_count, 0)
             audit.flush()
 
@@ -84,8 +93,8 @@ class LocalAuditTests(unittest.TestCase):
             mock.patch.object(audit.os, "fsync", side_effect=observe) as sync,
         ):
             started = time.monotonic()
-            audit.record("first", result="ok")
-            audit.record("second", result="ok")
+            _record("first", result="ok")
+            _record("second", result="ok")
             self.assertTrue(synchronized.wait(timeout=1))
             elapsed = time.monotonic() - started
 
@@ -108,11 +117,11 @@ class LocalAuditTests(unittest.TestCase):
             mock.patch.object(audit.os, "fsync", side_effect=checkpoint),
         ):
             for index in range(8):
-                audit.record("burst", result="ok", detail=str(index))
+                _record("burst", result="ok", detail=str(index))
             self.assertEqual(durable_snapshot, b"")
             audit.flush()
             self.assertEqual(len(durable_snapshot.splitlines()), 8)
-            audit.record("next-group", result="ok")
+            _record("next-group", result="ok")
             simulated_recovery = durable_snapshot
 
         self.assertEqual(len(simulated_recovery.splitlines()), 8)
@@ -125,7 +134,7 @@ class LocalAuditTests(unittest.TestCase):
         ):
             trace_ids = tuple(
                 executor.map(
-                    lambda index: audit.record("concurrent", result="ok", detail=str(index)),
+                    lambda index: _record("concurrent", result="ok", detail=str(index)),
                     range(64),
                 )
             )

@@ -792,7 +792,7 @@ class LocalController:
                     code="team-context-changed",
                 )
             integration_values = self.chat_turn_service._resolve_power_integrations(team_id, spec, power)
-            local_audit.record(
+            local_audit.record_request(
                 "assistant-power",
                 result="ok",
                 team_id=team_id,
@@ -810,7 +810,7 @@ class LocalController:
                 rpc_payload,
             )
         except ApiProblem:
-            local_audit.record(
+            local_audit.record_request(
                 "assistant-power",
                 result="error",
                 team_id=team_id,
@@ -825,7 +825,7 @@ class LocalController:
                 lambda value: validate_power_payload(power_spec, "output", value),
             )
         except power_execution.RpcSecretExposureError:
-            local_audit.record(
+            local_audit.record_request(
                 "assistant-power",
                 result="error",
                 team_id=team_id,
@@ -838,7 +838,7 @@ class LocalController:
                 code="assistant-secret-exposure",
             ) from None
         except power_execution.RpcInvalidResultError as exc:
-            local_audit.record(
+            local_audit.record_request(
                 "assistant-power",
                 result="error",
                 team_id=team_id,
@@ -850,7 +850,7 @@ class LocalController:
                 "the Assistant returned an invalid result",
                 code="invalid-power-output",
             ) from exc
-        local_audit.record(
+        local_audit.record_request(
             "assistant-power",
             result="ok",
             team_id=team_id,
@@ -887,7 +887,11 @@ def main() -> int:
     except (KeyError, RuntimeError, DockerException) as exc:
         print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)
         return 1
-    local_audit.record("startup", result="ok")
+    local_audit.record(
+        "startup",
+        result="ok",
+        principal=local_audit.AuditPrincipal("team-local", "machine"),
+    )
     try:
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:

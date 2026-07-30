@@ -69,7 +69,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             controller.assistant_lifecycle._rpc = rpc
             with (
-                mock.patch.object(local_app.local_audit, "record", return_value="trace"),
+                mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
                 concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
             ):
                 future = executor.submit(

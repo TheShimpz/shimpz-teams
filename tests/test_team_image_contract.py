@@ -58,6 +58,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/install/v1/verify.py",
 }
 LOCAL_PROTOCOL_DATA = {
+    "protocol/http/v1/supervisor.py",
     "protocol/install/v1/definitions.schema.json",
     "protocol/install/v1/resolve-response.schema.json",
     "protocol/install/v1/schema_validator.py",
@@ -336,6 +337,8 @@ class StaticTeamImageContractTests(unittest.TestCase):
         )
         self.assertIn("/var/lib/shimpz-local/chat-continuations/state", runtime)
         self.assertIn("/var/lib/shimpz-local/chat-continuations/key", runtime)
+        self.assertIn("groupadd --gid 10021 shimpzsupervisor-key", runtime)
+        self.assertIn("chmod 0750 /run/shimpz-local-supervisor", runtime)
         self.assertNotIn("uv-install.sh", dockerfile)
         self.assertNotIn("apt-get", runtime)
         self.assertNotIn("curl", runtime)

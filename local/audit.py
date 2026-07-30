@@ -9,10 +9,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import threading
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from pathlib import Path
 
 AUDIT_PATH = Path("/var/log/shimpz-local/audit.jsonl")
@@ -26,6 +31,66 @@ _dirty_since: float | None = None
 _flush_thread: threading.Thread | None = None
 _stopping = False
 _failure: RuntimeError | None = None
+_OPAQUE_HUMAN_ID = re.compile(r"^[0-9a-f]{32}$")
+_MACHINE_ID = re.compile(r"^[a-z][a-z0-9-]{0,63}$")
+_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+_PRINCIPAL_CLASSES = frozenset({"absent", "human", "machine"})
+_RESULTS = frozenset({"denied", "error", "ok"})
+_CREDENTIAL_STATES = frozenset(
+    {
+        "assertion_absent_or_malformed",
+        "assertion_present",
+        "assertion_rejected",
+        "machine_bearer_present",
+        "machine_bearer_rejected",
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AuditPrincipal:
+    principal_id: str | None
+    principal_class: str
+    credential_state: str | None = None
+    trace_id: str | None = None
+
+
+_REQUEST_PRINCIPAL: ContextVar[AuditPrincipal | None] = ContextVar(
+    "local_audit_request_principal",
+    default=None,
+)
+
+
+@contextmanager
+def bind_request_principal(principal: AuditPrincipal) -> Iterator[None]:
+    """Bind attributable authority only for the synchronous request execution."""
+    token = _REQUEST_PRINCIPAL.set(principal)
+    try:
+        yield
+    finally:
+        _REQUEST_PRINCIPAL.reset(token)
+
+
+def record_request(
+    operation: str,
+    *,
+    result: str,
+    team_id: str | None = None,
+    assistant: str | None = None,
+    detail: str | None = None,
+) -> str:
+    """Record an internal security event under the verified request principal."""
+    principal = _REQUEST_PRINCIPAL.get()
+    if principal is None:
+        raise RuntimeError("Local request audit principal is unavailable")
+    return record(
+        operation,
+        result=result,
+        principal=principal,
+        team_id=team_id,
+        assistant=assistant,
+        detail=detail,
+    )
 
 
 def _safe_file(path: Path) -> None:
@@ -161,18 +226,43 @@ def record(
     operation: str,
     *,
     result: str,
+    principal: AuditPrincipal,
     team_id: str | None = None,
     assistant: str | None = None,
     detail: str | None = None,
 ) -> str:
     """Append one metadata-only event and return its correlation id."""
-    trace_id = uuid.uuid4().hex
+    principal_id = principal.principal_id
+    principal_class = principal.principal_class
+    credential_state = principal.credential_state
+    if (
+        principal_class not in _PRINCIPAL_CLASSES
+        or result not in _RESULTS
+        or (principal_class == "absent") != (principal_id is None)
+        or (
+            principal_class == "human"
+            and (not isinstance(principal_id, str) or _OPAQUE_HUMAN_ID.fullmatch(principal_id) is None)
+        )
+        or (
+            principal_class == "machine"
+            and (not isinstance(principal_id, str) or _MACHINE_ID.fullmatch(principal_id) is None)
+        )
+        or (credential_state is not None and credential_state not in _CREDENTIAL_STATES)
+    ):
+        raise ValueError("invalid Local audit principal metadata")
+    trace_id = principal.trace_id
+    if trace_id is None:
+        trace_id = uuid.uuid4().hex
+    elif not isinstance(trace_id, str) or _TRACE_ID.fullmatch(trace_id) is None:
+        raise ValueError("invalid Local audit trace id")
     event = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "service": "team-local",
         "trace_id": trace_id,
         "operation": operation,
         "result": result,
+        "principal_id": principal_id,
+        "principal_class": principal_class,
     }
     if team_id is not None:
         event["team_id"] = team_id
@@ -180,6 +270,8 @@ def record(
         event["assistant"] = assistant
     if detail is not None:
         event["detail"] = detail
+    if credential_state is not None:
+        event["credential_state"] = credential_state
     encoded = (json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")
 
     global _dirty_since
