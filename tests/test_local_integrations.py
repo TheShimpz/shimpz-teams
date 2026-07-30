@@ -228,7 +228,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 os.environ,
                 {
                     "SHIMPZ_OAUTH_BROKER_PROXY_HOST": "oauth-broker-proxy",
-                    "SHIMPZ_OAUTH_BROKER_PROXY_TOKEN": "a" * 64,
+                    "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token",
                     "SHIMPZ_OAUTH_CALLBACK_MODE": "loopback",
                 },
             ),
@@ -260,7 +260,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 ),
             )
 
-        transport_type.assert_called_once_with(proxy_host="oauth-broker-proxy", proxy_token="a" * 64)
+        transport_type.assert_called_once_with(
+            proxy_host="oauth-broker-proxy",
+            proxy_capability_file="/run/shimpz-account-egress/token",
+        )
         broker_type.assert_called_once_with(transport=transport, callback_mode="loopback")
         service_type.assert_called_once_with(challenge=pkce, store=integrations, broker=broker)
         self.assertIs(controller.oauth_broker, broker)

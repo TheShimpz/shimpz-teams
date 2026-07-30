@@ -131,7 +131,7 @@ COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY inference/__init__.py inference/client.py inference/config.py inference/credentials.py \
      inference/model_catalog.json inference/token.py ./inference/
-COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \
+COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
      integrations/challenges.py integrations/flow.py integrations/http.py \
      integrations/pkce.py integrations/private_state.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/

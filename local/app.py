@@ -411,7 +411,7 @@ class LocalController:
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=integration_broker.FixedBrokerTransport(
                 proxy_host=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_HOST"),
-                proxy_token=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_TOKEN"),
+                proxy_capability_file=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE"),
             ),
             callback_mode=os.environ.get("SHIMPZ_OAUTH_CALLBACK_MODE", "loopback"),
         )

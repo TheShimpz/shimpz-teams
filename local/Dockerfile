@@ -45,7 +45,7 @@ COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY inference/__init__.py inference/client.py inference/config.py inference/model_catalog.json \
     inference/token.py ./inference/
-COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \
+COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \
     integrations/pkce.py integrations/private_state.py integrations/providers.py \
     integrations/service.py integrations/store.py ./integrations/
@@ -79,7 +79,8 @@ RUN groupadd --gid 10001 shimpzlocal && \
     groupadd --gid 10016 shimpzbrain-runtime-token && \
     groupadd --gid 10017 shimpzapp-egress-policy && \
     groupadd --gid 10021 shimpzsupervisor-key && \
-    useradd --uid 10001 --gid 10001 --groups 10010,10016,10017,10021 \
+    groupadd --gid 10022 shimpzaccount-egress-token && \
+    useradd --uid 10001 --gid 10001 --groups 10010,10016,10017,10021,10022 \
         --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
     mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /run/shimpz-local-supervisor \
         /var/log/shimpz-local /var/lib/shimpz-local/storage \

@@ -13,10 +13,12 @@ import re
 from base64 import b64encode
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
 from core import strict_json
+from integrations import account_egress
 from integrations import http as integration_http
 from integrations import providers as integration_providers
 
@@ -30,7 +32,6 @@ _BINDING = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _CLAIM = re.compile(r"[0-9a-f]{64}\Z")
 _LEASE = re.compile(r"l1\.\d{10}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\Z")
 _PROXY_HOST = "oauth-broker-proxy"
-_PROXY_TOKEN = re.compile(r"[0-9a-f]{64}\Z")
 _PROXY_PORT = 8889
 
 
@@ -58,15 +59,20 @@ class BrokerTransport(Protocol):
 class FixedBrokerTransport:
     """POST only to one reviewed shimpz.com broker operation."""
 
-    def __init__(self, *, proxy_host: object = None, proxy_token: object = None) -> None:
-        if proxy_host is None and proxy_token is None:
-            self._proxy: tuple[str, str] | None = None
+    def __init__(
+        self,
+        *,
+        proxy_host: object = None,
+        proxy_capability_file: object = None,
+    ) -> None:
+        if proxy_host is None and proxy_capability_file is None:
+            self._proxy: tuple[str, Path] | None = None
         elif (
             proxy_host == _PROXY_HOST
-            and isinstance(proxy_token, str)
-            and _PROXY_TOKEN.fullmatch(proxy_token) is not None
+            and isinstance(proxy_capability_file, str | Path)
+            and Path(proxy_capability_file).is_absolute()
         ):
-            self._proxy = (_PROXY_HOST, proxy_token)
+            self._proxy = (_PROXY_HOST, Path(proxy_capability_file))
         else:
             raise OAuthBrokerClientError("OAuth broker proxy configuration is invalid")
 
@@ -97,9 +103,13 @@ class FixedBrokerTransport:
         if self._proxy is None:
             connection = http.client.HTTPSConnection(parsed.hostname, timeout=HTTP_TIMEOUT_SECONDS)
         else:
-            proxy_host, proxy_token = self._proxy
+            proxy_host, capability_file = self._proxy
+            try:
+                proxy_capability = account_egress.read_capability(capability_file)
+            except account_egress.AccountEgressCapabilityError as exc:
+                raise OAuthBrokerClientError("OAuth broker proxy capability is unavailable") from exc
             connection = http.client.HTTPSConnection(proxy_host, _PROXY_PORT, timeout=HTTP_TIMEOUT_SECONDS)
-            proxy_authorization = b64encode(f"{proxy_token}:".encode("ascii")).decode("ascii")
+            proxy_authorization = b64encode(f"{proxy_capability}:".encode("ascii")).decode("ascii")
             connection.set_tunnel(
                 parsed.hostname,
                 443,

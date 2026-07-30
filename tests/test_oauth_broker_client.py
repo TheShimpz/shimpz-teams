@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -91,10 +94,18 @@ class OAuthBrokerClientTests(unittest.TestCase):
         )
         connection = Mock(getresponse=Mock(return_value=response))
         token = "a" * 64
-        with patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect:
+        capability_path = Path("/run/shimpz-account-egress/token")
+        with (
+            patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect,
+            patch.object(
+                integration_broker.account_egress,
+                "read_capability",
+                return_value=token,
+            ) as read_capability,
+        ):
             transport = integration_broker.FixedBrokerTransport(
                 proxy_host="oauth-broker-proxy",
-                proxy_token=token,
+                proxy_capability_file=capability_path,
             )
             result = transport.request(
                 url="https://shimpz.com/api/oauth/cloudflare/claim",
@@ -103,6 +114,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             )
 
         self.assertEqual(result.status, 200)
+        read_capability.assert_called_once_with(capability_path)
         connect.assert_called_once_with("oauth-broker-proxy", 8889, timeout=10)
         tunnel = connection.set_tunnel.call_args
         self.assertEqual(tunnel.args, ("shimpz.com", 443))
@@ -117,13 +129,45 @@ class OAuthBrokerClientTests(unittest.TestCase):
     def test_fixed_transport_rejects_partial_or_foreign_proxy_configuration(self) -> None:
         invalid = (
             {"proxy_host": "oauth-broker-proxy"},
-            {"proxy_token": "a" * 64},
-            {"proxy_host": "evil.example", "proxy_token": "a" * 64},
-            {"proxy_host": "oauth-broker-proxy", "proxy_token": "short"},
+            {"proxy_capability_file": "/run/shimpz-account-egress/token"},
+            {
+                "proxy_host": "evil.example",
+                "proxy_capability_file": "/run/shimpz-account-egress/token",
+            },
+            {
+                "proxy_host": "oauth-broker-proxy",
+                "proxy_capability_file": "relative/token",
+            },
         )
         for values in invalid:
             with self.subTest(values=set(values)), self.assertRaises(integration_broker.OAuthBrokerClientError):
                 integration_broker.FixedBrokerTransport(**values)
+
+    def test_proxy_capability_reader_rejects_unsafe_file_custody(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(
+                integration_broker.account_egress.grp,
+                "getgrnam",
+                return_value=Mock(gr_gid=os.getgid()),
+            ),
+        ):
+            path = Path(directory) / "token"
+            path.write_text("a" * 64, encoding="ascii")
+            path.chmod(0o440)
+            self.assertEqual(
+                integration_broker.account_egress.read_capability(
+                    path,
+                    owner_uid=os.getuid(),
+                ),
+                "a" * 64,
+            )
+            path.chmod(0o400)
+            with self.assertRaises(integration_broker.account_egress.AccountEgressCapabilityError):
+                integration_broker.account_egress.read_capability(
+                    path,
+                    owner_uid=os.getuid(),
+                )
 
     def test_claim_refresh_and_revoke_use_only_fixed_broker_operations(self) -> None:
         claimed = self.client.claim(
