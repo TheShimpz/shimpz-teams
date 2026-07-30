@@ -1,21 +1,23 @@
-"""No-mock end-to-end contract against the real local Docker daemon."""
+"""Local controller lifecycle contract against the real Docker daemon.
+
+Developers resolution and Sigstore evidence are deterministic fixtures; controller
+HTTP, Supervisor authority, registry state, Docker pull, and isolation remain real.
+"""
 
 from __future__ import annotations
 
+import base64
 import hashlib
-import ipaddress
 import json
 import os
 import sys
-import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
-import uuid
-from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 TEAM = Path(__file__).resolve().parents[1]
 FIXTURE = TEAM / "tests" / "fixtures" / "reference-assistant"
@@ -29,72 +31,15 @@ LOCAL_PROFILE = "single-owner-local-v1"
 
 sys.path.insert(0, str(TEAM))
 from docker_harness import DockerHarnessMixin
+from local_controller_docker_fixture import (
+    DockerFlow,
+    fixture_resolution,
+    new_flow,
+    supervisor_header,
+)
 
-from local.app import half_cpu_set
 from power import execution as power_execution
-
-
-class _BrainLifecycleHandler(BaseHTTPRequestHandler):
-    """Minimal real HTTP peer for the controller's closed thread-deletion contract."""
-
-    def log_message(self, *_args) -> None:
-        pass
-
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        body = self.rfile.read(length)
-        try:
-            document = json.loads(body)
-        except UnicodeError, json.JSONDecodeError:
-            document = None
-        valid = (
-            self.path == "/v1/threads/delete"
-            and isinstance(document, dict)
-            and set(document) == {"thread_id"}
-            and isinstance(document["thread_id"], str)
-        )
-        response = json.dumps({"status": "deleted"} if valid else {"error": "invalid request"}).encode()
-        self.send_response(200 if valid else 400)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response)))
-        self.send_header("Connection", "close")
-        self.end_headers()
-        self.wfile.write(response)
-
-
-@dataclass(slots=True)
-class _DockerFlow:
-    builder: str
-    registry: str
-    controller: str
-    egress_proxy: str
-    fixture_tag: str
-    controller_tag: str
-    egress_proxy_tag: str
-    token_volume: str
-    runtime_token_volume: str
-    audit_volume: str
-    storage_volume: str
-    inference_volume: str
-    power_journal_volume: str
-    continuation_state_volume: str
-    continuation_key_volume: str
-    egress_policy_volume: str
-    egress_audit_volume: str
-    space_id: str
-    foreign_network: str
-    outbound_network: str
-    test_cpuset: str
-    bridge_gateway: ipaddress.IPv4Address
-    brain_server: ThreadingHTTPServer
-    brain_thread: threading.Thread
-    trusted_ref: str = ""
-    port: int = 0
-    token: str = ""
-    file_id: str = ""
-    network_name: str = ""
-    assistant_name: str = ""
-    original_assistant_id: str = ""
+from protocol.http.v1 import supervisor as supervisor_contract
 
 
 class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
@@ -103,51 +48,37 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
     docker_cwd = TEAM
     controller_kind = "local controller"
 
-    def _new_flow(self) -> _DockerFlow:
-        unique = uuid.uuid4().hex[:12]
-        daemon_processors = int(self._run("info", "--format", "{{.NCPU}}").stdout.strip())
-        test_cpuset = half_cpu_set(daemon_processors)
-        bridge_gateway = ipaddress.IPv4Address(
-            self._run(
-                "network",
-                "inspect",
-                "bridge",
-                "--format",
-                "{{(index .IPAM.Config 0).Gateway}}",
-            ).stdout.strip()
-        )
-        brain_server = ThreadingHTTPServer((str(bridge_gateway), 0), _BrainLifecycleHandler)
-        brain_thread = threading.Thread(
-            target=brain_server.serve_forever,
-            kwargs={"poll_interval": 0.01},
-            daemon=True,
-        )
-        brain_thread.start()
-        return _DockerFlow(
-            builder=f"shimpz-local-test-{unique}",
-            registry=f"shimpz-registry-{unique}",
-            controller=f"shimpz-controller-{unique}",
-            egress_proxy=f"shimpz-egress-proxy-{unique}",
-            fixture_tag=f"shimpz-cloudflare-test:{unique}",
-            controller_tag=f"shimpz-team-local-test:{unique}",
-            egress_proxy_tag=f"shimpz-app-egress-test:{unique}",
-            token_volume=f"shimpz-local-token-{unique}",
-            runtime_token_volume=f"shimpz-local-runtime-token-{unique}",
-            audit_volume=f"shimpz-local-audit-{unique}",
-            storage_volume=f"shimpz-local-storage-{unique}",
-            inference_volume=f"shimpz-local-inference-{unique}",
-            power_journal_volume=f"shimpz-local-power-journal-{unique}",
-            continuation_state_volume=f"shimpz-local-continuation-state-{unique}",
-            continuation_key_volume=f"shimpz-local-continuation-key-{unique}",
-            egress_policy_volume=f"shimpz-local-egress-policy-{unique}",
-            egress_audit_volume=f"shimpz-local-egress-audit-{unique}",
-            space_id=f"test-space-{unique}",
-            foreign_network=f"shimpz-foreign-{unique}",
-            outbound_network=f"shimpz-egress-outbound-{unique}",
-            test_cpuset=test_cpuset,
-            bridge_gateway=bridge_gateway,
-            brain_server=brain_server,
-            brain_thread=brain_thread,
+    def _new_flow(self) -> DockerFlow:
+        self._supervisors_by_port: dict[int, DockerFlow] = {}
+        return new_flow(self._run)
+
+    def _api(
+        self,
+        port: int,
+        credential: str | None,
+        method: str,
+        path: str,
+        body: dict[str, object] | bytes | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> tuple[int, dict[str, object]]:
+        headers = dict(extra_headers or {})
+        flow = self._supervisors_by_port.get(port)
+        if credential is not None and flow is not None and path != "/healthz":
+            headers[supervisor_contract.ASSERTION_HEADER] = supervisor_header(
+                flow,
+                method,
+                path,
+                body,
+                headers,
+            )
+        return super()._api(
+            port,
+            credential,
+            method,
+            path,
+            body,
+            extra_headers=headers,
         )
 
     @staticmethod
@@ -229,7 +160,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
 
         return self._wait_controller(container, probe, interval=0.25)
 
-    def _prepare_images(self, flow: _DockerFlow) -> None:
+    def _prepare_images(self, flow: DockerFlow) -> None:
         self._run(
             "buildx",
             "create",
@@ -307,24 +238,22 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--load",
             "--file",
             str(TEAM / "local" / "Dockerfile"),
-            "--build-arg",
-            f"SHIMPZ_ASSISTANT_IMAGE={flow.trusted_ref}",
-            "--build-arg",
-            f"SHIMPZ_CLOUDFLARE_ASSISTANT_IMAGE={flow.trusted_ref}",
             "--tag",
             flow.controller_tag,
             str(TEAM),
         )
 
-    def _start_controller(self, flow: _DockerFlow) -> None:
+    def _start_controller(self, flow: DockerFlow) -> None:
         self._run("volume", "create", flow.token_volume)
         self._run("volume", "create", flow.runtime_token_volume)
         self._run("volume", "create", flow.audit_volume)
         self._run("volume", "create", flow.storage_volume)
         self._run("volume", "create", flow.inference_volume)
         self._run("volume", "create", flow.power_journal_volume)
+        self._run("volume", "create", flow.publication_volume)
         self._run("volume", "create", flow.continuation_state_volume)
         self._run("volume", "create", flow.continuation_key_volume)
+        self._run("volume", "create", flow.supervisor_key_volume)
         self._run("volume", "create", flow.egress_policy_volume)
         self._run("volume", "create", flow.egress_audit_volume)
         self._run("network", "create", flow.outbound_network)
@@ -333,6 +262,40 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--tag",
             flow.egress_proxy_tag,
             str(TEAM.parent / "assistants" / "egress"),
+        )
+        public_key = flow.supervisor_private_key.public_key().public_bytes(
+            Encoding.PEM,
+            PublicFormat.SubjectPublicKeyInfo,
+        )
+        resolution = json.dumps(
+            fixture_resolution(flow),
+            separators=(",", ":"),
+        ).encode()
+        self._run(
+            "run",
+            "--rm",
+            "--user",
+            "0:0",
+            "--volume",
+            f"{flow.supervisor_key_volume}:/keys",
+            "--volume",
+            f"{flow.publication_volume}:/publications",
+            "--env",
+            f"SHIMPZ_TEST_SUPERVISOR_PUBLIC_KEY={base64.b64encode(public_key).decode('ascii')}",
+            "--env",
+            f"SHIMPZ_TEST_PUBLICATION={base64.b64encode(resolution).decode('ascii')}",
+            "--entrypoint",
+            "/opt/venv/bin/python",
+            flow.controller_tag,
+            "-c",
+            "import base64,os; from pathlib import Path; "
+            "p=Path('/keys/public.pem'); "
+            "p.write_bytes(base64.b64decode(os.environ['SHIMPZ_TEST_SUPERVISOR_PUBLIC_KEY'],validate=True)); "
+            "os.chown(p,0,10021); p.chmod(0o440); "
+            "r=Path('/publications/test-resolution.json'); "
+            "r.write_bytes(base64.b64decode(os.environ['SHIMPZ_TEST_PUBLICATION'],validate=True)); "
+            "os.chown(r.parent,10001,10001); r.parent.chmod(0o700); "
+            "os.chown(r,10001,10001); r.chmod(0o600)",
         )
         self._run(
             "run",
@@ -405,6 +368,8 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "10016",
             "--group-add",
             "10017",
+            "--group-add",
+            "10021",
             "--volume",
             "/var/run/docker.sock:/var/run/docker.sock",
             "--volume",
@@ -420,9 +385,15 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--volume",
             f"{flow.power_journal_volume}:/var/lib/shimpz-local/power-journal",
             "--volume",
+            f"{flow.publication_volume}:/var/lib/shimpz-local/publications",
+            "--volume",
             f"{flow.continuation_state_volume}:/var/lib/shimpz-local/chat-continuations/state",
             "--volume",
             f"{flow.continuation_key_volume}:/var/lib/shimpz-local/chat-continuations/key",
+            "--volume",
+            f"{flow.supervisor_key_volume}:/run/shimpz-local-supervisor:ro",
+            "--volume",
+            f"{FIXTURE / 'local-controller-fixture.py'}:/local-controller-fixture.py:ro",
             "--volume",
             f"{flow.egress_policy_volume}:/var/lib/shimpz-local/app-egress",
             "--env",
@@ -435,9 +406,13 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             f"SHIMPZ_BRAIN_RUNTIME_URL=http://{flow.bridge_gateway}:{flow.brain_server.server_port}",
             "--publish",
             "127.0.0.1::7077",
+            "--entrypoint",
+            "/opt/venv/bin/python",
             flow.controller_tag,
+            "/local-controller-fixture.py",
         )
         flow.port, flow.token = self._wait_local_controller(flow.controller)
+        self._supervisors_by_port[flow.port] = flow
         journal_mode = self._run(
             "exec",
             flow.controller,
@@ -465,14 +440,14 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         unauthenticated, _ = self._api(flow.port, None, "GET", "/v1/assistants")
         self.assertEqual(unauthenticated, 401)
         status, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
-        self.assertEqual(status, 200)
-        self.assertEqual(catalog["assistants"][0]["id"], "shimpz-cloudflare")
-        self.assertEqual(
-            catalog["assistants"][0]["powers"],
-            ["list-dns-records", "list-zones"],
-        )
+        controller_logs = ""
+        if status != 200:
+            log_result = self._run("logs", flow.controller, check=False)
+            controller_logs = (log_result.stdout + log_result.stderr)[-2000:]
+        self.assertEqual(status, 200, f"{catalog}\n{controller_logs}")
+        self.assertEqual(catalog["assistants"], [])
 
-    def _exercise_team_storage(self, flow: _DockerFlow) -> None:
+    def _exercise_team_storage(self, flow: DockerFlow) -> None:
         status, created = self._api(
             flow.port,
             flow.token,
@@ -528,7 +503,14 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
 
         self._run("restart", flow.controller)
         flow.port, flow.token = self._wait_local_controller(flow.controller)
-        _, files_after_restart = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/files")
+        self._supervisors_by_port[flow.port] = flow
+        restart_status, files_after_restart = self._api(
+            flow.port,
+            flow.token,
+            "GET",
+            "/v1/teams/demo_team/files",
+        )
+        self.assertEqual(restart_status, 200, files_after_restart)
         self.assertEqual(files_after_restart["files"][0]["id"], flow.file_id)
 
         # A daemon-side network loss must not let a new lifecycle inherit the old opaque data.
@@ -564,14 +546,17 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(orphan_files["files"], [])
         self._api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team")
 
-    def _exercise_assistant(self, flow: _DockerFlow) -> None:
+    def _exercise_assistant(self, flow: DockerFlow) -> None:
         # An unknown ID is rejected while the trusted image is still absent from the daemon.
         unknown_status, _ = self._api(
             flow.port,
             flow.token,
             "POST",
             "/v1/teams/demo_team/assistants",
-            {"assistant": "unknown-assistant"},
+            {
+                "assistant_id": "unknown-assistant",
+                "source_digest": flow.source_digest,
+            },
         )
         self.assertEqual(unknown_status, 404)
         self.assertNotEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
@@ -581,7 +566,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.token,
             "POST",
             "/v1/teams/demo_team/assistants",
-            {"assistant": "shimpz-cloudflare"},
+            {
+                "assistant_id": "shimpz-cloudflare",
+                "source_digest": flow.source_digest,
+            },
         )
         controller_logs = ""
         if installed_status != 200:
@@ -590,6 +578,18 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(installed_status, 200, f"{installed}\n{controller_logs}")
         self.assertTrue(installed["installed"], installed)
         self.assertEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
+        _, catalog = self._api(flow.port, flow.token, "GET", "/v1/assistants")
+        self.assertEqual(
+            catalog["assistants"],
+            [
+                {
+                    "id": "shimpz-cloudflare",
+                    "powers": ["list-dns-records", "list-zones"],
+                    "summary": "Shimpz Cloudflare",
+                    "title": "Shimpz Cloudflare",
+                }
+            ],
+        )
 
         flow.assistant_name = self._run(
             "ps",
@@ -626,7 +626,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(network_metadata["Labels"]["com.shimpz.local.space-id"], flow.space_id)
         self.assertEqual(network_metadata["Labels"]["com.shimpz.local.team-name"], "Demo Team")
 
-    def _exercise_assistant_recovery(self, flow: _DockerFlow) -> None:
+    def _exercise_assistant_recovery(self, flow: DockerFlow) -> None:
         # The pre-built runtime has no resident Assistant server to probe. Recovery is therefore
         # bound to Docker's process state, while each Power exec proves its own completion.
         self._run("kill", flow.assistant_name)
@@ -637,7 +637,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.token,
             "POST",
             "/v1/teams/demo_team/assistants",
-            {"assistant": "shimpz-cloudflare"},
+            {
+                "assistant_id": "shimpz-cloudflare",
+                "source_digest": flow.source_digest,
+            },
         )
         self.assertEqual((recovered_status, recovered["installed"]), (200, False))
         restarted_assistant_id = self._run("inspect", "--format", "{{.Id}}", flow.assistant_name).stdout.strip()
@@ -649,7 +652,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.token,
             "POST",
             "/v1/teams/demo_team/assistants",
-            {"assistant": "shimpz-cloudflare"},
+            {
+                "assistant_id": "shimpz-cloudflare",
+                "source_digest": flow.source_digest,
+            },
         )
         self.assertFalse(installed_again["installed"])
         self.assertEqual(
@@ -671,20 +677,29 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(
             {
                 "assistant_id": account["assistant_id"],
+                "assistant_name": account["assistant_name"],
                 "id": account["id"],
                 "provider": account["provider"],
+                "name": account["name"],
+                "summary": account["summary"],
                 "scopes": account["scopes"],
                 "status": account["status"],
-                "account": account["account"],
+                "integration": account["integration"],
                 "expires_at": account["expires_at"],
             },
             {
                 "assistant_id": "shimpz-cloudflare",
+                "assistant_name": "Shimpz Cloudflare",
                 "id": "cloudflare",
                 "provider": "cloudflare",
+                "name": "Cloudflare",
+                "summary": (
+                    "Connect your Cloudflare integration so this Assistant can use only "
+                    "its reviewed read permissions."
+                ),
                 "scopes": ["dns.read", "offline_access", "zone.read"],
                 "status": "missing",
-                "account": None,
+                "integration": None,
                 "expires_at": None,
             },
         )
@@ -706,7 +721,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         )
         self.assertEqual(unknown_power, 404)
 
-    def _exercise_teardown(self, flow: _DockerFlow) -> None:
+    def _exercise_teardown(self, flow: DockerFlow) -> None:
         proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
         proxy_networks = proxy_metadata["NetworkSettings"]["Networks"]
         self.assertEqual(set(proxy_networks), {flow.outbound_network, flow.network_name})
@@ -732,13 +747,14 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "/v1/teams/demo_team/assistants/shimpz-cloudflare",
         )
         self.assertTrue(removed["uninstalled"])
-        _, removed_again = self._api(
+        removed_again_status, removed_again = self._api(
             flow.port,
             flow.token,
             "DELETE",
             "/v1/teams/demo_team/assistants/shimpz-cloudflare",
         )
-        self.assertFalse(removed_again["uninstalled"])
+        self.assertEqual(removed_again_status, 404)
+        self.assertEqual(removed_again["code"], "assistant-not-allowlisted")
         proxy_networks_after_uninstall = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0][
             "NetworkSettings"
         ]["Networks"]
@@ -793,7 +809,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         _, destroyed_again = self._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team")
         self.assertFalse(destroyed_again["destroyed"])
 
-    def _exercise_reset(self, flow: _DockerFlow) -> None:
+    def _exercise_reset(self, flow: DockerFlow) -> None:
         # Reset owns no identifiers and ignores a similarly labeled resource missing the exact kind label.
         self._run(
             "network",
@@ -819,7 +835,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.token,
             "POST",
             "/v1/teams/reset_team/assistants",
-            {"assistant": "shimpz-cloudflare"},
+            {
+                "assistant_id": "shimpz-cloudflare",
+                "source_digest": flow.source_digest,
+            },
         )
         self._api(
             flow.port,
@@ -911,12 +930,15 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.token,
             "POST",
             "/v1/teams/cleanup_team/assistants",
-            {"assistant": "shimpz-cloudflare"},
+            {
+                "assistant_id": "shimpz-cloudflare",
+                "source_digest": flow.source_digest,
+            },
         )
         self.assertEqual(len(self._owned_ids("container", flow.space_id, "assistant")), 1)
         self.assertEqual(len(self._owned_ids("network", flow.space_id, "team")), 1)
 
-    def _cleanup(self, flow: _DockerFlow) -> None:
+    def _cleanup(self, flow: DockerFlow) -> None:
         flow.brain_server.shutdown()
         flow.brain_server.server_close()
         flow.brain_thread.join(timeout=2)
@@ -939,8 +961,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.storage_volume,
             flow.inference_volume,
             flow.power_journal_volume,
+            flow.publication_volume,
             flow.continuation_state_volume,
             flow.continuation_key_volume,
+            flow.supervisor_key_volume,
             flow.egress_policy_volume,
             flow.egress_audit_volume,
         )
