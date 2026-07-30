@@ -755,7 +755,15 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "chat-released",
             ],
         )
-        self.assertEqual(result, {"team_id": "team_1", "destroyed": True, "db_dropped": True})
+        self.assertEqual(
+            result,
+            {
+                "team_id": "team_1",
+                "destroyed": True,
+                "db_dropped": True,
+                "residue_absent": list(hosted_lifecycle._TEAM_RESIDUE_ABSENCE),
+            },
+        )
 
     def test_destroy_skips_runtime_state_when_creation_failed_before_container(self) -> None:
         events: list[object] = []
@@ -811,7 +819,15 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "chat-released",
             ],
         )
-        self.assertEqual(result, {"team_id": "team_1", "destroyed": True, "db_dropped": True})
+        self.assertEqual(
+            result,
+            {
+                "team_id": "team_1",
+                "destroyed": True,
+                "db_dropped": True,
+                "residue_absent": list(hosted_lifecycle._TEAM_RESIDUE_ABSENCE),
+            },
+        )
 
     def test_destroy_retries_thread_delete_without_teardown_after_redacted_failure(self) -> None:
         delete_calls: list[str] = []

@@ -758,6 +758,21 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(destroy_status, 200, destroyed)
         self.assertTrue(destroyed["destroyed"])
         self.assertTrue(destroyed["storage_removed"])
+        self.assertEqual(
+            destroyed["residue_absent"],
+            [
+                "chat_continuations",
+                "brain_checkpoints",
+                "power_checkpoints",
+                "assistant_containers",
+                "publication_bindings",
+                "egress_policies",
+                "team_storage",
+                "inference_configuration",
+                "integration_credentials",
+                "team_networks",
+            ],
+        )
         self.assertNotEqual(
             self._run(
                 "exec",
@@ -814,6 +829,21 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         reset_status, reset = self._api(flow.port, flow.token, "DELETE", "/v1/space")
         self.assertEqual(reset_status, 200)
         self.assertEqual((reset["assistants_removed"], reset["teams_removed"]), (1, 1))
+        self.assertEqual(
+            reset["residue_absent"],
+            [
+                "chat_continuations",
+                "brain_checkpoints",
+                "power_checkpoints",
+                "assistant_containers",
+                "publication_bindings",
+                "egress_policies",
+                "team_storage",
+                "inference_configuration",
+                "integration_credentials",
+                "team_networks",
+            ],
+        )
         _, reset_again = self._api(flow.port, flow.token, "DELETE", "/v1/space")
         self.assertEqual((reset_again["assistants_removed"], reset_again["teams_removed"]), (0, 0))
         self.assertNotEqual(

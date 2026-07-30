@@ -27,6 +27,19 @@ from local.validation import brain_thread_id as _brain_thread_id
 from power import journal as power_journal
 from storage import files as team_storage
 
+_TEAM_RESIDUE_ABSENCE = (
+    "chat_continuations",
+    "brain_checkpoints",
+    "power_checkpoints",
+    "assistant_containers",
+    "publication_bindings",
+    "egress_policies",
+    "team_storage",
+    "inference_configuration",
+    "integration_credentials",
+    "team_networks",
+)
+
 
 def _purge_power_generation(self, generation: str) -> None:
     try:
@@ -172,6 +185,7 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
                 "destroyed": destroyed,
                 "assistants_removed": removed,
                 "storage_removed": storage_removed,
+                "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
             }
     finally:
         chat_lock.release()
@@ -297,4 +311,5 @@ def reset_space(self) -> dict[str, object]:
             "assistants_removed": len(containers),
             "teams_removed": len(networks),
             "storage_removed": storage_removed,
+            "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
         }

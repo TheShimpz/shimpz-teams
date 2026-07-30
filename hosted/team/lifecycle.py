@@ -23,6 +23,23 @@ from integrations import store as integration_store
 from power import journal as power_journal
 from storage import files as team_storage
 
+_TEAM_RESIDUE_ABSENCE = (
+    "brain_checkpoints",
+    "power_checkpoints",
+    "assistant_containers",
+    "publication_bindings",
+    "egress_policies",
+    "team_storage",
+    "inference_configuration",
+    "integration_credentials",
+    "team_networks",
+    "brain_container",
+    "team_volumes",
+    "database",
+    "database_role",
+    "cleanup_authority",
+)
+
 
 def _put_inbox_file(
     team_id: str,
@@ -442,7 +459,12 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     "Team teardown is incomplete; retry destroy or contact the Supervisor",
                 )
-            return {"team_id": team_id, "destroyed": True, "db_dropped": cleanup.db_dropped}
+            return {
+                "team_id": team_id,
+                "destroyed": True,
+                "db_dropped": cleanup.db_dropped,
+                "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
+            }
         finally:
             chat_lock.release()
 

@@ -28,6 +28,15 @@ does not own Brain, Account, Assistant-release, or egress-proxy responsibilities
 Directory names use the shortest clear responsibility term, such as `install/`. A peer domain may appear in a leaf
 adapter name but never as a child domain owned by Team.
 
+## Deletion contract
+
+Team deletion is idempotent and fail-closed. A successful response includes `residue_absent`, naming every
+profile-owned state class proved absent. Hosted covers Brain and Power checkpoints, Assistant containers,
+publication bindings, egress policies, Team files and inference state, integration credentials, networks, the Brain
+container, volumes, database, database role, and the temporary cleanup authority. Local covers the applicable
+subset and also names encrypted chat continuations. A Local Space reset applies the same contract to every owned
+Team. An incomplete Hosted teardown retains only its bounded owner-bound cleanup authority and requires a retry.
+
 ## Local validation
 
 Use Python 3.14 and the committed dependency lock:

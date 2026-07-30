@@ -126,6 +126,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "destroyed": True,
                 "assistants_removed": 1,
                 "storage_removed": True,
+                "residue_absent": list(local_app.local_team_lifecycle._TEAM_RESIDUE_ABSENCE),
             },
         )
         self.assertEqual(controller.registry.identities(), set())
@@ -171,6 +172,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
         self.assertEqual(result["assistants_removed"], 0)
         self.assertEqual(result["teams_removed"], 1)
+        self.assertEqual(
+            result["residue_absent"],
+            list(local_app.local_team_lifecycle._TEAM_RESIDUE_ABSENCE),
+        )
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
         self.assertIn(("purge-power", "a" * 64), events)
         self.assertEqual(controller.registry.identities(), set())
