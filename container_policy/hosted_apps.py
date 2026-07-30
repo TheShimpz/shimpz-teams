@@ -18,7 +18,7 @@ from assistant_human import (
     oauth_integration_store,
 )
 from container_policy import hosted_resources
-from container_policy import network as network_policy
+from core.container import network as network_policy
 from egress import policy as egress_policy
 from hosted.install import publication
 from http_boundary import runtime_state

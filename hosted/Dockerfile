@@ -109,7 +109,7 @@ COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
      controller_runtime/postgresql_service_client.py \
      controller_runtime/token_store.py ./controller_runtime/
 COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
-     container_policy/hosted_resources.py container_policy/network.py ./container_policy/
+     container_policy/hosted_resources.py ./container_policy/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/publication.py \
@@ -127,6 +127,7 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
      protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
      protocol/install/v1/verify.py ./protocol/install/v1/
 COPY core/__init__.py core/strict_json.py ./core/
+COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_controller.py \

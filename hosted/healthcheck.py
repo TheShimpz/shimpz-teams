@@ -20,7 +20,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from container_policy import network as network_policy
+from core.container import network as network_policy
 from install import bindings as dynamic_assistants
 
 DOCKER_SOCKET = os.environ.get("DOCKER_HOST_SOCKET", "/var/run/docker.sock")

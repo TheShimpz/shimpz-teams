@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from container_policy import network as net
+from core.container import network as net
 
 
 class PostureReasonTests(unittest.TestCase):

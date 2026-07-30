@@ -19,7 +19,7 @@ import docker
 import docker.types
 
 from assistant_human.assistant_registry import AssistantSpec
-from container_policy import network as network_policy
+from core.container import network as network_policy
 from power import execution as power_execution
 
 # Multi-instance (R137): SHIMPZ_SUFFIX names this Space's resources; empty (the default) is prod.

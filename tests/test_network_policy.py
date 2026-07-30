@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 
 import manifests
-from container_policy import network as policy
+from core.container import network as policy
 from hosted import healthcheck as team_healthcheck
 
 ROOT = Path(__file__).resolve().parents[1]

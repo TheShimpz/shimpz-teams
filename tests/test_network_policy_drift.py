@@ -20,7 +20,7 @@ from test_network_policy import (
     check,
 )
 
-from container_policy import network as policy
+from core.container import network as policy
 
 
 def test_foreign_services_and_extra_app_networks_fail_closed() -> None:

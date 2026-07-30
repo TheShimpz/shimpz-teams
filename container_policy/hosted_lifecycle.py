@@ -11,12 +11,12 @@ import audit
 import manifests
 from assistant_human import assistant_registry, hosted_assistants, oauth_integration_store
 from container_policy import hosted_apps, hosted_resources
-from container_policy import network as network_policy
 from controller_runtime import (
     brain_runtime_client,
     cleanup_state,
     postgresql_service_client,
 )
+from core.container import network as network_policy
 from http_boundary import runtime_state
 from inference import config as inference_config
 from power import journal as power_journal

@@ -15,8 +15,8 @@ import docker.errors
 import manifests
 import validate
 from assistant_human import assistant_registry
-from container_policy import network as network_policy
 from controller_runtime import cleanup_state
+from core.container import network as network_policy
 from hosted.install import publication
 from http_boundary import runtime_state
 from inference import config as inference_config

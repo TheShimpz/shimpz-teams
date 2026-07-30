@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from container_policy import network as network_policy
+from core.container import network as network_policy
 from install.contract import ContractValidationError, ContractValidator
 
 _FORMAT_VERSION = 1
