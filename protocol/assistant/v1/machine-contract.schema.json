@@ -37,7 +37,7 @@
     "power": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "input_schema", "output_schema", "accounts"],
+      "required": ["id", "input_schema", "output_schema", "integrations"],
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
@@ -48,7 +48,7 @@
         "output_schema": {
           "$ref": "#/$defs/objectSchema"
         },
-        "accounts": {
+        "integrations": {
           "type": "array",
           "maxItems": 4,
           "uniqueItems": true,

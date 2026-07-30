@@ -24,4 +24,4 @@ class SharedRegistry(unittest.TestCase):
 
     def test_local_runtime_reuses_shared_contract_types(self):
         self.assertIs(local_runtime.PowerSpec, assistant_registry.PowerSpec)
-        self.assertIs(local_runtime.AccountSpec, assistant_registry.AccountSpec)
+        self.assertIs(local_runtime.IntegrationSpec, assistant_registry.IntegrationSpec)

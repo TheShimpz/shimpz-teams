@@ -1,4 +1,4 @@
-"""Bounded, process-local continuations for just-in-time OAuth accounts."""
+"""Bounded, process-local continuations for just-in-time OAuth integrations."""
 
 from __future__ import annotations
 
@@ -12,42 +12,42 @@ MAX_PENDING_CHALLENGES = challenge_store.MAX_PENDING_CHALLENGES
 DEFAULT_TTL_SECONDS = challenge_store.DEFAULT_TTL_SECONDS
 
 
-class AccountChallengeError(RuntimeError):
-    """A pending account continuation is unavailable or conflicts."""
+class IntegrationChallengeError(RuntimeError):
+    """A pending integration continuation is unavailable or conflicts."""
 
 
-class AccountChallengeNotFoundError(AccountChallengeError):
+class IntegrationChallengeNotFoundError(IntegrationChallengeError):
     """The opaque challenge expired, was consumed, or belongs to another Team."""
 
 
 @dataclass(frozen=True, slots=True)
-class AccountRequirement:
+class IntegrationRequirement:
     assistant_id: str
     assistant_name: str
     power_ids: tuple[str, ...]
-    accounts: tuple[tuple[str, str, tuple[str, ...]], ...]
+    integrations: tuple[tuple[str, str, tuple[str, ...]], ...]
 
 
 @dataclass(frozen=True, slots=True)
-class PendingAccountChallenge:
+class PendingIntegrationChallenge:
     id: str
     team_id: str
     expires_at: float
-    requirements: tuple[AccountRequirement, ...]
+    requirements: tuple[IntegrationRequirement, ...]
     payload: Any
 
 
 _CONTRACT = challenge_store.ChallengeContract(
-    PendingAccountChallenge,
+    PendingIntegrationChallenge,
     bool,
-    AccountChallengeError,
-    AccountChallengeNotFoundError,
-    "account",
+    IntegrationChallengeError,
+    IntegrationChallengeNotFoundError,
+    "integration",
 )
 
 
-class AccountChallengeStore(challenge_store.ChallengeStore[PendingAccountChallenge]):
-    """Keep one short-lived, one-use paused account turn per Team."""
+class IntegrationChallengeStore(challenge_store.ChallengeStore[PendingIntegrationChallenge]):
+    """Keep one short-lived, one-use paused integration turn per Team."""
 
     def __init__(
         self,

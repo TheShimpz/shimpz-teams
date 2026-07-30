@@ -41,7 +41,7 @@ def _run_chat_segment_with_metadata(
     identity: tuple[object, ...] = ()
     network_id = ""
 
-    def execute_power(power_request: brain_runtime_client.PowerRequest, _account_values: object) -> object:
+    def execute_power(power_request: brain_runtime_client.PowerRequest, _integration_values: object) -> object:
         active = _required_active_assistant(bindings, power_request.assistant_id)
         return self._invoke_chat_power(
             request.team_id,
@@ -97,7 +97,7 @@ def _run_chat_segment_with_metadata(
                     bindings,
                     power_request,
                 ),
-                lambda power_request: self._power_account_generations(
+                lambda power_request: self._power_integration_generations(
                     request.team_id,
                     _required_active_assistant(bindings, power_request.assistant_id),
                     power_request.power,
@@ -145,5 +145,5 @@ def _run_chat_segment_with_metadata(
         team_name,
         identity,
         outcome,
-        requirements.accounts,
+        requirements.integrations,
     )

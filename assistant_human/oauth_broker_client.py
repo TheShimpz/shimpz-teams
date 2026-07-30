@@ -155,9 +155,9 @@ def _private_text(
 
 def _intent(provider_id: object, scopes: object) -> tuple[str, tuple[str, ...]]:
     try:
-        intent = oauth_providers.account_intent(provider_id, scopes)
+        intent = oauth_providers.integration_intent(provider_id, scopes)
     except oauth_providers.OAuthProviderError as exc:
-        raise OAuthBrokerClientError("OAuth account declaration is invalid") from exc
+        raise OAuthBrokerClientError("OAuth integration declaration is invalid") from exc
     if intent.provider.id != "cloudflare":
         raise OAuthBrokerClientError("OAuth provider is unavailable")
     return intent.provider.id, intent.scopes

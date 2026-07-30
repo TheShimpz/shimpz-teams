@@ -38,12 +38,12 @@ class PublicationRegistry:
 def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
     try:
         declarations = tuple(
-            assistant_manifest.AccountDeclaration(
-                id=account["id"],
-                provider=account["provider"],
-                scopes=tuple(account["scopes"]),
+            assistant_manifest.IntegrationDeclaration(
+                id=integration["id"],
+                provider=integration["provider"],
+                scopes=tuple(integration["scopes"]),
             )
-            for account in binding.resolution["accounts"]
+            for integration in binding.resolution["integrations"]
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
             binding.resolution["machine_contract"],
@@ -51,23 +51,23 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
         )
         if machine_contract != binding.resolution["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
-        accounts = {
-            account.id: assistant_registry.AccountSpec(
-                provider=account.provider,
-                scopes=account.scopes,
+        integrations = {
+            integration.id: assistant_registry.IntegrationSpec(
+                provider=integration.provider,
+                scopes=integration.scopes,
             )
-            for account in declarations
+            for integration in declarations
         }
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=binding.resolution["allowed_hosts"],
-            accounts=accounts,
+            integrations=integrations,
         )
         powers = {
             power["id"]: assistant_registry.PowerSpec(
                 summary=assistant_registry.power_summary(power["id"]),
                 input_schema=power["input_schema"],
                 output_schema=power["output_schema"],
-                accounts=tuple(power["accounts"]),
+                integrations=tuple(power["integrations"]),
             )
             for power in machine_contract["powers"]
         }
@@ -78,7 +78,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             image=str(binding.resolution["image_reference"]),
             powers=powers,
             allowed_hosts=reviewed.allowed_hosts,
-            accounts=accounts,
+            integrations=integrations,
             machine_contract=machine_contract,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:

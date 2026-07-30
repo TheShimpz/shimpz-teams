@@ -449,7 +449,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "-c",
             "import os,stat,time; from local_chat_continuation_store import EncryptedContinuationStore; "
             "s=EncryptedContinuationStore(); "
-            "s.put('demo_team','accounts','0'*32,int(time.time())+60,['thread:test'],b'opaque'); "
+            "s.put('demo_team','integrations','0'*32,int(time.time())+60,['thread:test'],b'opaque'); "
             "assert s.delete('demo_team'); "
             "paths=(s.state_path,s.key_path); "
             "print(' '.join(f'{oct(stat.S_IMODE(p.stat().st_mode))}:{p.stat().st_uid}:{p.stat().st_gid}' "
@@ -658,11 +658,11 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.port,
             flow.token,
             "GET",
-            "/v1/teams/demo_team/assistant-accounts",
+            "/v1/teams/demo_team/assistant-integrations",
         )
         self.assertEqual(account_status, 200)
-        self.assertEqual(len(account_inventory["accounts"]), 1)
-        account = account_inventory["accounts"][0]
+        self.assertEqual(len(account_inventory["integrations"]), 1)
+        account = account_inventory["integrations"][0]
         self.assertEqual(
             {
                 "assistant_id": account["assistant_id"],
@@ -690,8 +690,8 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "/v1/teams/demo_team/assistants/shimpz-cloudflare/powers/list-zones",
             {"page": 1, "per_page": 25},
         )
-        self.assertEqual(account_required, power_execution.ACCOUNT_PRECONDITION_STATUS)
-        self.assertEqual(missing_account["code"], "assistant-account-unavailable")
+        self.assertEqual(account_required, power_execution.INTEGRATION_PRECONDITION_STATUS)
+        self.assertEqual(missing_account["code"], "assistant-integration-unavailable")
         unknown_power, _ = self._api(
             flow.port,
             flow.token,
@@ -837,7 +837,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "from pathlib import Path; print(Path('/var/log/shimpz-local/audit.jsonl').read_text())",
         ).stdout
         self.assertIn('"operation":"space-reset"', audit)
-        self.assertIn('"detail":"assistant-account-unavailable"', audit)
+        self.assertIn('"detail":"assistant-integration-unavailable"', audit)
         self.assertNotIn("Captain", audit)
         self.assertNotIn(flow.token, audit)
 

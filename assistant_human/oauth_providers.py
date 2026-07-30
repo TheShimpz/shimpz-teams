@@ -1,4 +1,4 @@
-"""Core-owned OAuth provider metadata for reviewed Assistant accounts.
+"""Core-owned OAuth provider metadata for reviewed Assistant integrations.
 
 Assistant packages may name a provider and request reviewed scopes. They cannot
 choose authorization endpoints, token endpoints, client authentication, or PKCE
@@ -18,7 +18,7 @@ _SCOPE = re.compile(r"[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*\Z")
 
 
 class OAuthProviderError(RuntimeError):
-    """A account referenced an unknown provider or disallowed OAuth intent."""
+    """A integration referenced an unknown provider or disallowed OAuth intent."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,7 +34,7 @@ class OAuthProvider:
 
 
 @dataclass(frozen=True, slots=True)
-class OAuthAccountIntent:
+class OAuthIntegrationIntent:
     provider: OAuthProvider
     scopes: tuple[str, ...]
 
@@ -111,7 +111,7 @@ def resolve(provider_id: object) -> OAuthProvider:
     return provider
 
 
-def account_intent(provider_id: object, requested_scopes: object) -> OAuthAccountIntent:
+def integration_intent(provider_id: object, requested_scopes: object) -> OAuthIntegrationIntent:
     """Return one deterministic least-privilege scope set for a trusted provider."""
     provider = resolve(provider_id)
     if not isinstance(requested_scopes, list | tuple) or not 1 <= len(requested_scopes) <= MAX_REQUESTED_SCOPES:
@@ -123,4 +123,4 @@ def account_intent(provider_id: object, requested_scopes: object) -> OAuthAccoun
         scopes.append(scope)
     if len(scopes) != len(set(scopes)) or not set(scopes) <= provider.allowed_scopes:
         raise OAuthProviderError("OAuth scopes are invalid")
-    return OAuthAccountIntent(provider, tuple(sorted(scopes)))
+    return OAuthIntegrationIntent(provider, tuple(sorted(scopes)))

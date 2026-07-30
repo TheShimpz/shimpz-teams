@@ -121,24 +121,24 @@ class PowerRpcFrameTests(unittest.TestCase):
 
     def test_private_generation_helpers_apply_one_power_contract(self) -> None:
         powers = {
-            "lookup": SimpleNamespace(accounts=("cloud",)),
+            "lookup": SimpleNamespace(integrations=("cloud",)),
         }
-        account_metadata = mock.Mock(
+        integration_metadata = mock.Mock(
             return_value=(SimpleNamespace(id="cloud", status="connected", generation=5),),
         )
 
         self.assertEqual(
-            power_execution.account_generations(
+            power_execution.integration_generations(
                 powers,
                 {"cloud": "declaration"},
                 "lookup",
-                account_metadata,
+                integration_metadata,
             ),
             (("cloud", 5),),
         )
-        account_metadata.assert_called_once_with({"cloud": "declaration"})
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "account contract"):
-            power_execution.account_generations(powers, {}, "lookup", account_metadata)
+        integration_metadata.assert_called_once_with({"cloud": "declaration"})
+        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "integration contract"):
+            power_execution.integration_generations(powers, {}, "lookup", integration_metadata)
 
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
         projected = power_execution.project_rpc_result(
@@ -325,21 +325,21 @@ class PowerRpcFrameTests(unittest.TestCase):
         execute.assert_called_once_with(request, evidence[1])
 
     def test_power_resolution_failures_have_identical_statuses(self) -> None:
-        local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", powers={}, accounts={})
+        local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", powers={}, integrations={})
 
         hosted_active = SimpleNamespace(
             assistant_id="assistant",
-            contract=SimpleNamespace(powers={}, accounts={}),
+            contract=SimpleNamespace(powers={}, integrations={}),
         )
-        self.local.assistant_accounts = object()
-        with self.assertRaises(runtime_state.ApiError) as hosted_account:
-            hosted_assistants._resolve_power_accounts("team_1", hosted_active, "missing")
-        with self.assertRaises(local_app.ApiProblem) as local_account:
-            self.local.chat_turn_service._resolve_power_accounts("team_1", local_spec, "missing")
+        self.local.assistant_integrations = object()
+        with self.assertRaises(runtime_state.ApiError) as hosted_integration:
+            hosted_assistants._resolve_power_integrations("team_1", hosted_active, "missing")
+        with self.assertRaises(local_app.ApiProblem) as local_integration:
+            self.local.chat_turn_service._resolve_power_integrations("team_1", local_spec, "missing")
         self.assertEqual(
-            hosted_account.exception.status,
-            local_account.exception.status,
-            power_execution.ACCOUNT_PRECONDITION_STATUS,
+            hosted_integration.exception.status,
+            local_integration.exception.status,
+            power_execution.INTEGRATION_PRECONDITION_STATUS,
         )
 
     def test_hosted_exchange_fail_stops_on_malformed_frame(self) -> None:
@@ -367,7 +367,7 @@ class PowerRpcFrameTests(unittest.TestCase):
                         team_id="team_1",
                         container=container,
                         power_id="test",
-                        payload={"input": {}, "accounts": {}},
+                        payload={"input": {}, "integrations": {}},
                         token=None,
                     )
                 )
@@ -400,7 +400,7 @@ class PowerRpcFrameTests(unittest.TestCase):
                 controller.assistant_lifecycle._rpc(
                     SimpleNamespace(id="assistant-container"),
                     "test",
-                    {"input": {}, "accounts": {}},
+                    {"input": {}, "integrations": {}},
                 )
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
@@ -415,7 +415,7 @@ class RpcMessageParity(unittest.TestCase):
             team_id="t",
             container=SimpleNamespace(id="c"),
             power_id="p",
-            payload={"input": {}, "accounts": {}},
+            payload={"input": {}, "integrations": {}},
             token=None,
         )
         with (
@@ -449,7 +449,7 @@ class RpcMessageParity(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="c"),
                 "p",
-                {"input": {}, "accounts": {}},
+                {"input": {}, "integrations": {}},
             )
         return caught.exception.message
 

@@ -24,7 +24,7 @@ class OAuthProviderTests(unittest.TestCase):
             oauth_providers.PROVIDERS["evil"] = provider
 
     def test_connection_scopes_are_canonical_and_limited_to_the_trusted_provider(self) -> None:
-        intent = oauth_providers.account_intent(
+        intent = oauth_providers.integration_intent(
             "cloudflare",
             ("zone.read", "offline_access", "dns.read"),
         )
@@ -49,7 +49,7 @@ class OAuthProviderTests(unittest.TestCase):
                 self.subTest(provider=provider_id, scopes=scopes),
                 self.assertRaises(oauth_providers.OAuthProviderError),
             ):
-                oauth_providers.account_intent(provider_id, scopes)
+                oauth_providers.integration_intent(provider_id, scopes)
 
 
 if __name__ == "__main__":

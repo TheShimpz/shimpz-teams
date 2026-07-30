@@ -23,12 +23,12 @@ import docker
 from docker.errors import APIError, DockerException
 
 from assistant_human import (
-    assistant_account_challenges,
     assistant_genesis,
+    assistant_integration_challenges,
     assistant_manifest,
-    oauth_account_service,
-    oauth_account_store,
     oauth_broker_client,
+    oauth_integration_service,
+    oauth_integration_store,
     oauth_pkce_challenges,
 )
 from assistant_human.assistant_registry import validate_power_payload
@@ -136,8 +136,8 @@ class ChatTurnDependencies:
     inference_store: object | None = None
     brain_runtime: object | None = None
     power_state: object | None = None
-    assistant_accounts: object | None = None
-    account_challenges: object | None = None
+    assistant_integrations: object | None = None
+    integration_challenges: object | None = None
     oauth_pkce: object | None = None
     oauth_service: object | None = None
     chat_continuations: object | None = None
@@ -232,8 +232,8 @@ class ChatTurnService:
         self.inference_store = dependencies.inference_store
         self.brain_runtime = dependencies.brain_runtime
         self.power_state = dependencies.power_state
-        self.assistant_accounts = dependencies.assistant_accounts
-        self.account_challenges = dependencies.account_challenges
+        self.assistant_integrations = dependencies.assistant_integrations
+        self.integration_challenges = dependencies.integration_challenges
         self.oauth_pkce = dependencies.oauth_pkce
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
@@ -299,7 +299,7 @@ class ChatTurnService:
     _pending_chat_continuation = local_chat_api._pending_chat_continuation
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
-    resume_chat_accounts = local_chat_api.resume_chat_accounts
+    resume_chat_integrations = local_chat_api.resume_chat_integrations
 
     _invoke_chat_power = local_chat_execution._invoke_chat_power
     _chat_identity = staticmethod(local_chat_execution._chat_identity)
@@ -309,20 +309,20 @@ class ChatTurnService:
     _validate_chat_context = local_chat_execution._validate_chat_context
 
     _commit_suspension = local_chat_pause._commit_suspension
-    _account_response = local_chat_pause._account_response
-    _pause_account = local_chat_pause._pause_account
+    _integration_response = local_chat_pause._integration_response
+    _pause_integration = local_chat_pause._pause_integration
 
-    _power_account_generations = local_chat_private._power_account_generations
-    _refresh_oauth_account = local_chat_private._refresh_oauth_account
-    _resolve_power_accounts = local_chat_private._resolve_power_accounts
+    _power_integration_generations = local_chat_private._power_integration_generations
+    _refresh_oauth_integration = local_chat_private._refresh_oauth_integration
+    _resolve_power_integrations = local_chat_private._resolve_power_integrations
     _require_power_rpc_envelope = local_chat_private._require_power_rpc_envelope
-    _raise_account_problem = staticmethod(local_chat_private._raise_account_problem)
-    list_assistant_accounts = local_chat_private.list_assistant_accounts
-    start_assistant_account_authorization = local_chat_private.start_assistant_account_authorization
-    _current_account_declaration = local_chat_private._current_account_declaration
+    _raise_integration_problem = staticmethod(local_chat_private._raise_integration_problem)
+    list_assistant_integrations = local_chat_private.list_assistant_integrations
+    start_assistant_integration_authorization = local_chat_private.start_assistant_integration_authorization
+    _current_integration_declaration = local_chat_private._current_integration_declaration
     complete_cloudflare_oauth_callback = local_chat_private.complete_cloudflare_oauth_callback
-    disconnect_assistant_account = local_chat_private.disconnect_assistant_account
-    pending_chat_accounts = local_chat_private.pending_chat_accounts
+    disconnect_assistant_integration = local_chat_private.disconnect_assistant_integration
+    pending_chat_integrations = local_chat_private.pending_chat_integrations
 
     stop_chat = local_chat_resume.stop_chat
 
@@ -339,10 +339,10 @@ class ChatTurnService:
         return self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
 
     _active_chat_assistants = local_chat_state._active_chat_assistants
-    _delete_assistant_account_state = local_chat_state._delete_assistant_account_state
-    _delete_team_account_state = local_chat_state._delete_team_account_state
-    _delete_all_account_state = local_chat_state._delete_all_account_state
-    _retain_declared_assistant_account_state = local_chat_state._retain_declared_assistant_account_state
+    _delete_assistant_integration_state = local_chat_state._delete_assistant_integration_state
+    _delete_team_integration_state = local_chat_state._delete_team_integration_state
+    _delete_all_integration_state = local_chat_state._delete_all_integration_state
+    _retain_declared_assistant_integration_state = local_chat_state._retain_declared_assistant_integration_state
     _raise_chat_continuation_problem = staticmethod(local_chat_state._raise_chat_continuation_problem)
     _persist_chat_continuation = local_chat_state._persist_chat_continuation
     _restore_chat_continuation = local_chat_state._restore_chat_continuation
@@ -356,11 +356,11 @@ class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
     brain_runtime: brain_runtime_client.BrainRuntimeClient | None = None
     power_state: power_journal.PowerJournal | None = None
-    assistant_accounts: oauth_account_store.OAuthAccountStore | None = None
-    account_challenges: assistant_account_challenges.AccountChallengeStore | None = None
+    assistant_integrations: oauth_integration_store.OAuthIntegrationStore | None = None
+    integration_challenges: assistant_integration_challenges.IntegrationChallengeStore | None = None
     oauth_pkce: oauth_pkce_challenges.OAuthPKCEChallengeStore | None = None
     oauth_broker: oauth_broker_client.OAuthBrokerClient | None = None
-    oauth_service: oauth_account_service.BrokeredOAuthAccountService | None = None
+    oauth_service: oauth_integration_service.BrokeredOAuthIntegrationService | None = None
     chat_continuations: local_chat_continuation_store.EncryptedContinuationStore | None = None
     developers: local_developers.DevelopersClient | None = None
     artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
@@ -404,9 +404,11 @@ class LocalController:
             if dependencies.power_state is not None
             else power_journal.PowerJournal(LOCAL_POWER_JOURNAL_PATH)
         )
-        self.assistant_accounts = dependencies.assistant_accounts or oauth_account_store.OAuthAccountStore()
-        self.account_challenges = (
-            dependencies.account_challenges or assistant_account_challenges.AccountChallengeStore()
+        self.assistant_integrations = (
+            dependencies.assistant_integrations or oauth_integration_store.OAuthIntegrationStore()
+        )
+        self.integration_challenges = (
+            dependencies.integration_challenges or assistant_integration_challenges.IntegrationChallengeStore()
         )
         self.oauth_pkce = dependencies.oauth_pkce or oauth_pkce_challenges.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or oauth_broker_client.OAuthBrokerClient(
@@ -416,9 +418,9 @@ class LocalController:
             ),
             callback_mode=os.environ.get("SHIMPZ_OAUTH_CALLBACK_MODE", "loopback"),
         )
-        self.oauth_service = dependencies.oauth_service or oauth_account_service.BrokeredOAuthAccountService(
+        self.oauth_service = dependencies.oauth_service or oauth_integration_service.BrokeredOAuthIntegrationService(
             challenge=self.oauth_pkce,
-            store=self.assistant_accounts,
+            store=self.assistant_integrations,
             broker=self.oauth_broker,
         )
         self.chat_continuations = (
@@ -461,8 +463,8 @@ class LocalController:
                 inference_store=getattr(self, "inference_store", None),
                 brain_runtime=getattr(self, "brain_runtime", None),
                 power_state=getattr(self, "power_state", None),
-                assistant_accounts=getattr(self, "assistant_accounts", None),
-                account_challenges=getattr(self, "account_challenges", None),
+                assistant_integrations=getattr(self, "assistant_integrations", None),
+                integration_challenges=getattr(self, "integration_challenges", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
                 chat_continuations=getattr(self, "chat_continuations", None),
@@ -702,13 +704,8 @@ class LocalController:
 
             def authorize_start() -> None:
                 current = self.developers.resolve(source_digest)
-                if (
-                    current["assistant_id"] != assistant_id
-                    or current["oci_digest"] != resolution["oci_digest"]
-                ):
-                    raise local_developers.PublicationNotInstallableError(
-                        "publication changed before installation"
-                    )
+                if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
+                    raise local_developers.PublicationNotInstallableError("publication changed before installation")
 
             return self.assistant_lifecycle.install_assistant(
                 team_id,
@@ -798,7 +795,7 @@ class LocalController:
                     "Team capabilities changed; retry",
                     code="team-context-changed",
                 )
-            account_values = self.chat_turn_service._resolve_power_accounts(team_id, spec, power)
+            integration_values = self.chat_turn_service._resolve_power_integrations(team_id, spec, power)
             local_audit.record(
                 "assistant-power",
                 result="ok",
@@ -808,7 +805,7 @@ class LocalController:
             )
             rpc_payload = {
                 "input": safe_payload,
-                "accounts": power_execution.account_access_tokens(account_values),
+                "integrations": power_execution.integration_access_tokens(integration_values),
             }
         try:
             raw_result = self.assistant_lifecycle._rpc(
@@ -828,7 +825,7 @@ class LocalController:
         try:
             projected = power_execution.project_rpc_result(
                 raw_result,
-                account_values,
+                integration_values,
                 lambda value: validate_power_payload(power_spec, "output", value),
             )
         except power_execution.RpcSecretExposureError:

@@ -15,7 +15,7 @@ from assistant_human import (
     assistant_genesis,
     assistant_manifest,
     assistant_registry,
-    oauth_account_store,
+    oauth_integration_store,
 )
 from container_policy import hosted_resources
 from container_policy import network as network_policy
@@ -63,12 +63,12 @@ def _require_assistant_allowed_hosts(
     try:
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
-            accounts=spec.contract.accounts,
+            integrations=spec.contract.integrations,
         )
         declared = runtime_state._assistant_allowed_hosts_cache.get(container, reviewed)
         runtime_state._assistant_machine_contract_cache.get(
             container,
-            declared.accounts,
+            declared.integrations,
             spec.contract.machine_contract,
         )
     except assistant_manifest.ManifestError as exc:
@@ -353,24 +353,24 @@ def _teardown_assistant(
     )
 
 
-def _retain_admitted_assistant_accounts(
+def _retain_admitted_assistant_integrations(
     team_id: str,
     assistant_id: str,
     spec: assistant_registry.AssistantSpec,
 ) -> None:
     try:
-        pruned = runtime_state._assistant_accounts.retain_declared(
+        pruned = runtime_state._assistant_integrations.retain_declared(
             team_id,
             assistant_id,
-            tuple(sorted(spec.contract.accounts)),
+            tuple(sorted(spec.contract.integrations)),
         )
-    except oauth_account_store.OAuthAccountStoreError as exc:
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant account state is unavailable",
+            "Assistant integration state is unavailable",
         ) from exc
     if pruned:
-        runtime_state._assistant_account_challenges.cancel_team(team_id)
+        runtime_state._assistant_integration_challenges.cancel_team(team_id)
 
 
 @runtime_state._serialize_against_team_chat
@@ -518,7 +518,7 @@ def _admit_existing_assistant(
             HTTPStatus.CONFLICT,
             f"installed Assistant {assistant_id!r} is not ready ({status})",
         )
-    _retain_admitted_assistant_accounts(team_id, assistant_id, spec)
+    _retain_admitted_assistant_integrations(team_id, assistant_id, spec)
     return {
         "team_id": team_id,
         "assistant": assistant_id,
@@ -630,7 +630,7 @@ def _provision_assistant_transaction(
                 HTTPStatus.INTERNAL_SERVER_ERROR,
                 f"Assistant {assistant_id!r} lost readiness before install commit ({committed_status}; rolled back)",
             )
-        _retain_admitted_assistant_accounts(team_id, assistant_id, spec)
+        _retain_admitted_assistant_integrations(team_id, assistant_id, spec)
     except Exception as exc:
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
@@ -659,7 +659,7 @@ def _uninstall_assistant(
             lease,
             require_isolation=False,
         )
-        runtime_state._assistant_account_challenges.cancel_team(team_id)
+        runtime_state._assistant_integration_challenges.cancel_team(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
             raise runtime_state.ApiError(
@@ -667,15 +667,15 @@ def _uninstall_assistant(
                 "Assistant teardown is incomplete",
             )
         try:
-            runtime_state._assistant_accounts.delete_assistant(
+            runtime_state._assistant_integrations.delete_assistant(
                 team_id,
                 assistant_id,
             )
             runtime_state._dynamic_assistants.delete(team_id, assistant_id)
-        except oauth_account_store.OAuthAccountStoreError as exc:
+        except oauth_integration_store.OAuthIntegrationStoreError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant account state is unavailable",
+                "Assistant integration state is unavailable",
             ) from exc
         except dynamic_assistants.DynamicAssistantError as exc:
             raise runtime_state.ApiError(

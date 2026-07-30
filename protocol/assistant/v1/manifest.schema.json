@@ -65,14 +65,14 @@
       "minLength": 1,
       "maxLength": 65536
     },
-    "accounts": {
+    "integrations": {
       "type": "object",
       "maxProperties": 16,
       "propertyNames": {
         "$ref": "#/$defs/identifier"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/account"
+        "$ref": "#/$defs/integration"
       }
     }
   },
@@ -95,7 +95,7 @@
       "maxLength": 64,
       "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
     },
-    "account": {
+    "integration": {
       "type": "object",
       "additionalProperties": false,
       "required": ["scopes"],

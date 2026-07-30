@@ -21,14 +21,12 @@ def _reviewed_catalog():
                 "name": "Shimpz Cloudflare",
                 "summary": "Cloudflare contract test fixture",
                 "allowed_hosts": ["api.cloudflare.com"],
-                "accounts": {
+                "integrations": {
                     "cloudflare": {
                         "scopes": ["zone.read", "dns.read", "offline_access"],
                     }
                 },
-                "contract": json.loads(
-                    (FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8")
-                ),
+                "contract": json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8")),
             }
         },
     }
@@ -41,7 +39,7 @@ def _reviewed_catalog():
 def manifest(
     *,
     allowed_hosts: tuple[str, ...] = ("api.example.com",),
-    accounts: str = "",
+    integrations: str = "",
     name: str = "Fixture Assistant",
     summary: str = "Exercise immutable admission.",
     creators: str = '["@fixture"]',
@@ -58,7 +56,7 @@ def manifest(
         f'github = "{github}"\n'
         f"allowed_hosts = [{hosts}]\n"
         'genesis = "Use the available Powers."\n'
-        f"{accounts}"
+        f"{integrations}"
     ).encode()
 
 
@@ -123,24 +121,24 @@ class AssistantManifestTests(unittest.TestCase):
         reviewed_assistant = _reviewed_catalog()["shimpz-cloudflare"]
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=reviewed_assistant.allowed_hosts,
-            accounts={account.id: account for account in reviewed_assistant.accounts},
+            integrations={integration.id: integration for integration in reviewed_assistant.integrations},
         )
 
         self.assertEqual(declared, reviewed)
 
-    def test_reads_reduced_manifest_and_derives_provider_from_account_id(self) -> None:
+    def test_reads_reduced_manifest_and_derives_provider_from_integration_id(self) -> None:
         content = manifest(
             allowed_hosts=("api.cloudflare.com",),
-            accounts='[accounts.cloudflare]\nscopes = ["zone.read", "dns.read", "offline_access"]\n',
+            integrations='[integrations.cloudflare]\nscopes = ["zone.read", "dns.read", "offline_access"]\n',
         )
 
         contract = assistant_manifest.read_container_manifest_contract(Container("container-one", content))
 
         self.assertEqual(contract.allowed_hosts, ("api.cloudflare.com",))
         self.assertEqual(
-            contract.accounts,
+            contract.integrations,
             (
-                assistant_manifest.AccountDeclaration(
+                assistant_manifest.IntegrationDeclaration(
                     "cloudflare",
                     "cloudflare",
                     ("dns.read", "offline_access", "zone.read"),
@@ -148,18 +146,18 @@ class AssistantManifestTests(unittest.TestCase):
             ),
         )
 
-    def test_accounts_are_optional(self) -> None:
+    def test_integrations_are_optional(self) -> None:
         contract = assistant_manifest.parse_manifest_contract(manifest(allowed_hosts=()))
 
         self.assertEqual(contract.allowed_hosts, ())
-        self.assertEqual(contract.accounts, ())
+        self.assertEqual(contract.integrations, ())
 
     def test_unsupported_manifest_fields_fail_closed(self) -> None:
         unsupported = (
             b"schema_version = 2\n",
             b'[powers.lookup]\nsummary = "Lookup."\n',
             b'[secrets.token]\nname = "Token"\nsummary = "Old."\n',
-            b'[accounts.cloudflare]\nprovider = "cloudflare"\nscopes = ["zone.read"]\n',
+            b'[integrations.cloudflare]\nprovider = "cloudflare"\nscopes = ["zone.read"]\n',
         )
 
         for addition in unsupported:
@@ -168,15 +166,15 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_unknown_provider_and_unreviewed_scopes_fail_closed(self) -> None:
         invalid = (
-            '[accounts.github]\nscopes = ["repo.read"]\n',
-            '[accounts.cloudflare]\nscopes = ["zone.write"]\n',
-            '[accounts.cloudflare]\nscopes = ["zone.read", "zone.read"]\n',
-            "[accounts.cloudflare]\nscopes = []\n",
+            '[integrations.github]\nscopes = ["repo.read"]\n',
+            '[integrations.cloudflare]\nscopes = ["zone.write"]\n',
+            '[integrations.cloudflare]\nscopes = ["zone.read", "zone.read"]\n',
+            "[integrations.cloudflare]\nscopes = []\n",
         )
 
-        for accounts in invalid:
-            with self.subTest(accounts=accounts), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.parse_manifest_contract(manifest(accounts=accounts))
+        for integrations in invalid:
+            with self.subTest(integrations=integrations), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest.parse_manifest_contract(manifest(integrations=integrations))
 
     def test_public_metadata_is_required_and_bounded(self) -> None:
         invalid = (
@@ -255,16 +253,16 @@ class AssistantManifestTests(unittest.TestCase):
                     )()
                 )
 
-    def test_cache_compares_reviewed_hosts_and_accounts_and_rejects_drift(self) -> None:
+    def test_cache_compares_reviewed_hosts_and_integrations_and_rejects_drift(self) -> None:
         content = manifest(
             allowed_hosts=("api.cloudflare.com",),
-            accounts='[accounts.cloudflare]\nscopes = ["dns.read", "zone.read"]\n',
+            integrations='[integrations.cloudflare]\nscopes = ["dns.read", "zone.read"]\n',
         )
         container = Container("container-one", content)
         cache = assistant_manifest.ManifestContractCache(max_entries=1)
         expected = assistant_manifest.canonical_manifest_contract(
             allowed_hosts=("api.cloudflare.com",),
-            account_declarations={"cloudflare": ("zone.read", "dns.read")},
+            integration_declarations={"cloudflare": ("zone.read", "dns.read")},
         )
 
         self.assertEqual(cache.get(container, expected), expected)
@@ -274,34 +272,34 @@ class AssistantManifestTests(unittest.TestCase):
         drifted = (
             assistant_manifest.canonical_manifest_contract(
                 allowed_hosts=("api.github.com",),
-                account_declarations={"cloudflare": ("zone.read", "dns.read")},
+                integration_declarations={"cloudflare": ("zone.read", "dns.read")},
             ),
             assistant_manifest.canonical_manifest_contract(
                 allowed_hosts=("api.cloudflare.com",),
-                account_declarations={"cloudflare": ("zone.read",)},
+                integration_declarations={"cloudflare": ("zone.read",)},
             ),
         )
         for reviewed in drifted:
             with self.subTest(reviewed=reviewed), self.assertRaises(assistant_manifest.ManifestError):
                 cache.get(container, reviewed)
 
-    def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_accounts(self) -> None:
+    def test_machine_contract_loader_accepts_reviewed_artifact_and_rejects_foreign_integrations(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
-            assistant_manifest.parse_machine_contract(raw, reviewed.accounts),
+            assistant_manifest.parse_machine_contract(raw, reviewed.integrations),
             reviewed.machine_contract,
         )
         self.assertEqual(
             set(reviewed.machine_contract["powers"][0]),
-            {"id", "input_schema", "output_schema", "accounts"},
+            {"id", "input_schema", "output_schema", "integrations"},
         )
 
         foreign = json.loads(raw)
-        foreign["powers"][0]["accounts"] = ["github"]
+        foreign["powers"][0]["integrations"] = ["github"]
         with self.assertRaises(assistant_manifest.ManifestError):
-            assistant_manifest.parse_machine_contract(json.dumps(foreign).encode(), reviewed.accounts)
+            assistant_manifest.parse_machine_contract(json.dumps(foreign).encode(), reviewed.integrations)
 
     def test_reviewed_catalog_precompiles_payload_validators(self) -> None:
         with mock.patch.object(
@@ -339,7 +337,7 @@ class AssistantManifestTests(unittest.TestCase):
             b"x" * (assistant_manifest.MAX_CONTRACT_BYTES + 1),
         ):
             with self.subTest(size=len(raw)), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.parse_machine_contract(raw, reviewed.accounts)
+                assistant_manifest.parse_machine_contract(raw, reviewed.integrations)
 
     def test_machine_contract_loader_rejects_open_top_level_and_nested_schemas(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -360,7 +358,7 @@ class AssistantManifestTests(unittest.TestCase):
                     "must close every object",
                 ),
             ):
-                assistant_manifest.parse_machine_contract(json.dumps(contract).encode(), reviewed.accounts)
+                assistant_manifest.parse_machine_contract(json.dumps(contract).encode(), reviewed.integrations)
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -368,12 +366,12 @@ class AssistantManifestTests(unittest.TestCase):
         typeless = json.loads(json.dumps(reviewed.machine_contract))
         typeless["powers"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "must close every object"):
-            assistant_manifest.parse_machine_contract(json.dumps(typeless).encode(), reviewed.accounts)
+            assistant_manifest.parse_machine_contract(json.dumps(typeless).encode(), reviewed.integrations)
 
         boolean = json.loads(json.dumps(reviewed.machine_contract))
         boolean["powers"][0]["input_schema"]["properties"]["page"] = True
         with self.assertRaises(assistant_manifest.ManifestError):
-            assistant_manifest.parse_machine_contract(json.dumps(boolean).encode(), reviewed.accounts)
+            assistant_manifest.parse_machine_contract(json.dumps(boolean).encode(), reviewed.integrations)
 
         literals = json.loads(json.dumps(reviewed.machine_contract))
         literals["powers"][0]["input_schema"]["properties"].update(
@@ -383,7 +381,7 @@ class AssistantManifestTests(unittest.TestCase):
                 "fixed": {"const": True},
             }
         )
-        parsed = assistant_manifest.parse_machine_contract(json.dumps(literals).encode(), reviewed.accounts)
+        parsed = assistant_manifest.parse_machine_contract(json.dumps(literals).encode(), reviewed.integrations)
 
         self.assertEqual(
             parsed["powers"][0]["input_schema"]["properties"]["flag"],
@@ -397,7 +395,7 @@ class AssistantManifestTests(unittest.TestCase):
         cache = assistant_manifest.MachineContractCache()
 
         self.assertEqual(
-            cache.get(container, reviewed.accounts, reviewed.machine_contract),
+            cache.get(container, reviewed.integrations, reviewed.machine_contract),
             reviewed.machine_contract,
         )
         with mock.patch.object(
@@ -406,7 +404,7 @@ class AssistantManifestTests(unittest.TestCase):
             wraps=assistant_manifest.canonical_machine_contract,
         ) as canonicalize:
             self.assertEqual(
-                cache.get(container, reviewed.accounts, reviewed.machine_contract),
+                cache.get(container, reviewed.integrations, reviewed.machine_contract),
                 reviewed.machine_contract,
             )
         canonicalize.assert_not_called()
@@ -415,7 +413,7 @@ class AssistantManifestTests(unittest.TestCase):
         drifted = json.loads(raw)
         drifted["powers"][0]["id"] = "other"
         with self.assertRaises(assistant_manifest.ManifestError):
-            cache.get(container, reviewed.accounts, drifted)
+            cache.get(container, reviewed.integrations, drifted)
 
 
 if __name__ == "__main__":

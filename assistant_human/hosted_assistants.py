@@ -15,12 +15,12 @@ from jsonschema import Draft202012Validator
 import audit
 import manifests
 from assistant_human import (
-    assistant_account_flow,
     assistant_chat,
+    assistant_integration_flow,
     assistant_manifest,
     assistant_registry,
-    oauth_account_store,
     oauth_http_client,
+    oauth_integration_store,
 )
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -54,17 +54,17 @@ class _ActiveAssistant:
 
 @dataclass(frozen=True, slots=True)
 class _HostedAssistantSpec:
-    """Small adapter for the closed account contract."""
+    """Small adapter for the closed integration contract."""
 
     assistant_id: str
     name: str
     powers: dict[str, object]
-    accounts: dict[str, assistant_registry.AccountSpec]
+    integrations: dict[str, assistant_registry.IntegrationSpec]
 
 
 @dataclass(frozen=True, slots=True)
 class _HostedPowerSpec:
-    accounts: tuple[str, ...]
+    integrations: tuple[str, ...]
     summary: str
 
 
@@ -75,7 +75,7 @@ class _HostedAssistantBinding:
 
 @dataclass(frozen=True, slots=True)
 class _PendingHostedChat:
-    """Process-local state for one account-gated hosted Team turn."""
+    """Process-local state for one integration-gated hosted Team turn."""
 
     continuation: chat_orchestrator.ChatContinuation
     assistant_ids: tuple[str, ...]
@@ -84,27 +84,28 @@ class _PendingHostedChat:
     identity: tuple[object, ...]
 
 
-def _hosted_account_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
+def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
     name = active.assistant_id.replace("-", " ").title()
     return _HostedAssistantSpec(
         assistant_id=active.assistant_id,
         name=name,
         powers={
             power_id: _HostedPowerSpec(
-                tuple(getattr(power, "accounts", ())),
+                tuple(getattr(power, "integrations", ())),
                 str(getattr(power, "summary", "")),
             )
             for power_id, power in active.contract.powers.items()
         },
-        accounts=getattr(active.contract, "accounts", {}),
+        integrations=getattr(active.contract, "integrations", {}),
     )
 
 
-def _account_bindings(
+def _integration_bindings(
     bindings: dict[str, _ActiveAssistant],
 ) -> dict[str, _HostedAssistantBinding]:
     return {
-        assistant_id: _HostedAssistantBinding(_hosted_account_spec(active)) for assistant_id, active in bindings.items()
+        assistant_id: _HostedAssistantBinding(_hosted_integration_spec(active))
+        for assistant_id, active in bindings.items()
     }
 
 
@@ -294,7 +295,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
     try:
         encoded = power_execution.encode_rpc_invocation(
             request.payload["input"],
-            request.payload["accounts"],
+            request.payload["integrations"],
         )
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Power input is too large") from exc
@@ -348,27 +349,27 @@ def _assistant_rpc(
     )
 
 
-def _power_account_generations(
+def _power_integration_generations(
     team_id: str,
     active: _ActiveAssistant,
     power_id: str,
 ) -> tuple[tuple[str, int], ...]:
     try:
-        return power_execution.account_generations(
+        return power_execution.integration_generations(
             active.contract.powers,
-            getattr(active.contract, "accounts", {}),
+            getattr(active.contract, "integrations", {}),
             power_id,
-            lambda declarations: runtime_state._assistant_accounts.metadata(
+            lambda declarations: runtime_state._assistant_integrations.metadata(
                 team_id,
                 active.assistant_id,
                 declarations,
             ),
         )
-    except oauth_account_store.OAuthAccountStoreError as exc:
-        raise power_journal.PowerJournalConflictError("Power account state is unavailable") from exc
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        raise power_journal.PowerJournalConflictError("Power integration state is unavailable") from exc
 
 
-def _refresh_oauth_account(
+def _refresh_oauth_integration(
     provider: str,
     scopes: tuple[str, ...],
     refresh_token: str,
@@ -383,25 +384,27 @@ def _refresh_oauth_account(
             scopes=scopes,
         )
     except oauth_http_client.OAuthHTTPError as exc:
-        raise oauth_account_store.OAuthAccountReauthorizationError("OAuth account requires reauthorization") from exc
+        raise oauth_integration_store.OAuthIntegrationReauthorizationError(
+            "OAuth integration requires reauthorization"
+        ) from exc
 
 
-def _resolve_power_accounts(
+def _resolve_power_integrations(
     team_id: str,
     active: _ActiveAssistant,
     power_id: str,
 ) -> dict[str, dict[str, str]]:
     try:
-        return assistant_account_flow.resolve_power_accounts(
+        return assistant_integration_flow.resolve_power_integrations(
             team_id,
-            _hosted_account_spec(active),
+            _hosted_integration_spec(active),
             power_id,
-            runtime_state._assistant_accounts,
-            _refresh_oauth_account,
+            runtime_state._assistant_integrations,
+            _refresh_oauth_integration,
         )
-    except assistant_account_flow.AccountFlowError as exc:
+    except assistant_integration_flow.IntegrationFlowError as exc:
         raise runtime_state.ApiError(
-            power_execution.ACCOUNT_PRECONDITION_STATUS, "Assistant account is unavailable"
+            power_execution.INTEGRATION_PRECONDITION_STATUS, "Assistant integration is unavailable"
         ) from exc
 
 
@@ -417,30 +420,30 @@ def _require_hosted_power_rpc_envelope(
         return power_execution.require_rpc_envelope(
             active,
             request,
-            lambda binding, power_id: _resolve_power_accounts(team_id, binding, power_id),
+            lambda binding, power_id: _resolve_power_integrations(team_id, binding, power_id),
         )
     except ValueError as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Assistant Power input is too large") from exc
 
 
-def _assistant_account_inventory(
+def _assistant_integration_inventory(
     team_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
-            payload = assistant_account_flow.inventory_payload(
+            payload = assistant_integration_flow.inventory_payload(
                 team_id,
                 _installed_assistant_specs(team_id),
-                runtime_state._assistant_accounts,
+                runtime_state._assistant_integrations,
             )
-        except oauth_account_store.OAuthAccountStoreError as exc:
+        except oauth_integration_store.OAuthIntegrationStoreError as exc:
             raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Assistant account state is unavailable"
+                HTTPStatus.SERVICE_UNAVAILABLE, "Assistant integration state is unavailable"
             ) from exc
-        except assistant_account_flow.AccountFlowError as exc:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant account contract is unavailable") from exc
+        except assistant_integration_flow.IntegrationFlowError as exc:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration contract is unavailable") from exc
     return {"team_id": team_id, **payload}
 
 
@@ -464,7 +467,7 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
         if assistant_id in seen:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "duplicate installed Assistant identity")
         seen.add(assistant_id)
-        specs.append(_hosted_account_spec(_ActiveAssistant(assistant_id, assistant_spec.contract, container)))
+        specs.append(_hosted_integration_spec(_ActiveAssistant(assistant_id, assistant_spec.contract, container)))
     return tuple(specs)
 
 
@@ -479,7 +482,7 @@ class PowerInvocationRequest:
     payload: object
     inspect_memo: dict[str, object] | None = None
     validated_assistant: _ActiveAssistant | None = None
-    account_values: Mapping[str, Mapping[str, object]] | None = None
+    integration_values: Mapping[str, Mapping[str, object]] | None = None
 
 
 def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object]:
@@ -512,10 +515,10 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
     if _current_id != assistant_id or current_contract != contract or current_container.id != container.id:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant changed during the chat turn")
     active = _ActiveAssistant(assistant_id, contract, container)
-    account_values = (
-        _resolve_power_accounts(team_id, active, power)
-        if request.account_values is None
-        else dict(request.account_values)
+    integration_values = (
+        _resolve_power_integrations(team_id, active, power)
+        if request.integration_values is None
+        else dict(request.integration_values)
     )
     audit.log(
         "assistant_power",
@@ -533,7 +536,7 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
             power,
             {
                 "input": safe_input,
-                "accounts": power_execution.account_access_tokens(account_values),
+                "integrations": power_execution.integration_access_tokens(integration_values),
             },
         )
     except runtime_state.ApiError as exc:
@@ -549,7 +552,7 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
     try:
         projected = power_execution.project_rpc_result(
             raw_result,
-            account_values,
+            integration_values,
             lambda value: _validate_power_payload(contract, power, value, output=True),
         )
     except power_execution.RpcSecretExposureError:

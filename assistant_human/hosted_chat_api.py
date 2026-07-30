@@ -10,11 +10,11 @@ import docker.errors
 
 import audit
 from assistant_human import (
-    assistant_account_challenges,
+    assistant_integration_challenges,
     assistant_registry,
     hosted_assistants,
     hosted_chat_segment,
-    oauth_account_service,
+    oauth_integration_service,
 )
 from chat import turn as chat_turn_engine
 from container_policy import hosted_resources
@@ -82,29 +82,29 @@ def _chat(
 
 
 def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
-    account = runtime_state._assistant_account_challenges.current(team_id)
-    if account is not None:
-        return hosted_chat_segment._hosted_account_challenge_payload(account)
+    integration = runtime_state._assistant_integration_challenges.current(team_id)
+    if integration is not None:
+        return hosted_chat_segment._hosted_integration_challenge_payload(integration)
     return None
 
 
-def _current_account_declaration(team_id: str, assistant_id: str, account_id: str) -> object:
+def _current_integration_declaration(team_id: str, assistant_id: str, integration_id: str) -> object:
     try:
         installed_id, contract, _container = hosted_assistants._installed_assistant(team_id, assistant_id)
-        declaration = contract.accounts.get(account_id)
+        declaration = contract.integrations.get(integration_id)
         if installed_id != assistant_id or declaration is None:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant account declaration changed")
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration declaration changed")
     except runtime_state.ApiError, assistant_registry.AssistantSpecError:
         # The OAuth service intentionally receives one opaque typed failure so
         # registry, Docker, and manifest details cannot reach the callback response.
-        raise oauth_account_service.OAuthAccountDeclarationError(
-            "installed Assistant account declaration is unavailable"
+        raise oauth_integration_service.OAuthIntegrationDeclarationError(
+            "installed Assistant integration declaration is unavailable"
         ) from None
     else:
         return declaration
 
 
-def _start_oauth_account(
+def _start_oauth_integration(
     team_id: str,
     challenge_id: object,
     session_binding: object,
@@ -112,58 +112,58 @@ def _start_oauth_account(
 ) -> dict[str, object]:
     hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
     try:
-        challenge = runtime_state._assistant_account_challenges.get(team_id, challenge_id)
-    except assistant_account_challenges.AccountChallengeNotFoundError as exc:
+        challenge = runtime_state._assistant_integration_challenges.get(team_id, challenge_id)
+    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
-            "Assistant account request expired; retry the message",
+            "Assistant integration request expired; retry the message",
         ) from exc
     pending = challenge.payload
     if not isinstance(pending, hosted_assistants._PendingHostedChat) or pending.owner != lease.owner:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     try:
-        authorization_url = runtime_state._oauth_accounts.authorization_url(challenge, session_binding)
-    except oauth_account_service.OAuthAccountUnavailableError as exc:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant accounts are already configured") from exc
-    except oauth_account_service.OAuthAccountServiceError as exc:
+        authorization_url = runtime_state._oauth_integrations.authorization_url(challenge, session_binding)
+    except oauth_integration_service.OAuthIntegrationUnavailableError as exc:
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integrations are already configured") from exc
+    except oauth_integration_service.OAuthIntegrationServiceError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant account could not be started",
+            "Assistant integration could not be started",
         ) from exc
     return {"authorization_url": authorization_url}
 
 
-def _complete_oauth_account(
+def _complete_oauth_integration(
     body: object,
     principal: tuple[str, str | None],
 ) -> dict[str, object]:
     if not isinstance(body, dict) or set(body) != {"state", "code", "session_binding"}:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth callback is invalid")
     try:
-        completion = runtime_state._oauth_accounts.complete(
+        completion = runtime_state._oauth_integrations.complete(
             body["state"],
             body["code"],
             body["session_binding"],
-            _current_account_declaration,
+            _current_integration_declaration,
         )
-    except oauth_account_service.OAuthAccountServiceError as exc:
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant account could not be completed") from exc
+    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant integration could not be completed") from exc
     try:
         hosted_resources._authorize(completion.team_id, principal)
     except Exception:
-        with contextlib.suppress(oauth_account_service.OAuthAccountServiceError):
-            runtime_state._oauth_accounts.disconnect(
+        with contextlib.suppress(oauth_integration_service.OAuthIntegrationServiceError):
+            runtime_state._oauth_integrations.disconnect(
                 completion.team_id,
                 completion.assistant_id,
-                completion.account_id,
+                completion.integration_id,
             )
         raise
-    pending = runtime_state._assistant_account_challenges.current(completion.team_id)
+    pending = runtime_state._assistant_integration_challenges.current(completion.team_id)
     return {
         "connected": True,
         "team_id": completion.team_id,
         "assistant_id": completion.assistant_id,
-        "account_id": completion.account_id,
+        "integration_id": completion.integration_id,
         "provider": completion.provider,
         "scopes": list(completion.scopes),
         "challenge_id": pending.id if pending is not None else None,
@@ -171,35 +171,35 @@ def _complete_oauth_account(
 
 
 @runtime_state._serialize_against_team_chat
-def _disconnect_oauth_account(
+def _disconnect_oauth_integration(
     team_id: str,
     assistant_id: str,
-    account_id: str,
+    integration_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
-        _current_account_declaration(team_id, assistant_id, account_id)
-        runtime_state._assistant_account_challenges.cancel_team(team_id)
+        _current_integration_declaration(team_id, assistant_id, integration_id)
+        runtime_state._assistant_integration_challenges.cancel_team(team_id)
         try:
-            disconnected = runtime_state._oauth_accounts.disconnect(team_id, assistant_id, account_id)
-        except oauth_account_service.OAuthAccountServiceError as exc:
+            disconnected = runtime_state._oauth_integrations.disconnect(team_id, assistant_id, integration_id)
+        except oauth_integration_service.OAuthIntegrationServiceError as exc:
             raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Assistant account could not be disconnected"
+                HTTPStatus.SERVICE_UNAVAILABLE, "Assistant integration could not be disconnected"
             ) from exc
     return {"disconnected": disconnected}
 
 
-def _resume_chat_accounts(
+def _resume_chat_integrations(
     team_id: str,
     challenge_id: object,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
     with _exclusive_chat_turn(team_id, lease) as (token, container):
 
-        def inspect(pending: object) -> chat_turn_engine.AccountResumeContext:
+        def inspect(pending: object) -> chat_turn_engine.IntegrationResumeContext:
             if not isinstance(pending, hosted_assistants._PendingHostedChat):
-                raise AssertionError("invalid hosted account continuation")
+                raise AssertionError("invalid hosted integration continuation")
             _, assistants, _files, _config, _key, _generation, current_identity = (
                 hosted_chat_segment._hosted_chat_setup(
                     team_id,
@@ -210,15 +210,15 @@ def _resume_chat_accounts(
                 )
             )
             bindings = {active.assistant_id: active for active in assistants}
-            return chat_turn_engine.AccountResumeContext(
+            return chat_turn_engine.IntegrationResumeContext(
                 current_identity,
-                hosted_assistants._account_bindings(bindings),
+                hosted_assistants._integration_bindings(bindings),
                 pending.continuation.turn.powers,
             )
 
-        admission = chat_turn_engine.admit_account_resume(
-            chat_turn_engine.AccountResumeStrategy(
-                store=runtime_state._assistant_account_challenges,
+        admission = chat_turn_engine.admit_integration_resume(
+            chat_turn_engine.IntegrationResumeStrategy(
+                store=runtime_state._assistant_integration_challenges,
                 team_id=team_id,
                 challenge_id=challenge_id,
                 pending_valid=lambda pending: (
@@ -226,18 +226,18 @@ def _resume_chat_accounts(
                 ),
                 pending_identity=lambda pending: pending.identity,
                 inspect=inspect,
-                account_store=runtime_state._assistant_accounts,
-                challenge_response=hosted_chat_segment._hosted_account_challenge_payload,
+                integration_store=runtime_state._assistant_integrations,
+                challenge_response=hosted_chat_segment._hosted_integration_challenge_payload,
                 expired_error=lambda: runtime_state.ApiError(
                     HTTPStatus.CONFLICT,
-                    "Assistant account request expired; retry the message",
+                    "Assistant integration request expired; retry the message",
                 ),
                 context_error=lambda: runtime_state.ApiError(
                     HTTPStatus.CONFLICT,
                     "Team capabilities changed; retry",
                 ),
                 contract_error=lambda: runtime_state.ApiError(
-                    HTTPStatus.CONFLICT, "Assistant account contract is unavailable"
+                    HTTPStatus.CONFLICT, "Assistant integration contract is unavailable"
                 ),
             )
         )
@@ -245,7 +245,7 @@ def _resume_chat_accounts(
             return admission.response
         pending = admission.pending
         if not isinstance(pending, hosted_assistants._PendingHostedChat):
-            raise AssertionError("shared account resume returned invalid state")
+            raise AssertionError("shared integration resume returned invalid state")
 
         segment = hosted_chat_segment._run_hosted_chat_segment(
             hosted_chat_segment.HostedChatSegmentRequest(
@@ -290,7 +290,7 @@ def _stop_active_power(team_id: str, token: str | None) -> bool:
 
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     """Cancel one Controller-owned turn and fail-stop a Power already executing."""
-    account_cancelled = runtime_state._assistant_account_challenges.cancel_team(team_id)
+    integration_cancelled = runtime_state._assistant_integration_challenges.cancel_team(team_id)
     with runtime_state._lock_for(team_id):
         container = hosted_resources._require_current_authorization(team_id, lease)
         container.reload()
@@ -305,7 +305,7 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
             if token is not None:
                 runtime_state._cancelled_chat_tokens.add(token)
         power_stopped = _stop_active_power(team_id, token)
-    accepted = token is not None or account_cancelled
+    accepted = token is not None or integration_cancelled
     audit.log("chat_stop", team_id, result="ok" if accepted else "denied")
     return {
         "team_id": team_id,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from assistant_human.assistant_registry import AccountSpec, PowerSpec, digest_is_bound
+from assistant_human.assistant_registry import IntegrationSpec, PowerSpec, digest_is_bound
 
 _DIGEST_REF = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]{1,5})?/)?"
@@ -21,13 +21,9 @@ class AssistantSpec:
     image: str
     powers: dict[str, PowerSpec]
     allowed_hosts: tuple[str, ...]
-    accounts: dict[str, AccountSpec] = field(default_factory=dict)
+    integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
 
 
 def is_digest_ref(value: object) -> bool:
-    return (
-        isinstance(value, str)
-        and _DIGEST_REF.fullmatch(value) is not None
-        and digest_is_bound(value)
-    )
+    return isinstance(value, str) and _DIGEST_REF.fullmatch(value) is not None and digest_is_bound(value)

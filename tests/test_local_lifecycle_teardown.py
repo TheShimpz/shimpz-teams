@@ -135,7 +135,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_uninstall_removes_an_outdated_release_after_current_contract_admission(self) -> None:
         controller, _container, events = self._lifecycle_controller()
-        controller.assistant_accounts.put(
+        controller.assistant_integrations.put(
             "team_1",
             "shimpz-cloudflare",
             "cloudflare",
@@ -153,7 +153,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
         self.assertEqual(events, ["reload", ("remove", True)])
-        self.assertFalse(controller.assistant_accounts.delete_assistant("team_1", "shimpz-cloudflare"))
+        self.assertFalse(controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare"))
 
     def test_install_rejects_security_drift_without_resolving_or_removing(self) -> None:
         controller, container, events = self._lifecycle_controller()

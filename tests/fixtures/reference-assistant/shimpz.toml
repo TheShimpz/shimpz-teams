@@ -14,5 +14,5 @@ list-zones. Start with page 1 and a small per_page. These Powers are read-only: 
 record or zone was changed, and never ask the user to paste OAuth credentials.
 """
 
-[accounts.cloudflare]
+[integrations.cloudflare]
 scopes = ["zone.read", "dns.read", "offline_access"]

@@ -13,7 +13,7 @@ sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
 
-from assistant_human import assistant_account_challenges, oauth_account_store, oauth_pkce_challenges
+from assistant_human import assistant_integration_challenges, oauth_integration_store, oauth_pkce_challenges
 from controller_runtime import local_chat_continuation_store
 from inference import config as inference_config
 from local import app as local_app
@@ -79,27 +79,27 @@ class LocalContractCase(unittest.TestCase):
             Path(directory) / "power-journal" / "journal.sqlite3"
         )
         self.addCleanup(controller.power_state.close)
-        controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-            Path(directory) / "assistant-accounts" / "state" / "accounts.json",
-            Path(directory) / "assistant-accounts" / "key" / "aes256.key",
+        controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            Path(directory) / "assistant-integrations" / "state" / "integrations.json",
+            Path(directory) / "assistant-integrations" / "key" / "aes256.key",
         )
-        controller.account_challenges = assistant_account_challenges.AccountChallengeStore()
+        controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
         controller.oauth_pkce = oauth_pkce_challenges.OAuthPKCEChallengeStore()
         controller.chat_continuations = local_chat_continuation_store.EncryptedContinuationStore(
             Path(directory) / "chat-continuations" / "state" / "continuations.json",
             Path(directory) / "chat-continuations" / "key" / "aes256.key",
         )
-        account = controller.registry["shimpz-cloudflare"].accounts["cloudflare"]
-        controller.assistant_accounts.put(
+        integration = controller.registry["shimpz-cloudflare"].integrations["cloudflare"]
+        controller.assistant_integrations.put(
             "team_1",
             "shimpz-cloudflare",
             "cloudflare",
-            account.provider,
-            account.scopes,
+            integration.provider,
+            integration.scopes,
             SimpleNamespace(
                 access_token=TEST_ACCOUNT_ACCESS_TOKEN,
                 refresh_token=TEST_ACCOUNT_REFRESH_TOKEN,
-                scopes=account.scopes,
+                scopes=integration.scopes,
                 expires_in=3600,
             ),
         )
@@ -134,18 +134,18 @@ class LocalContractCase(unittest.TestCase):
         controller._locks = tuple(threading.RLock() for _ in range(64))
         state_directory = tempfile.TemporaryDirectory()
         self.addCleanup(state_directory.cleanup)
-        controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-            Path(state_directory.name) / "assistant-accounts" / "state" / "accounts.json",
-            Path(state_directory.name) / "assistant-accounts" / "key" / "aes256.key",
+        controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            Path(state_directory.name) / "assistant-integrations" / "state" / "integrations.json",
+            Path(state_directory.name) / "assistant-integrations" / "key" / "aes256.key",
         )
-        controller.account_challenges = assistant_account_challenges.AccountChallengeStore()
+        controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
         controller.oauth_pkce = oauth_pkce_challenges.OAuthPKCEChallengeStore()
         spec = SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,
             allowed_hosts=(),
-            accounts={},
+            integrations={},
         )
         controller.registry = TestPublicationRegistry({spec.assistant_id: spec})
         controller._wire_collaborators()

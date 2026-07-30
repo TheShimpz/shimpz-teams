@@ -2,7 +2,7 @@
 
 from http import HTTPStatus
 
-from assistant_human import assistant_account_challenges, assistant_account_flow
+from assistant_human import assistant_integration_challenges, assistant_integration_flow
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
@@ -29,44 +29,44 @@ def _commit_suspension(
     )
 
 
-def _account_response(
+def _integration_response(
     self,
-    challenge: assistant_account_challenges.PendingAccountChallenge,
+    challenge: assistant_integration_challenges.PendingIntegrationChallenge,
 ) -> dict[str, object]:
     bindings: dict[str, _ActiveAssistant] = {}
     for requirement in challenge.requirements:
         spec = self.assistant_lifecycle._resolve(challenge.team_id, requirement.assistant_id)
         bindings[spec.assistant_id] = _ActiveAssistant(spec, "")
     try:
-        return assistant_account_flow.challenge_payload(challenge, bindings)
-    except assistant_account_flow.AccountFlowError as exc:
+        return assistant_integration_flow.challenge_payload(challenge, bindings)
+    except assistant_integration_flow.IntegrationFlowError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Assistant account contract changed; retry the message",
-            code="assistant-account-contract-invalid",
+            "Assistant integration contract changed; retry the message",
+            code="assistant-integration-contract-invalid",
         ) from exc
 
 
-def _pause_account(
+def _pause_integration(
     self,
     team_id: str,
     token: str,
     outcome: chat_orchestrator.ChatSuspension,
-    requirements: tuple[assistant_account_challenges.AccountRequirement, ...],
+    requirements: tuple[assistant_integration_challenges.IntegrationRequirement, ...],
     payload: _PendingLocalChat,
 ) -> dict[str, object]:
     try:
-        challenge = self.account_challenges.create(team_id, requirements, payload)
-    except assistant_account_challenges.AccountChallengeError as exc:
+        challenge = self.integration_challenges.create(team_id, requirements, payload)
+    except assistant_integration_challenges.IntegrationChallengeError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Assistant account request is already pending",
-            code="assistant-account-challenge-conflict",
+            "Assistant integration request is already pending",
+            code="assistant-integration-challenge-conflict",
         ) from exc
     try:
-        self._persist_chat_continuation("accounts", challenge, requirements, payload)
+        self._persist_chat_continuation("integrations", challenge, requirements, payload)
     except ApiProblem:
-        self.account_challenges.cancel_team(team_id)
+        self.integration_challenges.cancel_team(team_id)
         raise
-    self._commit_suspension(team_id, token, outcome, payload, self.account_challenges, challenge.id)
-    return self._account_response(challenge)
+    self._commit_suspension(team_id, token, outcome, payload, self.integration_challenges, challenge.id)
+    return self._integration_response(challenge)

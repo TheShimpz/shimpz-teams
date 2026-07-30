@@ -104,7 +104,7 @@
               "output_schema": {
                 "type": "object"
               },
-              "accounts": [
+              "integrations": [
                 "cloudflare"
               ]
             }
@@ -113,7 +113,7 @@
         "allowed_hosts": [
           "api.cloudflare.com"
         ],
-        "accounts": [
+        "integrations": [
           {
             "id": "cloudflare",
             "provider": "cloudflare",
@@ -526,27 +526,27 @@
       }
     },
     {
-      "name": "resolve_missing_account_intent",
+      "name": "resolve_missing_integration_intent",
       "fixture": "resolve_response",
       "valid": false,
-      "error": "resolve_account_mismatch",
+      "error": "resolve_integration_mismatch",
       "mutation": {
         "op": "set",
         "path": [
-          "accounts"
+          "integrations"
         ],
         "value": []
       }
     },
     {
-      "name": "resolve_duplicate_account_intent",
+      "name": "resolve_duplicate_integration_intent",
       "fixture": "resolve_response",
       "valid": false,
-      "error": "resolve_account_mismatch",
+      "error": "resolve_integration_mismatch",
       "mutation": {
         "op": "set",
         "path": [
-          "accounts"
+          "integrations"
         ],
         "value": [
           {

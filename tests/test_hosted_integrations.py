@@ -11,11 +11,11 @@ from pathlib import Path
 from unittest import mock
 
 from assistant_human import (
-    assistant_account_challenges,
-    assistant_account_flow,
+    assistant_integration_challenges,
+    assistant_integration_flow,
     assistant_registry,
-    oauth_account_store,
     oauth_http_client,
+    oauth_integration_store,
 )
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import brain_runtime_client
@@ -51,20 +51,20 @@ def _zones(name: str = "example.com") -> dict[str, object]:
                 "status": "active",
                 "type": "full",
                 "paused": False,
-                "account": {"id": "b" * 32, "name": "Shimpz"},
+                "integration": {"id": "b" * 32, "name": "Shimpz"},
             }
         ],
         "pagination": {"page": 1, "per_page": 25, "count": 1, "total_count": 1, "total_pages": 1},
     }
 
 
-class HostedOAuthAccountTests(unittest.TestCase):
+class HostedOAuthIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        self.store = oauth_account_store.OAuthAccountStore(
-            root / "state" / "accounts.json",
+        self.store = oauth_integration_store.OAuthIntegrationStore(
+            root / "state" / "integrations.json",
             root / "key" / "aes256.key",
         )
         trusted = harness.HOSTED_SPEC.contract
@@ -73,11 +73,11 @@ class HostedOAuthAccountTests(unittest.TestCase):
             powers={
                 power_id: replace(
                     power,
-                    accounts=("cloudflare",) if power_id == "list-zones" else (),
+                    integrations=("cloudflare",) if power_id == "list-zones" else (),
                 )
                 for power_id, power in trusted.powers.items()
             },
-            accounts={"cloudflare": assistant_registry.AccountSpec("cloudflare", SCOPES)},
+            integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", SCOPES)},
         )
         self.container = types.SimpleNamespace(id="b" * 64)
         self.active = hosted_assistants._ActiveAssistant(
@@ -110,7 +110,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
             _cloudflare_oauth_client_id="client-id",
             _cloudflare_oauth_client_secret=client_secret,
         ):
-            result = hosted_assistants._refresh_oauth_account("cloudflare", SCOPES, refresh_token, None)
+            result = hosted_assistants._refresh_oauth_integration("cloudflare", SCOPES, refresh_token, None)
 
         self.assertIs(result, token_set)
         oauth_http.refresh.assert_called_once_with(
@@ -137,7 +137,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
             return ASSISTANT_ID, self.contract, self.container
 
         with (
-            mock.patch.object(runtime_state, "_assistant_accounts", self.store),
+            mock.patch.object(runtime_state, "_assistant_integrations", self.store),
             mock.patch.multiple(
                 harness.hosted_assistants,
                 _installed_assistant=installed,
@@ -156,9 +156,9 @@ class HostedOAuthAccountTests(unittest.TestCase):
                     inspect_memo=inspect_memo,
                 )
             )
-            payload = assistant_account_flow.inventory_payload(
+            payload = assistant_integration_flow.inventory_payload(
                 TEAM_ID,
-                [hosted_assistants._hosted_account_spec(self.active)],
+                [hosted_assistants._hosted_integration_spec(self.active)],
                 self.store,
             )
 
@@ -170,7 +170,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
             [
                 {
                     "input": ZONE_INPUT,
-                    "accounts": {"cloudflare": ACCESS_TOKEN},
+                    "integrations": {"cloudflare": ACCESS_TOKEN},
                 }
             ],
         )
@@ -178,11 +178,11 @@ class HostedOAuthAccountTests(unittest.TestCase):
         self.assertNotIn(ACCESS_TOKEN, serialized)
         self.assertNotIn("refresh-token", serialized)
         self.assertNotIn("generation", serialized)
-        self.assertEqual(payload["accounts"][0]["status"], "connected")
+        self.assertEqual(payload["integrations"][0]["status"], "connected")
 
     def test_fresh_power_evidence_reaches_only_its_immediate_rpc(self) -> None:
         turn_token = "-".join(("turn", "token"))
-        account_values = {
+        integration_values = {
             "cloudflare": {
                 "type": "oauth2-bearer",
                 "access_token": ACCESS_TOKEN,
@@ -190,7 +190,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
         }
         rpc = mock.Mock(return_value=_zones())
         with (
-            mock.patch.object(runtime_state, "_assistant_accounts", self.store),
+            mock.patch.object(runtime_state, "_assistant_integrations", self.store),
             mock.patch.object(hosted_assistants, "_assistant_rpc", rpc),
             mock.patch.object(
                 hosted_assistants,
@@ -199,8 +199,8 @@ class HostedOAuthAccountTests(unittest.TestCase):
             ),
             mock.patch.object(
                 hosted_assistants,
-                "_resolve_power_accounts",
-                side_effect=AssertionError("fresh account values must not be decrypted again"),
+                "_resolve_power_integrations",
+                side_effect=AssertionError("fresh integration values must not be decrypted again"),
             ),
         ):
             result = hosted_assistants._invoke_assistant_power(
@@ -213,18 +213,18 @@ class HostedOAuthAccountTests(unittest.TestCase):
                     power="list-zones",
                     payload=ZONE_INPUT,
                     validated_assistant=self.active,
-                    account_values=account_values,
+                    integration_values=integration_values,
                 )
             )
 
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
-        self.assertEqual(rpc.call_args.args[-1]["accounts"], {"cloudflare": ACCESS_TOKEN})
+        self.assertEqual(rpc.call_args.args[-1]["integrations"], {"cloudflare": ACCESS_TOKEN})
 
-    def test_account_token_exposure_is_rejected_without_echoing_it(self) -> None:
+    def test_integration_token_exposure_is_rejected_without_echoing_it(self) -> None:
         self._connect()
         turn_token = "turn-token"
         with (
-            mock.patch.object(runtime_state, "_assistant_accounts", self.store),
+            mock.patch.object(runtime_state, "_assistant_integrations", self.store),
             mock.patch.multiple(
                 harness.hosted_assistants,
                 _installed_assistant=lambda *_args: (ASSISTANT_ID, self.contract, self.container),
@@ -247,33 +247,33 @@ class HostedOAuthAccountTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
         self.assertNotIn(ACCESS_TOKEN, caught.exception.message)
 
-    def test_admitted_contract_prunes_removed_accounts_and_cancels_paused_turn(self) -> None:
+    def test_admitted_contract_prunes_removed_integrations_and_cancels_paused_turn(self) -> None:
         self._connect()
-        challenge_store = assistant_account_challenges.AccountChallengeStore()
-        requirement = assistant_account_challenges.AccountRequirement(
+        challenge_store = assistant_integration_challenges.IntegrationChallengeStore()
+        requirement = assistant_integration_challenges.IntegrationRequirement(
             ASSISTANT_ID,
             "Shimpz Cloudflare",
             ("list-zones",),
             (("cloudflare", "cloudflare", SCOPES),),
         )
         challenge_store.create(TEAM_ID, (requirement,), object())
-        without_accounts = replace(
+        without_integrations = replace(
             harness.HOSTED_SPEC,
-            contract=replace(self.contract, accounts={}),
+            contract=replace(self.contract, integrations={}),
         )
 
         with (
-            mock.patch.object(runtime_state, "_assistant_accounts", self.store),
-            mock.patch.object(runtime_state, "_assistant_account_challenges", challenge_store),
+            mock.patch.object(runtime_state, "_assistant_integrations", self.store),
+            mock.patch.object(runtime_state, "_assistant_integration_challenges", challenge_store),
         ):
-            hosted_apps._retain_admitted_assistant_accounts(TEAM_ID, ASSISTANT_ID, without_accounts)
+            hosted_apps._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, without_integrations)
 
         self.assertIsNone(challenge_store.current(TEAM_ID))
         self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, {}), ())
         self.assertNotIn(ACCESS_TOKEN, self.store.state_path.read_text(encoding="utf-8"))
 
     def test_authorize_and_callback_expose_no_oauth_private_material(self) -> None:
-        challenge_store = assistant_account_challenges.AccountChallengeStore()
+        challenge_store = assistant_integration_challenges.IntegrationChallengeStore()
         continuation = chat_orchestrator.ChatContinuation(
             brain_runtime_client.RuntimeTurn("power-required", "", ()),
             (),
@@ -284,13 +284,13 @@ class HostedOAuthAccountTests(unittest.TestCase):
             continuation,
             (ASSISTANT_ID,),
             (),
-            "account_1",
+            "integration_1",
             ("identity",),
         )
         challenge = challenge_store.create(
             TEAM_ID,
             (
-                assistant_account_challenges.AccountRequirement(
+                assistant_integration_challenges.IntegrationRequirement(
                     ASSISTANT_ID,
                     "Shimpz Cloudflare",
                     ("list-zones",),
@@ -308,7 +308,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
             complete=lambda state, code, session, resolver: types.SimpleNamespace(
                 team_id=TEAM_ID,
                 assistant_id=ASSISTANT_ID,
-                account_id="cloudflare",
+                integration_id="cloudflare",
                 provider="cloudflare",
                 scopes=SCOPES,
                 generation=9,
@@ -318,14 +318,14 @@ class HostedOAuthAccountTests(unittest.TestCase):
         lease = hosted_resources._AuthorizationLease(
             TEAM_ID,
             ANCHOR_ID,
-            "account_1",
-            ("account", "account_1"),
+            "integration_1",
+            ("integration", "integration_1"),
         )
         with (
             mock.patch.multiple(
                 runtime_state,
-                _assistant_account_challenges=challenge_store,
-                _oauth_accounts=fake_service,
+                _assistant_integration_challenges=challenge_store,
+                _oauth_integrations=fake_service,
             ),
             mock.patch.multiple(
                 hosted_resources,
@@ -333,29 +333,29 @@ class HostedOAuthAccountTests(unittest.TestCase):
                 _authorize=lambda *_args, **_kwargs: lease,
             ),
         ):
-            started = hosted_chat_api._start_oauth_account(
+            started = hosted_chat_api._start_oauth_integration(
                 TEAM_ID,
                 challenge.id,
                 "browser-session-binding-value",
                 lease,
             )
-            completed = hosted_chat_api._complete_oauth_account(
+            completed = hosted_chat_api._complete_oauth_integration(
                 {
                     "state": "provider-state-value",
                     "code": "provider-code-value",
                     "session_binding": "browser-session-binding-value",
                 },
-                ("account", "account_1"),
+                ("integration", "integration_1"),
             )
             with self.assertRaises(runtime_state.ApiError) as extra_field:
-                hosted_chat_api._complete_oauth_account(
+                hosted_chat_api._complete_oauth_integration(
                     {
                         "state": "provider-state-value",
                         "code": "provider-code-value",
                         "session_binding": "browser-session-binding-value",
                         "redirect": "https://attacker.test",
                     },
-                    ("account", "account_1"),
+                    ("integration", "integration_1"),
                 )
 
         self.assertEqual(started, {"authorization_url": "https://x.com/i/oauth2/authorize?state=opaque"})
@@ -366,7 +366,7 @@ class HostedOAuthAccountTests(unittest.TestCase):
                 "connected": True,
                 "team_id": TEAM_ID,
                 "assistant_id": ASSISTANT_ID,
-                "account_id": "cloudflare",
+                "integration_id": "cloudflare",
                 "provider": "cloudflare",
                 "scopes": list(SCOPES),
                 "challenge_id": challenge.id,
@@ -384,13 +384,13 @@ class HostedOAuthAccountTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, serialized)
 
-    def test_team_teardown_cancels_account_turn_and_purges_tokens(self) -> None:
+    def test_team_teardown_cancels_integration_turn_and_purges_tokens(self) -> None:
         self._connect()
-        challenges = assistant_account_challenges.AccountChallengeStore()
+        challenges = assistant_integration_challenges.IntegrationChallengeStore()
         challenges.create(
             TEAM_ID,
             (
-                assistant_account_challenges.AccountRequirement(
+                assistant_integration_challenges.IntegrationRequirement(
                     ASSISTANT_ID,
                     "Shimpz Cloudflare",
                     ("list-zones",),
@@ -400,13 +400,13 @@ class HostedOAuthAccountTests(unittest.TestCase):
             object(),
         )
         with (
-            mock.patch.object(runtime_state, "_assistant_accounts", self.store),
-            mock.patch.object(runtime_state, "_assistant_account_challenges", challenges),
+            mock.patch.object(runtime_state, "_assistant_integrations", self.store),
+            mock.patch.object(runtime_state, "_assistant_integration_challenges", challenges),
         ):
-            self.assertTrue(hosted_lifecycle._teardown_assistant_accounts(TEAM_ID))
+            self.assertTrue(hosted_lifecycle._teardown_assistant_integrations(TEAM_ID))
 
         self.assertIsNone(challenges.current(TEAM_ID))
-        self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, self.contract.accounts)[0].status, "missing")
+        self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, self.contract.integrations)[0].status, "missing")
 
 
 if __name__ == "__main__":

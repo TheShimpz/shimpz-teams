@@ -6,22 +6,27 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn
 
-from assistant_human import assistant_account_challenges, assistant_account_flow, assistant_chat, oauth_account_store
+from assistant_human import (
+    assistant_chat,
+    assistant_integration_challenges,
+    assistant_integration_flow,
+    oauth_integration_store,
+)
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import brain_runtime_client
 from power import journal as power_journal
 
-CHAT_PAUSED_STATUSES = frozenset({"accounts-required"})
+CHAT_PAUSED_STATUSES = frozenset({"integrations-required"})
 
 
 @dataclass(slots=True)
 class SegmentRequirements:
     """Mutable suspension gates populated while one shared segment is driven."""
 
-    accounts: tuple[object, ...] = ()
+    integrations: tuple[object, ...] = ()
 
     def groups(self) -> tuple[tuple[object, ...], ...]:
-        return (self.accounts,)
+        return (self.integrations,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,10 +47,10 @@ class SegmentResult:
     team_name: str
     identity: tuple[object, ...]
     outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension
-    accounts: tuple[object, ...]
+    integrations: tuple[object, ...]
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
-        return (self.accounts,)
+        return (self.integrations,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,16 +68,16 @@ class SegmentStrategy:
 
 
 @dataclass(frozen=True, slots=True)
-class AccountResumeStrategy:
-    """Controller adapters for admitting one account-gated continuation."""
+class IntegrationResumeStrategy:
+    """Controller adapters for admitting one integration-gated continuation."""
 
     store: object
     team_id: str
     challenge_id: object
     pending_valid: Callable[[object], bool]
     pending_identity: Callable[[object], tuple[object, ...]]
-    inspect: Callable[[object], AccountResumeContext]
-    account_store: object
+    inspect: Callable[[object], IntegrationResumeContext]
+    integration_store: object
     challenge_response: Callable[[object], object]
     expired_error: Callable[[], BaseException]
     context_error: Callable[[], BaseException]
@@ -81,14 +86,14 @@ class AccountResumeStrategy:
 
 
 @dataclass(frozen=True, slots=True)
-class AccountResumeContext:
+class IntegrationResumeContext:
     identity: tuple[object, ...]
     bindings: object
     requests: tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class AccountResumeAdmission:
+class IntegrationResumeAdmission:
     pending: object | None
     response: object | None
 
@@ -101,11 +106,11 @@ _DRIVE_ERRORS = (
 )
 
 
-def admit_account_resume(strategy: AccountResumeStrategy) -> AccountResumeAdmission:
-    """Make account challenge, identity, requirement and one-use decisions once for both twins."""
+def admit_integration_resume(strategy: IntegrationResumeStrategy) -> IntegrationResumeAdmission:
+    """Make integration challenge, identity, requirement and one-use decisions once for both twins."""
     try:
         challenge = strategy.store.get(strategy.team_id, strategy.challenge_id)
-    except assistant_account_challenges.AccountChallengeNotFoundError as exc:
+    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise strategy.expired_error() from exc
     pending = challenge.payload
     if not strategy.pending_valid(pending):
@@ -116,23 +121,23 @@ def admit_account_resume(strategy: AccountResumeStrategy) -> AccountResumeAdmiss
         strategy.cancel_extra()
         raise strategy.context_error()
     try:
-        missing = assistant_account_flow.requirements_for_batch(
+        missing = assistant_integration_flow.requirements_for_batch(
             strategy.team_id,
             context.bindings,
             context.requests,
-            strategy.account_store,
+            strategy.integration_store,
         )
-    except (assistant_account_flow.AccountFlowError, oauth_account_store.OAuthAccountStoreError) as exc:
+    except (assistant_integration_flow.IntegrationFlowError, oauth_integration_store.OAuthIntegrationStoreError) as exc:
         raise strategy.contract_error() from exc
     if missing:
-        return AccountResumeAdmission(None, strategy.challenge_response(challenge))
+        return IntegrationResumeAdmission(None, strategy.challenge_response(challenge))
     try:
         claimed = strategy.store.claim(strategy.team_id, challenge.id)
-    except assistant_account_challenges.AccountChallengeNotFoundError as exc:
+    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise strategy.expired_error() from exc
     if claimed is not challenge:
         raise strategy.expired_error()
-    return AccountResumeAdmission(pending, None)
+    return IntegrationResumeAdmission(pending, None)
 
 
 def run_segment(

@@ -36,12 +36,12 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY local/__init__.py local/app.py local/healthcheck.py ./local/
 COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
-COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
-    assistant_human/assistant_account_flow.py \
+COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
+    assistant_human/assistant_integration_flow.py \
     assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
     assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
-    assistant_human/challenge_store.py assistant_human/oauth_account_service.py \
-    assistant_human/oauth_account_store.py assistant_human/oauth_broker_client.py \
+    assistant_human/challenge_store.py assistant_human/oauth_integration_service.py \
+    assistant_human/oauth_integration_store.py assistant_human/oauth_broker_client.py \
     assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
     assistant_human/oauth_providers.py assistant_human/private_state.py ./assistant_human/
 COPY chat/__init__.py chat/orchestrator.py chat/turn.py ./chat/
@@ -78,7 +78,7 @@ RUN groupadd --gid 10001 shimpzlocal && \
     useradd --uid 10001 --gid 10001 --groups 10010,10016,10017 --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
     mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/app-egress \
-        /var/lib/shimpz-local/assistant-accounts/state /var/lib/shimpz-local/assistant-accounts/key \
+        /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     mkdir -p /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzteam-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
@@ -86,14 +86,14 @@ RUN groupadd --gid 10001 shimpzlocal && \
     chmod 0750 /run/shimpz-brain-runtime && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal \
-        /var/lib/shimpz-local/assistant-accounts/state /var/lib/shimpz-local/assistant-accounts/key \
+        /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzapp-egress-policy /var/lib/shimpz-local/app-egress && \
     chmod 0770 /var/lib/shimpz-local/app-egress && \
     chmod 0700 /var/log/shimpz-local /var/lib/shimpz-local/storage /var/lib/shimpz-local/inference \
         /var/lib/shimpz-local/power-journal \
-        /var/lib/shimpz-local/assistant-accounts/state /var/lib/shimpz-local/assistant-accounts/key \
+        /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chmod 0555 /app/local/healthcheck.py

@@ -17,12 +17,12 @@ def _invocation(power: str) -> dict[str, object]:
     if not 0 < len(raw) <= MAX_BODY:
         raise ValueError
     payload = json.loads(raw)
-    if not isinstance(payload, dict) or set(payload) != {"input", "accounts"}:
+    if not isinstance(payload, dict) or set(payload) != {"input", "integrations"}:
         raise ValueError
-    accounts = payload["accounts"]
-    if not isinstance(accounts, dict) or set(accounts) != {"cloudflare"}:
+    integrations = payload["integrations"]
+    if not isinstance(integrations, dict) or set(integrations) != {"cloudflare"}:
         raise ValueError
-    token = accounts["cloudflare"]
+    token = integrations["cloudflare"]
     if not isinstance(token, str) or not 16 <= len(token) <= 16 * 1024:
         raise ValueError
     power_input = payload["input"]

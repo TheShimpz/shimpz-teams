@@ -1,4 +1,4 @@
-"""Narrow controller-owned orchestration for Assistant OAuth accounts.
+"""Narrow controller-owned orchestration for Assistant OAuth integrations.
 
 This module composes the one-use PKCE challenge store, the fixed-endpoint OAuth
 HTTP adapter, and the encrypted token store.  It deliberately owns no routes,
@@ -14,10 +14,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from assistant_human import (
-    assistant_account_challenges,
-    oauth_account_store,
+    assistant_integration_challenges,
     oauth_broker_client,
     oauth_http_client,
+    oauth_integration_store,
     oauth_pkce_challenges,
     oauth_providers,
 )
@@ -34,28 +34,28 @@ _REDIRECT_URIS = frozenset(
     }
 )
 MAX_REQUIREMENTS = 32
-MAX_ACCOUNTS_PER_REQUIREMENT = 16
+MAX_INTEGRATIONS_PER_REQUIREMENT = 16
 
 
-class OAuthAccountServiceError(RuntimeError):
-    """An OAuth account could not be started or safely completed."""
+class OAuthIntegrationServiceError(RuntimeError):
+    """An OAuth integration could not be started or safely completed."""
 
 
-class OAuthAccountUnavailableError(OAuthAccountServiceError):
-    """No pending account currently requires provider authorization."""
+class OAuthIntegrationUnavailableError(OAuthIntegrationServiceError):
+    """No pending integration currently requires provider authorization."""
 
 
-class OAuthAccountDeclarationError(RuntimeError):
+class OAuthIntegrationDeclarationError(RuntimeError):
     """The trusted installed-Assistant resolver could not return a declaration."""
 
 
 @dataclass(frozen=True, slots=True)
-class OAuthAccountCompletion:
+class OAuthIntegrationCompletion:
     """Public completion identifiers; no authorization material is retained."""
 
     team_id: str
     assistant_id: str
-    account_id: str
+    integration_id: str
     provider: str
     scopes: tuple[str, ...]
     generation: int
@@ -65,14 +65,14 @@ class OAuthAccountCompletion:
 class _Candidate:
     team_id: str
     assistant_id: str
-    account_id: str
+    integration_id: str
     provider: str
     scopes: tuple[str, ...]
 
 
 def _identifier(value: object, label: str) -> str:
     if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
-        raise OAuthAccountServiceError(f"pending OAuth {label} is unavailable")
+        raise OAuthIntegrationServiceError(f"pending OAuth {label} is unavailable")
     return value
 
 
@@ -85,19 +85,19 @@ def _declaration(value: object) -> tuple[str, tuple[str, ...]]:
             provider = value.provider  # type: ignore[attr-defined]
             scopes = value.scopes  # type: ignore[attr-defined]
         except (AttributeError, TypeError) as exc:
-            raise OAuthAccountServiceError("OAuth account declaration is unavailable") from exc
+            raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from exc
     try:
-        intent = oauth_providers.account_intent(provider, scopes)
+        intent = oauth_providers.integration_intent(provider, scopes)
     except oauth_providers.OAuthProviderError as exc:
-        raise OAuthAccountServiceError("OAuth account declaration is unavailable") from exc
+        raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from exc
     return intent.provider.id, intent.scopes
 
 
 def _candidates(
     pending: object,
 ) -> tuple[_Candidate, ...]:
-    if not isinstance(pending, assistant_account_challenges.PendingAccountChallenge):
-        raise OAuthAccountServiceError("pending OAuth account is unavailable")
+    if not isinstance(pending, assistant_integration_challenges.PendingIntegrationChallenge):
+        raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
     if (
         not isinstance(pending.requirements, tuple)
         or not 1 <= len(pending.requirements) <= MAX_REQUIREMENTS
@@ -109,51 +109,51 @@ def _candidates(
         or isinstance(pending.expires_at, bool)
         or pending.expires_at <= time.monotonic()
     ):
-        raise OAuthAccountServiceError("pending OAuth account is unavailable")
+        raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
     candidates: list[_Candidate] = []
     seen: set[tuple[str, str]] = set()
     for requirement in pending.requirements:
         if (
-            not isinstance(requirement, assistant_account_challenges.AccountRequirement)
-            or not isinstance(requirement.accounts, tuple)
-            or not 1 <= len(requirement.accounts) <= MAX_ACCOUNTS_PER_REQUIREMENT
+            not isinstance(requirement, assistant_integration_challenges.IntegrationRequirement)
+            or not isinstance(requirement.integrations, tuple)
+            or not 1 <= len(requirement.integrations) <= MAX_INTEGRATIONS_PER_REQUIREMENT
         ):
-            raise OAuthAccountServiceError("pending OAuth account is unavailable")
+            raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
         assistant_id = _identifier(requirement.assistant_id, "Assistant")
-        for raw_account in requirement.accounts:
-            if not isinstance(raw_account, tuple) or len(raw_account) != 3:
-                raise OAuthAccountServiceError("pending OAuth account is unavailable")
-            account_id, raw_provider, raw_scopes = raw_account
-            account_id = _identifier(account_id, "account")
+        for raw_integration in requirement.integrations:
+            if not isinstance(raw_integration, tuple) or len(raw_integration) != 3:
+                raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
+            integration_id, raw_provider, raw_scopes = raw_integration
+            integration_id = _identifier(integration_id, "integration")
             provider, scopes = _declaration({"provider": raw_provider, "scopes": raw_scopes})
-            binding = (assistant_id, account_id)
+            binding = (assistant_id, integration_id)
             if binding in seen:
-                raise OAuthAccountServiceError("pending OAuth account is unavailable")
+                raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
             seen.add(binding)
             candidates.append(
                 _Candidate(
                     team_id=pending.team_id,
                     assistant_id=assistant_id,
-                    account_id=account_id,
+                    integration_id=integration_id,
                     provider=provider,
                     scopes=scopes,
                 )
             )
-    return tuple(sorted(candidates, key=lambda item: (item.assistant_id, item.account_id)))
+    return tuple(sorted(candidates, key=lambda item: (item.assistant_id, item.integration_id)))
 
 
 def _missing_candidate(
-    pending: assistant_account_challenges.PendingAccountChallenge,
-    store: oauth_account_store.OAuthAccountStore,
+    pending: assistant_integration_challenges.PendingIntegrationChallenge,
+    store: oauth_integration_store.OAuthIntegrationStore,
 ) -> _Candidate:
     candidates = _candidates(pending)
     metadata_by_binding: dict[
         tuple[str, str],
-        oauth_account_store.OAuthAccountMetadata,
+        oauth_integration_store.OAuthIntegrationMetadata,
     ] = {}
     by_assistant: dict[str, dict[str, dict[str, object]]] = {}
     for candidate in candidates:
-        by_assistant.setdefault(candidate.assistant_id, {})[candidate.account_id] = {
+        by_assistant.setdefault(candidate.assistant_id, {})[candidate.integration_id] = {
             "provider": candidate.provider,
             "scopes": candidate.scopes,
         }
@@ -164,21 +164,21 @@ def _missing_candidate(
         (
             candidate
             for candidate in candidates
-            if metadata_by_binding[(candidate.assistant_id, candidate.account_id)].status
+            if metadata_by_binding[(candidate.assistant_id, candidate.integration_id)].status
             in {"missing", "refresh-required", "reauthorization-required"}
         ),
         None,
     )
     if selected is None:
-        raise OAuthAccountUnavailableError("all pending OAuth accounts are already configured")
+        raise OAuthIntegrationUnavailableError("all pending OAuth integrations are already configured")
     return selected
 
 
 def _authorization_url(
     challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-    store: oauth_account_store.OAuthAccountStore,
+    store: oauth_integration_store.OAuthIntegrationStore,
     build_url: Callable[..., str],
-    pending: assistant_account_challenges.PendingAccountChallenge,
+    pending: assistant_integration_challenges.PendingIntegrationChallenge,
     session_binding: object,
 ) -> str:
     try:
@@ -187,7 +187,7 @@ def _authorization_url(
             session_binding=session_binding,
             team_id=selected.team_id,
             assistant_id=selected.assistant_id,
-            account_id=selected.account_id,
+            integration_id=selected.integration_id,
             provider_id=selected.provider,
             scopes=selected.scopes,
         )
@@ -197,33 +197,33 @@ def _authorization_url(
             code_challenge=public.code_challenge,
             scopes=public.scopes,
         )
-    except OAuthAccountUnavailableError:
+    except OAuthIntegrationUnavailableError:
         raise
     except (
-        assistant_account_challenges.AccountChallengeError,
-        oauth_account_store.OAuthAccountStoreError,
+        assistant_integration_challenges.IntegrationChallengeError,
+        oauth_integration_store.OAuthIntegrationStoreError,
         oauth_broker_client.OAuthBrokerClientError,
         oauth_http_client.OAuthHTTPError,
         oauth_pkce_challenges.OAuthChallengeError,
         oauth_providers.OAuthProviderError,
-        OAuthAccountServiceError,
+        OAuthIntegrationServiceError,
         KeyError,
         TypeError,
     ):
-        raise OAuthAccountServiceError("OAuth account could not be started") from None
+        raise OAuthIntegrationServiceError("OAuth integration could not be started") from None
 
 
 def _complete(
     challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-    store: oauth_account_store.OAuthAccountStore,
+    store: oauth_integration_store.OAuthIntegrationStore,
     exchange_tokens: Callable[..., object],
     state: object,
     claim_or_code: object,
     session_binding: object,
     resolver: Callable[[str, str, str], object],
-) -> OAuthAccountCompletion:
+) -> OAuthIntegrationCompletion:
     if not callable(resolver):
-        raise OAuthAccountServiceError("OAuth declaration resolver is unavailable")
+        raise OAuthIntegrationServiceError("OAuth declaration resolver is unavailable")
     try:
         exchange = challenge.claim_callback(
             state=state,
@@ -233,13 +233,13 @@ def _complete(
             current = resolver(
                 exchange.team_id,
                 exchange.assistant_id,
-                exchange.account_id,
+                exchange.integration_id,
             )
-        except OAuthAccountDeclarationError:
-            raise OAuthAccountServiceError("OAuth account declaration is unavailable") from None
+        except OAuthIntegrationDeclarationError:
+            raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from None
         provider, scopes = _declaration(current)
         if provider != exchange.provider_id or scopes != exchange.scopes:
-            raise OAuthAccountServiceError("OAuth account declaration changed")
+            raise OAuthIntegrationServiceError("OAuth integration declaration changed")
         token_set = exchange_tokens(
             provider_id=provider,
             credential=claim_or_code,
@@ -250,29 +250,29 @@ def _complete(
         metadata = store.put(
             exchange.team_id,
             exchange.assistant_id,
-            exchange.account_id,
+            exchange.integration_id,
             provider,
             scopes,
             token_set,
             None,
         )
-        return OAuthAccountCompletion(
+        return OAuthIntegrationCompletion(
             team_id=exchange.team_id,
             assistant_id=exchange.assistant_id,
-            account_id=exchange.account_id,
+            integration_id=exchange.integration_id,
             provider=metadata.provider,
             scopes=metadata.scopes,
             generation=metadata.generation,
         )
     except (
-        oauth_account_store.OAuthAccountStoreError,
+        oauth_integration_store.OAuthIntegrationStoreError,
         oauth_broker_client.OAuthBrokerClientError,
         oauth_http_client.OAuthHTTPError,
         oauth_pkce_challenges.OAuthChallengeError,
         oauth_providers.OAuthProviderError,
-        OAuthAccountServiceError,
+        OAuthIntegrationServiceError,
     ):
-        raise OAuthAccountServiceError("OAuth account could not be completed") from None
+        raise OAuthIntegrationServiceError("OAuth integration could not be completed") from None
 
 
 def _exchange_code(
@@ -316,7 +316,7 @@ def _claim_broker(
     )
 
 
-class OAuthAccountService:
+class OAuthIntegrationService:
     """Start and complete only controller-reviewed OAuth Authorization Code flows."""
 
     def __init__(
@@ -326,16 +326,16 @@ class OAuthAccountService:
         client_secret: object,
         redirect_uri: object,
         challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-        store: oauth_account_store.OAuthAccountStore,
+        store: oauth_integration_store.OAuthIntegrationStore,
         http: oauth_http_client.OAuthHTTPClient,
     ) -> None:
         if (
             not isinstance(challenge, oauth_pkce_challenges.OAuthPKCEChallengeStore)
-            or not isinstance(store, oauth_account_store.OAuthAccountStore)
+            or not isinstance(store, oauth_integration_store.OAuthIntegrationStore)
             or not isinstance(http, oauth_http_client.OAuthHTTPClient)
             or redirect_uri not in _REDIRECT_URIS
         ):
-            raise OAuthAccountServiceError("OAuth account service configuration is invalid")
+            raise OAuthIntegrationServiceError("OAuth integration service configuration is invalid")
         # An Admin may boot before its Cloudflare OAuth client is configured.
         # Validation is deliberately lazy so only starting/completing OAuth fails.
         self._client_id = client_id
@@ -346,7 +346,7 @@ class OAuthAccountService:
         self._http = http
 
     def __repr__(self) -> str:
-        return "<OAuthAccountService configured>"
+        return "<OAuthIntegrationService configured>"
 
     def _client_configuration(self) -> tuple[str, str, str]:
         if (
@@ -355,15 +355,15 @@ class OAuthAccountService:
             or not isinstance(self._client_secret, str)
             or _CLIENT_SECRET.fullmatch(self._client_secret) is None
         ):
-            raise OAuthAccountServiceError("OAuth account client is not configured")
+            raise OAuthIntegrationServiceError("OAuth integration client is not configured")
         return self._client_id, self._client_secret, self._redirect_uri
 
     def authorization_url(
         self,
-        pending: assistant_account_challenges.PendingAccountChallenge,
+        pending: assistant_integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
     ) -> str:
-        """Create one trusted URL for the first deterministic missing account."""
+        """Create one trusted URL for the first deterministic missing integration."""
         client_id, _client_secret, redirect_uri = self._client_configuration()
         build_url = functools.partial(
             oauth_http_client.authorization_url,
@@ -378,7 +378,7 @@ class OAuthAccountService:
         code: object,
         session_binding: object,
         current_declaration_callback: Callable[[str, str, str], object],
-    ) -> OAuthAccountCompletion:
+    ) -> OAuthIntegrationCompletion:
         """Claim once, revalidate the installed declaration, exchange, and seal tokens."""
         client_configuration = self._client_configuration()
         exchange_tokens = functools.partial(_exchange_code, self._http, client_configuration)
@@ -392,7 +392,7 @@ class OAuthAccountService:
             current_declaration_callback,
         )
 
-    def disconnect(self, team_id: object, assistant_id: object, account_id: object) -> bool:
+    def disconnect(self, team_id: object, assistant_id: object, integration_id: object) -> bool:
         """Revoke each upstream token before atomically deleting local custody."""
 
         def revoke(
@@ -415,43 +415,43 @@ class OAuthAccountService:
             return self._store.revoke_then_delete(
                 team_id,
                 assistant_id,
-                account_id,
+                integration_id,
                 revoke,
             )
         except (
-            oauth_account_store.OAuthAccountStoreError,
+            oauth_integration_store.OAuthIntegrationStoreError,
             oauth_http_client.OAuthHTTPError,
-            OAuthAccountServiceError,
+            OAuthIntegrationServiceError,
         ):
-            raise OAuthAccountServiceError("OAuth account could not be disconnected") from None
+            raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None
 
 
-class BrokeredOAuthAccountService:
+class BrokeredOAuthIntegrationService:
     """Controller orchestration that never owns an OAuth Client Secret."""
 
     def __init__(
         self,
         *,
         challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-        store: oauth_account_store.OAuthAccountStore,
+        store: oauth_integration_store.OAuthIntegrationStore,
         broker: oauth_broker_client.OAuthBrokerClient,
     ) -> None:
         if (
             not isinstance(challenge, oauth_pkce_challenges.OAuthPKCEChallengeStore)
-            or not isinstance(store, oauth_account_store.OAuthAccountStore)
+            or not isinstance(store, oauth_integration_store.OAuthIntegrationStore)
             or not isinstance(broker, oauth_broker_client.OAuthBrokerClient)
         ):
-            raise OAuthAccountServiceError("brokered OAuth account service configuration is invalid")
+            raise OAuthIntegrationServiceError("brokered OAuth integration service configuration is invalid")
         self._challenge = challenge
         self._store = store
         self._broker = broker
 
     def __repr__(self) -> str:
-        return "<BrokeredOAuthAccountService shimpz.com>"
+        return "<BrokeredOAuthIntegrationService shimpz.com>"
 
     def authorization_url(
         self,
-        pending: assistant_account_challenges.PendingAccountChallenge,
+        pending: assistant_integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
     ) -> str:
         return _authorization_url(
@@ -468,7 +468,7 @@ class BrokeredOAuthAccountService:
         claim: object,
         session_binding: object,
         current_declaration_callback: Callable[[str, str, str], object],
-    ) -> OAuthAccountCompletion:
+    ) -> OAuthIntegrationCompletion:
         exchange_tokens = functools.partial(_claim_broker, self._broker)
         return _complete(
             self._challenge,
@@ -495,13 +495,13 @@ class BrokeredOAuthAccountService:
                 scopes=scopes,
             )
         except oauth_broker_client.OAuthBrokerClientError:
-            raise OAuthAccountServiceError("OAuth account could not be refreshed") from None
+            raise OAuthIntegrationServiceError("OAuth integration could not be refreshed") from None
 
     def disconnect(
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
     ) -> bool:
         def revoke(
             provider: str,
@@ -519,11 +519,11 @@ class BrokeredOAuthAccountService:
             return self._store.revoke_then_delete(
                 team_id,
                 assistant_id,
-                account_id,
+                integration_id,
                 revoke,
             )
         except (
-            oauth_account_store.OAuthAccountStoreError,
+            oauth_integration_store.OAuthIntegrationStoreError,
             oauth_broker_client.OAuthBrokerClientError,
         ):
-            raise OAuthAccountServiceError("OAuth account could not be disconnected") from None
+            raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None

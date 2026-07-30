@@ -7,7 +7,7 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from assistant_human import assistant_account_challenges
+from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import (
     brain_runtime_client,
@@ -76,30 +76,30 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.requirements, requirements)
         self.assertEqual(decoded.pending, pending())
 
-    def test_round_trips_the_account_suspension(self) -> None:
+    def test_round_trips_the_integration_suspension(self) -> None:
         requirements = (
-            assistant_account_challenges.AccountRequirement(
+            assistant_integration_challenges.IntegrationRequirement(
                 "demo-assistant",
                 "Demo Assistant",
                 ("publish",),
                 (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
             ),
         )
-        self._round_trip("accounts", requirements)
+        self._round_trip("integrations", requirements)
 
     def test_rejects_release_binding_and_decrypted_shape_drift(self) -> None:
         requirement = (
-            assistant_account_challenges.AccountRequirement(
+            assistant_integration_challenges.IntegrationRequirement(
                 "demo-assistant",
                 "Demo Assistant",
                 ("publish",),
                 (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
             ),
         )
-        bindings, payload = local_chat_continuations.encode("accounts", requirement, pending())
+        bindings, payload = local_chat_continuations.encode("integrations", requirement, pending())
         drifted = local_chat_continuation_store.StoredContinuation(
             "team_1",
-            "accounts",
+            "integrations",
             "c" * 32,
             1_300,
             1,
@@ -114,12 +114,12 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         malformed = local_chat_continuation_store.StoredContinuation(
             "team_1",
-            "accounts",
+            "integrations",
             "c" * 32,
             1_300,
             1,
             bindings,
-            b'{"schema":1,"kind":"accounts","requirements":[],"pending":{}}',
+            b'{"schema":1,"kind":"integrations","requirements":[],"pending":{}}',
         )
         with self.assertRaises(local_chat_continuations.ContinuationCodecError):
             local_chat_continuations.decode(malformed)

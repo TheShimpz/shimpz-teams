@@ -16,10 +16,10 @@ from typing import NoReturn
 from core import strict_json
 from power import journal as power_journal
 
-# A missing manifest Power is a missing resource; an unavailable connected account is an unmet
+# A missing manifest Power is a missing resource; an unavailable connected integration is an unmet
 # request precondition. Both Controllers use these statuses so their public contracts cannot drift.
 UNDECLARED_POWER_STATUS = HTTPStatus.NOT_FOUND
-ACCOUNT_PRECONDITION_STATUS = HTTPStatus.PRECONDITION_REQUIRED
+INTEGRATION_PRECONDITION_STATUS = HTTPStatus.PRECONDITION_REQUIRED
 RPC_FAILURE_STATUSES = {
     "timeout": HTTPStatus.GATEWAY_TIMEOUT,
     "ambiguous": HTTPStatus.BAD_GATEWAY,
@@ -59,26 +59,26 @@ def rpc_failure_message(kind: str) -> tuple[str, str]:
         _raise_unknown_rpc_failure(kind)
 
 
-def account_access_tokens(accounts: Mapping[str, Mapping[str, object]]) -> dict[str, str]:
-    """Project controller account records into the minimal Spec v1 token mapping."""
+def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) -> dict[str, str]:
+    """Project controller integration records into the minimal Spec v1 token mapping."""
     tokens: dict[str, str] = {}
-    for account_id, envelope in accounts.items():
+    for integration_id, envelope in integrations.items():
         if (
-            not isinstance(account_id, str)
+            not isinstance(integration_id, str)
             or set(envelope) != {"type", "access_token"}
             or envelope["type"] != "oauth2-bearer"
             or not isinstance(envelope["access_token"], str)
         ):
-            raise ValueError("Assistant account envelope is invalid")
-        tokens[account_id] = envelope["access_token"]
+            raise ValueError("Assistant integration envelope is invalid")
+        tokens[integration_id] = envelope["access_token"]
     return tokens
 
 
-def encode_rpc_invocation(power_input: object, accounts: Mapping[str, str]) -> bytes:
-    """Encode one bounded `{input, accounts}` Spec v1 invocation."""
+def encode_rpc_invocation(power_input: object, integrations: Mapping[str, str]) -> bytes:
+    """Encode one bounded `{input, integrations}` Spec v1 invocation."""
     try:
         encoded = json.dumps(
-            {"input": power_input, "accounts": dict(accounts)},
+            {"input": power_input, "integrations": dict(integrations)},
             allow_nan=False,
             ensure_ascii=True,
             separators=(",", ":"),
@@ -94,7 +94,7 @@ def power_operation(
     request: object,
     assistant_container_id: object,
     assistant_image: object,
-    account_generations: tuple[tuple[str, int], ...] = (),
+    integration_generations: tuple[tuple[str, int], ...] = (),
 ) -> power_journal.Operation:
     """Fingerprint one normalized request and every immutable private-state generation."""
     if not isinstance(assistant_container_id, str) or not assistant_container_id:
@@ -107,7 +107,7 @@ def power_operation(
                 "assistant_container_id": assistant_container_id,
                 "assistant_id": request.assistant_id,
                 "assistant_image": assistant_image,
-                "account_generations": account_generations,
+                "integration_generations": integration_generations,
                 "input": request.input,
                 "power": request.power,
             },
@@ -126,7 +126,7 @@ class PowerBatchStrategy:
     binding_identity: Callable[[object], tuple[object, object]]
     execute: Callable[[object, object], object]
     preflight: Callable[[object], object]
-    account_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
+    integration_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
 
 
 class PowerBatch:
@@ -160,7 +160,7 @@ class PowerBatch:
                 request,
                 container_id,
                 image,
-                self._strategy.account_generations(request),
+                self._strategy.integration_generations(request),
             ),
             evidence,
         )
@@ -224,11 +224,11 @@ class RpcInvalidResultError(ValueError):
 
 def project_rpc_result(
     raw_result: object,
-    accounts_by_id: Mapping[str, Mapping[str, object]],
+    integrations_by_id: Mapping[str, Mapping[str, object]],
     validate: Callable[[object], object],
 ) -> object:
     """Reject private echoes and validate one terminal Spec v1 Power result."""
-    if contains_secret(raw_result, protected_rpc_values(accounts_by_id)):
+    if contains_secret(raw_result, protected_rpc_values(integrations_by_id)):
         raise RpcSecretExposureError
     try:
         return validate(raw_result)
@@ -325,43 +325,47 @@ def rpc_exchange(
 
 
 def private_generations(metadata: tuple[object, ...]) -> tuple[tuple[str, int], ...]:
-    """Project only usable positive Account generations."""
+    """Project only usable positive Integration generations."""
     valid = all(getattr(item, "status", None) == "connected" for item in metadata)
     generations = tuple(getattr(item, "generation", None) for item in metadata)
     if not valid or any(type(generation) is not int or generation < 1 for generation in generations):
-        raise power_journal.PowerJournalConflictError("Power account generation is unavailable")
+        raise power_journal.PowerJournalConflictError("Power integration generation is unavailable")
     return tuple((item.id, generation) for item, generation in zip(metadata, generations, strict=True))
 
 
-def account_generations(
+def integration_generations(
     powers: Mapping[str, object],
-    accounts: Mapping[str, object],
+    integrations: Mapping[str, object],
     power_id: str,
     metadata: Callable[[dict[str, object]], tuple[object, ...]],
 ) -> tuple[tuple[str, int], ...]:
-    """Read one declared Power's connected account generations."""
+    """Read one declared Power's connected integration generations."""
     power = powers.get(power_id)
     if power is None:
-        raise power_journal.PowerJournalConflictError("Power account contract is unavailable")
-    account_ids = tuple(getattr(power, "accounts", ()))
-    declarations = {account_id: accounts[account_id] for account_id in account_ids if account_id in accounts}
-    if len(declarations) != len(account_ids):
-        raise power_journal.PowerJournalConflictError("Power account contract is unavailable")
+        raise power_journal.PowerJournalConflictError("Power integration contract is unavailable")
+    integration_ids = tuple(getattr(power, "integrations", ()))
+    declarations = {
+        integration_id: integrations[integration_id]
+        for integration_id in integration_ids
+        if integration_id in integrations
+    }
+    if len(declarations) != len(integration_ids):
+        raise power_journal.PowerJournalConflictError("Power integration contract is unavailable")
     return private_generations(tuple(metadata(declarations)))
 
 
 def require_rpc_envelope(
     active: object,
     request: object,
-    resolve_accounts: Callable[[object, str], Mapping[str, Mapping[str, object]]],
+    resolve_integrations: Callable[[object, str], Mapping[str, Mapping[str, object]]],
 ) -> Mapping[str, Mapping[str, object]]:
     """Resolve and size-check the exact Spec v1 invocation before journaling."""
-    accounts = resolve_accounts(active, request.power)
+    integrations = resolve_integrations(active, request.power)
     encode_rpc_invocation(
         request.input,
-        account_access_tokens(accounts),
+        integration_access_tokens(integrations),
     )
-    return accounts
+    return integrations
 
 
 def contains_secret(value: object, secrets_by_id: Mapping[str, str]) -> bool:
@@ -383,12 +387,12 @@ def contains_secret(value: object, secrets_by_id: Mapping[str, str]) -> bool:
 
 
 def protected_rpc_values(
-    accounts_by_id: Mapping[str, Mapping[str, object]],
+    integrations_by_id: Mapping[str, Mapping[str, object]],
 ) -> dict[str, str]:
-    """Collect literal account tokens that an Assistant must not return."""
+    """Collect literal integration tokens that an Assistant must not return."""
     return {
-        f"account:{account_id}": access_token
-        for account_id, envelope in accounts_by_id.items()
+        f"integration:{integration_id}": access_token
+        for integration_id, envelope in integrations_by_id.items()
         if isinstance((access_token := envelope.get("access_token")), str)
     }
 

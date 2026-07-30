@@ -7,10 +7,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from assistant_human import (
-    assistant_account_challenges,
-    oauth_account_service,
-    oauth_account_store,
+    assistant_integration_challenges,
     oauth_broker_client,
+    oauth_integration_service,
+    oauth_integration_store,
     oauth_pkce_challenges,
 )
 
@@ -48,31 +48,31 @@ class Transport:
         )
 
 
-def pending() -> assistant_account_challenges.PendingAccountChallenge:
-    requirement = assistant_account_challenges.AccountRequirement(
+def pending() -> assistant_integration_challenges.PendingIntegrationChallenge:
+    requirement = assistant_integration_challenges.IntegrationRequirement(
         assistant_id="shimpz-cloudflare",
         assistant_name="Shimpz Cloudflare",
         power_ids=("list-zones",),
-        accounts=(("cloudflare", "cloudflare", SCOPES),),
+        integrations=(("cloudflare", "cloudflare", SCOPES),),
     )
-    return assistant_account_challenges.AccountChallengeStore().create(
+    return assistant_integration_challenges.IntegrationChallengeStore().create(
         "team_1",
         (requirement,),
         {"private": "continuation"},
     )
 
 
-class BrokeredOAuthAccountServiceTests(unittest.TestCase):
+class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = oauth_account_store.OAuthAccountStore(
-            root / "state" / "accounts.json",
+        self.store = oauth_integration_store.OAuthIntegrationStore(
+            root / "state" / "integrations.json",
             root / "key" / "aes256.key",
             clock=lambda: 1_000_000_000,
         )
         self.transport = Transport()
-        self.service = oauth_account_service.BrokeredOAuthAccountService(
+        self.service = oauth_integration_service.BrokeredOAuthIntegrationService(
             challenge=oauth_pkce_challenges.OAuthPKCEChallengeStore(),
             store=self.store,
             broker=oauth_broker_client.OAuthBrokerClient(self.transport),
@@ -89,11 +89,11 @@ class BrokeredOAuthAccountServiceTests(unittest.TestCase):
             state,
             CLAIM,
             SESSION,
-            lambda _team, _assistant, _account: DECLARATION,
+            lambda _team, _assistant, _integration: DECLARATION,
         )
 
         self.assertEqual(
-            (completion.team_id, completion.assistant_id, completion.account_id),
+            (completion.team_id, completion.assistant_id, completion.integration_id),
             ("team_1", "shimpz-cloudflare", "cloudflare"),
         )
         self.assertEqual(len(self.transport.requests), 1)
@@ -133,12 +133,12 @@ class BrokeredOAuthAccountServiceTests(unittest.TestCase):
             url = self.service.authorization_url(pending(), start_session)
             state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
             session = "other-browser-session-private-123" if declaration is DECLARATION else start_session
-            with self.assertRaises(oauth_account_service.OAuthAccountServiceError):
+            with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
                 self.service.complete(
                     state,
                     CLAIM,
                     session,
-                    lambda _team, _assistant, _account, value=declaration: value,
+                    lambda _team, _assistant, _integration, value=declaration: value,
                 )
         self.assertEqual(self.transport.requests, [])
 

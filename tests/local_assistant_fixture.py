@@ -54,17 +54,17 @@ def assistant_spec(image: str) -> AssistantSpec:
             summary="List zones",
             input_schema=_PAGE,
             output_schema=_LIST_ZONES_OUTPUT,
-            accounts=("cloudflare",),
+            integrations=("cloudflare",),
         ),
         "list-dns-records": assistant_registry.PowerSpec(
             summary="List DNS records",
             input_schema=_DNS_PAGE,
             output_schema=_LIST_DNS_OUTPUT,
-            accounts=("cloudflare",),
+            integrations=("cloudflare",),
         ),
     }
-    accounts = {
-        "cloudflare": assistant_registry.AccountSpec(
+    integrations = {
+        "cloudflare": assistant_registry.IntegrationSpec(
             provider="cloudflare",
             scopes=("dns.read", "offline_access", "zone.read"),
         )
@@ -76,7 +76,7 @@ def assistant_spec(image: str) -> AssistantSpec:
         image=image,
         powers=powers,
         allowed_hosts=("api.cloudflare.com",),
-        accounts=accounts,
+        integrations=integrations,
         machine_contract={
             "version": 1,
             "powers": [
@@ -84,7 +84,7 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "id": power_id,
                     "input_schema": dict(power.input_schema),
                     "output_schema": dict(power.output_schema),
-                    "accounts": list(power.accounts),
+                    "integrations": list(power.integrations),
                 }
                 for power_id, power in sorted(powers.items())
             ],
@@ -104,7 +104,7 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
         ),
         contract=assistant_registry.AssistantContract(
             powers=local.powers,
-            accounts=local.accounts,
+            integrations=local.integrations,
             machine_contract=local.machine_contract,
         ),
     )

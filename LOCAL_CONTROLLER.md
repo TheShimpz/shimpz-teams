@@ -3,7 +3,7 @@
 `local/Dockerfile` packages the single-owner controller installed by `install.shimpz.com`. It is a
 local projection of the shared Team controller domain, not a lifecycle-only Docker wrapper. It owns
 Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Powers,
-enforces egress policy, stores Team files and inference selection, and coordinates OAuth Accounts.
+enforces egress policy, stores Team files and inference selection, and coordinates OAuth Integrations.
 
 The Admin never receives the Docker socket or controller bearer. It mounts the token volume read-only
 and calls port `7077` over the private control network. Brain runtime receives only a separate runtime
@@ -37,8 +37,8 @@ failure. It does not remove shared images, the controller container, or unlabele
   `/run/shimpz-local/token`, `10001:10010`, mode `0440`, never environment/argv/log output.
 - Brain bearer/state: the controller writes the dedicated runtime token volume; Brain runtime mounts it
   read-only. Conversation checkpoints stay in the Brain runtime state volume.
-- Persistent controller state: audit, Team storage, inference selection, Power journal, Account
-  state/key, chat continuations, and egress policies each use dedicated paths or volumes. Account
+- Persistent controller state: audit, Team storage, inference selection, Power journal, Integration
+  state/key, chat continuations, and egress policies each use dedicated paths or volumes. Integration
   tokens and continuations are encrypted at rest and never enter metadata-only audit JSONL.
 - Model credentials: Admin supplies `X-Shimpz-Model-Provider` and `X-Shimpz-Model-Api-Key` only on chat
   and challenge-resume requests. Strict HTTP parsing rejects duplicate/missing credentials. The key is
@@ -80,30 +80,30 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 | `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider/model selection |
 | `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider/model selection |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |
-| `GET` | `/v1/teams/{team_id}/chat/accounts` | inspect the pending account gate |
-| `POST` | `/v1/teams/{team_id}/chat/accounts` | resume after the exact account challenge completes |
+| `GET` | `/v1/teams/{team_id}/chat/integrations` | inspect the pending Integration gate |
+| `POST` | `/v1/teams/{team_id}/chat/integrations` | resume after the exact Integration challenge completes |
 | `POST` | `/v1/teams/{team_id}/chat/stop` | cancel active or challenge-paused work |
 
 Chat accepts only `message`, opaque file IDs, and selected installed Assistant IDs. A Team has at most
 one active/paused turn. Selection and workload identity are revalidated before provider start, each
-Power, resume, and completion. Only a missing OAuth Account can pause a turn; the controller alone
+Power, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
 executes Powers and resumes the checkpoint.
 
 The former 1.2–1.6k twin-Controller LOC reduction target is intentionally dropped: security-sensitive
 decisions are now shared, while extracting the remaining runtime-preparation wiring would add more
 abstraction and total code without improving either Controller's safety contract.
 
-### Assistant account administration
+### Assistant integration administration
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/v1/teams/{team_id}/assistant-accounts` | list redacted connected-account state |
-| `POST` | `/v1/teams/{team_id}/assistant-accounts/challenges/{challenge_id}/authorize` | start bounded OAuth authorization |
-| `DELETE` | `/v1/teams/{team_id}/assistant-accounts/{assistant_id}/{account_id}` | disconnect and delete one credential |
+| `GET` | `/v1/teams/{team_id}/assistant-integrations` | list redacted connected-Integration state |
+| `POST` | `/v1/teams/{team_id}/assistant-integrations/challenges/{challenge_id}/authorize` | start bounded OAuth authorization |
+| `DELETE` | `/v1/teams/{team_id}/assistant-integrations/{assistant_id}/{integration_id}` | disconnect and delete one credential |
 | `POST` | `/v1/oauth/cloudflare/callback` | redeem the broker claim bound to the Admin session |
 
 OAuth authorization material crosses the dedicated broker path, never chat frames. The controller
-stores only encrypted account credentials, returns redacted metadata, binds claims/challenges to one
+stores only encrypted Integration credentials, returns redacted metadata, binds claims/challenges to one
 Team and Admin session, and deletes local and broker state on disconnect or Team teardown.
 
 ## Assistant execution
@@ -116,7 +116,7 @@ the Assistant manifest can supply an arbitrary method, URL, command, or containe
 
 Assistant containers run as `10001:10001`, with read-only roots, all capabilities dropped,
 `no-new-privileges`, default seccomp, no host mounts or published ports, one Team network, and fixed
-CPU/memory/PID/file-descriptor limits. Each Power input is schema-validated, approval and secret/account
+CPU/memory/PID/file-descriptor limits. Each Power input is schema-validated, approval and secret/Integration
 requirements are enforced before dispatch, output is bounded and schema-validated, and durable journal
 state prevents ambiguous retries from silently executing a non-idempotent Power twice.
 

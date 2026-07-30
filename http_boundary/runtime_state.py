@@ -17,12 +17,12 @@ import docker
 
 import manifests
 from assistant_human import (
-    assistant_account_challenges,
     assistant_genesis,
+    assistant_integration_challenges,
     assistant_manifest,
-    oauth_account_service,
-    oauth_account_store,
     oauth_http_client,
+    oauth_integration_service,
+    oauth_integration_store,
     oauth_pkce_challenges,
 )
 from controller_runtime import brain_runtime_client, token_store
@@ -84,16 +84,16 @@ POWER_JOURNAL_PATH = Path(
         "/var/lib/team/power-journal/journal.sqlite3",
     )
 )
-ASSISTANT_ACCOUNT_STATE_PATH = Path(
+ASSISTANT_INTEGRATION_STATE_PATH = Path(
     os.environ.get(
-        "SHIMPZ_TEAM_ASSISTANT_ACCOUNT_STATE_PATH",
-        "/var/lib/team/assistant-accounts/state/accounts.json",
+        "SHIMPZ_TEAM_ASSISTANT_INTEGRATION_STATE_PATH",
+        "/var/lib/team/assistant-integrations/state/integrations.json",
     )
 )
-ASSISTANT_ACCOUNT_KEY_PATH = Path(
+ASSISTANT_INTEGRATION_KEY_PATH = Path(
     os.environ.get(
-        "SHIMPZ_TEAM_ASSISTANT_ACCOUNT_KEY_PATH",
-        "/var/lib/team/assistant-accounts/key/aes256.key",
+        "SHIMPZ_TEAM_ASSISTANT_INTEGRATION_KEY_PATH",
+        "/var/lib/team/assistant-integrations/key/aes256.key",
     )
 )
 DEVELOPERS_CONTROLLER_TOKEN_PATH = Path("/run/shimpz-developers-controller/developers-to-controller-token")
@@ -143,22 +143,22 @@ _brain_runtime = brain_runtime_client.BrainRuntimeClient()
 _assistant_genesis_cache = assistant_genesis.GenesisCache()
 _assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
 _assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
-_assistant_accounts = oauth_account_store.OAuthAccountStore(
-    ASSISTANT_ACCOUNT_STATE_PATH,
-    ASSISTANT_ACCOUNT_KEY_PATH,
+_assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+    ASSISTANT_INTEGRATION_STATE_PATH,
+    ASSISTANT_INTEGRATION_KEY_PATH,
 )
-_assistant_account_challenges = assistant_account_challenges.AccountChallengeStore()
+_assistant_integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
 _oauth_pkce_challenges = oauth_pkce_challenges.OAuthPKCEChallengeStore()
 _oauth_http = oauth_http_client.OAuthHTTPClient()
 _cloudflare_oauth_client_id = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_ID")
 _cloudflare_oauth_client_secret = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_SECRET")
-_oauth_accounts = oauth_account_service.OAuthAccountService(
+_oauth_integrations = oauth_integration_service.OAuthIntegrationService(
     client_id=_cloudflare_oauth_client_id,
     client_secret=_cloudflare_oauth_client_secret,
     redirect_uri=oauth_http_client.HOSTED_REDIRECT_URI,
     challenge=_oauth_pkce_challenges,
-    store=_assistant_accounts,
+    store=_assistant_integrations,
     http=_oauth_http,
 )
 _inference_store = inference_config.InferenceConfigStore()

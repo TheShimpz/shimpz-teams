@@ -217,7 +217,7 @@
         "id",
         "input_schema",
         "output_schema",
-        "accounts"
+        "integrations"
       ],
       "properties": {
         "id": {
@@ -229,7 +229,7 @@
         "output_schema": {
           "$ref": "#/$defs/objectSchema"
         },
-        "accounts": {
+        "integrations": {
           "type": "array",
           "maxItems": 4,
           "uniqueItems": true,
@@ -387,7 +387,7 @@
         }
       }
     },
-    "accountIntent": {
+    "integrationIntent": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -456,7 +456,7 @@
         "machine_contract_digest",
         "machine_contract",
         "allowed_hosts",
-        "accounts",
+        "integrations",
         "review_state",
         "blocked",
         "sbom_digest",
@@ -531,11 +531,11 @@
             "maxLength": 253
           }
         },
-        "accounts": {
+        "integrations": {
           "type": "array",
           "maxItems": 16,
           "items": {
-            "$ref": "#/$defs/accountIntent"
+            "$ref": "#/$defs/integrationIntent"
           }
         },
         "review_state": {

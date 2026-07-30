@@ -198,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
         audit.log(
             "chat",
             team_id,
-            result="ok" if terminal["type"] in {"done", "accounts-required"} else "error",
+            result="ok" if terminal["type"] in {"done", "integrations-required"} else "error",
             streamed=True,
             status=terminal.get("status"),
             reason=stream_error,
@@ -426,10 +426,10 @@ class Handler(BaseHTTPRequestHandler):
             hosted_lifecycle._list(owner=account_id if kind == "account" else None),
         )
 
-    def _route_assistant_account_complete(self, principal: tuple[str, str | None]) -> None:
-        result = hosted_chat_api._complete_oauth_account(self._read_body(), principal)
+    def _route_assistant_integration_complete(self, principal: tuple[str, str | None]) -> None:
+        result = hosted_chat_api._complete_oauth_integration(self._read_body(), principal)
         audit.log(
-            "assistant_account_complete",
+            "assistant_integration_complete",
             result["team_id"],
             result="ok",
             assistant=result["assistant_id"],
@@ -454,41 +454,41 @@ class Handler(BaseHTTPRequestHandler):
         trace = audit.log("destroy", team_id, result="ok", db_dropped=result["db_dropped"])
         self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
 
-    def _route_assistant_account_list(self, request: _AuthorizedRequest) -> None:
+    def _route_assistant_integration_list(self, request: _AuthorizedRequest) -> None:
         self._send_json(
             HTTPStatus.OK,
-            hosted_assistants._assistant_account_inventory(request.team_id, request.lease),
+            hosted_assistants._assistant_integration_inventory(request.team_id, request.lease),
             no_store=True,
         )
 
-    def _route_assistant_account_authorize(self, request: _AuthorizedRequest) -> None:
+    def _route_assistant_integration_authorize(self, request: _AuthorizedRequest) -> None:
         body = self._read_body()
         if not isinstance(body, dict) or set(body) != {"session_binding"}:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth authorization request is invalid")
-        result = hosted_chat_api._start_oauth_account(
+        result = hosted_chat_api._start_oauth_integration(
             request.team_id,
             request.params["challenge_id"],
             body["session_binding"],
             request.lease,
         )
-        audit.log("assistant_account_start", request.team_id, result="ok")
+        audit.log("assistant_integration_start", request.team_id, result="ok")
         self._send_json(HTTPStatus.OK, result, no_store=True)
 
-    def _route_assistant_account_disconnect(self, request: _AuthorizedRequest) -> None:
+    def _route_assistant_integration_disconnect(self, request: _AuthorizedRequest) -> None:
         assistant_id = request.params["assistant_id"]
-        account_id = request.params["account_id"]
-        result = hosted_chat_api._disconnect_oauth_account(
+        integration_id = request.params["integration_id"]
+        result = hosted_chat_api._disconnect_oauth_integration(
             request.team_id,
             assistant_id,
-            account_id,
+            integration_id,
             request.lease,
         )
         audit.log(
-            "assistant_account_disconnect",
+            "assistant_integration_disconnect",
             request.team_id,
             result="ok",
             assistant=assistant_id,
-            account=account_id,
+            integration=integration_id,
             disconnected=result["disconnected"],
         )
         self._send_json(HTTPStatus.OK, result, no_store=True)
@@ -629,11 +629,11 @@ class Handler(BaseHTTPRequestHandler):
         submit: bool,
     ) -> None:
         if not submit:
-            pending = runtime_state._assistant_account_challenges.current(request.team_id)
+            pending = runtime_state._assistant_integration_challenges.current(request.team_id)
             self._send_json(
                 HTTPStatus.OK,
                 (
-                    hosted_chat_segment._hosted_account_challenge_payload(pending)
+                    hosted_chat_segment._hosted_integration_challenge_payload(pending)
                     if pending is not None
                     else {"team_id": request.team_id, "status": "none"}
                 ),
@@ -644,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
         if not isinstance(body, dict) or set(body) != {"challenge_id"}:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "account continuation is invalid")
-        result = hosted_chat_api._resume_chat_accounts(
+        result = hosted_chat_api._resume_chat_integrations(
             request.team_id,
             body["challenge_id"],
             request.lease,
@@ -771,7 +771,7 @@ class Handler(BaseHTTPRequestHandler):
 
 _GLOBAL_ROUTES = {
     "team-list": Handler._route_team_list,
-    "assistant-account-complete": Handler._route_assistant_account_complete,
+    "assistant-integration-complete": Handler._route_assistant_integration_complete,
 }
 _PREAUTHORIZED_ROUTES = {
     "team-create": Handler._route_team_create,
@@ -785,12 +785,12 @@ _AUTHORIZED_ROUTES = {
     "inference-configure": Handler._route_inference_configure,
     "chat": functools.partial(Handler._route_chat_turn, stream=False),
     "chat-stream": functools.partial(Handler._route_chat_turn, stream=True),
-    "chat-account-pending": functools.partial(Handler._route_chat_accounts, submit=False),
-    "chat-account-submit": functools.partial(Handler._route_chat_accounts, submit=True),
+    "chat-integration-pending": functools.partial(Handler._route_chat_accounts, submit=False),
+    "chat-integration-submit": functools.partial(Handler._route_chat_accounts, submit=True),
     "chat-stop": Handler._route_chat_stop,
-    "assistant-account-list": Handler._route_assistant_account_list,
-    "assistant-account-authorize": Handler._route_assistant_account_authorize,
-    "assistant-account-disconnect": Handler._route_assistant_account_disconnect,
+    "assistant-integration-list": Handler._route_assistant_integration_list,
+    "assistant-integration-authorize": Handler._route_assistant_integration_authorize,
+    "assistant-integration-disconnect": Handler._route_assistant_integration_disconnect,
     "assistant-install": Handler._route_assistant_install,
     "assistant-list": Handler._route_assistant_list,
     "assistant-uninstall": Handler._route_assistant_uninstall,

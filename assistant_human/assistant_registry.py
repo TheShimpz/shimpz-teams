@@ -25,11 +25,11 @@ class PowerSpec:
     summary: str
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
-    accounts: tuple[str, ...] = ()
+    integrations: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class AccountSpec:
+class IntegrationSpec:
     provider: str
     scopes: tuple[str, ...]
 
@@ -37,7 +37,7 @@ class AccountSpec:
 @dataclass(frozen=True, slots=True)
 class AssistantContract:
     powers: dict[str, PowerSpec]
-    accounts: dict[str, AccountSpec] = field(default_factory=dict)
+    integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     machine_contract: dict[str, Any] = field(default_factory=dict)
 
 

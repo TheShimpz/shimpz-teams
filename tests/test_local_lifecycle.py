@@ -75,7 +75,7 @@ class LocalLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: self.fail(
             "an outdated manifest must not block release replacement"
         )
-        controller.assistant_accounts.put(
+        controller.assistant_integrations.put(
             "team_1",
             "shimpz-cloudflare",
             "undeclared-account",
@@ -99,7 +99,7 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "installed": False})
         self.assertEqual(events, ["reload", "trusted", "reload", ("remove", True), ("create", trusted_image)])
         self.assertEqual(container.attrs["Config"]["Image"], OUTDATED_ASSISTANT_IMAGE)
-        self.assertFalse(controller.assistant_accounts.delete_assistant("team_1", "shimpz-cloudflare"))
+        self.assertFalse(controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare"))
 
     def test_release_update_is_generic_for_future_assistants(self) -> None:
         controller, container, events = self._lifecycle_controller()
@@ -296,7 +296,7 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertLess(events.index("admit"), events.index("start"))
         self.assertEqual(events[-4:], ["start", "validate", "ready", "genesis"])
 
-    def test_local_admission_reviews_hosts_and_accounts(self) -> None:
+    def test_local_admission_reviews_hosts_and_integrations(self) -> None:
         controller = object.__new__(local_app.LocalController)
         controller._wire_collaborators()
         reviewed_contracts: list[local_app.assistant_manifest.ManifestContract] = []
@@ -307,7 +307,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         controller.assistant_lifecycle._assistant_allowed_hosts_cache = SimpleNamespace(get=admit)
         controller.assistant_lifecycle._assistant_machine_contract_cache = SimpleNamespace(
-            get=lambda _container, _accounts, reviewed: reviewed
+            get=lambda _container, _integrations, reviewed: reviewed
         )
         spec = self._registry(CURRENT_ASSISTANT_IMAGE)["shimpz-cloudflare"]
 
@@ -318,17 +318,17 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertEqual(allowed_hosts, tuple(sorted(spec.allowed_hosts)))
         self.assertEqual(len(reviewed_contracts), 1)
         self.assertEqual(
-            {account.id: (account.provider, account.scopes) for account in reviewed_contracts[0].accounts},
+            {account.id: (account.provider, account.scopes) for account in reviewed_contracts[0].integrations},
             {
                 account_id: (account.provider, tuple(sorted(account.scopes)))
-                for account_id, account in spec.accounts.items()
+                for account_id, account in spec.integrations.items()
             },
         )
         exact = reviewed_contracts[0]
-        account = exact.accounts[0]
+        account = exact.integrations[0]
         drifted = (
-            replace(exact, accounts=(replace(account, provider="other"),)),
-            replace(exact, accounts=(replace(account, scopes=("tweet.read",)),)),
+            replace(exact, integrations=(replace(account, provider="other"),)),
+            replace(exact, integrations=(replace(account, scopes=("tweet.read",)),)),
         )
         controller.assistant_lifecycle._assistant_allowed_hosts_cache = (
             local_app.assistant_manifest.ManifestContractCache()

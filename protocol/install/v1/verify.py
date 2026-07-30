@@ -117,7 +117,7 @@ def validate_resolve(value: dict[str, object]) -> None:
     expected = f"ghcr.io/theshimpz/shimpz-assistants@{value.get('oci_digest')}"
     if value.get("image_reference") != expected:
         raise ContractViolationError("resolve_digest_mismatch")
-    intents = value.get("accounts")
+    intents = value.get("integrations")
     contract = value.get("machine_contract")
     if not isinstance(intents, list) or not isinstance(contract, dict):
         return
@@ -128,16 +128,16 @@ def validate_resolve(value: dict[str, object]) -> None:
     if not isinstance(powers, list):
         return
     required_ids = {
-        account
+        integration
         for power in powers
-        if isinstance(power, dict) and isinstance(power.get("accounts"), list)
-        for account in power["accounts"]
-        if isinstance(account, str)
+        if isinstance(power, dict) and isinstance(power.get("integrations"), list)
+        for integration in power["integrations"]
+        if isinstance(integration, str)
     }
     if len(intent_ids) != len(intents) or len(set(intent_ids)) != len(intent_ids):
-        raise ContractViolationError("resolve_account_mismatch")
+        raise ContractViolationError("resolve_integration_mismatch")
     if set(intent_ids) != required_ids:
-        raise ContractViolationError("resolve_account_mismatch")
+        raise ContractViolationError("resolve_integration_mismatch")
 
 
 def validate_lifetime(

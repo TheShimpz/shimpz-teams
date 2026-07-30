@@ -91,14 +91,14 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
 
 COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
 COPY validate.py manifests.py audit.py ./
-COPY assistant_human/__init__.py assistant_human/assistant_account_challenges.py \
-     assistant_human/assistant_account_flow.py \
+COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
+     assistant_human/assistant_integration_flow.py \
      assistant_human/assistant_chat.py assistant_human/assistant_genesis.py \
      assistant_human/assistant_manifest.py assistant_human/assistant_registry.py \
      assistant_human/challenge_store.py assistant_human/hosted_assistants.py \
      assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
-     assistant_human/oauth_account_service.py \
-     assistant_human/oauth_account_store.py assistant_human/oauth_broker_client.py \
+     assistant_human/oauth_integration_service.py \
+     assistant_human/oauth_integration_store.py assistant_human/oauth_broker_client.py \
      assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
      assistant_human/oauth_providers.py assistant_human/private_state.py \
      ./assistant_human/
@@ -143,8 +143,8 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/cleanup \
         /var/lib/team/inference \
         /var/lib/team/power-journal \
-        /var/lib/team/assistant-accounts/state \
-        /var/lib/team/assistant-accounts/key \
+        /var/lib/team/assistant-integrations/state \
+        /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
         /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
@@ -161,8 +161,8 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/cleanup \
         /var/lib/team/inference \
         /var/lib/team/power-journal \
-        /var/lib/team/assistant-accounts/state \
-        /var/lib/team/assistant-accounts/key \
+        /var/lib/team/assistant-integrations/state \
+        /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
     && chown shimpzteam:shimpzapp-egress-policy /app-egress-policy \

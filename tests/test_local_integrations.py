@@ -18,10 +18,10 @@ from local_assistant_fixture import assistant_spec
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestPublicationRegistry
 
 from assistant_human import (
-    assistant_account_challenges,
-    oauth_account_service,
-    oauth_account_store,
+    assistant_integration_challenges,
     oauth_broker_client,
+    oauth_integration_service,
+    oauth_integration_store,
 )
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -46,20 +46,20 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
             provider="cloudflare",
             scopes=("dns.read", "offline_access", "zone.read"),
         )
-        spec.accounts = {"cloudflare": declaration}
+        spec.integrations = {"cloudflare": declaration}
 
         class Service:
             @staticmethod
             def complete(_state, _claim, _session_binding, resolver):
                 try:
                     current = resolver("team_1", spec.assistant_id, "cloudflare")
-                except oauth_account_service.OAuthAccountDeclarationError as exc:
-                    raise oauth_account_service.OAuthAccountServiceError(
-                        "OAuth account declaration is unavailable"
+                except oauth_integration_service.OAuthIntegrationDeclarationError as exc:
+                    raise oauth_integration_service.OAuthIntegrationServiceError(
+                        "OAuth integration declaration is unavailable"
                     ) from exc
                 if current is not declaration:
                     raise AssertionError("callback resolved an unexpected declaration")
-                return oauth_account_service.OAuthAccountCompletion(
+                return oauth_integration_service.OAuthIntegrationCompletion(
                     "team_1",
                     spec.assistant_id,
                     "cloudflare",
@@ -80,7 +80,7 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
             controller.chat_turn_service.complete_cloudflare_oauth_callback(**callback)
         self.assertEqual(
             (outdated.exception.status, outdated.exception.code),
-            (HTTPStatus.BAD_GATEWAY, "assistant-account-oauth-unavailable"),
+            (HTTPStatus.BAD_GATEWAY, "assistant-integration-oauth-unavailable"),
         )
 
         config = container.attrs["Config"]
@@ -92,21 +92,21 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
                 "connected": True,
                 "team_id": "team_1",
                 "assistant_id": spec.assistant_id,
-                "account_id": "cloudflare",
+                "integration_id": "cloudflare",
             },
         )
         self.assertEqual(inspections, ["reload", "reload"])
 
 
-class LocalOAuthAccountTests(unittest.TestCase):
+class LocalOAuthIntegrationTests(unittest.TestCase):
     @staticmethod
     def _registry() -> dict[str, AssistantSpec]:
         image = "example.invalid/cloudflare@sha256:" + ("b" * 64)
         return TestPublicationRegistry({"shimpz-cloudflare": assistant_spec(image)})
 
-    def test_controller_accepts_injected_account_state(self) -> None:
+    def test_controller_accepts_injected_integration_state(self) -> None:
         injected_store = SimpleNamespace()
-        injected_challenges = assistant_account_challenges.AccountChallengeStore()
+        injected_challenges = assistant_integration_challenges.IntegrationChallengeStore()
         controller = local_app.LocalController(
             SimpleNamespace(
                 info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
@@ -119,25 +119,25 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 inference_store=SimpleNamespace(),
                 brain_runtime=SimpleNamespace(),
                 power_state=SimpleNamespace(),
-                assistant_accounts=injected_store,
-                account_challenges=injected_challenges,
+                assistant_integrations=injected_store,
+                integration_challenges=injected_challenges,
                 oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
             ),
         )
 
-        self.assertIs(controller.assistant_accounts, injected_store)
-        self.assertIs(controller.account_challenges, injected_challenges)
+        self.assertIs(controller.assistant_integrations, injected_store)
+        self.assertIs(controller.integration_challenges, injected_challenges)
 
-    def test_team_account_teardown_prevents_same_id_resurrection(self) -> None:
+    def test_team_integration_teardown_prevents_same_id_resurrection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-                Path(directory) / "state" / "accounts.json",
+            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+                Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
-            controller.assistant_accounts.put(
+            controller.assistant_integrations.put(
                 "team_1",
                 "shimpz-cloudflare",
                 "cloudflare",
@@ -152,8 +152,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
             )
             controller._wire_collaborators()
 
-            controller.chat_turn_service._delete_team_account_state("team_1")
-            recreated = controller.assistant_accounts.metadata(
+            controller.chat_turn_service._delete_team_integration_state("team_1")
+            recreated = controller.assistant_integrations.metadata(
                 "team_1",
                 "shimpz-cloudflare",
                 {"cloudflare": {"provider": "cloudflare", "scopes": ("zone.read",)}},
@@ -161,24 +161,24 @@ class LocalOAuthAccountTests(unittest.TestCase):
 
         self.assertEqual(recreated[0].status, "missing")
 
-    def test_account_inventory_is_exact_and_never_contains_tokens(self) -> None:
+    def test_integration_inventory_is_exact_and_never_contains_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.registry = self._registry()
-            controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-                Path(directory) / "state" / "accounts.json",
+            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+                Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
             controller._wire_collaborators()
             controller.assistant_lifecycle._assistant_ids = lambda _team: ("shimpz-cloudflare",)
 
-            payload = controller.chat_turn_service.list_assistant_accounts("team_1")
+            payload = controller.chat_turn_service.list_assistant_integrations("team_1")
 
-        self.assertEqual(set(payload), {"team_id", "accounts"})
+        self.assertEqual(set(payload), {"team_id", "integrations"})
         self.assertEqual(payload["team_id"], "team_1")
         self.assertEqual(
-            payload["accounts"],
+            payload["integrations"],
             [
                 {
                     "assistant_id": "shimpz-cloudflare",
@@ -187,11 +187,12 @@ class LocalOAuthAccountTests(unittest.TestCase):
                     "provider": "cloudflare",
                     "name": "Cloudflare",
                     "summary": (
-                        "Connect your Cloudflare account so this Assistant can use only its reviewed read permissions."
+                        "Connect your Cloudflare integration so this Assistant can use only "
+                        "its reviewed read permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                     "status": "missing",
-                    "account": None,
+                    "integration": None,
                     "expires_at": None,
                 }
             ],
@@ -201,21 +202,21 @@ class LocalOAuthAccountTests(unittest.TestCase):
         self.assertNotIn("refresh_token", encoded)
         self.assertNotIn("generation", encoded)
 
-    def test_account_inventory_route_has_one_exact_internal_shape(self) -> None:
-        expected = {"team_id": "team_1", "accounts": []}
+    def test_integration_inventory_route_has_one_exact_internal_shape(self) -> None:
+        expected = {"team_id": "team_1", "integrations": []}
         handler = object.__new__(local_app.Handler)
         handler.command = "GET"
         handler.server = SimpleNamespace(
             controller=SimpleNamespace(
-                chat_turn_service=SimpleNamespace(list_assistant_accounts=lambda team_id: expected)
+                chat_turn_service=SimpleNamespace(list_assistant_integrations=lambda team_id: expected)
             )
         )
 
-        route = handler._assistant_account_route(["v1", "teams", "team_1", "assistant-accounts"])
+        route = handler._assistant_integration_route(["v1", "teams", "team_1", "assistant-integrations"])
 
         self.assertEqual(
             route,
-            (HTTPStatus.OK, expected, "assistant-account-list", "team_1", None),
+            (HTTPStatus.OK, expected, "assistant-integration-list", "team_1", None),
         )
 
     def test_local_controller_builds_only_the_hosted_broker_boundary(self) -> None:
@@ -223,7 +224,7 @@ class LocalOAuthAccountTests(unittest.TestCase):
         broker = SimpleNamespace()
         service = SimpleNamespace()
         pkce = SimpleNamespace()
-        accounts = SimpleNamespace()
+        integrations = SimpleNamespace()
 
         with (
             mock.patch.dict(
@@ -237,8 +238,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
             mock.patch.object(oauth_broker_client, "FixedBrokerTransport", return_value=transport) as transport_type,
             mock.patch.object(oauth_broker_client, "OAuthBrokerClient", return_value=broker) as broker_type,
             mock.patch.object(
-                oauth_account_service,
-                "BrokeredOAuthAccountService",
+                oauth_integration_service,
+                "BrokeredOAuthIntegrationService",
                 return_value=service,
             ) as service_type,
         ):
@@ -254,8 +255,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
                     inference_store=SimpleNamespace(),
                     brain_runtime=SimpleNamespace(),
                     power_state=SimpleNamespace(),
-                    assistant_accounts=accounts,
-                    account_challenges=SimpleNamespace(),
+                    assistant_integrations=integrations,
+                    integration_challenges=SimpleNamespace(),
                     oauth_pkce=pkce,
                     developers=SimpleNamespace(),
                     artifact_trust=SimpleNamespace(),
@@ -264,18 +265,18 @@ class LocalOAuthAccountTests(unittest.TestCase):
 
         transport_type.assert_called_once_with(proxy_host="oauth-broker-proxy", proxy_token="a" * 64)
         broker_type.assert_called_once_with(transport=transport, callback_mode="loopback")
-        service_type.assert_called_once_with(challenge=pkce, store=accounts, broker=broker)
+        service_type.assert_called_once_with(challenge=pkce, store=integrations, broker=broker)
         self.assertIs(controller.oauth_broker, broker)
         self.assertIs(controller.oauth_service, service)
 
     def test_authorization_and_callback_delegate_to_one_brokered_service(self) -> None:
-        requirement = assistant_account_challenges.AccountRequirement(
+        requirement = assistant_integration_challenges.IntegrationRequirement(
             assistant_id="shimpz-cloudflare",
             assistant_name="Shimpz Cloudflare",
             power_ids=("list-zones",),
-            accounts=(("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
+            integrations=(("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenges = assistant_account_challenges.AccountChallengeStore()
+        challenges = assistant_integration_challenges.IntegrationChallengeStore()
         pending = challenges.create("team_1", (requirement,), {"private": "continuation"})
         calls: list[tuple[str, object]] = []
 
@@ -292,7 +293,7 @@ class LocalOAuthAccountTests(unittest.TestCase):
 
             def complete(self, state, claim, session_binding, resolver):
                 calls.append(("complete", (state, claim, session_binding, resolver)))
-                return oauth_account_service.OAuthAccountCompletion(
+                return oauth_integration_service.OAuthIntegrationCompletion(
                     "team_1",
                     "shimpz-cloudflare",
                     "cloudflare",
@@ -302,12 +303,12 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 )
 
         controller = object.__new__(local_app.LocalController)
-        controller.account_challenges = challenges
+        controller.integration_challenges = challenges
         controller.oauth_service = Service()
         controller._wire_collaborators()
-        controller.chat_turn_service._current_account_declaration = lambda *_args: None
+        controller.chat_turn_service._current_integration_declaration = lambda *_args: None
 
-        started = controller.chat_turn_service.start_assistant_account_authorization(
+        started = controller.chat_turn_service.start_assistant_integration_authorization(
             "team_1",
             pending.id,
             "browser-session-private-123456789",
@@ -325,42 +326,42 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 "connected": True,
                 "team_id": "team_1",
                 "assistant_id": "shimpz-cloudflare",
-                "account_id": "cloudflare",
+                "integration_id": "cloudflare",
             },
         )
         self.assertEqual([call[0] for call in calls], ["start", "complete"])
 
     def test_internal_oauth_routes_are_closed_and_exact(self) -> None:
         chat_turn_service = SimpleNamespace(
-            start_assistant_account_authorization=lambda team, challenge, binding: {
+            start_assistant_integration_authorization=lambda team, challenge, binding: {
                 "authorization_url": f"https://shimpz.com/{team}/{challenge}/{binding}"
             },
             complete_cloudflare_oauth_callback=lambda **_values: {
                 "connected": True,
                 "team_id": "team_1",
                 "assistant_id": "shimpz-cloudflare",
-                "account_id": "cloudflare",
+                "integration_id": "cloudflare",
             },
-            disconnect_assistant_account=lambda *_values: {"disconnected": True},
+            disconnect_assistant_integration=lambda *_values: {"disconnected": True},
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
         handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
         handler.command = "POST"
 
-        authorize = handler._assistant_account_route(
+        authorize = handler._assistant_integration_route(
             [
                 "v1",
                 "teams",
                 "team_1",
-                "assistant-accounts",
+                "assistant-integrations",
                 "challenges",
                 "a" * 32,
                 "authorize",
             ]
         )
         self.assertEqual(authorize[0], HTTPStatus.OK)
-        self.assertEqual(authorize[2], "assistant-account-authorize")
+        self.assertEqual(authorize[2], "assistant-integration-authorize")
 
         handler._body = lambda **_kwargs: {
             "state": "s" * 43,
@@ -369,23 +370,23 @@ class LocalOAuthAccountTests(unittest.TestCase):
         }
         callback = handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])
         self.assertEqual(callback[0], HTTPStatus.OK)
-        self.assertEqual(callback[2], "assistant-account-complete")
+        self.assertEqual(callback[2], "assistant-integration-complete")
 
         handler.command = "DELETE"
-        disconnected = handler._assistant_account_route(
+        disconnected = handler._assistant_integration_route(
             [
                 "v1",
                 "teams",
                 "team_1",
-                "assistant-accounts",
+                "assistant-integrations",
                 "shimpz-cloudflare",
                 "cloudflare",
             ]
         )
         self.assertEqual(disconnected[1], {"disconnected": True})
-        self.assertEqual(disconnected[2], "assistant-account-disconnect")
+        self.assertEqual(disconnected[2], "assistant-integration-disconnect")
 
-    def test_chat_pauses_before_any_power_when_account_is_missing(self) -> None:
+    def test_chat_pauses_before_any_power_when_integration_is_missing(self) -> None:
         spec = self._registry()["shimpz-cloudflare"]
         request = brain_runtime_client.PowerRequest(
             interrupt_id="call-1",
@@ -409,8 +410,8 @@ class LocalOAuthAccountTests(unittest.TestCase):
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
             )
-            controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-                Path(directory) / "state" / "accounts.json",
+            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+                Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
             controller._wire_collaborators()
@@ -443,10 +444,10 @@ class LocalOAuthAccountTests(unittest.TestCase):
             )
 
         self.assertIsInstance(result.outcome, chat_orchestrator.ChatSuspension)
-        self.assertEqual(len(result.accounts), 1)
-        self.assertEqual(result.accounts[0].accounts[0][0], "cloudflare")
+        self.assertEqual(len(result.integrations), 1)
+        self.assertEqual(result.integrations[0].integrations[0][0], "cloudflare")
 
-    def test_account_resume_is_one_use_and_returns_completed_turn(self) -> None:
+    def test_integration_resume_is_one_use_and_returns_completed_turn(self) -> None:
         registry = self._registry()
         spec = registry["shimpz-cloudflare"]
         request = brain_runtime_client.PowerRequest(
@@ -462,11 +463,11 @@ class LocalOAuthAccountTests(unittest.TestCase):
             round_index=0,
         )
         requirements = (
-            assistant_account_challenges.AccountRequirement(
+            assistant_integration_challenges.IntegrationRequirement(
                 assistant_id=spec.assistant_id,
                 assistant_name=spec.name,
                 power_ids=("list-zones",),
-                accounts=(("cloudflare", "cloudflare", spec.accounts["cloudflare"].scopes),),
+                integrations=(("cloudflare", "cloudflare", spec.integrations["cloudflare"].scopes),),
             ),
         )
 
@@ -474,11 +475,11 @@ class LocalOAuthAccountTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = registry
             controller._locks = tuple(threading.RLock() for _ in range(64))
-            controller.account_challenges = assistant_account_challenges.AccountChallengeStore()
+            controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
             controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
             controller.oauth_pkce = SimpleNamespace(cancel_team=lambda _team: 0)
-            controller.assistant_accounts = oauth_account_store.OAuthAccountStore(
-                Path(directory) / "state" / "accounts.json",
+            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+                Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
             controller._wire_collaborators()
@@ -494,17 +495,17 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 provider="openai",
                 identity=identity,
             )
-            challenge = controller.account_challenges.create("team_1", requirements, pending)
-            controller.assistant_accounts.put(
+            challenge = controller.integration_challenges.create("team_1", requirements, pending)
+            controller.assistant_integrations.put(
                 "team_1",
                 spec.assistant_id,
                 "cloudflare",
                 "cloudflare",
-                spec.accounts["cloudflare"].scopes,
+                spec.integrations["cloudflare"].scopes,
                 SimpleNamespace(
                     access_token="a" * 32,
                     refresh_token="r" * 32,
-                    scopes=spec.accounts["cloudflare"].scopes,
+                    scopes=spec.integrations["cloudflare"].scopes,
                     expires_in=3600,
                 ),
             )
@@ -515,7 +516,7 @@ class LocalOAuthAccountTests(unittest.TestCase):
                 (),
             )
 
-            response = controller.chat_turn_service.resume_chat_accounts(
+            response = controller.chat_turn_service.resume_chat_integrations(
                 "team_1",
                 {"challenge_id": challenge.id},
                 "openai",
@@ -523,22 +524,22 @@ class LocalOAuthAccountTests(unittest.TestCase):
             )
 
             self.assertEqual(response, {"team_id": "team_1", "team_name": "Team One", "reply": "Done"})
-            self.assertIsNone(controller.account_challenges.current("team_1"))
+            self.assertIsNone(controller.integration_challenges.current("team_1"))
             with self.assertRaises(local_app.ApiProblem) as replay:
-                controller.chat_turn_service.resume_chat_accounts(
+                controller.chat_turn_service.resume_chat_integrations(
                     "team_1",
                     {"challenge_id": challenge.id},
                     "openai",
                     "test-api-key",
                 )
-            self.assertEqual(replay.exception.code, "assistant-account-challenge-expired")
+            self.assertEqual(replay.exception.code, "assistant-integration-challenge-expired")
 
-    def test_chat_account_routes_are_exact(self) -> None:
-        pending = {"team_id": "team_1", "status": "accounts-required"}
+    def test_chat_integration_routes_are_exact(self) -> None:
+        pending = {"team_id": "team_1", "status": "integrations-required"}
         completed = {"team_id": "team_1", "team_name": "Team One", "reply": "Done"}
         chat_turn_service = SimpleNamespace(
-            pending_chat_accounts=lambda team_id: pending,
-            resume_chat_accounts=lambda team_id, body, provider, api_key: completed,
+            pending_chat_integrations=lambda team_id: pending,
+            resume_chat_integrations=lambda team_id, body, provider, api_key: completed,
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
@@ -547,13 +548,13 @@ class LocalOAuthAccountTests(unittest.TestCase):
 
         handler.command = "GET"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "accounts"]),
-            (HTTPStatus.OK, pending, "chat-account-pending", "team_1", None),
+            handler._chat_route(["v1", "teams", "team_1", "chat", "integrations"]),
+            (HTTPStatus.OK, pending, "chat-integration-pending", "team_1", None),
         )
         handler.command = "POST"
         self.assertEqual(
-            handler._chat_route(["v1", "teams", "team_1", "chat", "accounts"]),
-            (HTTPStatus.OK, completed, "chat-account-submit", "team_1", None),
+            handler._chat_route(["v1", "teams", "team_1", "chat", "integrations"]),
+            (HTTPStatus.OK, completed, "chat-integration-submit", "team_1", None),
         )
 
 

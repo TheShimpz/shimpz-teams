@@ -116,9 +116,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         resolution = _runtime_resolution()
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(
-                DynamicAssistantStore(Path(directory) / "bindings.json")
-            )
+            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
             controller.developers.resolve.return_value = resolution
             controller.artifact_trust = mock.Mock()

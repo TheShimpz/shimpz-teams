@@ -8,11 +8,11 @@ from typing import NoReturn
 
 import manifests
 from assistant_human import (
-    assistant_account_challenges,
-    assistant_account_flow,
+    assistant_integration_challenges,
+    assistant_integration_flow,
     assistant_registry,
     hosted_assistants,
-    oauth_account_store,
+    oauth_integration_store,
 )
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -111,19 +111,19 @@ def _hosted_private_requirements(
     team_id: str,
     bindings: dict[str, hosted_assistants._ActiveAssistant],
     requests: tuple[brain_runtime_client.PowerRequest, ...],
-) -> tuple[assistant_account_challenges.AccountRequirement, ...]:
+) -> tuple[assistant_integration_challenges.IntegrationRequirement, ...]:
     try:
-        return assistant_account_flow.requirements_for_batch(
+        return assistant_integration_flow.requirements_for_batch(
             team_id,
-            hosted_assistants._account_bindings(bindings),
+            hosted_assistants._integration_bindings(bindings),
             requests,
-            runtime_state._assistant_accounts,
+            runtime_state._assistant_integrations,
         )
     except (
-        assistant_account_flow.AccountFlowError,
-        oauth_account_store.OAuthAccountStoreError,
+        assistant_integration_flow.IntegrationFlowError,
+        oauth_integration_store.OAuthIntegrationStoreError,
     ) as exc:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant account contract is unavailable") from exc
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration contract is unavailable") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,7 +232,7 @@ def _execute_hosted_power(
     inspect_memo: dict[str, object],
     request: brain_runtime_client.PowerRequest,
     validated_assistant: hosted_assistants._ActiveAssistant,
-    account_values: object,
+    integration_values: object,
 ) -> object:
     active = bindings.get(request.assistant_id)
     if active is None:
@@ -248,7 +248,7 @@ def _execute_hosted_power(
             payload=request.input,
             inspect_memo=inspect_memo,
             validated_assistant=validated_assistant,
-            account_values=account_values,
+            integration_values=integration_values,
         )
     )
     return invocation["result"]
@@ -286,7 +286,7 @@ def _run_hosted_chat_segment_with_metadata(
     def validate_power(assistant_id: str, power: str, power_input) -> object:
         return hosted_assistants._validate_assistant_power_input(bindings, assistant_id, power, power_input)
 
-    def execute_power(request: brain_runtime_client.PowerRequest, account_values: object) -> object:
+    def execute_power(request: brain_runtime_client.PowerRequest, integration_values: object) -> object:
         nonlocal credential_evidence, validated_power_assistants
         if not credential_evidence:
             raise AssertionError("hosted Power lacks fresh credential evidence")
@@ -302,7 +302,7 @@ def _run_hosted_chat_segment_with_metadata(
             inspect_memo,
             request,
             validated_assistant,
-            account_values,
+            integration_values,
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -356,7 +356,7 @@ def _run_hosted_chat_segment_with_metadata(
                     bindings,
                     request,
                 ),
-                lambda request: hosted_assistants._power_account_generations(
+                lambda request: hosted_assistants._power_integration_generations(
                     team_id, bindings[request.assistant_id], request.power
                 ),
             ),
@@ -367,12 +367,12 @@ def _run_hosted_chat_segment_with_metadata(
         requests: tuple[object, ...],
         requirements: chat_turn_engine.SegmentRequirements,
     ) -> bool:
-        requirements.accounts = _hosted_private_requirements(
+        requirements.integrations = _hosted_private_requirements(
             team_id,
             bindings,
             requests,
         )
-        return bool(requirements.accounts)
+        return bool(requirements.integrations)
 
     def validate_context() -> None:
         nonlocal credential_evidence, inspect_memo, validated_power_assistants
@@ -413,7 +413,7 @@ def _run_hosted_chat_segment_with_metadata(
         team_name,
         identity,
         outcome,
-        requirements.accounts,
+        requirements.integrations,
     )
 
 
@@ -433,8 +433,8 @@ def _commit_hosted_suspension(
     )
 
 
-def _hosted_account_challenge_payload(
-    challenge: assistant_account_challenges.PendingAccountChallenge,
+def _hosted_integration_challenge_payload(
+    challenge: assistant_integration_challenges.PendingIntegrationChallenge,
 ) -> dict[str, object]:
     bindings: dict[str, hosted_assistants._HostedAssistantBinding] = {}
     try:
@@ -445,12 +445,12 @@ def _hosted_account_challenge_payload(
             )
             active = hosted_assistants._ActiveAssistant(assistant_id, contract, container)
             bindings[assistant_id] = hosted_assistants._HostedAssistantBinding(
-                hosted_assistants._hosted_account_spec(active)
+                hosted_assistants._hosted_integration_spec(active)
             )
-        return assistant_account_flow.challenge_payload(challenge, bindings)
-    except (assistant_registry.AssistantSpecError, assistant_account_flow.AccountFlowError) as exc:
+        return assistant_integration_flow.challenge_payload(challenge, bindings)
+    except (assistant_registry.AssistantSpecError, assistant_integration_flow.IntegrationFlowError) as exc:
         raise runtime_state.ApiError(
-            HTTPStatus.CONFLICT, "Assistant account contract changed; retry the message"
+            HTTPStatus.CONFLICT, "Assistant integration contract changed; retry the message"
         ) from exc
 
 
@@ -458,15 +458,15 @@ def _pause_hosted_connection(
     team_id: str,
     token: str,
     outcome: chat_orchestrator.ChatSuspension,
-    requirements: tuple[assistant_account_challenges.AccountRequirement, ...],
+    requirements: tuple[assistant_integration_challenges.IntegrationRequirement, ...],
     pending: hosted_assistants._PendingHostedChat,
 ) -> dict[str, object]:
     try:
-        challenge = runtime_state._assistant_account_challenges.create(team_id, requirements, pending)
-    except assistant_account_challenges.AccountChallengeError as exc:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant account request is already pending") from exc
-    _commit_hosted_suspension(team_id, token, outcome, pending, runtime_state._assistant_account_challenges)
-    return _hosted_account_challenge_payload(challenge)
+        challenge = runtime_state._assistant_integration_challenges.create(team_id, requirements, pending)
+    except assistant_integration_challenges.IntegrationChallengeError as exc:
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration request is already pending") from exc
+    _commit_hosted_suspension(team_id, token, outcome, pending, runtime_state._assistant_integration_challenges)
+    return _hosted_integration_challenge_payload(challenge)
 
 
 def _hosted_segment_response(

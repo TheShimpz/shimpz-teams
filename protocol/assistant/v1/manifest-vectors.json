@@ -57,9 +57,9 @@
       "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world-\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
     },
     {
-      "name": "unknown_account_field",
+      "name": "unknown_integration_field",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n\n[accounts.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n\n[integrations.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
     }
   ]
 }

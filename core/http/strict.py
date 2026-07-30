@@ -294,7 +294,7 @@ class ControllerRouteMatch:
 
     @property
     def group(self) -> str | None:
-        fixed = {"health", "registry-list", "team-list", "space-reset", "assistant-account-complete"}
+        fixed = {"health", "registry-list", "team-list", "space-reset", "assistant-integration-complete"}
         if self.operation in fixed:
             return "fixed"
         if self.operation in {"team-create", "team-destroy"}:
@@ -303,7 +303,7 @@ class ControllerRouteMatch:
             ("file-", "file"),
             ("inference-", "inference"),
             ("chat-", "chat"),
-            ("assistant-account-", "assistant-account"),
+            ("assistant-integration-", "assistant-integration"),
         ):
             if self.operation.startswith(prefix):
                 return group
@@ -323,7 +323,7 @@ _HOSTED_CONTROLLER_ONLY = frozenset({HOSTED_CONTROLLER})
 _LOCAL_CONTROLLER_ONLY = frozenset({LOCAL_CONTROLLER})
 CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams", "team-list"),
-    _controller_route("POST", "/v1/oauth/cloudflare/callback", "assistant-account-complete"),
+    _controller_route("POST", "/v1/oauth/cloudflare/callback", "assistant-integration-complete"),
     _controller_route("POST", "/v1/teams/:team_id/create", "team-create"),
     _controller_route("DELETE", "/v1/teams/:team_id", "team-destroy"),
     _controller_route("GET", "/v1/teams/:team_id/files", "file-list"),
@@ -332,19 +332,19 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),
-    _controller_route("GET", "/v1/teams/:team_id/chat/accounts", "chat-account-pending"),
-    _controller_route("POST", "/v1/teams/:team_id/chat/accounts", "chat-account-submit"),
+    _controller_route("GET", "/v1/teams/:team_id/chat/integrations", "chat-integration-pending"),
+    _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
     _controller_route("POST", "/v1/teams/:team_id/chat/stop", "chat-stop"),
-    _controller_route("GET", "/v1/teams/:team_id/assistant-accounts", "assistant-account-list"),
+    _controller_route("GET", "/v1/teams/:team_id/assistant-integrations", "assistant-integration-list"),
     _controller_route(
         "POST",
-        "/v1/teams/:team_id/assistant-accounts/challenges/:challenge_id/authorize",
-        "assistant-account-authorize",
+        "/v1/teams/:team_id/assistant-integrations/challenges/:challenge_id/authorize",
+        "assistant-integration-authorize",
     ),
     _controller_route(
         "DELETE",
-        "/v1/teams/:team_id/assistant-accounts/:assistant_id/:account_id",
-        "assistant-account-disconnect",
+        "/v1/teams/:team_id/assistant-integrations/:assistant_id/:integration_id",
+        "assistant-integration-disconnect",
     ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stream", "chat-stream", _HOSTED_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/status", "team-status", _HOSTED_CONTROLLER_ONLY),

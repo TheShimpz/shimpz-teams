@@ -286,8 +286,8 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertIn("/var/lib/team/inference", dockerfile)
         self.assertIn("/var/lib/team/power-journal", dockerfile)
         self.assertNotIn("/var/lib/team/assistant-secrets", dockerfile)
-        self.assertIn("/var/lib/team/assistant-accounts/state", dockerfile)
-        self.assertIn("/var/lib/team/assistant-accounts/key", dockerfile)
+        self.assertIn("/var/lib/team/assistant-integrations/state", dockerfile)
+        self.assertIn("/var/lib/team/assistant-integrations/key", dockerfile)
         self.assertIn(
             "/var/lib/team/cleanup \\\n        /var/lib/team/inference \\\n        /var/lib/team/power-journal \\",
             dockerfile,

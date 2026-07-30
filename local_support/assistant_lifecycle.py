@@ -18,6 +18,8 @@ ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
 ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
+
+
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
     return problem.code == "assistant-not-ready"
 
@@ -227,7 +229,7 @@ def _replace_outdated_assistant(
             "the installed Assistant changed during update",
             code="assistant-update-conflict",
         )
-    self.chat_turn_service._retain_declared_assistant_account_state(team_id, spec)
+    self.chat_turn_service._retain_declared_assistant_integration_state(team_id, spec)
     remaining_egress = (
         self._team_has_egress_assistant(team_id, excluding=spec.assistant_id) if spec.allowed_hosts else None
     )
@@ -337,7 +339,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                     network,
                     remaining_egress=remaining_egress,
                 )
-            self.chat_turn_service._delete_assistant_account_state(team_id, assistant_id)
+            self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
             return {"assistant": assistant_id, "uninstalled": False}
         self._validate_container_security(container, team_id, spec, network.name)
@@ -363,6 +365,6 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 network,
                 remaining_egress=remaining_egress,
             )
-        self.chat_turn_service._delete_assistant_account_state(team_id, assistant_id)
+        self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
         return {"assistant": assistant_id, "uninstalled": True}

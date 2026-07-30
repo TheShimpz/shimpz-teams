@@ -9,7 +9,7 @@ import docker.errors
 
 import audit
 import manifests
-from assistant_human import assistant_registry, hosted_assistants, oauth_account_store
+from assistant_human import assistant_registry, hosted_assistants, oauth_integration_store
 from container_policy import hosted_apps, hosted_resources
 from container_policy import network as network_policy
 from controller_runtime import (
@@ -177,11 +177,11 @@ def _teardown_inference(team_id: str) -> bool:
     return True
 
 
-def _teardown_assistant_accounts(team_id: str) -> bool:
-    runtime_state._assistant_account_challenges.cancel_team(team_id)
+def _teardown_assistant_integrations(team_id: str) -> bool:
+    runtime_state._assistant_integration_challenges.cancel_team(team_id)
     try:
-        runtime_state._assistant_accounts.delete_team(team_id)
-    except oauth_account_store.OAuthAccountStoreError:
+        runtime_state._assistant_integrations.delete_team(team_id)
+    except oauth_integration_store.OAuthIntegrationStoreError:
         return False
     return True
 
@@ -234,7 +234,7 @@ def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._C
         or not _teardown_assistants(team_id)
         or not _teardown_storage(team_id)
         or not _teardown_inference(team_id)
-        or not _teardown_assistant_accounts(team_id)
+        or not _teardown_assistant_integrations(team_id)
         or not _teardown_network_planes(team_id)
         or not _remove_teardown_brain(brain)
         or not _teardown_volumes(team_id)

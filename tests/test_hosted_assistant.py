@@ -26,14 +26,14 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
-assistant_account_challenges = runtime_state.assistant_account_challenges
+assistant_integration_challenges = runtime_state.assistant_integration_challenges
 assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 manifests = hosted_apps.manifests
 assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
-oauth_account_store = runtime_state.oauth_account_store
+oauth_integration_store = runtime_state.oauth_integration_store
 oauth_http_client = runtime_state.oauth_http_client
 power_journal = runtime_state.power_journal
 hosted_egress_policy = hosted_apps.egress_policy
@@ -356,7 +356,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         cache = types.SimpleNamespace(
             get=admit,
         )
-        machine_cache = types.SimpleNamespace(get=lambda _container, _accounts, reviewed: reviewed)
+        machine_cache = types.SimpleNamespace(get=lambda _container, _integrations, reviewed: reviewed)
         with (
             mock.patch.multiple(
                 runtime_state,
@@ -373,17 +373,17 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         self.assertEqual(len(reviewed_contracts), 1)
 
         self.assertEqual(
-            {account.id: (account.provider, account.scopes) for account in reviewed_contracts[0].accounts},
+            {account.id: (account.provider, account.scopes) for account in reviewed_contracts[0].integrations},
             {
                 account_id: (account.provider, tuple(sorted(account.scopes)))
-                for account_id, account in spec.contract.accounts.items()
+                for account_id, account in spec.contract.integrations.items()
             },
         )
         exact = reviewed_contracts[0]
-        account = exact.accounts[0]
+        account = exact.integrations[0]
         drifted = (
-            replace(exact, accounts=(replace(account, provider="other"),)),
-            replace(exact, accounts=(replace(account, scopes=("tweet.read",)),)),
+            replace(exact, integrations=(replace(account, provider="other"),)),
+            replace(exact, integrations=(replace(account, scopes=("tweet.read",)),)),
         )
         with (
             mock.patch.multiple(

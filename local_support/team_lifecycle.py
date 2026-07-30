@@ -114,7 +114,7 @@ def _delete_team_persistence(self, team_id: str) -> bool:
 
 
 def _delete_team_private_state(self, team_id: str) -> None:
-    self.chat_turn_service._delete_team_account_state(team_id)
+    self.chat_turn_service._delete_team_integration_state(team_id)
 
 
 def _remove_team_network(self, network) -> bool:
@@ -236,7 +236,7 @@ def _remove_space_resources(
     networks: list,
     owned_assistants: set[tuple[str, str]],
 ) -> bool:
-    self.chat_turn_service._delete_all_account_state()
+    self.chat_turn_service._delete_all_integration_state()
     for container in containers:
         container.remove(force=True)
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)

@@ -102,12 +102,12 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use the declared Power."
 
     def local_private_inputs(_team_id, _bindings, _requests, requirements) -> bool:
-        requirements.accounts = ("account-required",)
+        requirements.integrations = ("integration-required",)
         return True
 
     controller.chat_turn_service._require_chat_private_inputs = local_private_inputs
     controller.chat_turn_service._require_power_rpc_envelope = lambda *_args: events.append("preflight")
-    controller.chat_turn_service._power_account_generations = lambda *_args: events.append("accounts") or ()
+    controller.chat_turn_service._power_integration_generations = lambda *_args: events.append("integrations") or ()
     controller.chat_turn_service._chat_cancelled = lambda _token: False
     controller.chat_turn_service._validate_chat_context = lambda *_args: None
     controller.chat_turn_service._raise_chat_problem = lambda reason, _exc: fail(reason)
@@ -130,8 +130,8 @@ def _context_contract(prepared) -> tuple[object, ...]:
 class SharedChatTurnEngineTest(unittest.TestCase):
     def _strategy(self, *, decisions: list[str]) -> chat_turn_engine.SegmentStrategy:
         def private_inputs(_requests, requirements) -> bool:
-            requirements.accounts = ("account-required",)
-            decisions.append("accounts")
+            requirements.integrations = ("integration-required",)
+            decisions.append("integrations")
             return True
 
         def raise_problem(reason: str, _exc: BaseException | None) -> None:
@@ -172,8 +172,8 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         self.assertIsInstance(hosted[2], chat_orchestrator.ChatSuspension)
         self.assertIsInstance(local[2], chat_orchestrator.ChatSuspension)
         self.assertEqual(hosted[2], local[2])
-        self.assertEqual(hosted[3].accounts, local[3].accounts)
-        self.assertEqual(decisions, {"hosted": ["accounts"], "local": ["accounts"]})
+        self.assertEqual(hosted[3].integrations, local[3].integrations)
+        self.assertEqual(decisions, {"hosted": ["integrations"], "local": ["integrations"]})
 
     def test_matching_suspension_commits_without_rollback(self) -> None:
         decisions: list[str] = []
@@ -338,7 +338,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 _require_model_credential_current=lambda *_args: hosted_events.append("model"),
                 _require_hosted_power_rpc_envelope=lambda *_args: hosted_events.append("preflight"),
                 _hosted_power_identity=lambda _active: (assistant_container.id, local_spec.image),
-                _power_account_generations=lambda *_args: hosted_events.append("accounts") or (),
+                _power_integration_generations=lambda *_args: hosted_events.append("integrations") or (),
             ),
             mock.patch.object(
                 hosted_harness.hosted_apps,
@@ -348,7 +348,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             mock.patch.object(
                 hosted_harness.hosted_chat_segment,
                 "_hosted_private_requirements",
-                return_value=("account-required",),
+                return_value=("integration-required",),
             ),
             mock.patch.object(
                 hosted_harness.runtime_state,
@@ -413,8 +413,8 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
         local_prepared.durable_batch._operation(request)
         local_strategy.finalize()
-        self.assertEqual(hosted_events, ["preflight", "accounts"])
-        self.assertEqual(local_events, ["preflight", "accounts"])
+        self.assertEqual(hosted_events, ["preflight", "integrations"])
+        self.assertEqual(local_events, ["preflight", "integrations"])
 
 
 if __name__ == "__main__":

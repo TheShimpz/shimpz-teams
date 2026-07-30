@@ -7,7 +7,7 @@ import math
 import re
 from dataclasses import asdict, dataclass
 
-from assistant_human import assistant_account_challenges
+from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import (
     brain_runtime_client,
@@ -176,9 +176,9 @@ def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
 
 def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[dict[str, object]]:
     if (
-        kind != "accounts"
+        kind != "integrations"
         or not requirements
-        or any(not isinstance(item, assistant_account_challenges.AccountRequirement) for item in requirements)
+        or any(not isinstance(item, assistant_integration_challenges.IntegrationRequirement) for item in requirements)
     ):
         raise ContinuationCodecError("continuation requirements are malformed")
     return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
@@ -199,7 +199,7 @@ def _release_images(pending: PendingLocalChat) -> dict[str, str]:
 
 
 def _bindings(kind: str, requirements: tuple[object, ...], pending: PendingLocalChat) -> tuple[str, ...]:
-    if kind != "accounts":
+    if kind != "integrations":
         raise ContinuationCodecError("continuation kind is malformed")
     images = _release_images(pending)
     bindings: set[str] = set()
@@ -417,30 +417,30 @@ def _tuple_text(value: object, maximum: int, label: str) -> tuple[str, ...]:
     return result
 
 
-def _account_requirement(value: object) -> assistant_account_challenges.AccountRequirement:
+def _integration_requirement(value: object) -> assistant_integration_challenges.IntegrationRequirement:
     raw = _mapping(
         value,
-        {"assistant_id", "assistant_name", "power_ids", "accounts"},
-        "account requirement",
+        {"assistant_id", "assistant_name", "power_ids", "integrations"},
+        "integration requirement",
     )
-    accounts: list[tuple[str, str, tuple[str, ...]]] = []
-    for item in _sequence(raw["accounts"], 16, "account requirement accounts"):
+    integrations: list[tuple[str, str, tuple[str, ...]]] = []
+    for item in _sequence(raw["integrations"], 16, "integration requirement integrations"):
         if not isinstance(item, list) or len(item) != 3:
-            raise ContinuationCodecError("account requirement is malformed")
-        accounts.append(
+            raise ContinuationCodecError("integration requirement is malformed")
+        integrations.append(
             (
-                _component_id(item[0], "account id"),
-                _component_id(item[1], "account provider"),
-                _tuple_text(item[2], 128, "account scopes"),
+                _component_id(item[0], "integration id"),
+                _component_id(item[1], "integration provider"),
+                _tuple_text(item[2], 128, "integration scopes"),
             )
         )
-    if not accounts:
-        raise ContinuationCodecError("account requirement is malformed")
-    return assistant_account_challenges.AccountRequirement(
-        _component_id(raw["assistant_id"], "account Assistant"),
-        str(_text(raw["assistant_name"], 80, "account Assistant name")),
-        _tuple_text(raw["power_ids"], 80, "account Powers"),
-        tuple(accounts),
+    if not integrations:
+        raise ContinuationCodecError("integration requirement is malformed")
+    return assistant_integration_challenges.IntegrationRequirement(
+        _component_id(raw["assistant_id"], "integration Assistant"),
+        str(_text(raw["assistant_name"], 80, "integration Assistant name")),
+        _tuple_text(raw["power_ids"], 80, "integration Powers"),
+        tuple(integrations),
     )
 
 
@@ -453,10 +453,10 @@ def decode(
     body = _decode_payload(stored.payload)
     if body["schema"] != SCHEMA_VERSION or body["kind"] != stored.kind:
         raise ContinuationCodecError("stored continuation contract changed")
-    if stored.kind != "accounts":
+    if stored.kind != "integrations":
         raise ContinuationCodecError("stored continuation kind is malformed")
     requirements = tuple(
-        _account_requirement(item) for item in _sequence(body["requirements"], 64, "continuation requirements")
+        _integration_requirement(item) for item in _sequence(body["requirements"], 64, "continuation requirements")
     )
     if not requirements:
         raise ContinuationCodecError("continuation requirements are malformed")

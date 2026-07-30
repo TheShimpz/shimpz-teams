@@ -83,12 +83,12 @@ class AssistantArtifactTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(spec.contract, "rpc_command"))
         self.assertEqual(set(spec.contract.powers), {"list-zones", "list-dns-records"})
-        self.assertEqual(spec.contract.accounts["cloudflare"].provider, "cloudflare")
+        self.assertEqual(spec.contract.integrations["cloudflare"].provider, "cloudflare")
         self.assertEqual(
-            spec.contract.accounts["cloudflare"].scopes,
+            spec.contract.integrations["cloudflare"].scopes,
             ("dns.read", "offline_access", "zone.read"),
         )
-        self.assertTrue(all(power.accounts == ("cloudflare",) for power in spec.contract.powers.values()))
+        self.assertTrue(all(power.integrations == ("cloudflare",) for power in spec.contract.powers.values()))
         self.assertTrue(all(not hasattr(power, "approval") for power in spec.contract.powers.values()))
 
     def test_missing_digest_is_pulled_by_the_exact_registry_reference_then_rechecked(self) -> None:

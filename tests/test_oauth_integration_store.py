@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from assistant_human import oauth_account_store
+from assistant_human import oauth_integration_store
 from assistant_human.oauth_http_client import OAuthTokenSet
 
 ACCESS = "access-token-private-material-123456789"
@@ -31,20 +31,20 @@ def tokens(
     return OAuthTokenSet(access, refresh, scopes, expires_in, broker_lease)
 
 
-class OAuthAccountStoreTests(unittest.TestCase):
+class OAuthIntegrationStoreTests(unittest.TestCase):
     def _store(
         self,
         root: Path,
         *,
         clock=lambda: 1_000_000_000,
-    ) -> oauth_account_store.OAuthAccountStore:
-        return oauth_account_store.OAuthAccountStore(
-            root / "state" / "accounts.json",
+    ) -> oauth_integration_store.OAuthIntegrationStore:
+        return oauth_integration_store.OAuthIntegrationStore(
+            root / "state" / "integrations.json",
             root / "key" / "aes256.key",
             clock=clock,
         )
 
-    def test_inventory_includes_missing_and_encrypted_account_metadata(self) -> None:
+    def test_inventory_includes_missing_and_encrypted_integration_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             store = self._store(root)
@@ -52,7 +52,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
             self.assertEqual(
                 missing,
                 (
-                    oauth_account_store.OAuthAccountMetadata(
+                    oauth_integration_store.OAuthIntegrationMetadata(
                         "cloudflare", "cloudflare", SCOPES, "missing", None, None, 0
                     ),
                 ),
@@ -61,7 +61,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
             stored = store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
             self.assertEqual(stored.generation, 1)
             self.assertEqual(stored.status, "connected")
-            self.assertEqual(stored.account, oauth_account_store.OAuthAccountIdentity(**ACCOUNT))
+            self.assertEqual(stored.integration, oauth_integration_store.OAuthIntegrationIdentity(**ACCOUNT))
             self.assertEqual(store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS), (stored,))
             self.assertEqual(
                 store.resolve(
@@ -75,7 +75,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                 ACCESS,
             )
 
-            state = (root / "state" / "accounts.json").read_text(encoding="utf-8")
+            state = (root / "state" / "integrations.json").read_text(encoding="utf-8")
             key = (root / "key" / "aes256.key").read_bytes()
             for private in (ACCESS, REFRESH, "2244994945", "Cloudflare", "Cloudflare"):
                 self.assertNotIn(private, state)
@@ -94,9 +94,9 @@ class OAuthAccountStoreTests(unittest.TestCase):
             store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
 
             with mock.patch.object(
-                oauth_account_store,
+                oauth_integration_store,
                 "_validate_state",
-                wraps=oauth_account_store._validate_state,
+                wraps=oauth_integration_store._validate_state,
             ) as validate_state:
                 for _ in range(2):
                     self.assertEqual(
@@ -162,11 +162,11 @@ class OAuthAccountStoreTests(unittest.TestCase):
             cached = store._state_cache
             self.assertIsNotNone(cached)
 
-            self.assertTrue(store.delete_account("team_1", "shimpz-cloudflare", "cloudflare"))
+            self.assertTrue(store.delete_integration("team_1", "shimpz-cloudflare", "cloudflare"))
 
             if cached is None:
                 self.fail("metadata read did not populate the state cache")
-            records = oauth_account_store._PRIVATE_STATE.records(
+            records = oauth_integration_store._PRIVATE_STATE.records(
                 cached,
                 "team_1",
                 "shimpz-cloudflare",
@@ -183,11 +183,11 @@ class OAuthAccountStoreTests(unittest.TestCase):
 
             with (
                 mock.patch.object(
-                    oauth_account_store.private_state.PrivateState,
+                    oauth_integration_store.private_state.PrivateState,
                     "atomic_write",
-                    side_effect=oauth_account_store.OAuthAccountStoreError("write failed"),
+                    side_effect=oauth_integration_store.OAuthIntegrationStoreError("write failed"),
                 ),
-                self.assertRaisesRegex(oauth_account_store.OAuthAccountStoreError, "write failed"),
+                self.assertRaisesRegex(oauth_integration_store.OAuthIntegrationStoreError, "write failed"),
             ):
                 store.put(
                     "team_1",
@@ -247,7 +247,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                 "new-access-token-123456789",
             )
 
-    def test_expired_account_refresh_is_single_flight_and_preserves_account(self) -> None:
+    def test_expired_integration_refresh_is_single_flight_and_preserves_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = [1_000]
             store = self._store(Path(directory), clock=lambda: now[0])
@@ -294,9 +294,9 @@ class OAuthAccountStoreTests(unittest.TestCase):
             self.assertEqual(calls, [REFRESH])
             metadata = store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0]
             self.assertEqual(metadata.generation, 2)
-            self.assertEqual(metadata.account, oauth_account_store.OAuthAccountIdentity(**ACCOUNT))
+            self.assertEqual(metadata.integration, oauth_integration_store.OAuthIntegrationIdentity(**ACCOUNT))
 
-    def test_hanging_refresh_does_not_block_another_account(self) -> None:
+    def test_hanging_refresh_does_not_block_another_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             now = [1_000]
             store = self._store(Path(directory), clock=lambda: now[0])
@@ -346,16 +346,16 @@ class OAuthAccountStoreTests(unittest.TestCase):
                     "secondary",
                     "cloudflare",
                     SCOPES,
-                    lambda *_args: self.fail("unexpired secondary account must not refresh"),
+                    lambda *_args: self.fail("unexpired secondary integration must not refresh"),
                 )
                 try:
                     self.assertEqual(other.result(timeout=0.5), other_access)
                 finally:
                     release.set()
                 self.assertEqual(refreshing.result(timeout=2), "refreshed-access-token-123456789")
-            self.assertEqual(store._account_flights, {})
+            self.assertEqual(store._integration_flights, {})
 
-    def test_hanging_revocation_does_not_block_another_account(self) -> None:
+    def test_hanging_revocation_does_not_block_another_integration(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
             store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
@@ -392,14 +392,14 @@ class OAuthAccountStoreTests(unittest.TestCase):
                     "secondary",
                     "cloudflare",
                     SCOPES,
-                    lambda *_args: self.fail("unexpired secondary account must not refresh"),
+                    lambda *_args: self.fail("unexpired secondary integration must not refresh"),
                 )
                 try:
                     self.assertEqual(other.result(timeout=0.5), other_access)
                 finally:
                     release.set()
                 self.assertTrue(revoking.result(timeout=2))
-            self.assertEqual(store._account_flights, {})
+            self.assertEqual(store._integration_flights, {})
 
     def test_missing_refresh_and_declaration_drift_require_reauthorization(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -418,8 +418,8 @@ class OAuthAccountStoreTests(unittest.TestCase):
             drifted = store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)[0]
             self.assertEqual(drifted.status, "reauthorization-required")
             self.assertEqual(drifted.scopes, SCOPES)
-            self.assertIsNone(drifted.account)
-            with self.assertRaises(oauth_account_store.OAuthAccountReauthorizationError):
+            self.assertIsNone(drifted.integration)
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationReauthorizationError):
                 store.resolve(
                     "team_1",
                     "shimpz-cloudflare",
@@ -435,7 +435,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                 store.metadata("team_1", "shimpz-cloudflare", reduced)[0].status,
                 "reauthorization-required",
             )
-            with self.assertRaises(oauth_account_store.OAuthAccountReauthorizationError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationReauthorizationError):
                 store.resolve(
                     "team_1",
                     "shimpz-cloudflare",
@@ -459,7 +459,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                 tokens(access="other-access-token-123456789"),
                 ACCOUNT,
             )
-            state_path = root / "state" / "accounts.json"
+            state_path = root / "state" / "integrations.json"
             original = json.loads(state_path.read_text(encoding="utf-8"))
             copied = json.loads(json.dumps(original))
             copied["teams"]["team_2"]["shimpz-cloudflare"]["cloudflare"] = copied["teams"]["team_1"][
@@ -467,7 +467,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
             ]["cloudflare"]
             state_path.write_text(json.dumps(copied, separators=(",", ":")), encoding="utf-8")
             state_path.chmod(0o600)
-            with self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                 store.metadata("team_2", "shimpz-cloudflare", DECLARATIONS)
 
             for field, value in (
@@ -480,7 +480,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                 tampered["teams"]["team_1"]["shimpz-cloudflare"]["cloudflare"][field] = value
                 state_path.write_text(json.dumps(tampered, separators=(",", ":")), encoding="utf-8")
                 state_path.chmod(0o600)
-                with self.subTest(field=field), self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+                with self.subTest(field=field), self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                     store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
     def test_missing_or_substituted_key_fails_closed_without_replacement(self) -> None:
@@ -490,7 +490,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
             store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, tokens(), ACCOUNT)
             original_state = store.state_path.read_bytes()
             store.key_path.unlink()
-            with self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                 store.put(
                     "team_1",
                     "shimpz-cloudflare",
@@ -505,7 +505,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
 
             store.key_path.write_bytes(os.urandom(32))
             store.key_path.chmod(0o600)
-            with self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                 store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
     def test_invalid_tokens_permissions_symlinks_and_duplicate_json_fail_closed(self) -> None:
@@ -522,13 +522,13 @@ class OAuthAccountStoreTests(unittest.TestCase):
             for value in invalid:
                 with (
                     self.subTest(value=value),
-                    self.assertRaises(oauth_account_store.OAuthAccountValidationError),
+                    self.assertRaises(oauth_integration_store.OAuthIntegrationValidationError),
                 ):
                     store.put("team_1", "shimpz-cloudflare", "cloudflare", "cloudflare", SCOPES, value, ACCOUNT)
                 self.assertEqual(store.state_path.read_bytes(), original)
 
             store.state_path.chmod(0o644)
-            with self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                 store.metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
         with tempfile.TemporaryDirectory() as directory:
@@ -537,13 +537,13 @@ class OAuthAccountStoreTests(unittest.TestCase):
             target = root / "target.json"
             target.write_text('{"schema":1,"teams":{},"teams":{}}', encoding="utf-8")
             target.chmod(0o600)
-            symlink = root / "state" / "accounts.json"
+            symlink = root / "state" / "integrations.json"
             symlink.symlink_to(target)
-            with self.assertRaises(oauth_account_store.OAuthAccountStoreError):
+            with self.assertRaises(oauth_integration_store.OAuthIntegrationStoreError):
                 self._store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
             symlink.unlink()
             target.replace(symlink)
-            with self.assertRaisesRegex(oauth_account_store.OAuthAccountStoreError, "duplicate"):
+            with self.assertRaisesRegex(oauth_integration_store.OAuthIntegrationStoreError, "duplicate"):
                 self._store(root).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
 
     def test_retention_and_deletion_are_exactly_scoped(self) -> None:
@@ -558,7 +558,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
 
             self.assertFalse(store.retain_declared("team_1", "first-assistant", {"cloudflare": object()}))
             self.assertTrue(store.retain_declared("team_1", "first-assistant", {}))
-            self.assertFalse(store.delete_account("team_1", "first-assistant", "cloudflare"))
+            self.assertFalse(store.delete_integration("team_1", "first-assistant", "cloudflare"))
             self.assertEqual(
                 store.metadata("team_1", "second-assistant", DECLARATIONS)[0].status,
                 "connected",
@@ -607,7 +607,7 @@ class OAuthAccountStoreTests(unittest.TestCase):
                     "team_1",
                     "shimpz-cloudflare",
                     "cloudflare",
-                    lambda *_tokens: self.fail("missing account must not invoke revocation"),
+                    lambda *_tokens: self.fail("missing integration must not invoke revocation"),
                 )
             )
 

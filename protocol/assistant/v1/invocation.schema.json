@@ -4,12 +4,12 @@
   "title": "Shimpz Power invocation v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["input", "accounts"],
+  "required": ["input", "integrations"],
   "properties": {
     "input": {
       "type": "object"
     },
-    "accounts": {
+    "integrations": {
       "type": "object",
       "maxProperties": 4,
       "propertyNames": {

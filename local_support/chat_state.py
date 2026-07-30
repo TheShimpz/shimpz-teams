@@ -8,7 +8,12 @@ from typing import NoReturn
 
 from docker.errors import DockerException
 
-from assistant_human import assistant_account_challenges, assistant_genesis, assistant_manifest, oauth_account_store
+from assistant_human import (
+    assistant_genesis,
+    assistant_integration_challenges,
+    assistant_manifest,
+    oauth_integration_store,
+)
 from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import config as inference_config
 from local.install.runtime import AssistantSpec
@@ -123,10 +128,10 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
     try:
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
-            accounts=spec.accounts,
+            integrations=spec.integrations,
         )
         declared = self._assistant_allowed_hosts_cache.get(container, reviewed)
-        self._assistant_machine_contract_cache.get(container, declared.accounts, spec.machine_contract)
+        self._assistant_machine_contract_cache.get(container, declared.integrations, spec.machine_contract)
     except assistant_manifest.ManifestError as exc:
         log.warning("Assistant manifest admission failed: %s", exc)
         raise ApiProblem(
@@ -187,38 +192,38 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
     return tuple(active)
 
 
-def _delete_assistant_account_state(self, team_id: str, assistant_id: str) -> None:
+def _delete_assistant_integration_state(self, team_id: str, assistant_id: str) -> None:
     try:
-        self.assistant_accounts.delete_assistant(team_id, assistant_id)
-    except oauth_account_store.OAuthAccountStoreError as exc:
-        self._raise_account_problem(exc)
+        self.assistant_integrations.delete_assistant(team_id, assistant_id)
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        self._raise_integration_problem(exc)
 
 
-def _delete_team_account_state(self, team_id: str) -> None:
+def _delete_team_integration_state(self, team_id: str) -> None:
     try:
-        self.assistant_accounts.delete_team(team_id)
-    except oauth_account_store.OAuthAccountStoreError as exc:
-        self._raise_account_problem(exc)
+        self.assistant_integrations.delete_team(team_id)
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        self._raise_integration_problem(exc)
 
 
-def _delete_all_account_state(self) -> None:
+def _delete_all_integration_state(self) -> None:
     try:
-        self.assistant_accounts.delete_all()
-    except oauth_account_store.OAuthAccountStoreError as exc:
-        self._raise_account_problem(exc)
+        self.assistant_integrations.delete_all()
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        self._raise_integration_problem(exc)
 
 
-def _retain_declared_assistant_account_state(self, team_id: str, spec: AssistantSpec) -> None:
+def _retain_declared_assistant_integration_state(self, team_id: str, spec: AssistantSpec) -> None:
     try:
-        pruned = self.assistant_accounts.retain_declared(
+        pruned = self.assistant_integrations.retain_declared(
             team_id,
             spec.assistant_id,
-            tuple(sorted(spec.accounts)),
+            tuple(sorted(spec.integrations)),
         )
-    except oauth_account_store.OAuthAccountStoreError as exc:
-        self._raise_account_problem(exc)
+    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        self._raise_integration_problem(exc)
     if pruned:
-        self.account_challenges.cancel_team(team_id)
+        self.integration_challenges.cancel_team(team_id)
         self._delete_chat_continuation(team_id)
 
 
@@ -270,8 +275,8 @@ def _restore_chat_continuation(
         return
     try:
         decoded = local_chat_continuations.decode(stored)
-        if decoded.kind == "accounts":
-            self.account_challenges.restore(
+        if decoded.kind == "integrations":
+            self.integration_challenges.restore(
                 stored.team_id,
                 stored.challenge_id,
                 remaining_seconds,
@@ -283,7 +288,7 @@ def _restore_chat_continuation(
     except (
         local_chat_continuation_store.ContinuationStoreError,
         local_chat_continuations.ContinuationCodecError,
-        assistant_account_challenges.AccountChallengeError,
+        assistant_integration_challenges.IntegrationChallengeError,
     ) as exc:
         self._raise_chat_continuation_problem(exc)
 

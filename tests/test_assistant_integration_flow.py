@@ -10,8 +10,8 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from assistant_human import assistant_account_challenges, assistant_account_flow
-from assistant_human.assistant_registry import AccountSpec, PowerSpec
+from assistant_human import assistant_integration_challenges, assistant_integration_flow
+from assistant_human.assistant_registry import IntegrationSpec, PowerSpec
 from controller_runtime import brain_runtime_client
 from local.install.runtime import AssistantSpec
 
@@ -22,7 +22,7 @@ class _Active:
 
 
 @dataclass(frozen=True)
-class _Account:
+class _Integration:
     id: str
     username: str | None = None
     name: str | None = None
@@ -34,7 +34,7 @@ class _Metadata:
     provider: str
     scopes: tuple[str, ...]
     status: str
-    account: _Account | None
+    integration: _Integration | None
     expires_at: int | None
     generation: int
     access_token: str = "-".join(("must", "never", "be", "public"))
@@ -54,22 +54,22 @@ class _Store:
     def metadata(self, team_id: object, assistant_id: object, declarations: object) -> tuple[_Metadata, ...]:
         assert isinstance(assistant_id, str)
         assert isinstance(declarations, dict)
-        return tuple(self.rows[(assistant_id, account_id)] for account_id in declarations)
+        return tuple(self.rows[(assistant_id, integration_id)] for integration_id in declarations)
 
     def resolve(
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
         provider: object,
         scopes: object,
         refresh_callback: object,
     ) -> str:
         assert isinstance(assistant_id, str)
-        assert isinstance(account_id, str)
+        assert isinstance(integration_id, str)
         assert callable(refresh_callback)
-        self.resolved.append((team_id, assistant_id, account_id, provider, scopes, refresh_callback))
-        return self.tokens[(assistant_id, account_id)]
+        self.resolved.append((team_id, assistant_id, integration_id, provider, scopes, refresh_callback))
+        return self.tokens[(assistant_id, integration_id)]
 
 
 def _spec() -> AssistantSpec:
@@ -95,9 +95,9 @@ def _spec() -> AssistantSpec:
             ),
         },
         allowed_hosts=("api.cloudflare.com",),
-        accounts={
-            "cloudflare-read": AccountSpec("cloudflare", read_scopes),
-            "cloudflare-write": AccountSpec("cloudflare", write_scopes),
+        integrations={
+            "cloudflare-read": IntegrationSpec("cloudflare", read_scopes),
+            "cloudflare-write": IntegrationSpec("cloudflare", write_scopes),
         },
     )
 
@@ -121,14 +121,14 @@ def _cloudflare_spec() -> AssistantSpec:
             )
         },
         allowed_hosts=("api.cloudflare.com",),
-        accounts={
-            "cloudflare": AccountSpec("cloudflare", ("dns.read", "offline_access", "zone.read")),
+        integrations={
+            "cloudflare": IntegrationSpec("cloudflare", ("dns.read", "offline_access", "zone.read")),
         },
     )
 
 
-class AssistantAccountFlowTests(unittest.TestCase):
-    def test_batch_collects_every_unusable_account_before_any_power(self) -> None:
+class AssistantIntegrationFlowTests(unittest.TestCase):
+    def test_batch_collects_every_unusable_integration_before_any_power(self) -> None:
         expiry = int(time.time()) + 3600
         spec = _spec()
         store = _Store(
@@ -136,25 +136,25 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 ("cloudflare-assistant", "cloudflare-read"): _Metadata(
                     "cloudflare-read",
                     "cloudflare",
-                    tuple(sorted(spec.accounts["cloudflare-read"].scopes)),
+                    tuple(sorted(spec.integrations["cloudflare-read"].scopes)),
                     "connected",
-                    _Account("123", "reader", "Reader"),
+                    _Integration("123", "reader", "Reader"),
                     expiry,
                     1,
                 ),
                 ("cloudflare-assistant", "cloudflare-write"): _Metadata(
                     "cloudflare-write",
                     "cloudflare",
-                    tuple(sorted(spec.accounts["cloudflare-write"].scopes)),
+                    tuple(sorted(spec.integrations["cloudflare-write"].scopes)),
                     "refresh-required",
-                    _Account("123", "reader", "Reader"),
+                    _Integration("123", "reader", "Reader"),
                     expiry,
                     2,
                 ),
             }
         )
 
-        requirements = assistant_account_flow.requirements_for_batch(
+        requirements = assistant_integration_flow.requirements_for_batch(
             "team_1",
             {"cloudflare-assistant": _Active(spec)},
             (_request("read-profile", "one"), _request("publish-post", "two")),
@@ -164,19 +164,19 @@ class AssistantAccountFlowTests(unittest.TestCase):
         self.assertEqual(len(requirements), 1)
         self.assertEqual(requirements[0].power_ids, ("publish-post",))
         self.assertEqual(
-            requirements[0].accounts,
+            requirements[0].integrations,
             (("cloudflare-write", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
 
     def test_challenge_is_exact_bounded_public_metadata(self) -> None:
         spec = _spec()
-        requirement = assistant_account_challenges.AccountRequirement(
+        requirement = assistant_integration_challenges.IntegrationRequirement(
             "cloudflare-assistant",
             "Cloudflare Assistant",
             ("publish-post",),
             (("cloudflare-write", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenge = assistant_account_challenges.PendingAccountChallenge(
+        challenge = assistant_integration_challenges.PendingIntegrationChallenge(
             "a" * 32,
             "team_1",
             time.monotonic() + 300,
@@ -184,7 +184,7 @@ class AssistantAccountFlowTests(unittest.TestCase):
             {"input": "must-never-be-public"},
         )
 
-        payload = assistant_account_flow.challenge_payload(
+        payload = assistant_integration_flow.challenge_payload(
             challenge,
             {"cloudflare-assistant": _Active(spec)},
         )
@@ -193,7 +193,7 @@ class AssistantAccountFlowTests(unittest.TestCase):
             set(payload),
             {"team_id", "status", "turn_id", "challenge_id", "expires_in", "requirements"},
         )
-        self.assertEqual(payload["status"], "accounts-required")
+        self.assertEqual(payload["status"], "integrations-required")
         self.assertIn(payload["expires_in"], {299, 300})
         self.assertEqual(
             payload["requirements"],
@@ -201,11 +201,12 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 {
                     "assistant_id": "cloudflare-assistant",
                     "assistant_name": "Cloudflare Assistant",
-                    "account_id": "cloudflare-write",
+                    "integration_id": "cloudflare-write",
                     "provider": "cloudflare",
                     "name": "Cloudflare",
                     "summary": (
-                        "Connect your Cloudflare account so this Assistant can use only its reviewed read permissions."
+                        "Connect your Cloudflare integration so this Assistant can use only "
+                        "its reviewed read permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                     "powers": [
@@ -223,13 +224,13 @@ class AssistantAccountFlowTests(unittest.TestCase):
 
     def test_cloudflare_challenge_projects_reviewed_oauth_metadata(self) -> None:
         spec = _cloudflare_spec()
-        requirement = assistant_account_challenges.AccountRequirement(
+        requirement = assistant_integration_challenges.IntegrationRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             ("list-zones",),
             (("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenge = assistant_account_challenges.PendingAccountChallenge(
+        challenge = assistant_integration_challenges.PendingIntegrationChallenge(
             "b" * 32,
             "team_1",
             time.monotonic() + 300,
@@ -237,7 +238,7 @@ class AssistantAccountFlowTests(unittest.TestCase):
             {"input": "must-never-be-public"},
         )
 
-        payload = assistant_account_flow.challenge_payload(
+        payload = assistant_integration_flow.challenge_payload(
             challenge,
             {"shimpz-cloudflare": _Active(spec)},
         )
@@ -248,11 +249,12 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 {
                     "assistant_id": "shimpz-cloudflare",
                     "assistant_name": "Shimpz Cloudflare",
-                    "account_id": "cloudflare",
+                    "integration_id": "cloudflare",
                     "provider": "cloudflare",
                     "name": "Cloudflare",
                     "summary": (
-                        "Connect your Cloudflare account so this Assistant can use only its reviewed read permissions."
+                        "Connect your Cloudflare integration so this Assistant can use only "
+                        "its reviewed read permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                     "powers": [
@@ -275,7 +277,7 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 ("cloudflare-assistant", "cloudflare-read"): _Metadata(
                     "cloudflare-read",
                     "cloudflare",
-                    tuple(sorted(spec.accounts["cloudflare-read"].scopes)),
+                    tuple(sorted(spec.integrations["cloudflare-read"].scopes)),
                     "missing",
                     None,
                     None,
@@ -284,39 +286,39 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 ("cloudflare-assistant", "cloudflare-write"): _Metadata(
                     "cloudflare-write",
                     "cloudflare",
-                    tuple(sorted(spec.accounts["cloudflare-write"].scopes)),
+                    tuple(sorted(spec.integrations["cloudflare-write"].scopes)),
                     "refresh-required",
-                    _Account("123", "juliano", "Juliano"),
+                    _Integration("123", "juliano", "Juliano"),
                     expiry,
                     4,
                 ),
             }
         )
 
-        payload = assistant_account_flow.inventory_payload("team_1", [spec], store)
+        payload = assistant_integration_flow.inventory_payload("team_1", [spec], store)
 
-        self.assertEqual(set(payload), {"accounts"})
-        self.assertEqual(payload["accounts"][0]["status"], "missing")
-        self.assertEqual(payload["accounts"][1]["status"], "expired")
+        self.assertEqual(set(payload), {"integrations"})
+        self.assertEqual(payload["integrations"][0]["status"], "missing")
+        self.assertEqual(payload["integrations"][1]["status"], "expired")
         self.assertEqual(
-            payload["accounts"][1]["account"],
+            payload["integrations"][1]["integration"],
             {"id": "123", "name": "Juliano", "username": "juliano"},
         )
         self.assertEqual(
-            payload["accounts"][1]["expires_at"],
+            payload["integrations"][1]["expires_at"],
             datetime.fromtimestamp(expiry, UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         )
         encoded = repr(payload)
         for forbidden in ("access_token", "refresh_token", "must-never-be-public", "generation"):
             self.assertNotIn(forbidden, encoded)
 
-    def test_private_resolution_returns_only_the_selected_power_account(self) -> None:
+    def test_private_resolution_returns_only_the_selected_power_integration(self) -> None:
         spec = _spec()
         token = "-".join(("private", "access", "token", "123456"))
         store = _Store({}, {("cloudflare-assistant", "cloudflare-write"): token})
         refresh_calls: list[tuple[str, tuple[str, ...], str, str | None]] = []
 
-        accounts = assistant_account_flow.resolve_power_accounts(
+        integrations = assistant_integration_flow.resolve_power_integrations(
             "team_1",
             spec,
             "publish-post",
@@ -325,7 +327,7 @@ class AssistantAccountFlowTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            accounts,
+            integrations,
             {"cloudflare-write": {"type": "oauth2-bearer", "access_token": token}},
         )
         self.assertEqual(len(store.resolved), 1)
@@ -358,19 +360,19 @@ class AssistantAccountFlowTests(unittest.TestCase):
                 )
             }
         )
-        with self.assertRaises(assistant_account_flow.AccountFlowError):
-            assistant_account_flow.requirements_for_batch(
+        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
+            assistant_integration_flow.requirements_for_batch(
                 "team_1",
                 {"cloudflare-assistant": _Active(spec)},
                 (_request("read-profile", "one"),),
                 drifted,
             )
-        with self.assertRaises(assistant_account_flow.AccountFlowError):
-            assistant_account_flow._assert_public_payload({"access_token": "private"})
+        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
+            assistant_integration_flow._assert_public_payload({"access_token": "private"})
 
         invalid_token_store = _Store({}, {("cloudflare-assistant", "cloudflare-read"): "short"})
-        with self.assertRaises(assistant_account_flow.AccountFlowError):
-            assistant_account_flow.resolve_power_accounts(
+        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
+            assistant_integration_flow.resolve_power_integrations(
                 "team_1",
                 spec,
                 "read-profile",

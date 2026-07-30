@@ -76,7 +76,7 @@ class LocalContractTests(LocalContractCase):
         self.assertFalse(hasattr(spec, "rpc_command"))
         self.assertEqual(set(spec.powers), {"list-zones", "list-dns-records"})
         self.assertTrue(all(not hasattr(power, "approval") for power in spec.powers.values()))
-        self.assertTrue(all(power.accounts == ("cloudflare",) for power in spec.powers.values()))
+        self.assertTrue(all(power.integrations == ("cloudflare",) for power in spec.powers.values()))
         self.assertEqual(
             assistant_registry.validate_power_payload(
                 spec.powers["list-dns-records"],
@@ -511,7 +511,7 @@ class LocalContractTests(LocalContractCase):
                     "list-zones",
                     {
                         "input": LOOKUP_INPUT,
-                        "accounts": {"cloudflare": TEST_ACCOUNT_ACCESS_TOKEN},
+                        "integrations": {"cloudflare": TEST_ACCOUNT_ACCESS_TOKEN},
                     },
                 )
             ],

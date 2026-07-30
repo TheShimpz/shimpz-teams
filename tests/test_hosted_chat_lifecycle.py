@@ -24,14 +24,14 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
-assistant_account_challenges = runtime_state.assistant_account_challenges
+assistant_integration_challenges = runtime_state.assistant_integration_challenges
 assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 manifests = hosted_apps.manifests
 assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
-oauth_account_store = runtime_state.oauth_account_store
+oauth_integration_store = runtime_state.oauth_integration_store
 oauth_http_client = runtime_state.oauth_http_client
 power_journal = runtime_state.power_journal
 hosted_egress_policy = hosted_apps.egress_policy
@@ -81,9 +81,9 @@ class CredentialCheckCounter:
 class HostedChatLifecycleTests(unittest.TestCase):
     def setUp(self) -> None:
         """Keep pending private-input state isolated from every hosted test."""
-        original_accounts = runtime_state._assistant_account_challenges
-        runtime_state._assistant_account_challenges = assistant_account_challenges.AccountChallengeStore()
-        self.addCleanup(setattr, runtime_state, "_assistant_account_challenges", original_accounts)
+        original_integrations = runtime_state._assistant_integration_challenges
+        runtime_state._assistant_integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
+        self.addCleanup(setattr, runtime_state, "_assistant_integration_challenges", original_integrations)
 
     def _journal_chat_environment(self, journal, runtime, rpc, require_current=None):
         if require_current is None:
@@ -100,12 +100,12 @@ class HostedChatLifecycleTests(unittest.TestCase):
             labels={"team.name": "Marketing", "team.owner": "account_1"},
         )
         config = types.SimpleNamespace(provider="openai", model="gpt-test")
-        account_store = oauth_account_store.OAuthAccountStore(
-            journal.path.parent / "oauth-state" / "accounts.json",
+        integration_store = oauth_integration_store.OAuthIntegrationStore(
+            journal.path.parent / "oauth-state" / "integrations.json",
             journal.path.parent / "oauth-key" / "aes256.key",
         )
-        for account_id, declaration in contract.accounts.items():
-            account_store.put(
+        for account_id, declaration in contract.integrations.items():
+            integration_store.put(
                 "team_1",
                 "shimpz-cloudflare",
                 account_id,
@@ -141,7 +141,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _commit_chat_terminal=lambda _team_id, _token: True,
                 _inference_store=types.SimpleNamespace(load=lambda _team_id: config),
                 _power_execution_journal=lambda: journal,
-                _assistant_accounts=account_store,
+                _assistant_integrations=integration_store,
             )
         )
         environment.enter_context(
@@ -661,7 +661,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 normalized,
                 "b" * 64,
                 HOSTED_SPEC.image,
-                account_generations=(("cloudflare", 1),),
+                integration_generations=(("cloudflare", 1),),
             )
             batch = journal.prepare_batch(ANCHOR_ID, thread_id, (operation,))
             journal.begin(batch, operation)

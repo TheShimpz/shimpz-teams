@@ -3,7 +3,7 @@
 from http import HTTPStatus
 from typing import NoReturn
 
-from assistant_human import assistant_account_flow, oauth_account_store
+from assistant_human import assistant_integration_flow, oauth_integration_store
 from assistant_human.assistant_registry import validate_power_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -149,22 +149,22 @@ def _require_chat_private_inputs(
     requirements: chat_turn_engine.SegmentRequirements,
 ) -> bool:
     try:
-        requirements.accounts = assistant_account_flow.requirements_for_batch(
+        requirements.integrations = assistant_integration_flow.requirements_for_batch(
             team_id,
             bindings,
             requests,
-            self.assistant_accounts,
+            self.assistant_integrations,
         )
     except (
-        assistant_account_flow.AccountFlowError,
-        oauth_account_store.OAuthAccountStoreError,
+        assistant_integration_flow.IntegrationFlowError,
+        oauth_integration_store.OAuthIntegrationStoreError,
     ) as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Assistant account contract is unavailable",
-            code="assistant-account-contract-invalid",
+            "Assistant integration contract is unavailable",
+            code="assistant-integration-contract-invalid",
         ) from exc
-    return bool(requirements.accounts)
+    return bool(requirements.integrations)
 
 
 def _validate_chat_context(

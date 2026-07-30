@@ -25,12 +25,12 @@ Generation imports each Power in isolation, derives closed input and output sche
 sorts Powers by id, and fixes every route to `POST /v1/powers/<id>`.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
-that Power ids are unique, paths match ids, Accounts are declared and used, every nested object schema
+that Power ids are unique, paths match ids, Integrations are declared and used, every nested object schema
 is closed, and the canonical contract is at most 512 KiB.
 
 ## Invocation
 
-`invocation.schema.json` contains only the validated Power input and invocation-scoped Account bearer
+`invocation.schema.json` contains only the validated Power input and invocation-scoped Integration bearer
 tokens. The request is passed over a private bounded stdin channel; tokens never enter command-line
 arguments, environment variables, logs, generated artifacts, or the Brain.
 

@@ -179,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                 claim=body["claim"],
                 session_binding=body["session_binding"],
             )
-            return HTTPStatus.OK, result, "assistant-account-complete", None, None
+            return HTTPStatus.OK, result, "assistant-integration-complete", None, None
         return None
 
     def _file_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
@@ -264,7 +264,7 @@ class Handler(BaseHTTPRequestHandler):
         segment: str,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         pending = {
-            "accounts": ("pending_chat_accounts", "chat-account-pending"),
+            "integrations": ("pending_chat_integrations", "chat-integration-pending"),
         }.get(segment)
         if pending is None:
             return None
@@ -278,7 +278,7 @@ class Handler(BaseHTTPRequestHandler):
         segment: str,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         submission = {
-            "accounts": ("resume_chat_accounts", "chat-account-submit", MAX_BODY_BYTES),
+            "integrations": ("resume_chat_integrations", "chat-integration-submit", MAX_BODY_BYTES),
         }.get(segment)
         if submission is None:
             return None
@@ -322,18 +322,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._chat_stop(team_id)
         return self._chat_submit(team_id, segment) if self.command == "POST" else None
 
-    def _assistant_account_route(
+    def _assistant_integration_route(
         self,
         parts: list[str],
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) < 4 or parts[:2] != ["v1", "teams"] or parts[3] != "assistant-accounts":
+        if len(parts) < 4 or parts[:2] != ["v1", "teams"] or parts[3] != "assistant-integrations":
             return None
         team_id = validate_team_id(parts[2])
         if len(parts) == 4 and self.command == "GET":
             return (
                 HTTPStatus.OK,
-                self.server.controller.chat_turn_service.list_assistant_accounts(team_id),
-                "assistant-account-list",
+                self.server.controller.chat_turn_service.list_assistant_integrations(team_id),
+                "assistant-integration-list",
                 team_id,
                 None,
             )
@@ -347,24 +347,24 @@ class Handler(BaseHTTPRequestHandler):
                 )
             return (
                 HTTPStatus.OK,
-                self.server.controller.chat_turn_service.start_assistant_account_authorization(
+                self.server.controller.chat_turn_service.start_assistant_integration_authorization(
                     team_id,
                     parts[5],
                     body["session_binding"],
                 ),
-                "assistant-account-authorize",
+                "assistant-integration-authorize",
                 team_id,
                 None,
             )
         if len(parts) == 6 and self.command == "DELETE":
             return (
                 HTTPStatus.OK,
-                self.server.controller.chat_turn_service.disconnect_assistant_account(
+                self.server.controller.chat_turn_service.disconnect_assistant_integration(
                     team_id,
                     parts[4],
                     parts[5],
                 ),
-                "assistant-account-disconnect",
+                "assistant-integration-disconnect",
                 team_id,
                 parts[4],
             )
@@ -407,7 +407,7 @@ class Handler(BaseHTTPRequestHandler):
             "file": self._file_route,
             "inference": self._inference_route,
             "chat": self._chat_route,
-            "assistant-account": self._assistant_account_route,
+            "assistant-integration": self._assistant_integration_route,
             "team": self._team_route,
         }.get(route.group)
         if grouped_resolver is not None:

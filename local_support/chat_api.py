@@ -1,4 +1,4 @@
-"""Local chat start and account-resume API operations."""
+"""Local chat start and integration-resume API operations."""
 
 from http import HTTPStatus
 
@@ -13,9 +13,9 @@ MAX_CHAT_MESSAGE_CHARS = 16_000
 
 
 def _pending_chat_continuation(self, team_id: str) -> dict[str, object] | None:
-    existing_account = self.account_challenges.current(team_id)
-    if existing_account is not None:
-        return self._account_response(existing_account)
+    existing_integration = self.integration_challenges.current(team_id)
+    if existing_integration is not None:
+        return self._integration_response(existing_integration)
     return None
 
 
@@ -49,7 +49,7 @@ def _segment_response(
             segment.requirement_groups(),
             pending,
             (
-                lambda suspension, requirements, state: self._pause_account(
+                lambda suspension, requirements, state: self._pause_integration(
                     team_id, token, suspension, requirements, state
                 ),
             ),
@@ -110,7 +110,7 @@ def chat(
         )
 
 
-def resume_chat_accounts(
+def resume_chat_integrations(
     self,
     team_id: str,
     body: object,
@@ -121,7 +121,7 @@ def resume_chat_accounts(
     if not isinstance(body, dict) or set(body) != {"challenge_id"}:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Assistant account resume requires only challenge_id",
+            "Assistant integration resume requires only challenge_id",
             code="invalid-body",
         )
     challenge_id = body["challenge_id"]
@@ -129,20 +129,20 @@ def resume_chat_accounts(
     with self._exclusive_chat_turn(team_id) as token:
         with self._lock(team_id):
 
-            def inspect(pending: object) -> chat_turn_engine.AccountResumeContext:
+            def inspect(pending: object) -> chat_turn_engine.IntegrationResumeContext:
                 if not isinstance(pending, _PendingLocalChat):
-                    raise AssertionError("invalid local account continuation")
+                    raise AssertionError("invalid local integration continuation")
                 current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
                 bindings = {active.spec.assistant_id: active for active in current[2]}
-                return chat_turn_engine.AccountResumeContext(
+                return chat_turn_engine.IntegrationResumeContext(
                     self._chat_identity(*current),
                     bindings,
                     pending.continuation.turn.powers,
                 )
 
-            admission = chat_turn_engine.admit_account_resume(
-                chat_turn_engine.AccountResumeStrategy(
-                    store=self.account_challenges,
+            admission = chat_turn_engine.admit_integration_resume(
+                chat_turn_engine.IntegrationResumeStrategy(
+                    store=self.integration_challenges,
                     team_id=team_id,
                     challenge_id=challenge_id,
                     pending_valid=lambda pending: (
@@ -150,12 +150,12 @@ def resume_chat_accounts(
                     ),
                     pending_identity=lambda pending: pending.identity,
                     inspect=inspect,
-                    account_store=self.assistant_accounts,
-                    challenge_response=self._account_response,
+                    integration_store=self.assistant_integrations,
+                    challenge_response=self._integration_response,
                     expired_error=lambda: ApiProblem(
                         HTTPStatus.CONFLICT,
-                        "Assistant account request expired; retry the message",
-                        code="assistant-account-challenge-expired",
+                        "Assistant integration request expired; retry the message",
+                        code="assistant-integration-challenge-expired",
                     ),
                     context_error=lambda: ApiProblem(
                         HTTPStatus.CONFLICT,
@@ -164,8 +164,8 @@ def resume_chat_accounts(
                     ),
                     contract_error=lambda: ApiProblem(
                         HTTPStatus.CONFLICT,
-                        "Assistant account contract is unavailable",
-                        code="assistant-account-contract-invalid",
+                        "Assistant integration contract is unavailable",
+                        code="assistant-integration-contract-invalid",
                     ),
                     cancel_extra=lambda: self.oauth_pkce.cancel_team(team_id),
                 )
@@ -174,7 +174,7 @@ def resume_chat_accounts(
                 return admission.response
             pending = admission.pending
             if not isinstance(pending, _PendingLocalChat):
-                raise AssertionError("shared account resume returned invalid state")
+                raise AssertionError("shared integration resume returned invalid state")
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,

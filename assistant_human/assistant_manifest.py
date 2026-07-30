@@ -30,7 +30,7 @@ MAX_CATALOG_ASSISTANTS = 32
 MAX_CATALOG_BYTES = MAX_CATALOG_ASSISTANTS * MAX_CONTRACT_BYTES + 64 * 1024
 MAX_ARCHIVE_BYTES = MAX_MANIFEST_BYTES + (32 * 1024)
 MAX_ALLOWED_HOSTS = 32
-MAX_ACCOUNTS = 16
+MAX_INTEGRATIONS = 16
 MAX_IDENTIFIER_LENGTH = 80
 MAX_SECRET_ID_LENGTH = 64
 MAX_GENESIS_LENGTH = 65_536
@@ -71,8 +71,8 @@ class ManifestError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True, order=True)
-class AccountDeclaration:
-    """Public provider intent for one controller-owned account."""
+class IntegrationDeclaration:
+    """Public provider intent for one controller-owned integration."""
 
     id: str
     provider: str
@@ -84,7 +84,7 @@ class ManifestContract:
     """Canonical security intent admitted from one immutable Assistant package."""
 
     allowed_hosts: tuple[str, ...]
-    accounts: tuple[AccountDeclaration, ...]
+    integrations: tuple[IntegrationDeclaration, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +95,7 @@ class ReviewedAssistant:
     name: str
     summary: str
     allowed_hosts: tuple[str, ...]
-    accounts: tuple[AccountDeclaration, ...]
+    integrations: tuple[IntegrationDeclaration, ...]
     powers: dict[str, dict[str, Any]]
     power_validators: dict[str, dict[str, Draft202012Validator]]
     machine_contract: dict[str, Any]
@@ -155,19 +155,19 @@ def _genesis(value: object) -> str:
     return value
 
 
-def canonical_account_declarations(value: object) -> tuple[AccountDeclaration, ...]:
-    """Canonicalize accounts whose id is a controller-reviewed provider id."""
-    if not isinstance(value, Mapping) or len(value) > MAX_ACCOUNTS:
-        raise ManifestError("Assistant account declarations are invalid")
-    declarations: list[AccountDeclaration] = []
-    for account_id, scopes in value.items():
-        identifier = _identifier(account_id, kind="account", maximum=MAX_SECRET_ID_LENGTH)
+def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclaration, ...]:
+    """Canonicalize integrations whose id is a controller-reviewed provider id."""
+    if not isinstance(value, Mapping) or len(value) > MAX_INTEGRATIONS:
+        raise ManifestError("Assistant integration declarations are invalid")
+    declarations: list[IntegrationDeclaration] = []
+    for integration_id, scopes in value.items():
+        identifier = _identifier(integration_id, kind="integration", maximum=MAX_SECRET_ID_LENGTH)
         try:
-            intent = oauth_providers.account_intent(identifier, scopes)
+            intent = oauth_providers.integration_intent(identifier, scopes)
         except oauth_providers.OAuthProviderError as exc:
-            raise ManifestError("Assistant account declaration is invalid") from exc
+            raise ManifestError("Assistant integration declaration is invalid") from exc
         declarations.append(
-            AccountDeclaration(
+            IntegrationDeclaration(
                 identifier,
                 intent.provider.id,
                 intent.scopes,
@@ -179,33 +179,37 @@ def canonical_account_declarations(value: object) -> tuple[AccountDeclaration, .
 def canonical_manifest_contract(
     *,
     allowed_hosts: object,
-    account_declarations: object | None = None,
+    integration_declarations: object | None = None,
 ) -> ManifestContract:
     """Build one deterministic contract for package and reviewed registry comparison."""
-    accounts = canonical_account_declarations({} if account_declarations is None else account_declarations)
+    integrations = canonical_integration_declarations(
+        {} if integration_declarations is None else integration_declarations
+    )
     return ManifestContract(
         allowed_hosts=canonical_allowed_hosts(allowed_hosts),
-        accounts=accounts,
+        integrations=integrations,
     )
 
 
 def reviewed_manifest_contract(
     *,
     allowed_hosts: object,
-    accounts: object | None = None,
+    integrations: object | None = None,
 ) -> ManifestContract:
     """Normalize the controller-owned registry dataclasses without trusting package input."""
-    if not isinstance(accounts, Mapping):
+    if not isinstance(integrations, Mapping):
         raise ManifestError("Assistant reviewed manifest contract is invalid")
     try:
-        account_declarations = {account_id: metadata.scopes for account_id, metadata in accounts.items()}
-        if any(account_id != metadata.provider for account_id, metadata in accounts.items()):
-            raise ManifestError("Assistant reviewed account provider does not match its id")
+        integration_declarations = {
+            integration_id: metadata.scopes for integration_id, metadata in integrations.items()
+        }
+        if any(integration_id != metadata.provider for integration_id, metadata in integrations.items()):
+            raise ManifestError("Assistant reviewed integration provider does not match its id")
     except AttributeError as exc:
         raise ManifestError("Assistant reviewed manifest contract is invalid") from exc
     return canonical_manifest_contract(
         allowed_hosts=allowed_hosts,
-        account_declarations=account_declarations,
+        integration_declarations=integration_declarations,
     )
 
 
@@ -304,15 +308,17 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
     return value
 
 
-def canonical_machine_contract(value: object, declared_accounts: tuple[AccountDeclaration, ...]) -> dict[str, Any]:
+def canonical_machine_contract(
+    value: object, declared_integrations: tuple[IntegrationDeclaration, ...]
+) -> dict[str, Any]:
     """Validate and canonicalize an untrusted SDK-generated Power contract."""
     if not isinstance(value, dict) or set(value) != {"version", "powers"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
     raw_powers = value["powers"]
     if not isinstance(raw_powers, list) or not 1 <= len(raw_powers) <= 128:
         raise ManifestError("Assistant machine contract Powers are invalid")
-    declared_ids = {account.id for account in declared_accounts}
-    used_accounts: set[str] = set()
+    declared_ids = {integration.id for integration in declared_integrations}
+    used_integrations: set[str] = set()
     powers: list[dict[str, Any]] = []
     ids: set[str] = set()
     for raw_power in raw_powers:
@@ -320,40 +326,43 @@ def canonical_machine_contract(value: object, declared_accounts: tuple[AccountDe
             "id",
             "input_schema",
             "output_schema",
-            "accounts",
+            "integrations",
         }:
             raise ManifestError("Assistant machine contract Power is invalid")
         power_id = _identifier(raw_power["id"], kind="Power")
         if power_id in ids:
             raise ManifestError("Assistant machine contract Power id is duplicated")
         ids.add(power_id)
-        accounts = raw_power["accounts"]
+        integrations = raw_power["integrations"]
         if (
-            not isinstance(accounts, list)
-            or len(accounts) > 4
-            or len(accounts) != len(set(accounts))
-            or any(not isinstance(account_id, str) or account_id not in declared_ids for account_id in accounts)
+            not isinstance(integrations, list)
+            or len(integrations) > 4
+            or len(integrations) != len(set(integrations))
+            or any(
+                not isinstance(integration_id, str) or integration_id not in declared_ids
+                for integration_id in integrations
+            )
         ):
-            raise ManifestError("Assistant machine contract Power accounts are invalid")
-        used_accounts.update(accounts)
+            raise ManifestError("Assistant machine contract Power integrations are invalid")
+        used_integrations.update(integrations)
         powers.append(
             {
                 "id": power_id,
                 "input_schema": _machine_schema(raw_power["input_schema"], kind="input"),
                 "output_schema": _machine_schema(raw_power["output_schema"], kind="output"),
-                "accounts": sorted(accounts),
+                "integrations": sorted(integrations),
             }
         )
-    if used_accounts != declared_ids:
-        raise ManifestError("Assistant machine contract must use every declared account")
+    if used_integrations != declared_ids:
+        raise ManifestError("Assistant machine contract must use every declared integration")
     return {"version": 1, "powers": sorted(powers, key=lambda power: power["id"])}
 
 
-def parse_machine_contract(raw: bytes, declared_accounts: tuple[AccountDeclaration, ...]) -> dict[str, Any]:
+def parse_machine_contract(raw: bytes, declared_integrations: tuple[IntegrationDeclaration, ...]) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
     return canonical_machine_contract(
         _strict_json(raw, maximum=MAX_CONTRACT_BYTES, kind="machine contract"),
-        declared_accounts,
+        declared_integrations,
     )
 
 
@@ -387,28 +396,28 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
             "name",
             "summary",
             "allowed_hosts",
-            "accounts",
+            "integrations",
             "contract",
         }:
             raise ManifestError("Assistant reviewed catalog entry is invalid")
         name = _public_text(metadata["name"], kind="name", maximum=80)
         summary = _public_text(metadata["summary"], kind="summary", maximum=160)
-        raw_accounts = metadata["accounts"]
-        if not isinstance(raw_accounts, dict):
-            raise ManifestError("Assistant reviewed catalog accounts are invalid")
-        account_scopes: dict[str, object] = {}
-        for account_id, account in raw_accounts.items():
-            if not isinstance(account, dict) or set(account) != {"scopes"}:
-                raise ManifestError("Assistant reviewed catalog account is invalid")
-            account_scopes[account_id] = account["scopes"]
-        accounts = canonical_account_declarations(account_scopes)
-        machine_contract = canonical_machine_contract(metadata["contract"], accounts)
+        raw_integrations = metadata["integrations"]
+        if not isinstance(raw_integrations, dict):
+            raise ManifestError("Assistant reviewed catalog integrations are invalid")
+        integration_scopes: dict[str, object] = {}
+        for integration_id, integration in raw_integrations.items():
+            if not isinstance(integration, dict) or set(integration) != {"scopes"}:
+                raise ManifestError("Assistant reviewed catalog integration is invalid")
+            integration_scopes[integration_id] = integration["scopes"]
+        integrations = canonical_integration_declarations(integration_scopes)
+        machine_contract = canonical_machine_contract(metadata["contract"], integrations)
         reviewed[assistant_id] = ReviewedAssistant(
             assistant_id=assistant_id,
             name=name,
             summary=summary,
             allowed_hosts=canonical_allowed_hosts(metadata["allowed_hosts"]),
-            accounts=accounts,
+            integrations=integrations,
             powers={power["id"]: power for power in machine_contract["powers"]},
             power_validators={
                 power["id"]: {
@@ -471,7 +480,7 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
         "allowed_hosts",
         "genesis",
     }
-    if not required <= set(manifest) or set(manifest) - (required | {"accounts"}):
+    if not required <= set(manifest) or set(manifest) - (required | {"integrations"}):
         raise ManifestError("Assistant manifest contains an unsupported top-level field")
     _reject_credential_material(manifest)
     return manifest
@@ -503,18 +512,18 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     if not isinstance(github, str) or _GITHUB_RE.fullmatch(github) is None:
         raise ManifestError("Assistant github repository is invalid")
 
-    raw_accounts = manifest.get("accounts", {})
-    if not isinstance(raw_accounts, dict):
-        raise ManifestError("Assistant account declarations are invalid")
-    account_declarations: dict[str, object] = {}
-    for account_id, metadata in raw_accounts.items():
+    raw_integrations = manifest.get("integrations", {})
+    if not isinstance(raw_integrations, dict):
+        raise ManifestError("Assistant integration declarations are invalid")
+    integration_declarations: dict[str, object] = {}
+    for integration_id, metadata in raw_integrations.items():
         if not isinstance(metadata, dict) or set(metadata) != {"scopes"}:
-            raise ManifestError("Assistant account declaration is invalid")
-        account_declarations[account_id] = metadata["scopes"]
+            raise ManifestError("Assistant integration declaration is invalid")
+        integration_declarations[integration_id] = metadata["scopes"]
 
     return canonical_manifest_contract(
         allowed_hosts=manifest["allowed_hosts"],
-        account_declarations=account_declarations,
+        integration_declarations=integration_declarations,
     )
 
 
@@ -612,7 +621,7 @@ def read_container_manifest_genesis(container) -> str:
 
 def read_container_machine_contract(
     container,
-    declared_accounts: tuple[AccountDeclaration, ...],
+    declared_integrations: tuple[IntegrationDeclaration, ...],
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
     raw = _read_container_file(
@@ -621,7 +630,7 @@ def read_container_machine_contract(
         name="shimpz.contract.json",
         maximum=MAX_CONTRACT_BYTES,
     )
-    return parse_machine_contract(raw, declared_accounts)
+    return parse_machine_contract(raw, declared_integrations)
 
 
 class ManifestContractCache:
@@ -678,7 +687,7 @@ class MachineContractCache:
     def get(
         self,
         container,
-        declared_accounts: tuple[AccountDeclaration, ...],
+        declared_integrations: tuple[IntegrationDeclaration, ...],
         reviewed: object,
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
@@ -693,7 +702,7 @@ class MachineContractCache:
         with self._lock:
             declared = self._entries.get(container_id)
             if declared is None:
-                declared = read_container_machine_contract(container, declared_accounts)
+                declared = read_container_machine_contract(container, declared_integrations)
                 self._entries[container_id] = declared
                 while len(self._entries) > self._max_entries:
                     self._entries.popitem(last=False)

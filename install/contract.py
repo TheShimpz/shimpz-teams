@@ -116,30 +116,30 @@ def _validate_resolve(value: dict[str, object]) -> None:
     expected = f"ghcr.io/theshimpz/shimpz-assistants@{value.get('oci_digest')}"
     if value.get("image_reference") != expected:
         raise ContractValidationError("resolve_digest_mismatch")
-    intents = value.get("accounts")
+    intents = value.get("integrations")
     contract = value.get("machine_contract")
     if not isinstance(intents, list) or not isinstance(contract, dict):
         return
     intent_ids = _intent_ids(intents)
-    required_ids = _required_account_ids(contract)
+    required_ids = _required_integration_ids(contract)
     if len(intent_ids) != len(intents) or len(set(intent_ids)) != len(intent_ids):
-        raise ContractValidationError("resolve_account_mismatch")
+        raise ContractValidationError("resolve_integration_mismatch")
     if set(intent_ids) != required_ids:
-        raise ContractValidationError("resolve_account_mismatch")
+        raise ContractValidationError("resolve_integration_mismatch")
 
 
 def _intent_ids(intents: list[object]) -> list[str]:
     return [intent["id"] for intent in intents if isinstance(intent, dict) and isinstance(intent.get("id"), str)]
 
 
-def _required_account_ids(contract: dict[str, object]) -> set[str]:
+def _required_integration_ids(contract: dict[str, object]) -> set[str]:
     powers = contract.get("powers")
     if not isinstance(powers, list):
         return set()
     return {
-        account
+        integration
         for power in powers
-        if isinstance(power, dict) and isinstance(power.get("accounts"), list)
-        for account in power["accounts"]
-        if isinstance(account, str)
+        if isinstance(power, dict) and isinstance(power.get("integrations"), list)
+        for integration in power["integrations"]
+        if isinstance(integration, str)
     }

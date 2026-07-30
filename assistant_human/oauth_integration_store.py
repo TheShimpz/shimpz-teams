@@ -1,8 +1,8 @@
-"""Encrypted, controller-owned OAuth tokens for Assistant accounts.
+"""Encrypted, controller-owned OAuth tokens for Assistant integrations.
 
 Tokens never belong to an Assistant manifest, Brain prompt, process environment,
 command argument, public API response, or log.  Each encrypted record is bound to
-the exact Team, Assistant, account, provider, scopes, expiry, status, and
+the exact Team, Assistant, integration, provider, scopes, expiry, status, and
 generation through AES-GCM authenticated additional data (AAD).
 """
 
@@ -27,22 +27,22 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from assistant_human import oauth_providers, private_state
 from core import strict_json
 
-STATE_PATH = Path("/var/lib/shimpz-local/assistant-accounts/state/accounts.json")
-KEY_PATH = Path("/var/lib/shimpz-local/assistant-accounts/key/aes256.key")
+STATE_PATH = Path("/var/lib/shimpz-local/assistant-integrations/state/integrations.json")
+KEY_PATH = Path("/var/lib/shimpz-local/assistant-integrations/key/aes256.key")
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 MAX_PLAINTEXT_BYTES = (MAX_TOKEN_BYTES * 3) + 2048
-MAX_ACCOUNTS_PER_ASSISTANT = 16
+MAX_INTEGRATIONS_PER_ASSISTANT = 16
 MAX_TOTAL_RECORDS = 4096
-MAX_ACCOUNT_ID_BYTES = 256
-MAX_ACCOUNT_TEXT_BYTES = 512
+MAX_INTEGRATION_ID_BYTES = 256
+MAX_INTEGRATION_TEXT_BYTES = 512
 REFRESH_WINDOW_SECONDS = 60
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 _STORED_STATUSES = frozenset({"connected", "reauthorization-required"})
 StoredStatus = Literal["connected", "reauthorization-required"]
-AccountStatus = Literal[
+IntegrationStatus = Literal[
     "missing",
     "connected",
     "refresh-required",
@@ -50,51 +50,51 @@ AccountStatus = Literal[
 ]
 
 
-class OAuthAccountStoreError(RuntimeError):
-    """OAuth account state is invalid, unavailable, or unauthentic."""
+class OAuthIntegrationStoreError(RuntimeError):
+    """OAuth integration state is invalid, unavailable, or unauthentic."""
 
 
-class OAuthAccountValidationError(OAuthAccountStoreError):
-    """A caller supplied invalid OAuth account data."""
+class OAuthIntegrationValidationError(OAuthIntegrationStoreError):
+    """A caller supplied invalid OAuth integration data."""
 
 
-class OAuthAccountMissingError(OAuthAccountStoreError):
-    """The requested OAuth account has not been configured."""
+class OAuthIntegrationMissingError(OAuthIntegrationStoreError):
+    """The requested OAuth integration has not been configured."""
 
 
-class OAuthAccountReauthorizationError(OAuthAccountStoreError):
-    """A new provider authorization is required before this account can run."""
+class OAuthIntegrationReauthorizationError(OAuthIntegrationStoreError):
+    """A new provider authorization is required before this integration can run."""
 
 
 _PRIVATE_STATE = private_state.PrivateState(
-    OAuthAccountStoreError,
-    "OAuth account state is malformed",
-    "OAuth account envelope is malformed",
+    OAuthIntegrationStoreError,
+    "OAuth integration state is malformed",
+    "OAuth integration envelope is malformed",
     (MAX_PLAINTEXT_BYTES * 2) + 128,
 )
 
 
 @dataclass(frozen=True, slots=True)
-class OAuthAccountIdentity:
+class OAuthIntegrationIdentity:
     id: str
     username: str | None = None
     name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class OAuthAccountMetadata:
+class OAuthIntegrationMetadata:
     """Bounded public inventory that never contains either OAuth token."""
 
     id: str
     provider: str
     scopes: tuple[str, ...]
-    status: AccountStatus
-    account: OAuthAccountIdentity | None
+    status: IntegrationStatus
+    integration: OAuthIntegrationIdentity | None
     expires_at: int | None
     generation: int
 
 
-class _AccountFlight:
+class _IntegrationFlight:
     def __init__(self) -> None:
         self.lock = threading.RLock()
         self.users = 0
@@ -107,20 +107,20 @@ class _TokenGrant:
     broker_lease: str | None
     scopes: tuple[str, ...]
     expires_at: int
-    account: OAuthAccountIdentity | None
+    integration: OAuthIntegrationIdentity | None
     status: StoredStatus
     generation: int = 0
 
 
 def _component_id(value: object, label: str) -> str:
     if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
-        raise OAuthAccountValidationError(f"{label} is invalid")
+        raise OAuthIntegrationValidationError(f"{label} is invalid")
     return value
 
 
 def _team_id(value: object) -> str:
     if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
-        raise OAuthAccountValidationError("Team id is invalid")
+        raise OAuthIntegrationValidationError("Team id is invalid")
     return value
 
 
@@ -134,13 +134,13 @@ def _bounded_text(
     if optional and value is None:
         return None
     if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
-        raise OAuthAccountValidationError(f"{label} is invalid")
+        raise OAuthIntegrationValidationError(f"{label} is invalid")
     try:
         encoded = value.encode("utf-8")
     except UnicodeError as exc:
-        raise OAuthAccountValidationError(f"{label} is invalid") from exc
+        raise OAuthIntegrationValidationError(f"{label} is invalid") from exc
     if len(encoded) > maximum:
-        raise OAuthAccountValidationError(f"{label} is invalid")
+        raise OAuthIntegrationValidationError(f"{label} is invalid")
     return value
 
 
@@ -148,40 +148,40 @@ def _token(value: object, label: str, *, optional: bool = False) -> str | None:
     return _bounded_text(value, label, MAX_TOKEN_BYTES, optional=optional)
 
 
-def _account(value: object) -> OAuthAccountIdentity | None:
+def _integration(value: object) -> OAuthIntegrationIdentity | None:
     if value is None:
         return None
-    if isinstance(value, OAuthAccountIdentity):
+    if isinstance(value, OAuthIntegrationIdentity):
         raw_id, raw_username, raw_name = value.id, value.username, value.name
     elif isinstance(value, Mapping) and set(value) <= {"id", "username", "name"} and "id" in value:
         raw_id = value.get("id")
         raw_username = value.get("username")
         raw_name = value.get("name")
     else:
-        raise OAuthAccountValidationError("OAuth account is invalid")
-    return OAuthAccountIdentity(
-        id=str(_bounded_text(raw_id, "OAuth account id", MAX_ACCOUNT_ID_BYTES)),
+        raise OAuthIntegrationValidationError("OAuth integration is invalid")
+    return OAuthIntegrationIdentity(
+        id=str(_bounded_text(raw_id, "OAuth integration id", MAX_INTEGRATION_ID_BYTES)),
         username=_bounded_text(
             raw_username,
-            "OAuth account username",
-            MAX_ACCOUNT_TEXT_BYTES,
+            "OAuth integration username",
+            MAX_INTEGRATION_TEXT_BYTES,
             optional=True,
         ),
-        name=_bounded_text(raw_name, "OAuth account name", MAX_ACCOUNT_TEXT_BYTES, optional=True),
+        name=_bounded_text(raw_name, "OAuth integration name", MAX_INTEGRATION_TEXT_BYTES, optional=True),
     )
 
 
 def _stored_status(value: object) -> StoredStatus:
     if not isinstance(value, str) or value not in _STORED_STATUSES:
-        raise OAuthAccountValidationError("OAuth account status is invalid")
+        raise OAuthIntegrationValidationError("OAuth integration status is invalid")
     return value  # type: ignore[return-value]
 
 
 def _intent(provider_id: object, scopes: object) -> tuple[str, tuple[str, ...]]:
     try:
-        intent = oauth_providers.account_intent(provider_id, scopes)
+        intent = oauth_providers.integration_intent(provider_id, scopes)
     except oauth_providers.OAuthProviderError as exc:
-        raise OAuthAccountValidationError("OAuth account declaration is invalid") from exc
+        raise OAuthIntegrationValidationError("OAuth integration declaration is invalid") from exc
     return intent.provider.id, intent.scopes
 
 
@@ -189,7 +189,7 @@ def _token_set(
     value: object,
     expected_scopes: tuple[str, ...],
     now: int,
-    account: object,
+    integration: object,
 ) -> _TokenGrant:
     try:
         access_token = value.access_token  # type: ignore[attr-defined]
@@ -198,24 +198,24 @@ def _token_set(
         raw_scopes = value.scopes  # type: ignore[attr-defined]
         expires_in = value.expires_in  # type: ignore[attr-defined]
     except (AttributeError, TypeError) as exc:
-        raise OAuthAccountValidationError("OAuth token set is invalid") from exc
+        raise OAuthIntegrationValidationError("OAuth token set is invalid") from exc
     if (
         not isinstance(raw_scopes, tuple)
         or raw_scopes != expected_scopes
         or type(expires_in) is not int
         or not 30 <= expires_in <= 31_536_000
     ):
-        raise OAuthAccountValidationError("OAuth token set is invalid")
+        raise OAuthIntegrationValidationError("OAuth token set is invalid")
     expiry = now + expires_in
     if not 1 <= expiry <= (2**53 - 1):
-        raise OAuthAccountValidationError("OAuth token expiry is invalid")
+        raise OAuthIntegrationValidationError("OAuth token expiry is invalid")
     return _TokenGrant(
         access_token=str(_token(access_token, "OAuth access token")),
         refresh_token=_token(refresh_token, "OAuth refresh token", optional=True),
         broker_lease=_token(broker_lease, "OAuth broker lease", optional=True),
         scopes=expected_scopes,
         expires_at=expiry,
-        account=_account(account),
+        integration=_integration(integration),
         status="connected",
     )
 
@@ -224,14 +224,14 @@ def _strict_json(payload: bytes) -> object:
     try:
         return strict_json.loads(payload)
     except UnicodeDecodeError as exc:
-        raise OAuthAccountStoreError("OAuth account state is not valid JSON") from exc
+        raise OAuthIntegrationStoreError("OAuth integration state is not valid JSON") from exc
     except ValueError as exc:
         message = (
-            "OAuth account state has duplicate fields"
+            "OAuth integration state has duplicate fields"
             if str(exc) == "duplicate JSON field"
-            else "OAuth account state is not valid JSON"
+            else "OAuth integration state is not valid JSON"
         )
-        raise OAuthAccountStoreError(message) from exc
+        raise OAuthIntegrationStoreError(message) from exc
 
 
 def _record_metadata(
@@ -245,8 +245,8 @@ def _record_metadata(
     try:
         canonical_provider, scopes = _intent(provider, raw_scopes)
         canonical_status = _stored_status(status)
-    except OAuthAccountValidationError as exc:
-        raise OAuthAccountStoreError("OAuth account state record is malformed") from exc
+    except OAuthIntegrationValidationError as exc:
+        raise OAuthIntegrationStoreError("OAuth integration state record is malformed") from exc
     if (
         not isinstance(raw_scopes, list)
         or tuple(raw_scopes) != scopes
@@ -255,7 +255,7 @@ def _record_metadata(
         or type(generation) is not int
         or generation < 1
     ):
-        raise OAuthAccountStoreError("OAuth account state record is malformed")
+        raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
     return canonical_provider, scopes, expires_at, canonical_status, generation
 
 
@@ -269,7 +269,7 @@ def _validate_record(value: object) -> dict[str, object]:
         "updated_at",
         "envelope",
     }:
-        raise OAuthAccountStoreError("OAuth account state record is malformed")
+        raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
     _record_metadata(value)
     updated_at = value.get("updated_at")
     envelope = value.get("envelope")
@@ -280,7 +280,7 @@ def _validate_record(value: object) -> dict[str, object]:
         or set(envelope) != {"algorithm", "nonce", "ciphertext"}
         or envelope.get("algorithm") != "AES-256-GCM"
     ):
-        raise OAuthAccountStoreError("OAuth account state record is malformed")
+        raise OAuthIntegrationStoreError("OAuth integration state record is malformed")
     _PRIVATE_STATE.decode_part(envelope.get("nonce"), expected=12)
     _PRIVATE_STATE.decode_part(envelope.get("ciphertext"), minimum=17, maximum=MAX_PLAINTEXT_BYTES + 16)
     return value
@@ -288,50 +288,50 @@ def _validate_record(value: object) -> dict[str, object]:
 
 def _validate_state(value: object) -> dict[str, object]:
     if not isinstance(value, dict) or set(value) != {"schema", "teams"} or value.get("schema") != 1:
-        raise OAuthAccountStoreError("OAuth account state has an unsupported shape")
+        raise OAuthIntegrationStoreError("OAuth integration state has an unsupported shape")
     teams = value.get("teams")
     if not isinstance(teams, dict):
-        raise OAuthAccountStoreError("OAuth account state is malformed")
+        raise OAuthIntegrationStoreError("OAuth integration state is malformed")
     total = 0
     for raw_team, raw_assistants in teams.items():
         try:
             _team_id(raw_team)
-        except OAuthAccountValidationError as exc:
-            raise OAuthAccountStoreError("OAuth account state is malformed") from exc
+        except OAuthIntegrationValidationError as exc:
+            raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
         if not isinstance(raw_assistants, dict):
-            raise OAuthAccountStoreError("OAuth account state is malformed")
-        for raw_assistant, raw_accounts in raw_assistants.items():
+            raise OAuthIntegrationStoreError("OAuth integration state is malformed")
+        for raw_assistant, raw_integrations in raw_assistants.items():
             try:
                 _component_id(raw_assistant, "Assistant id")
-            except OAuthAccountValidationError as exc:
-                raise OAuthAccountStoreError("OAuth account state is malformed") from exc
-            if not isinstance(raw_accounts, dict) or len(raw_accounts) > MAX_ACCOUNTS_PER_ASSISTANT:
-                raise OAuthAccountStoreError("OAuth account state is malformed")
-            for raw_account, raw_record in raw_accounts.items():
+            except OAuthIntegrationValidationError as exc:
+                raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
+            if not isinstance(raw_integrations, dict) or len(raw_integrations) > MAX_INTEGRATIONS_PER_ASSISTANT:
+                raise OAuthIntegrationStoreError("OAuth integration state is malformed")
+            for raw_integration, raw_record in raw_integrations.items():
                 try:
-                    _component_id(raw_account, "account id")
-                except OAuthAccountValidationError as exc:
-                    raise OAuthAccountStoreError("OAuth account state is malformed") from exc
+                    _component_id(raw_integration, "integration id")
+                except OAuthIntegrationValidationError as exc:
+                    raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
                 _validate_record(raw_record)
                 total += 1
                 if total > MAX_TOTAL_RECORDS:
-                    raise OAuthAccountStoreError("OAuth account state exceeds its record limit")
+                    raise OAuthIntegrationStoreError("OAuth integration state exceeds its record limit")
     return value
 
 
 def _aad(
     team_id: str,
     assistant_id: str,
-    account_id: str,
+    integration_id: str,
     record: Mapping[str, object],
 ) -> bytes:
     provider, scopes, expires_at, status, generation = _record_metadata(record)
     return json.dumps(
         [
-            "shimpz-oauth-account-v1",
+            "shimpz-oauth-integration-v1",
             team_id,
             assistant_id,
-            account_id,
+            integration_id,
             provider,
             list(scopes),
             expires_at,
@@ -344,11 +344,11 @@ def _aad(
 
 
 def _declarations(value: object) -> dict[str, tuple[str, tuple[str, ...]]]:
-    if not isinstance(value, Mapping) or len(value) > MAX_ACCOUNTS_PER_ASSISTANT:
-        raise OAuthAccountValidationError("OAuth account declarations are invalid")
+    if not isinstance(value, Mapping) or len(value) > MAX_INTEGRATIONS_PER_ASSISTANT:
+        raise OAuthIntegrationValidationError("OAuth integration declarations are invalid")
     declared: dict[str, tuple[str, tuple[str, ...]]] = {}
     for raw_id, raw_spec in value.items():
-        account_id = _component_id(raw_id, "account id")
+        integration_id = _component_id(raw_id, "integration id")
         if isinstance(raw_spec, Mapping) and set(raw_spec) == {"provider", "scopes"}:
             provider = raw_spec.get("provider")
             scopes = raw_spec.get("scopes")
@@ -357,8 +357,8 @@ def _declarations(value: object) -> dict[str, tuple[str, tuple[str, ...]]]:
                 provider = raw_spec.provider  # type: ignore[attr-defined]
                 scopes = raw_spec.scopes  # type: ignore[attr-defined]
             except (AttributeError, TypeError) as exc:
-                raise OAuthAccountValidationError("OAuth account declarations are invalid") from exc
-        declared[account_id] = _intent(provider, scopes)
+                raise OAuthIntegrationValidationError("OAuth integration declarations are invalid") from exc
+        declared[integration_id] = _intent(provider, scopes)
     return declared
 
 
@@ -369,21 +369,21 @@ def _declared_ids(value: object) -> tuple[str, ...]:
     elif isinstance(value, Iterable) and not isinstance(value, str | bytes):
         values = value
     else:
-        raise OAuthAccountValidationError("OAuth account ids are invalid")
+        raise OAuthIntegrationValidationError("OAuth integration ids are invalid")
     declared: list[str] = []
     seen: set[str] = set()
     for raw_id in values:
-        if len(declared) == MAX_ACCOUNTS_PER_ASSISTANT:
-            raise OAuthAccountValidationError("OAuth account ids are invalid")
-        account_id = _component_id(raw_id, "account id")
-        if account_id in seen:
-            raise OAuthAccountValidationError("OAuth account ids are invalid")
-        declared.append(account_id)
-        seen.add(account_id)
+        if len(declared) == MAX_INTEGRATIONS_PER_ASSISTANT:
+            raise OAuthIntegrationValidationError("OAuth integration ids are invalid")
+        integration_id = _component_id(raw_id, "integration id")
+        if integration_id in seen:
+            raise OAuthIntegrationValidationError("OAuth integration ids are invalid")
+        declared.append(integration_id)
+        seen.add(integration_id)
     return tuple(declared)
 
 
-class OAuthAccountStore:
+class OAuthIntegrationStore:
     def __init__(
         self,
         state_path: Path = STATE_PATH,
@@ -394,27 +394,27 @@ class OAuthAccountStore:
         self.state_path = Path(state_path)
         self.key_path = Path(key_path)
         if not self.state_path.is_absolute() or not self.key_path.is_absolute():
-            raise OAuthAccountStoreError("OAuth account state and key paths must be absolute")
+            raise OAuthIntegrationStoreError("OAuth integration state and key paths must be absolute")
         try:
             state_parent = self.state_path.parent.resolve()
             key_parent = self.key_path.parent.resolve()
         except OSError as exc:
-            raise OAuthAccountStoreError("OAuth account storage paths are unavailable") from exc
+            raise OAuthIntegrationStoreError("OAuth integration storage paths are unavailable") from exc
         if state_parent == key_parent:
-            raise OAuthAccountStoreError("OAuth account keyring must be separate from encrypted state")
+            raise OAuthIntegrationStoreError("OAuth integration keyring must be separate from encrypted state")
         if not callable(clock):
-            raise OAuthAccountStoreError("OAuth account clock is invalid")
+            raise OAuthIntegrationStoreError("OAuth integration clock is invalid")
         self._clock = clock
         self._lock = threading.RLock()
-        self._account_flights: dict[tuple[str, str, str], _AccountFlight] = {}
+        self._integration_flights: dict[tuple[str, str, str], _IntegrationFlight] = {}
         self._state_cache_identity: private_state.PrivateFileIdentity | None = None
         self._state_cache: dict[str, object] | None = None
 
     @contextmanager
-    def _account_flight(self, team: str, assistant: str, account: str):
-        key = (team, assistant, account)
+    def _integration_flight(self, team: str, assistant: str, integration: str):
+        key = (team, assistant, integration)
         with self._lock:
-            flight = self._account_flights.setdefault(key, _AccountFlight())
+            flight = self._integration_flights.setdefault(key, _IntegrationFlight())
             flight.users += 1
         flight.lock.acquire()
         try:
@@ -423,26 +423,26 @@ class OAuthAccountStore:
             flight.lock.release()
             with self._lock:
                 flight.users -= 1
-                if flight.users == 0 and self._account_flights.get(key) is flight:
-                    self._account_flights.pop(key)
+                if flight.users == 0 and self._integration_flights.get(key) is flight:
+                    self._integration_flights.pop(key)
 
     def _now(self) -> int:
         now = self._clock()
         if not isinstance(now, int | float) or isinstance(now, bool) or not 0 <= now <= (2**53 - 1):
-            raise OAuthAccountStoreError("OAuth account clock is invalid")
+            raise OAuthIntegrationStoreError("OAuth integration clock is invalid")
         return int(now)
 
     def _read_state(self) -> dict[str, object]:
         snapshot = _PRIVATE_STATE.read_private_file_if_changed(
             self.state_path,
             MAX_STATE_BYTES,
-            "OAuth account state",
+            "OAuth integration state",
             self._state_cache_identity,
             cache_initialized=self._state_cache is not None,
         )
         if snapshot.unchanged:
             if self._state_cache is None:
-                raise OAuthAccountStoreError("OAuth account state cache is unavailable")
+                raise OAuthIntegrationStoreError("OAuth integration state cache is unavailable")
             return self._state_cache
         state = (
             private_state.empty_state() if snapshot.payload is None else _validate_state(_strict_json(snapshot.payload))
@@ -463,13 +463,13 @@ class OAuthAccountStore:
             validated = _validate_state(dict(state))
             payload = json.dumps(validated, sort_keys=True, separators=(",", ":")).encode("utf-8")
             if len(payload) > MAX_STATE_BYTES:
-                raise OAuthAccountStoreError("OAuth account state exceeds its fixed byte limit")
-            _PRIVATE_STATE.atomic_write(self.state_path, payload, "OAuth account state")
+                raise OAuthIntegrationStoreError("OAuth integration state exceeds its fixed byte limit")
+            _PRIVATE_STATE.atomic_write(self.state_path, payload, "OAuth integration state")
         finally:
             self._drop_state_cache()
 
     def _key(self, *, allow_create: bool = False) -> bytes:
-        return _PRIVATE_STATE.key(self.key_path, "OAuth account keyring", allow_create=allow_create)
+        return _PRIVATE_STATE.key(self.key_path, "OAuth integration keyring", allow_create=allow_create)
 
     @staticmethod
     def _plaintext(grant: _TokenGrant) -> bytes:
@@ -478,13 +478,13 @@ class OAuthAccountStore:
                 "access_token": grant.access_token,
                 "refresh_token": grant.refresh_token,
                 "broker_lease": grant.broker_lease,
-                "account": (
+                "integration": (
                     None
-                    if grant.account is None
+                    if grant.integration is None
                     else {
-                        "id": grant.account.id,
-                        "username": grant.account.username,
-                        "name": grant.account.name,
+                        "id": grant.integration.id,
+                        "username": grant.integration.username,
+                        "name": grant.integration.name,
                     }
                 ),
             },
@@ -493,7 +493,7 @@ class OAuthAccountStore:
             separators=(",", ":"),
         ).encode("utf-8")
         if len(payload) > MAX_PLAINTEXT_BYTES:
-            raise OAuthAccountValidationError("OAuth token set is too large")
+            raise OAuthIntegrationValidationError("OAuth token set is too large")
         return payload
 
     @staticmethod
@@ -506,87 +506,89 @@ class OAuthAccountStore:
         generation: int,
     ) -> _TokenGrant:
         if len(plaintext) > MAX_PLAINTEXT_BYTES:
-            raise OAuthAccountStoreError("decrypted OAuth account is malformed")
+            raise OAuthIntegrationStoreError("decrypted OAuth integration is malformed")
         value = _strict_json(plaintext)
         if not isinstance(value, dict) or set(value) != {
             "access_token",
             "refresh_token",
             "broker_lease",
-            "account",
+            "integration",
         }:
-            raise OAuthAccountStoreError("decrypted OAuth account is malformed")
+            raise OAuthIntegrationStoreError("decrypted OAuth integration is malformed")
         try:
-            account = _account(value.get("account"))
+            integration = _integration(value.get("integration"))
             return _TokenGrant(
                 access_token=str(_token(value.get("access_token"), "OAuth access token")),
                 refresh_token=_token(value.get("refresh_token"), "OAuth refresh token", optional=True),
                 broker_lease=_token(value.get("broker_lease"), "OAuth broker lease", optional=True),
                 scopes=scopes,
                 expires_at=expires_at,
-                account=account,
+                integration=integration,
                 status=status,
                 generation=generation,
             )
-        except OAuthAccountValidationError as exc:
-            raise OAuthAccountStoreError("decrypted OAuth account is malformed") from exc
+        except OAuthIntegrationValidationError as exc:
+            raise OAuthIntegrationStoreError("decrypted OAuth integration is malformed") from exc
 
     def _resolve_record(
         self,
         team: str,
         assistant: str,
-        account: str,
+        integration: str,
         record: object,
     ) -> _TokenGrant:
         validated = _validate_record(record)
         provider, scopes, expires_at, status, generation = _record_metadata(validated)
         envelope = validated["envelope"]
         if not isinstance(envelope, dict):
-            raise OAuthAccountStoreError("OAuth account envelope is malformed")
+            raise OAuthIntegrationStoreError("OAuth integration envelope is malformed")
         try:
             plaintext = AESGCM(self._key()).decrypt(
                 _PRIVATE_STATE.decode_part(envelope.get("nonce"), expected=12),
                 _PRIVATE_STATE.decode_part(envelope.get("ciphertext")),
-                _aad(team, assistant, account, validated),
+                _aad(team, assistant, integration, validated),
             )
         except InvalidTag as exc:
-            raise OAuthAccountStoreError("OAuth account envelope authentication failed") from exc
+            raise OAuthIntegrationStoreError("OAuth integration envelope authentication failed") from exc
         return self._decrypted(plaintext, provider, scopes, expires_at, status, generation)
 
     def _declared_grant(
         self,
         team: str,
         assistant: str,
-        account: str,
+        integration: str,
         provider: str,
         scopes: tuple[str, ...],
     ) -> _TokenGrant:
         state = self._read_state()
         records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-        if account not in records:
-            raise OAuthAccountMissingError("OAuth account is not configured")
-        record = _validate_record(records[account])
+        if integration not in records:
+            raise OAuthIntegrationMissingError("OAuth integration is not configured")
+        record = _validate_record(records[integration])
         stored_provider, stored_scopes, _, _, _ = _record_metadata(record)
         if stored_provider != provider or stored_scopes != scopes:
-            raise OAuthAccountReauthorizationError("OAuth account declaration changed; reauthorization is required")
-        grant = self._resolve_record(team, assistant, account, record)
+            raise OAuthIntegrationReauthorizationError(
+                "OAuth integration declaration changed; reauthorization is required"
+            )
+        grant = self._resolve_record(team, assistant, integration, record)
         if grant.status == "reauthorization-required":
-            raise OAuthAccountReauthorizationError("OAuth account requires reauthorization")
+            raise OAuthIntegrationReauthorizationError("OAuth integration requires reauthorization")
         return grant
 
     def put(
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
         provider: object,
         scopes: object,
         token_set: object,
         identity: object = None,
-    ) -> OAuthAccountMetadata:
+    ) -> OAuthIntegrationMetadata:
         """Encrypt one exchanged token set and atomically advance its generation."""
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
-        account = _component_id(account_id, "account id")
+        integration = _component_id(integration_id, "integration id")
         canonical_provider, canonical_scopes = _intent(provider, scopes)
         canonical = _token_set(token_set, canonical_scopes, self._now(), identity)
         plaintext = self._plaintext(canonical)
@@ -594,9 +596,9 @@ class OAuthAccountStore:
             state = self._read_state_for_update()
             key = self._key(allow_create=not _PRIVATE_STATE.has_records(state))
             records = _PRIVATE_STATE.records(state, team, assistant, create=True)
-            if account not in records and len(records) >= MAX_ACCOUNTS_PER_ASSISTANT:
-                raise OAuthAccountStoreError("OAuth account capacity reached")
-            previous = records.get(account)
+            if integration not in records and len(records) >= MAX_INTEGRATIONS_PER_ASSISTANT:
+                raise OAuthIntegrationStoreError("OAuth integration capacity reached")
+            previous = records.get(integration)
             generation = int(previous.get("generation", 0)) + 1 if isinstance(previous, dict) else 1
             record: dict[str, object] = {
                 "provider": canonical_provider,
@@ -611,21 +613,21 @@ class OAuthAccountStore:
             ciphertext = AESGCM(key).encrypt(
                 nonce,
                 plaintext,
-                _aad(team, assistant, account, record),
+                _aad(team, assistant, integration, record),
             )
             record["envelope"] = {
                 "algorithm": "AES-256-GCM",
                 "nonce": base64.b64encode(nonce).decode("ascii"),
                 "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
             }
-            records[account] = record
+            records[integration] = record
             self._write_state(state)
-            return OAuthAccountMetadata(
-                account,
+            return OAuthIntegrationMetadata(
+                integration,
                 canonical_provider,
                 canonical.scopes,
                 "connected",
-                canonical.account,
+                canonical.integration,
                 canonical.expires_at,
                 generation,
             )
@@ -634,7 +636,7 @@ class OAuthAccountStore:
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
         provider: object,
         scopes: object,
         refresh_callback: Callable[[str, str | None], object],
@@ -642,43 +644,43 @@ class OAuthAccountStore:
         """Return one bounded access token, refreshing once under a single-flight lock."""
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
-        account = _component_id(account_id, "account id")
+        integration = _component_id(integration_id, "integration id")
         canonical_provider, expected_scopes = _intent(provider, scopes)
         if not callable(refresh_callback):
-            raise OAuthAccountValidationError("OAuth refresh callback is invalid")
-        with self._account_flight(team, assistant, account):
+            raise OAuthIntegrationValidationError("OAuth refresh callback is invalid")
+        with self._integration_flight(team, assistant, integration):
             with self._lock:
                 grant = self._declared_grant(
                     team,
                     assistant,
-                    account,
+                    integration,
                     canonical_provider,
                     expected_scopes,
                 )
             if grant.expires_at > self._now() + REFRESH_WINDOW_SECONDS:
                 return grant.access_token
             if grant.refresh_token is None:
-                raise OAuthAccountReauthorizationError("OAuth account requires reauthorization")
+                raise OAuthIntegrationReauthorizationError("OAuth integration requires reauthorization")
             refreshed = refresh_callback(grant.refresh_token, grant.broker_lease)
-            canonical = _token_set(refreshed, expected_scopes, self._now(), grant.account)
+            canonical = _token_set(refreshed, expected_scopes, self._now(), grant.integration)
             with self._lock:
                 current = self._declared_grant(
                     team,
                     assistant,
-                    account,
+                    integration,
                     canonical_provider,
                     expected_scopes,
                 )
                 if current.generation != grant.generation:
-                    raise OAuthAccountReauthorizationError("OAuth account changed during refresh")
+                    raise OAuthIntegrationReauthorizationError("OAuth integration changed during refresh")
                 self.put(
                     team,
                     assistant,
-                    account,
+                    integration,
                     canonical_provider,
                     expected_scopes,
                     refreshed,
-                    grant.account,
+                    grant.integration,
                 )
             return canonical.access_token
 
@@ -687,8 +689,8 @@ class OAuthAccountStore:
         team_id: object,
         assistant_id: object,
         declarations: object,
-    ) -> tuple[OAuthAccountMetadata, ...]:
-        """Return complete declared inventory, including missing account rows."""
+    ) -> tuple[OAuthIntegrationMetadata, ...]:
+        """Return complete declared inventory, including missing integration rows."""
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
         declared = _declarations(declarations)
@@ -696,12 +698,12 @@ class OAuthAccountStore:
             state = self._read_state()
             records = _PRIVATE_STATE.records(state, team, assistant, create=False)
             now = self._now()
-            result: list[OAuthAccountMetadata] = []
-            for account, (provider, scopes) in declared.items():
-                if account not in records:
+            result: list[OAuthIntegrationMetadata] = []
+            for integration, (provider, scopes) in declared.items():
+                if integration not in records:
                     result.append(
-                        OAuthAccountMetadata(
-                            account,
+                        OAuthIntegrationMetadata(
+                            integration,
                             provider,
                             scopes,
                             "missing",
@@ -711,13 +713,13 @@ class OAuthAccountStore:
                         )
                     )
                     continue
-                record = _validate_record(records[account])
+                record = _validate_record(records[integration])
                 stored_provider, stored_scopes, expires_at, status, generation = _record_metadata(record)
-                grant = self._resolve_record(team, assistant, account, record)
+                grant = self._resolve_record(team, assistant, integration, record)
                 if stored_provider != provider or stored_scopes != scopes:
                     result.append(
-                        OAuthAccountMetadata(
-                            account,
+                        OAuthIntegrationMetadata(
+                            integration,
                             provider,
                             scopes,
                             "reauthorization-required",
@@ -727,16 +729,16 @@ class OAuthAccountStore:
                         )
                     )
                     continue
-                projected: AccountStatus = status
+                projected: IntegrationStatus = status
                 if status == "connected" and expires_at <= now:
                     projected = "refresh-required" if grant.refresh_token is not None else "reauthorization-required"
                 result.append(
-                    OAuthAccountMetadata(
-                        account,
+                    OAuthIntegrationMetadata(
+                        integration,
                         provider,
                         scopes,
                         projected,
-                        grant.account,
+                        grant.integration,
                         expires_at,
                         generation,
                     )
@@ -749,7 +751,7 @@ class OAuthAccountStore:
         assistant_id: object,
         declared_ids: object,
     ) -> bool:
-        """Atomically discard accounts removed from a new Assistant release."""
+        """Atomically discard integrations removed from a new Assistant release."""
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
         declared = set(_declared_ids(declared_ids))
@@ -759,25 +761,25 @@ class OAuthAccountStore:
             undeclared = set(records) - declared
             if not undeclared:
                 return False
-            for account in undeclared:
-                records.pop(account)
+            for integration in undeclared:
+                records.pop(integration)
             _PRIVATE_STATE.prune_empty_records(state, team, assistant)
             self._write_state(state)
             return True
 
-    def delete_account(
+    def delete_integration(
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
     ) -> bool:
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
-        account = _component_id(account_id, "account id")
+        integration = _component_id(integration_id, "integration id")
         with self._lock:
             state = self._read_state_for_update()
             records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-            removed = records.pop(account, None) is not None
+            removed = records.pop(integration, None) is not None
             if removed:
                 _PRIVATE_STATE.prune_empty_records(state, team, assistant)
                 self._write_state(state)
@@ -787,33 +789,33 @@ class OAuthAccountStore:
         self,
         team_id: object,
         assistant_id: object,
-        account_id: object,
+        integration_id: object,
         revoke_callback: Callable[[str, str, str | None, str | None], None],
     ) -> bool:
         """Delete one grant only after its authenticated tokens are revoked upstream."""
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
-        account = _component_id(account_id, "account id")
+        integration = _component_id(integration_id, "integration id")
         if not callable(revoke_callback):
-            raise OAuthAccountValidationError("OAuth revocation callback is invalid")
-        with self._account_flight(team, assistant, account):
+            raise OAuthIntegrationValidationError("OAuth revocation callback is invalid")
+        with self._integration_flight(team, assistant, integration):
             with self._lock:
                 state = self._read_state()
                 records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-                raw_record = records.get(account)
+                raw_record = records.get(integration)
                 if raw_record is None:
                     return False
                 record = _validate_record(raw_record)
                 provider, _, _, _, generation = _record_metadata(record)
-                grant = self._resolve_record(team, assistant, account, record)
+                grant = self._resolve_record(team, assistant, integration, record)
             revoke_callback(provider, grant.access_token, grant.refresh_token, grant.broker_lease)
             with self._lock:
                 state = self._read_state_for_update()
                 records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-                current = records.get(account)
+                current = records.get(integration)
                 if current is None or _record_metadata(_validate_record(current))[4] != generation:
-                    raise OAuthAccountStoreError("OAuth account changed during revocation")
-                records.pop(account)
+                    raise OAuthIntegrationStoreError("OAuth integration changed during revocation")
+                records.pop(integration)
                 _PRIVATE_STATE.prune_empty_records(state, team, assistant)
                 self._write_state(state)
                 return True
@@ -838,7 +840,7 @@ class OAuthAccountStore:
             return removed
 
     def delete_all(self) -> bool:
-        """Atomically purge all account material during an owned Space reset."""
+        """Atomically purge all integration material during an owned Space reset."""
         with self._lock:
             state = self._read_state_for_update()
             if not _PRIVATE_STATE.has_records(state):
