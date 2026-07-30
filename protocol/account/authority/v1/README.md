@@ -21,6 +21,11 @@ must compare. Accounts returns no wall-clock validity window or security epoch.
 Team accepts the evidence only on the same synchronous connection and enforces
 a short monotonic round trip.
 
+Every response, including a denial, is a JSON object with an explicit body
+length from 1 through 8192 bytes. Statuses 401, 403, and 404 deny the requested
+authority; 404 is reserved for an unavailable target Owner. Statuses 400, 429,
+and 5xx mean that the consumer could not obtain valid authority evidence.
+
 Ordinary Accounts create self-owned Teams. A request may include
 `owner_account_id` only for `team-create`; Accounts accepts it only from a
 Supervisor and only when the exact target Account is enabled and not erased.
