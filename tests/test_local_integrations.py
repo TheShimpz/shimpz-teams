@@ -62,6 +62,7 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
                     declaration.provider,
                     declaration.scopes,
                     1,
+                    None,
                 )
 
         controller.oauth_service = Service()
@@ -296,6 +297,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     "cloudflare",
                     ("dns.read", "offline_access", "zone.read"),
                     1,
+                    None,
                 )
 
         controller = object.__new__(local_app.LocalController)

@@ -9,7 +9,6 @@ import docker.errors
 
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
-from hosted import audit
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
 from hosted import state as runtime_state
@@ -180,6 +179,7 @@ def _teardown_inference(team_id: str) -> bool:
 
 def _teardown_assistant_integrations(team_id: str) -> bool:
     runtime_state._integration_challenges.cancel_team(team_id)
+    runtime_state._integration_pkce.cancel_team(team_id)
     try:
         runtime_state._assistant_integrations.delete_team(team_id)
     except integration_store.OAuthIntegrationStoreError:
@@ -251,7 +251,7 @@ def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._C
     return hosted_resources._CleanupResult(True, True)
 
 
-def _create(team_id: str, body: dict, owner: str = "") -> dict:
+def _create(team_id: str, body: dict, owner: str) -> dict:
     try:
         team_name = hosted_resources._validated_team_name(body.get("team_name", team_id))
     except ValueError as exc:
@@ -267,7 +267,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
     with runtime_state._lock_for(team_id):
         pending_cleanup = hosted_resources._cleanup_record(team_id)
         if pending_cleanup is not None:
-            if owner and pending_cleanup.owner != owner:
+            if pending_cleanup.owner != owner:
                 raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
             raise runtime_state.ApiError(
                 HTTPStatus.CONFLICT,
@@ -278,7 +278,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             # An account may only "re-create" (get) its OWN team; a name collision with a different
             # owner is invisible (404), never a hijack of someone else's team.
             existing_owner = existing.labels.get("team.owner", "")
-            if owner and existing_owner != owner:
+            if existing_owner != owner:
                 raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
             # Idempotent create must never bless a container whose runtime drifted from the current
             # isolation contract. Disposable pre-production state can be destroyed and recreated.
@@ -311,7 +311,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
             # independent fail-closed host gate and still cannot provision without the required runtime.
             hosted_resources._require_team_runtime()
             # Transactional: on ANY failure, roll back everything partially created before surfacing —
-            # never leak an orphan DB/role, network, or volume for an operator to hunt down later.
+            # never leak an orphan DB/role, network, or volume for a Supervisor to hunt down later.
             container = None
             try:
                 db = postgresql_service_client.provision_team(team_id)
@@ -345,7 +345,7 @@ def _create(team_id: str, body: dict, owner: str = "") -> dict:
                 if not cleanup.complete:
                     raise runtime_state.ApiError(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
-                        "Team create failed and rollback is incomplete; contact the operator",
+                        "Team create failed and rollback is incomplete; contact the Supervisor",
                     ) from exc
                 if isinstance(exc, runtime_state.ApiError):
                     raise
@@ -416,15 +416,15 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
             if not cleanup.complete:
                 raise runtime_state.ApiError(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
-                    "Team teardown is incomplete; retry destroy or contact the operator",
+                    "Team teardown is incomplete; retry destroy or contact the Supervisor",
                 )
             return {"team_id": team_id, "destroyed": True, "db_dropped": cleanup.db_dropped}
         finally:
             chat_lock.release()
 
 
-def _list(owner: str | None = None) -> dict:
-    """All teams for the operator; only the account's own when `owner` is set."""
+def _list(*, owner: str | None) -> dict:
+    """All Teams for a Supervisor; only the Account's own when `owner` is set."""
     teams = runtime_state._docker.containers.list(all=True, filters={"label": "team.runtime"})
     if owner is not None:
         teams = [container for container in teams if container.labels.get("team.owner", "") == owner]
@@ -464,7 +464,6 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team model provider could not be saved"
             ) from exc
-    audit.log("inference_configure", team_id, result="ok", provider=config.provider, model=config.model)
     return {"team_id": team_id, "provider": config.provider, "model": config.model}
 
 

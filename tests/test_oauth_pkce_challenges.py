@@ -19,6 +19,7 @@ def create(
     team: str = "team_1",
     assistant: str = "shimpz-cloudflare",
     integration: str = "cloudflare",
+    resource_binding=None,
 ):
     return store.create(
         session_binding=session,
@@ -27,6 +28,7 @@ def create(
         integration_id=integration,
         provider_id="cloudflare",
         scopes=SCOPES,
+        resource_binding=resource_binding,
     )
 
 
@@ -87,15 +89,29 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
 
     def test_callback_recovers_private_binding_only_for_the_starting_browser(self) -> None:
         store = integration_pkce.OAuthPKCEChallengeStore()
-        challenge = create(store)
+        resource_binding = ("a" * 32, "shimpz-team-team_1")
+        challenge = create(store, resource_binding=resource_binding)
 
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim_callback(state=challenge.state, session_binding=SESSION_TWO)
+        inspected = store.inspect_callback(state=challenge.state, session_binding=SESSION_ONE)
+        self.assertEqual(
+            inspected,
+            integration_pkce.OAuthCallbackBinding(
+                team_id="team_1",
+                assistant_id="shimpz-cloudflare",
+                integration_id="cloudflare",
+                resource_binding=resource_binding,
+            ),
+        )
+        self.assertNotIn("verifier", repr(inspected).lower())
+        self.assertNotIn(SESSION_ONE, repr(inspected))
         exchange = store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
         self.assertEqual(exchange.provider_id, "cloudflare")
         self.assertEqual(exchange.team_id, "team_1")
         self.assertEqual(exchange.assistant_id, "shimpz-cloudflare")
         self.assertEqual(exchange.integration_id, "cloudflare")
+        self.assertEqual(exchange.resource_binding, resource_binding)
         self.assertNotIn(SESSION_ONE, repr(exchange))
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
@@ -177,6 +193,8 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             {"integration_id": "x/evil"},
             {"provider_id": "evil"},
             {"scopes": ("dm.read",)},
+            {"resource_binding": ("only-one",)},
+            {"resource_binding": ("valid", "\ninvalid")},
         ):
             arguments = {
                 "session_binding": SESSION_ONE,

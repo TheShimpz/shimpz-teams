@@ -25,7 +25,7 @@ from install import bindings as dynamic_assistants
 
 DOCKER_SOCKET = os.environ.get("DOCKER_HOST_SOCKET", "/var/run/docker.sock")
 # Must stay identical to container.RUNTIME without importing the SDK-backed module. This is not an
-# operator override: hostile-tenant readiness is always tied to the shipping gVisor runtime.
+# deployment override: hostile-tenant readiness is always tied to the shipping gVisor runtime.
 REQUIRED_RUNTIME = "runsc"
 REQUIRED_RUNTIME_PATH = "/usr/local/bin/runsc"
 DEFAULT_BRAIN_IMAGE = (

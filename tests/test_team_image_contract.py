@@ -34,6 +34,14 @@ LOCAL_PACKAGE_DATA = {
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
 HOSTED_PROTOCOL_DATA = {
+    "protocol/account/authority/upstream.json",
+    "protocol/account/authority/v1/README.md",
+    "protocol/account/authority/v1/contract-files.sha256",
+    "protocol/account/authority/v1/evaluation-request.schema.json",
+    "protocol/account/authority/v1/evaluation-response.schema.json",
+    "protocol/account/authority/v1/vectors.json",
+    "protocol/account/authority/v1/verify.py",
+    "protocol/http/v1/payload.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
     "protocol/install/v1/contract-files.sha256",
@@ -111,6 +119,11 @@ def _runtime_import_closure(*entrypoints: str) -> tuple[set[str], set[str], set[
             root_modules.add(module)
         package = module.partition(".")[0]
         if path.parent != ROOT:
+            if package == "protocol":
+                for imported_module in _source_imports(module, path):
+                    parts = imported_module.split(".")
+                    pending.extend(".".join(parts[:depth]) for depth in range(1, len(parts) + 1))
+                continue
             if package not in PRODUCTION_PACKAGES:
                 raise AssertionError(f"{path} belongs to an unregistered production package")
             root_packages.add(package)
@@ -187,13 +200,21 @@ class StaticTeamImageContractTests(unittest.TestCase):
         modules, packages, imported_paths = _runtime_import_closure(*entrypoints)
         self.assertEqual(packaged, modules)
         self.assertEqual(root_copy_sources, modules | ROOT_RUNTIME_DATA)
-        modeled_destinations = {"./", "/opt/venv", "./protocol/install/", "./protocol/install/v1/"}
+        modeled_destinations = {
+            "./",
+            "/opt/venv",
+            "./protocol/account/authority/",
+            "./protocol/account/authority/v1/",
+            "./protocol/http/v1/",
+            "./protocol/install/",
+            "./protocol/install/v1/",
+        }
         copied_protocol = set()
         for line in logical_lines:
             copy_parts = _copy_parts(line)
             if copy_parts:
                 sources, destination = copy_parts
-                if destination.startswith("./protocol/install/"):
+                if destination.startswith("./protocol/"):
                     copied_protocol.update(sources)
                 package_destination = re.fullmatch(
                     r"[.]\/([a-z][a-z0-9_]*)(?:/[a-z0-9_]+)*/",
@@ -258,6 +279,8 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertIn("source=uv.lock,target=/app/uv.lock,ro", runtime)
         protocol = ROOT / "protocol" / "install"
         self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
+        authority_protocol = ROOT / "protocol" / "account" / "authority"
+        self.assertEqual({"upstream.json", "v1"}, {path.name for path in authority_protocol.iterdir()})
         for package in PRODUCTION_PACKAGES:
             package_tree = ast.parse((ROOT / package / "__init__.py").read_text(encoding="utf-8"))
             self.assertFalse(
@@ -359,7 +382,17 @@ class StaticTeamImageContractTests(unittest.TestCase):
             for path in (ROOT / "protocol" / "install").rglob("*")
             if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
-        self.assertEqual(protocol_install_data, HOSTED_PROTOCOL_DATA)
+        protocol_authority_data = {
+            path.relative_to(ROOT).as_posix()
+            for path in (ROOT / "protocol" / "account" / "authority").rglob("*")
+            if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
+        }
+        protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
+        self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py"})
+        self.assertEqual(
+            protocol_install_data | protocol_authority_data | protocol_runtime_data,
+            HOSTED_PROTOCOL_DATA,
+        )
         production_sources = [*ROOT.glob("*.py")]
         production_sources.extend(path for package in PRODUCTION_PACKAGES for path in (ROOT / package).rglob("*.py"))
         for path in production_sources:

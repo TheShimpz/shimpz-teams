@@ -118,7 +118,7 @@ def _capability() -> str:
     return raw.decode("ascii")
 
 
-def _session_token(value: object) -> str:
+def session_token(value: object) -> str:
     if (
         not isinstance(value, str)
         or not 1 <= len(value) <= 2048
@@ -193,9 +193,9 @@ def _evaluation(response: dict[str, object], binding: dict[str, object], expecte
     return Evaluation(account_id, supervisor, response_digest, owner if isinstance(owner, str) else None)
 
 
-def evaluate(session_token: object, binding: dict[str, object]) -> Evaluation:
+def evaluate(presented_session: object, binding: dict[str, object]) -> Evaluation:
     """Evaluate one exact request without caching revocable Account evidence."""
-    token = _session_token(session_token)
+    token = session_token(presented_session)
     digest = binding_digest(binding)
     body = _payload(token, binding)
     connection = None

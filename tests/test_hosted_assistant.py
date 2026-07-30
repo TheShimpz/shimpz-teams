@@ -70,8 +70,9 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             set(hosted_controller._PREAUTHORIZED_ROUTES),
             set(hosted_controller._AUTHORIZED_ROUTES),
         )
-        self.assertEqual(set().union(*dispatch_groups), hosted_operations)
-        self.assertEqual(sum(map(len, dispatch_groups)), len(hosted_operations))
+        machine_continuations = {"assistant-integration-complete"}
+        self.assertEqual(set().union(*dispatch_groups) | machine_continuations, hosted_operations)
+        self.assertEqual(sum(map(len, dispatch_groups)) + len(machine_continuations), len(hosted_operations))
 
     def test_legacy_app_routes_are_absent(self) -> None:
         strict_http = hosted_controller.strict_http
@@ -101,25 +102,13 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         handler.rfile = BytesIO(body)
         return handler
 
-    def test_operator_bearer_is_constant_time_and_duplicate_headers_fail_closed(self) -> None:
-        accepted = self._handler(b"", ("Authorization", "Bearer operator-token"))
-        wrong = self._handler(b"", ("Authorization", "Bearer operator-tokee"))
-        duplicate = self._handler(
-            b"",
-            ("Authorization", "Bearer operator-token"),
-            ("Authorization", "Bearer operator-token"),
-        )
+    def test_machine_bearer_cannot_become_human_authority(self) -> None:
+        handler = self._handler(b"", ("Authorization", "Bearer team-machine-token"))
 
-        with mock.patch.object(
-            hosted_controller.strict_http.hmac,
-            "compare_digest",
-            wraps=hosted_controller.strict_http.hmac.compare_digest,
-        ) as compare:
-            self.assertEqual(accepted._principal(), ("operator", None))
-            self.assertIsNone(wrong._principal())
-            self.assertIsNone(duplicate._principal())
+        with self.assertRaises(runtime_state.ApiError) as caught:
+            handler._account_session()
 
-        self.assertEqual(compare.call_count, 2)
+        self.assertEqual(caught.exception.status, HTTPStatus.FORBIDDEN)
 
     def test_read_body_accepts_one_strict_json_object(self) -> None:
         body = b'{"team_name":"Marketing"}'
@@ -129,6 +118,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             ("Content-Type", "application/json; charset=utf-8"),
         )
 
+        handler._capture_body("team-create")
         self.assertEqual(handler._read_body(), {"team_name": "Marketing"})
 
     def test_read_body_rejects_ambiguous_or_non_object_documents(self) -> None:
@@ -145,7 +135,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             headers = (("Content-Length", str(len(body))), *extra_headers)
             handler = self._handler(body, *headers)
             with self.subTest(body=body, headers=headers), self.assertRaises(runtime_state.ApiError) as caught:
-                handler._read_body()
+                handler._capture_body("team-create")
             self.assertEqual(caught.exception.status, expected_status)
 
     def test_account_installs_exact_verified_assistant_publication(self) -> None:
@@ -156,11 +146,12 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             "oci_digest": f"sha256:{'b' * 64}",
         }
         binding = SimpleNamespace(assistant_id="example-assistant")
+        lease = SimpleNamespace(owner="account_1")
         request = hosted_controller._AuthorizedRequest(
             {},
             "team_1",
-            ("account", "account_1"),
-            mock.sentinel.lease,
+            ("supervisor", "f" * 32),
+            lease,
             {},
         )
         handler = object.__new__(app.Handler)
@@ -212,28 +203,13 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             "team_1",
             binding,
             "account_1",
-            mock.sentinel.lease,
+            lease,
             authorize_start=mock.ANY,
         )
         status, payload = handler._send_json.call_args.args
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(payload["assistant"], "example-assistant")
         self.assertEqual(payload["source_digest"], source_digest)
-
-    def test_assistant_publication_install_requires_account_identity(self) -> None:
-        request = hosted_controller._AuthorizedRequest(
-            {},
-            "team_1",
-            ("operator", None),
-            mock.sentinel.lease,
-            {},
-        )
-        handler = object.__new__(app.Handler)
-
-        with self.assertRaises(runtime_state.ApiError) as caught:
-            handler._route_assistant_install(request)
-
-        self.assertEqual(caught.exception.status, HTTPStatus.UNAUTHORIZED)
 
     def test_assistant_publication_must_match_requested_identifier(self) -> None:
         source_digest = f"sha256:{'a' * 64}"

@@ -57,6 +57,17 @@ class OAuthExchange:
     team_id: str
     assistant_id: str
     integration_id: str
+    resource_binding: tuple[str, str] | None
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthCallbackBinding:
+    """Identifiers safe to inspect before the one-use callback claim."""
+
+    team_id: str
+    assistant_id: str
+    integration_id: str
+    resource_binding: tuple[str, str] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +77,7 @@ class _PendingChallenge:
     team_id: str
     assistant_id: str
     integration_id: str
+    resource_binding: tuple[str, str] | None
     code_verifier: str
     expires_at: float
 
@@ -100,6 +112,24 @@ def _component_id(value: object, label: str) -> str:
 def _state(value: object) -> str:
     if not isinstance(value, str) or _STATE.fullmatch(value) is None:
         raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
+    return value
+
+
+def _resource_binding(value: object) -> tuple[str, str] | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, tuple)
+        or len(value) != 2
+        or any(
+            not isinstance(item, str)
+            or not 1 <= len(item) <= 256
+            or not item.isascii()
+            or any(not 0x21 <= ord(character) <= 0x7E for character in item)
+            for item in value
+        )
+    ):
+        raise OAuthChallengeError("OAuth resource binding is invalid")
     return value
 
 
@@ -174,8 +204,10 @@ class OAuthPKCEChallengeStore:
         integration_id: object,
         provider_id: object,
         scopes: object,
+        resource_binding: object = None,
     ) -> OAuthAuthorizationChallenge:
         binding = self._binding(session_binding, team_id, assistant_id, integration_id)
+        resource = _resource_binding(resource_binding)
         intent = integration_providers.integration_intent(provider_id, scopes)
         now = time.monotonic()
         with self._lock:
@@ -210,6 +242,7 @@ class OAuthPKCEChallengeStore:
                 team_id=binding[1],
                 assistant_id=binding[2],
                 integration_id=binding[3],
+                resource_binding=resource,
                 code_verifier=verifier,
                 expires_at=now + self._ttl,
             )
@@ -248,6 +281,7 @@ class OAuthPKCEChallengeStore:
                 team_id=challenge.team_id,
                 assistant_id=challenge.assistant_id,
                 integration_id=challenge.integration_id,
+                resource_binding=challenge.resource_binding,
             )
 
     def claim_callback(
@@ -281,6 +315,29 @@ class OAuthPKCEChallengeStore:
                 team_id=challenge.team_id,
                 assistant_id=challenge.assistant_id,
                 integration_id=challenge.integration_id,
+                resource_binding=challenge.resource_binding,
+            )
+
+    def inspect_callback(
+        self,
+        *,
+        state: object,
+        session_binding: object,
+    ) -> OAuthCallbackBinding:
+        """Inspect only bounded identifiers; never expose or consume the verifier."""
+        identifier = _state(state)
+        session_digest = _session_digest(session_binding)
+        now = time.monotonic()
+        with self._lock:
+            self._expire(now)
+            challenge = self._pending.get(identifier)
+            if challenge is None or not hmac.compare_digest(challenge.session_digest, session_digest):
+                raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
+            return OAuthCallbackBinding(
+                team_id=challenge.team_id,
+                assistant_id=challenge.assistant_id,
+                integration_id=challenge.integration_id,
+                resource_binding=challenge.resource_binding,
             )
 
     def cancel_session(self, session_binding: object) -> int:

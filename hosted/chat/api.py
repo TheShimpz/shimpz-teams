@@ -16,6 +16,7 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 
 
@@ -120,7 +121,11 @@ def _start_oauth_integration(
     if not isinstance(pending, hosted_assistants._PendingHostedChat) or pending.owner != lease.owner:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     try:
-        authorization_url = runtime_state._oauth_integrations.authorization_url(challenge, session_binding)
+        authorization_url = runtime_state._oauth_integrations.authorization_url(
+            challenge,
+            session_binding,
+            resource_binding=(lease.owner, lease.container_id),
+        )
     except integration_service.OAuthIntegrationUnavailableError as exc:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integrations are already configured") from exc
     except integration_service.OAuthIntegrationServiceError as exc:
@@ -131,33 +136,103 @@ def _start_oauth_integration(
     return {"authorization_url": authorization_url}
 
 
-def _complete_oauth_integration(
-    body: object,
-    principal: tuple[str, str | None],
-) -> dict[str, object]:
-    if not isinstance(body, dict) or set(body) != {"state", "code", "session_binding"}:
-        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth callback is invalid")
+def _callback_binding(body: dict[str, object]) -> tuple[integration_pkce.OAuthCallbackBinding, str, str]:
     try:
-        completion = runtime_state._oauth_integrations.complete(
-            body["state"],
-            body["code"],
-            body["session_binding"],
-            _current_integration_declaration,
+        binding = runtime_state._integration_pkce.inspect_callback(
+            state=body["state"],
+            session_binding=body["session_binding"],
+        )
+    except integration_pkce.OAuthChallengeNotFoundError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "Assistant integration request expired; retry",
+        ) from exc
+    except integration_pkce.OAuthChallengeError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.BAD_GATEWAY,
+            "Assistant integration could not be completed",
+        ) from exc
+    resource = binding.resource_binding
+    if not isinstance(resource, tuple) or len(resource) != 2:
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "OAuth Team authority is unavailable")
+    owner, container_id = resource
+    if not isinstance(owner, str) or not owner or not isinstance(container_id, str) or not container_id:
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "OAuth Team authority is unavailable")
+    return binding, owner, container_id
+
+
+def _compensate_oauth_completion(completion: integration_service.OAuthIntegrationCompletion, owner: str) -> None:
+    try:
+        runtime_state._oauth_integrations.disconnect(
+            completion.team_id,
+            completion.assistant_id,
+            completion.integration_id,
         )
     except integration_service.OAuthIntegrationServiceError as exc:
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant integration could not be completed") from exc
-    try:
-        hosted_resources._authorize(completion.team_id, principal)
-    except Exception:
-        with contextlib.suppress(integration_service.OAuthIntegrationServiceError):
-            runtime_state._oauth_integrations.disconnect(
-                completion.team_id,
-                completion.assistant_id,
-                completion.integration_id,
+        audit.log(
+            "oauth_completion_compensate",
+            completion.team_id,
+            result="error",
+            principal_id="admin",
+            principal_class="machine",
+            owner_account_id=owner,
+            reason=type(exc).__name__,
+        )
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant integration cleanup is incomplete",
+        ) from exc
+    audit.log(
+        "oauth_completion_compensate",
+        completion.team_id,
+        result="ok",
+        principal_id="admin",
+        principal_class="machine",
+        owner_account_id=owner,
+    )
+
+
+def _completion_matches(
+    binding: integration_pkce.OAuthCallbackBinding,
+    completion: integration_service.OAuthIntegrationCompletion,
+) -> bool:
+    return (
+        completion.team_id == binding.team_id
+        and completion.assistant_id == binding.assistant_id
+        and completion.integration_id == binding.integration_id
+        and completion.resource_binding == binding.resource_binding
+    )
+
+
+def _complete_oauth_integration(
+    body: object,
+) -> tuple[dict[str, object], str]:
+    if not isinstance(body, dict) or set(body) != {"state", "code", "session_binding"}:
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth callback is invalid")
+    binding, owner, container_id = _callback_binding(body)
+    with runtime_state._lock_for(binding.team_id):
+        if hosted_resources._cleanup_record(binding.team_id) is not None:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "OAuth Team teardown is pending")
+        lease = hosted_resources._authorize(binding.team_id, ("account", owner))
+        if lease.owner != owner or lease.container_id != container_id:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "OAuth Team authority changed")
+        try:
+            completion = runtime_state._oauth_integrations.complete(
+                body["state"],
+                body["code"],
+                body["session_binding"],
+                _current_integration_declaration,
             )
-        raise
-    pending = runtime_state._integration_challenges.current(completion.team_id)
-    return {
+        except integration_service.OAuthIntegrationServiceError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.BAD_GATEWAY,
+                "Assistant integration could not be completed",
+            ) from exc
+        if not _completion_matches(binding, completion):
+            _compensate_oauth_completion(completion, owner)
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "OAuth Team authority changed")
+        pending = runtime_state._integration_challenges.current(completion.team_id)
+    response = {
         "connected": True,
         "team_id": completion.team_id,
         "assistant_id": completion.assistant_id,
@@ -166,6 +241,7 @@ def _complete_oauth_integration(
         "scopes": list(completion.scopes),
         "challenge_id": pending.id if pending is not None else None,
     }
+    return response, owner
 
 
 @runtime_state._serialize_against_team_chat
@@ -304,7 +380,6 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
                 runtime_state._cancelled_chat_tokens.add(token)
         power_stopped = _stop_active_power(team_id, token)
     accepted = token is not None or integration_cancelled
-    audit.log("chat_stop", team_id, result="ok" if accepted else "denied")
     return {
         "team_id": team_id,
         "requested": accepted,

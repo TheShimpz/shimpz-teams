@@ -230,4 +230,4 @@ def finish(record: Record) -> None:
 
 def principal_authorized(record: Record, principal: tuple[str, str | None]) -> bool:
     kind, account_id = principal
-    return kind == "operator" or (kind == "account" and account_id == record.owner)
+    return kind == "supervisor" or (kind == "account" and account_id == record.owner)

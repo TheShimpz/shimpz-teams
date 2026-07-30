@@ -44,7 +44,7 @@ def _positive_int_env(name: str, default: int) -> int:
 
 LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 # The host has 125 GiB and each Team has a 2 GiB hard ceiling. The default leaves roughly half the
-# host for the platform, installed apps, and Docker overhead; operators may lower these quotas.
+# host for the platform, installed Assistants, and Docker overhead; Supervisors may lower these quotas.
 MAX_TEAMS = _positive_int_env("SHIMPZ_MAX_TEAMS", 32)
 MAX_TEAMS_PER_OWNER = _positive_int_env("SHIMPZ_MAX_TEAMS_PER_OWNER", 1)
 MAX_ASSISTANTS_PER_TEAM = _positive_int_env("SHIMPZ_MAX_ASSISTANTS_PER_TEAM", 20)
@@ -220,7 +220,7 @@ _file_upload_slots = threading.BoundedSemaphore(2)
 
 def _rate_key(principal: tuple[str, str | None]) -> str:
     kind, account_id = principal
-    return f"{kind}:{account_id or 'operator'}"
+    return f"{kind}:{account_id or 'absent'}"
 
 
 def _enforce_rate(operation: str, principal: tuple[str, str | None]) -> None:

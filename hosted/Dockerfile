@@ -43,6 +43,7 @@ ARG SHIMPZ_TEAM_TOKEN_GID=10010
 ARG SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID=10004
 ARG SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID=10012
 ARG SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID=10013
+ARG SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID=10019
 # Controller-owned token shared read-only with the isolated Brain runtime.
 ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016
 ARG SHIMPZ_APP_EGRESS_POLICY_GID=10017
@@ -75,10 +76,11 @@ RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID}" shimpzpostgresql-token \
     && groupadd -g "${SHIMPZ_BRAINCRED_UNSEAL_TOKEN_GID}" shimpzbraincred-unseal-token \
     && groupadd -g "${SHIMPZ_ACCOUNTS_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
+    && groupadd -g "${SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID}" shimpzaccount-team-authority \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
     && groupadd -g "${SHIMPZ_APP_EGRESS_POLICY_GID}" shimpzapp-egress-policy \
     && useradd -u 10001 -g dockersock \
-        -G shimpzteam-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzbrain-runtime-token,shimpzapp-egress-policy \
+        -G shimpzteam-token,shimpzpostgresql-token,shimpzbraincred-unseal-token,shimpzbrain-resolve,shimpzaccount-team-authority,shimpzbrain-runtime-token,shimpzapp-egress-policy \
         -M -s /usr/sbin/nologin shimpzteam
 
 WORKDIR /app
@@ -99,7 +101,7 @@ COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant
 COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/segment.py ./hosted/chat/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
-     hosted/install/publication.py \
+     hosted/install/http.py hosted/install/publication.py \
      ./hosted/install/
 COPY hosted/http/__init__.py hosted/http/routes.py hosted/http/server.py ./hosted/http/
 COPY hosted/team/__init__.py hosted/team/lifecycle.py hosted/team/postgresql.py \
@@ -116,6 +118,13 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
      protocol/install/v1/resolve-response.schema.json protocol/install/v1/schema_validator.py \
      protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
      protocol/install/v1/verify.py ./protocol/install/v1/
+COPY protocol/account/authority/upstream.json ./protocol/account/authority/
+COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contract-files.sha256 \
+     protocol/account/authority/v1/evaluation-request.schema.json \
+     protocol/account/authority/v1/evaluation-response.schema.json \
+     protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
+     ./protocol/account/authority/v1/
+COPY protocol/http/v1/payload.py ./protocol/http/v1/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
@@ -142,11 +151,14 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
         /app-egress-policy /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
+        /run/shimpz-account-team-authority \
         /run/shimpz-brain-runtime \
     && chown shimpzteam:shimpzteam-token /run/shimpz-team && chmod 750 /run/shimpz-team \
     && chown shimpzteam:shimpzbraincred-unseal-token /run/shimpz-braincred-unseal \
     && chown shimpzteam:shimpzbrain-resolve /run/shimpz-accounts-brain-resolve \
+    && chown shimpzteam:shimpzaccount-team-authority /run/shimpz-account-team-authority \
     && chmod 0750 /run/shimpz-braincred-unseal /run/shimpz-accounts-brain-resolve \
+        /run/shimpz-account-team-authority \
     && chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
     && chmod 0750 /run/shimpz-brain-runtime \
     && chown -R shimpzteam:dockersock /var/log/team /var/lib/team \

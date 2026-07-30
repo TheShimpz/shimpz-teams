@@ -730,7 +730,7 @@ def _teardown_team_network_kind(team_id: str, kind: str) -> bool:
     except docker.errors.DockerException:
         return False
         # A same-name foreign network is not ours to mutate. Reuse rejects it, and teardown leaves it for
-        # an operator instead of disconnecting unrelated containers based on a name alone.
+        # a Supervisor instead of disconnecting unrelated containers based on a name alone.
     if not network_policy.network_identity_valid(network.attrs, team_id, kind):
         return False
     cleanup_complete = True
@@ -811,12 +811,24 @@ def _cleanup_record(team_id: str) -> cleanup_state.Record | None:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team cleanup state is unavailable") from exc
 
 
+def _principal(team_id: str, principal: object) -> tuple[str, str]:
+    if (
+        not isinstance(principal, tuple)
+        or len(principal) != 2
+        or principal[0] not in {"account", "supervisor"}
+        or not isinstance(principal[1], str)
+        or not principal[1]
+    ):
+        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
+    return principal
+
+
 def _authorize_container(team_id: str, principal: tuple[str, str | None], container) -> _AuthorizationLease:
     if not network_policy.brain_identity_valid(container.attrs, team_id):
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     owner = str(container.labels.get("team.owner", ""))
-    kind, account_id = principal
-    if kind != "operator" and owner != account_id:
+    kind, account_id = _principal(team_id, principal)
+    if kind != "supervisor" and owner != account_id:
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     return _AuthorizationLease(
         team_id=team_id,
@@ -827,7 +839,7 @@ def _authorize_container(team_id: str, principal: tuple[str, str | None], contai
 
 
 def _authorize(team_id: str, principal: tuple[str, str | None]) -> _AuthorizationLease:
-    """Operator may touch any team; an account may only touch a team it owns.
+    """Supervisor may touch any Team; an Account may only touch a Team it owns.
 
     This first pass returns an identity lease. Every sensitive operation must revalidate it only after
     acquiring its lifecycle/chat lock: authorization that waited behind destroy/recreate is never
@@ -841,6 +853,7 @@ def _authorize(team_id: str, principal: tuple[str, str | None]) -> _Authorizatio
 
 def _authorize_destroy(team_id: str, principal: tuple[str, str | None]) -> _AuthorizationLease:
     """Authorize against the Brain, or its durable non-runnable cleanup successor."""
+    _principal(team_id, principal)
     container = _get_container(container_spec.team_container_name(team_id))
     if container is not None:
         return _authorize_container(team_id, principal, container)
@@ -890,11 +903,11 @@ def _require_current_authorization(
         or container.id != lease.container_id
         or str(container.labels.get("team.owner", "")) != lease.owner
     ):
-        # Accounts must not learn that a different tenant recreated this name. Operators receive the
+        # Accounts must not learn that a different tenant recreated this name. Supervisors receive the
         # same retry-safe 404 contract instead of accidentally mutating an object they never selected.
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
-    kind, account_id = lease.principal
-    if kind != "operator" and lease.owner != account_id:
+    kind, account_id = _principal(team_id, lease.principal)
+    if kind != "supervisor" and lease.owner != account_id:
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
     if not allow_pending_cleanup and _cleanup_record(team_id) is not None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"team {team_id!r} has an incomplete teardown; retry destroy")

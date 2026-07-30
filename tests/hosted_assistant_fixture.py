@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import sys
 import types
 from pathlib import Path
@@ -110,7 +112,54 @@ class _PostgreSQLServiceError(Exception):
     pass
 
 
-_stub("hosted.authority", verify=lambda _token: None)
+class _AuthorityDeniedError(RuntimeError):
+    pass
+
+
+class _AuthorityUnavailableError(RuntimeError):
+    pass
+
+
+def _authority_session_token(value):
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 2048
+        or not value.isascii()
+        or any(not 0x20 <= ord(character) <= 0x7E for character in value)
+    ):
+        raise _AuthorityDeniedError
+    return value
+
+
+class _AuthorityEvaluation:
+    def __init__(self, account_id, supervisor, binding_digest, owner_account_id) -> None:
+        self.account_id = account_id
+        self.supervisor = supervisor
+        self.binding_digest = binding_digest
+        self.owner_account_id = owner_account_id
+
+    @property
+    def principal(self):
+        return ("supervisor" if self.supervisor else "account", self.account_id)
+
+
+_stub(
+    "hosted.authority",
+    EMPTY_SHA256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    AuthorityDeniedError=_AuthorityDeniedError,
+    AuthorityUnavailableError=_AuthorityUnavailableError,
+    Evaluation=_AuthorityEvaluation,
+    session_token=_authority_session_token,
+    binding_digest=lambda binding: hashlib.sha256(
+        json.dumps(
+            binding,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest(),
+    evaluate=lambda *_args: None,
+)
 _stub("hosted.audit", log=lambda *_args, **_kwargs: "trace")
 _stub(
     "inference.credentials",
@@ -126,7 +175,7 @@ _stub(
     drop_team=lambda *_args: {},
     finalize_team_drop=lambda *_args: {},
 )
-_stub("hosted.token", ensure_token=lambda: "operator-token")
+_stub("hosted.token", ensure_token=lambda: "team-machine-token")
 
 spec = importlib.util.spec_from_file_location("team_assistant_hosted_test", TEAM / "hosted" / "app.py")
 app = importlib.util.module_from_spec(spec)
@@ -142,6 +191,7 @@ hosted_assistants = sys.modules["hosted.assistant.runtime"]
 hosted_chat_api = sys.modules["hosted.chat.api"]
 hosted_chat_segment = sys.modules["hosted.chat.segment"]
 hosted_controller = sys.modules["hosted.http.server"]
+hosted_developers_http = sys.modules["hosted.install.http"]
 
 from local_assistant_fixture import hosted_spec as _hosted_spec
 

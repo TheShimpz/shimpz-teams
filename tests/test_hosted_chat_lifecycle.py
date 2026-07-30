@@ -207,6 +207,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
     def test_hosted_stream_emits_the_exact_v2_done_shape(self) -> None:
         class StreamHarness:
+            _audit_security = app.Handler._audit_security
+
             def __init__(self) -> None:
                 self.status = None
                 self.headers: list[tuple[str, str]] = []

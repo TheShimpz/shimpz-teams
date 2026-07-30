@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import functools
+import hashlib
 import json
 import re
 import threading
-import time
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,23 +26,29 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import api as hosted_chat_api
 from hosted.chat import segment as hosted_chat_segment
 from hosted.http import routes as hosted
-from hosted.install import (
-    developers_client,
-    developers_delegation,
-    publication,
-)
+from hosted.install import developers_client, publication
+from hosted.install import http as developers_http
 from hosted.team import lifecycle as hosted_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants
-from install import contract as install_contract
+from protocol.http.v1 import payload as team_http_contract
 
-_DEVELOPERS_TEAMS_PATH = "/internal/v1/developers/teams"
-_DEVELOPERS_INSTALL_PATH = "/internal/v1/developers/install"
-_INSTALL_AUTHORIZATION_CLOCK_SKEW_SECONDS = 5
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_CONTROLLER_CONTRACTS = install_contract.ContractValidator()
+_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
+_CHALLENGE_ID = re.compile(r"^[0-9a-f]{32}$")
+_FILE_ID = re.compile(r"^[0-9a-f]{32}$")
+_JSON_BODY_LIMITS = {
+    "assistant-install": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
+    "assistant-integration-authorize": runtime_state.MAX_JSON_BODY_BYTES,
+    "assistant-integration-complete": runtime_state.MAX_JSON_BODY_BYTES,
+    "chat": runtime_state.MAX_JSON_BODY_BYTES,
+    "chat-integration-submit": runtime_state.MAX_JSON_BODY_BYTES,
+    "chat-stream": runtime_state.MAX_JSON_BODY_BYTES,
+    "inference-configure": runtime_state.MAX_JSON_BODY_BYTES,
+    "team-create": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,35 +92,11 @@ class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self._request_slots.release()
 
 
-def _install_authorization_matches(receipt: dict, expected: dict, now: int) -> bool:
-    return (
-        all(receipt.get(key) == value for key, value in expected.items())
-        and receipt["issued_at"] <= now + _INSTALL_AUTHORIZATION_CLOCK_SKEW_SECONDS
-        and now <= receipt["expires_at"]
-    )
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "team/1.0"
 
     def log_message(self, *_args) -> None:  # audit.log is the ONLY log source
         pass
-
-    def _principal(self) -> tuple[str, str | None] | None:
-        """('operator', None) for the admin bearer; ('account', <id>) for a valid account token; else None.
-
-        The operator token (the admin panel) has full access. A store-forwarded account token is verified
-        against the accounts service and scopes every op to that account's OWN teams — the store holds
-        no privileged secret, Team is the enforcer.
-        """
-        if strict_http.bearer_matches(self.headers, runtime_state._token):
-            return ("operator", None)
-        account_token = self.headers.get("X-Shimpz-Account", "")
-        if account_token:
-            account_id = accounts_client.verify(account_token)
-            if account_id:
-                return ("account", account_id)
-        return None
 
     def _send_json(self, status: HTTPStatus, payload: dict, *, no_store: bool = False) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode()
@@ -197,7 +179,7 @@ class Handler(BaseHTTPRequestHandler):
                 with contextlib.suppress(OSError):
                     self.wfile.write(b"0\r\n\r\n")
                     self.wfile.flush()
-        audit.log(
+        self._audit_security(
             "chat",
             team_id,
             result="ok" if terminal["type"] in {"done", "integrations-required"} else "error",
@@ -207,24 +189,58 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _read_body(self, *, max_bytes: int | None = None) -> dict:
-        try:
-            return strict_http.read_json_object(
-                self.headers,
-                self.rfile,
-                max_bytes=runtime_state.MAX_JSON_BODY_BYTES if max_bytes is None else max_bytes,
-            )
-        except strict_http.HttpContractError as exc:
-            raise runtime_state.ApiError(exc.status, exc.message) from exc
+        raw = getattr(self, "_captured_json_raw", None)
+        body = getattr(self, "_captured_json_body", None)
+        limit = runtime_state.MAX_JSON_BODY_BYTES if max_bytes is None else max_bytes
+        if not isinstance(raw, bytes) or not isinstance(body, dict) or len(raw) > limit:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "request body is unavailable")
+        return body
 
     def _read_file_body(self) -> tuple[str, bytes, str]:
+        metadata = getattr(self, "_captured_file_metadata", None)
+        if not isinstance(metadata, strict_http.FileUploadMetadata):
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "file upload metadata is unavailable")
         try:
-            return strict_http.read_file_upload(
-                self.headers,
-                self.rfile,
-                max_bytes=hosted_assistants.MAX_FILE_BODY_BYTES,
-            )
+            content = strict_http.read_file_content(self.rfile, metadata)
         except strict_http.HttpContractError as exc:
             raise runtime_state.ApiError(exc.status, exc.message) from exc
+        return metadata.filename, content, metadata.media_type
+
+    def _capture_body(self, operation: str) -> dict[str, object]:
+        self._captured_json_raw = None
+        self._captured_json_body = None
+        self._captured_file_metadata = None
+        try:
+            if operation == "file-upload":
+                metadata = strict_http.file_upload_metadata(
+                    self.headers,
+                    max_bytes=hosted_assistants.MAX_FILE_BODY_BYTES,
+                )
+                self._captured_file_metadata = metadata
+                return {
+                    "kind": "file",
+                    "length": metadata.length,
+                    "filename": metadata.filename,
+                    "media_type": metadata.media_type,
+                }
+            limit = _JSON_BODY_LIMITS.get(operation)
+            if limit is not None:
+                raw, body = strict_http.read_json_document(self.headers, self.rfile, max_bytes=limit)
+                self._captured_json_raw = raw
+                self._captured_json_body = body
+                return {
+                    "kind": "json",
+                    "length": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            strict_http.reject_body(self.headers)
+        except strict_http.HttpContractError as exc:
+            raise runtime_state.ApiError(exc.status, exc.message) from exc
+        return {
+            "kind": "none",
+            "length": 0,
+            "sha256": accounts_client.EMPTY_SHA256,
+        }
 
     def _read_team_body(self, keys: set[str]) -> dict[str, object]:
         """Read one closed Team mutation document; arbitrary scripts/shapes never cross the bridge."""
@@ -246,19 +262,20 @@ class Handler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def _dispatch(self, method: str) -> None:
-        if self.path in {_DEVELOPERS_TEAMS_PATH, _DEVELOPERS_INSTALL_PATH}:
-            self._dispatch_developers(method)
-            return
-        principal = self._principal()
-        if principal is None:
-            if self.client_address[0] == "127.0.0.1":
-                audit.log("auth", self.path, result="denied", level="info", source="loopback-probe")
-            else:
-                audit.log("auth", self.path, result="denied")
-            self._send_json(HTTPStatus.FORBIDDEN, {"error": "invalid or missing credentials"})
+        if developers_http.is_path(self.path):
+            developers_http.dispatch(
+                developers_http.RequestIO(
+                    self.headers,
+                    self.path,
+                    self._capture_body,
+                    self._read_team_body,
+                    self._send_json,
+                ),
+                method,
+            )
             return
         stdlib.dispatch(
-            lambda: self._route(method, principal),
+            lambda: self._dispatch_resolved(method),
             classify=lambda exc: hosted.classify_failure(
                 exc,
                 runtime_state.ApiError,
@@ -269,44 +286,136 @@ class Handler(BaseHTTPRequestHandler):
             unexpected_message="internal Team error",
         )
 
-    def _dispatch_developers(self, method: str) -> None:
-        try:
-            if method == "GET" and self.path == _DEVELOPERS_TEAMS_PATH:
-                self._route_developers_teams()
-                return
-            if method == "POST" and self.path == _DEVELOPERS_INSTALL_PATH:
-                self._route_developers_install()
-                return
-            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "operation not found")
-        except developers_delegation.DevelopersDelegationError:
-            self._send_json(HTTPStatus.FORBIDDEN, {"error": "invalid Developers delegation"})
-        except developers_client.AssistantNotInstallableError:
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "Assistant is not installable"})
-        except developers_client.InstallAuthorizationDeniedError:
-            self._send_json(HTTPStatus.CONFLICT, {"error": "Assistant installation is no longer authorized"})
-        except developers_client.DevelopersClientError:
-            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Developers is unavailable"})
-        except artifact_trust.ArtifactTrustError:
-            self._send_json(HTTPStatus.CONFLICT, {"error": "Assistant artifact trust failed"})
-        except runtime_state.ApiError as exc:
-            self._send_json(exc.status, {"error": exc.message})
-        except docker.errors.DockerException, OSError:
-            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Controller dependency is unavailable"})
-        except install_contract.ContractValidationError, dynamic_assistants.DynamicAssistantError:
-            self._send_json(HTTPStatus.BAD_REQUEST, {"error": "installation request is invalid"})
+    def _validated_params(self, route: strict_http.ControllerRouteMatch) -> dict[str, str]:
+        params = dict(route.params)
+        if "team_id" in params:
+            team_id = validate.validate_team_id(params["team_id"])
+            if team_id != params["team_id"]:
+                raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "Team id must be canonical")
+            params["team_id"] = team_id
+        for field in ("assistant_id", "integration_id"):
+            if field in params:
+                params[field] = assistant_registry.validate_assistant_id(params[field])
+        if "challenge_id" in params and _CHALLENGE_ID.fullmatch(params["challenge_id"]) is None:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "OAuth challenge id is invalid")
+        if "file_id" in params and _FILE_ID.fullmatch(params["file_id"]) is None:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "file id is invalid")
+        return params
 
-    def _developers_dependencies(self):
-        dependencies = (
-            runtime_state._developers_delegation,
-            runtime_state._developers_client,
-            runtime_state._artifact_trust,
-        )
-        if any(dependency is None for dependency in dependencies):
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Developers integration is unavailable",
+    @staticmethod
+    def _validated_query(operation: str, query: dict[str, str]) -> dict[str, str]:
+        if operation != "team-logs":
+            if query:
+                raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "query is not accepted for this operation")
+            return {}
+        if set(query) - {"lines"}:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "Team logs query is invalid")
+        lines = query.get("lines")
+        if lines is not None and (not lines.isascii() or not lines.isdecimal() or not 1 <= int(lines) <= 1000):
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "Team logs line count is invalid")
+        return dict(query)
+
+    def _owner_target(self, operation: str) -> str | None:
+        if operation != "team-create":
+            return None
+        body = self._read_body(max_bytes=runtime_state.MAX_TEAM_JSON_BODY_BYTES)
+        if set(body) - {"team_name", "provider", "model", "owner_account_id"}:
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team creation request is invalid")
+        owner = body.get("owner_account_id")
+        if owner is not None and (not isinstance(owner, str) or _ACCOUNT_ID.fullmatch(owner) is None):
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team Owner Account is invalid")
+        return owner
+
+    def _account_session(self) -> str:
+        self._audit_credential_state = "credential_absent_or_malformed"
+        values = self.headers.get_all(team_http_contract.ACCOUNT_SESSION_HEADER, failobj=[])
+        if len(values) != 1:
+            raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials")
+        try:
+            value = accounts_client.session_token(values[0])
+        except accounts_client.AuthorityDeniedError as exc:
+            raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
+        self._audit_credential_state = "credential_present"
+        return value
+
+    def _human_authority(
+        self,
+        session_token: str,
+        method: str,
+        route: strict_http.ControllerRouteMatch,
+        params: dict[str, str],
+        query: dict[str, str],
+        body_binding: dict[str, object],
+    ) -> accounts_client.Evaluation:
+        binding: dict[str, object] = {
+            "method": method,
+            "operation": route.operation,
+            "params": params,
+            "query": query,
+            "body": body_binding,
+        }
+        owner = self._owner_target(route.operation)
+        if owner is not None:
+            binding["owner_account_id"] = owner
+        target = params.get("team_id", route.operation)
+        binding_digest: str | None = None
+        try:
+            binding_digest = accounts_client.binding_digest(binding)
+            evaluation = accounts_client.evaluate(session_token, binding)
+        except accounts_client.AuthorityDeniedError as exc:
+            self._audit_credential_state = "credential_rejected"
+            self._audit_trace_id = audit.log(
+                "human_authority",
+                target,
+                result="denied",
+                principal_id=None,
+                principal_class="absent",
+                credential_state=self._audit_credential_state,
+                operation=route.operation,
+                **({"binding_digest": binding_digest} if binding_digest is not None else {}),
             )
-        return dependencies
+            raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
+        except accounts_client.AuthorityUnavailableError as exc:
+            self._audit_trace_id = audit.log(
+                "human_authority",
+                target,
+                result="error",
+                principal_id=None,
+                principal_class="absent",
+                credential_state=self._audit_credential_state,
+                operation=route.operation,
+                **({"binding_digest": binding_digest} if binding_digest is not None else {}),
+            )
+            raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Account authority is unavailable") from exc
+        self._audit_account_id = evaluation.account_id
+        self._audit_supervisor = evaluation.supervisor
+        self._audit_trace_id = audit.log(
+            "human_authority",
+            target,
+            result="ok",
+            principal_id=evaluation.account_id,
+            principal_class="human",
+            supervisor=evaluation.supervisor,
+            operation=route.operation,
+            binding_digest=evaluation.binding_digest,
+        )
+        return evaluation
+
+    def _dispatch_resolved(self, method: str) -> None:
+        _target, route = hosted.route_target(self.headers, self.path, method, runtime_state.ApiError)
+        params = self._validated_params(route)
+        query = self._validated_query(route.operation, _target.query)
+        if route.operation == "assistant-integration-complete":
+            if not strict_http.bearer_matches(self.headers, runtime_state._token):
+                raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials")
+            self._audit_machine_principal = "admin"
+            self._capture_body(route.operation)
+            self._route_assistant_integration_complete()
+            return
+        session_token = self._account_session()
+        body_binding = self._capture_body(route.operation)
+        evaluation = self._human_authority(session_token, method, route, params, query, body_binding)
+        self._route(route, params, query, evaluation)
 
     def _publication_dependencies(self):
         dependencies = (
@@ -320,140 +429,121 @@ class Handler(BaseHTTPRequestHandler):
             )
         return dependencies
 
-    def _route_developers_teams(self) -> None:
-        try:
-            strict_http.reject_body(self.headers)
-        except strict_http.HttpContractError as exc:
-            raise runtime_state.ApiError(exc.status, exc.message) from exc
-        delegation, _client, _trust = self._developers_dependencies()
-        claims = delegation.verify(self.headers, action="teams:list")
-        listing = hosted_lifecycle._list(owner=claims["account_id"])
-        response = {
-            "version": 1,
-            "teams": [{"id": team["team_id"], "name": team["team_name"]} for team in listing["teams"]],
-        }
-        _CONTROLLER_CONTRACTS.validate("team-list-response.schema.json", response)
-        self._send_json(HTTPStatus.OK, response, no_store=True)
-
-    def _route_developers_install(self) -> None:
-        body = self._read_team_body({"version", "team_id", "source_digest", "request_id", "idempotency_key"})
-        _CONTROLLER_CONTRACTS.validate("install-request.schema.json", body)
-        delegation, client, trust = self._developers_dependencies()
-        claims = delegation.verify(
-            self.headers,
-            action="assistant:install",
-            request=body,
-        )
-        principal = ("account", claims["account_id"])
-        runtime_state._enforce_rate("install", principal)
-        lease = hosted_resources._authorize(body["team_id"], principal)
-        resolution = client.resolve(body["source_digest"])
-        trust.verify(resolution)
-        binding = dynamic_assistants.binding_from_resolution(body["team_id"], resolution)
-        # Pull outside the Team lifecycle lock; the in-lock install path re-resolves the same
-        # digest locally immediately before create, preserving the execution-boundary proof.
-        hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
-
-        def authorize_start() -> None:
-            request = {
-                "version": 1,
-                "account_id": claims["account_id"],
-                "team_id": body["team_id"],
-                "source_digest": body["source_digest"],
-                "oci_digest": resolution["oci_digest"],
-                "delegation_jti": claims["jti"],
-                "request_id": body["request_id"],
-                "idempotency_key": body["idempotency_key"],
-            }
-            receipt = client.authorize_install(request)
-            expected = {key: value for key, value in request.items() if key != "version"}
-            now = int(time.time())
-            if not _install_authorization_matches(receipt, expected, now):
-                raise developers_client.InstallAuthorizationDeniedError("installation authorization does not match")
-
-        installed = hosted_apps._install_assistant(
-            body["team_id"],
-            binding,
-            claims["account_id"],
-            lease,
-            authorize_start=authorize_start,
-        )
-        response = {
-            "version": 1,
-            "status": "installed",
-            "team_id": body["team_id"],
-            "assistant_id": binding.assistant_id,
-            "source_digest": installed["source_digest"],
-            "oci_digest": installed["oci_digest"],
-            "binding_digest": installed["binding_digest"],
-        }
-        _CONTROLLER_CONTRACTS.validate(
-            "install-response.schema.json",
-            response,
-        )
-        audit.log(
-            "developers_install",
-            body["team_id"],
-            result="ok",
-            assistant=binding.assistant_id,
-            source_digest=body["source_digest"],
-        )
-        self._send_json(HTTPStatus.OK, response, no_store=True)
-
     def _emit_failure(self, method: str, failure: stdlib.HttpFailure) -> None:
-        audit.log(method.lower(), self.path, result=failure.result, reason=failure.audit_reason)
+        self._audit_security(
+            method.lower(),
+            self.path,
+            result=failure.result,
+            reason=failure.audit_reason,
+        )
         self._send_json(failure.status, {"error": failure.public_message})
 
-    def _route(self, method: str, principal: tuple[str, str | None]) -> None:
-        target, route = hosted.route_target(self.headers, self.path, method, runtime_state.ApiError)
+    def _audit_security(self, operation: str, target: str, *, result: str, **extra: object) -> str:
+        principal: dict[str, object] = {}
+        machine_principal = getattr(self, "_audit_machine_principal", None)
+        account_id = getattr(self, "_audit_account_id", None)
+        supervisor = getattr(self, "_audit_supervisor", None)
+        if isinstance(machine_principal, str):
+            principal = {
+                "principal_id": machine_principal,
+                "principal_class": "machine",
+            }
+        elif isinstance(account_id, str) and isinstance(supervisor, bool):
+            principal = {
+                "principal_id": account_id,
+                "principal_class": "human",
+                "supervisor": supervisor,
+            }
+        else:
+            principal = {
+                "principal_id": None,
+                "principal_class": "absent",
+            }
+        credential_state = getattr(self, "_audit_credential_state", None)
+        if isinstance(credential_state, str):
+            principal["credential_state"] = credential_state
+        return audit.log(
+            operation,
+            target,
+            result=result,
+            trace_id=getattr(self, "_audit_trace_id", None),
+            **principal,
+            **extra,
+        )
+
+    def _route(
+        self,
+        route: strict_http.ControllerRouteMatch,
+        params: dict[str, str],
+        query: dict[str, str],
+        evaluation: accounts_client.Evaluation,
+    ) -> None:
+        principal = evaluation.principal
         global_handler = _GLOBAL_ROUTES.get(route.operation)
         if global_handler is not None:
             global_handler(self, principal)
             return
 
-        team_id = validate.validate_team_id(route.params["team_id"])
+        team_id = params["team_id"]
         preauthorized_handler = _PREAUTHORIZED_ROUTES.get(route.operation)
         if preauthorized_handler is not None:
-            preauthorized_handler(self, team_id, principal)
+            preauthorized_handler(self, team_id, principal, evaluation.owner_account_id)
             return
 
         lease = hosted_resources._authorize(team_id, principal)
-        request = _AuthorizedRequest(route.params, team_id, principal, lease, target.query)
+        request = _AuthorizedRequest(params, team_id, principal, lease, query)
         _AUTHORIZED_ROUTES[route.operation](self, request)
 
     def _route_team_list(self, principal: tuple[str, str | None]) -> None:
         kind, account_id = principal
         self._send_json(
             HTTPStatus.OK,
-            hosted_lifecycle._list(owner=account_id if kind == "account" else None),
+            hosted_lifecycle._list(owner=None if kind == "supervisor" else account_id),
         )
 
-    def _route_assistant_integration_complete(self, principal: tuple[str, str | None]) -> None:
-        result = hosted_chat_api._complete_oauth_integration(self._read_body(), principal)
-        audit.log(
+    def _route_assistant_integration_complete(self) -> None:
+        result, owner = hosted_chat_api._complete_oauth_integration(self._read_body())
+        self._audit_security(
             "assistant_integration_complete",
             result["team_id"],
             result="ok",
             assistant=result["assistant_id"],
-            account=result["account_id"],
             provider=result["provider"],
+            owner_account_id=owner,
         )
         self._send_json(HTTPStatus.OK, result, no_store=True)
 
-    def _route_team_create(self, team_id: str, principal: tuple[str, str | None]) -> None:
+    def _route_team_create(
+        self,
+        team_id: str,
+        principal: tuple[str, str | None],
+        owner_account_id: str | None,
+    ) -> None:
+        if owner_account_id is None:
+            raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Account Owner evidence is unavailable")
         runtime_state._enforce_rate("create", principal)
         body = self._read_body()
-        _kind, account_id = principal
-        owner = account_id or str(body.get("owner", "")).strip()
-        result = hosted_lifecycle._create(team_id, body, owner)
-        trace = audit.log("create", team_id, result="ok", created=result.get("created"), owner=owner)
+        lifecycle_body = {key: value for key, value in body.items() if key != "owner_account_id"}
+        result = hosted_lifecycle._create(team_id, lifecycle_body, owner_account_id)
+        trace = self._audit_security(
+            "create",
+            team_id,
+            result="ok",
+            created=result.get("created"),
+            owner=owner_account_id,
+        )
         self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
 
-    def _route_team_destroy(self, team_id: str, principal: tuple[str, str | None]) -> None:
+    def _route_team_destroy(
+        self,
+        team_id: str,
+        principal: tuple[str, str | None],
+        _owner_account_id: str | None,
+    ) -> None:
         # Destroy may authorize against a bounded non-runnable cleanup successor.
         lease = hosted_resources._authorize_destroy(team_id, principal)
         result = hosted_lifecycle._destroy(team_id, lease)
-        trace = audit.log("destroy", team_id, result="ok", db_dropped=result["db_dropped"])
+        trace = self._audit_security("destroy", team_id, result="ok", db_dropped=result["db_dropped"])
         self._send_json(HTTPStatus.OK, {**result, "trace_id": trace})
 
     def _route_assistant_integration_list(self, request: _AuthorizedRequest) -> None:
@@ -473,7 +563,7 @@ class Handler(BaseHTTPRequestHandler):
             body["session_binding"],
             request.lease,
         )
-        audit.log("assistant_integration_start", request.team_id, result="ok")
+        self._audit_security("assistant_integration_start", request.team_id, result="ok")
         self._send_json(HTTPStatus.OK, result, no_store=True)
 
     def _route_assistant_integration_disconnect(self, request: _AuthorizedRequest) -> None:
@@ -485,7 +575,7 @@ class Handler(BaseHTTPRequestHandler):
             integration_id,
             request.lease,
         )
-        audit.log(
+        self._audit_security(
             "assistant_integration_disconnect",
             request.team_id,
             result="ok",
@@ -507,7 +597,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_team_lifecycle(self, request: _AuthorizedRequest, *, operation: str) -> None:
         result = hosted_lifecycle._lifecycle(request.team_id, operation, request.lease)
-        audit.log(operation, request.team_id, result="ok")
+        self._audit_security(operation, request.team_id, result="ok")
         self._send_json(HTTPStatus.OK, result)
 
     def _route_file_list(self, request: _AuthorizedRequest) -> None:
@@ -534,7 +624,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         finally:
             runtime_state._file_upload_slots.release()
-        trace = audit.log(
+        trace = self._audit_security(
             "team_file_upload",
             request.team_id,
             result="ok",
@@ -549,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
             request.params["file_id"],
             request.lease,
         )
-        trace = audit.log(
+        trace = self._audit_security(
             "team_file_delete",
             request.team_id,
             result="ok",
@@ -565,14 +655,19 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _route_inference_configure(self, request: _AuthorizedRequest) -> None:
-        self._send_json(
-            HTTPStatus.OK,
-            hosted_lifecycle._configure_inference(
-                request.team_id,
-                self._read_body(),
-                request.lease,
-            ),
+        result = hosted_lifecycle._configure_inference(
+            request.team_id,
+            self._read_body(),
+            request.lease,
         )
+        self._audit_security(
+            "inference_configure",
+            request.team_id,
+            result="ok",
+            provider=result["provider"],
+            model=result["model"],
+        )
+        self._send_json(HTTPStatus.OK, result)
 
     def _route_chat_turn(
         self,
@@ -609,7 +704,7 @@ class Handler(BaseHTTPRequestHandler):
             assistant_ids,
             request.lease,
         )
-        audit.log(
+        self._audit_security(
             "chat",
             request.team_id,
             result="ok",
@@ -660,18 +755,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_chat_stop(self, request: _AuthorizedRequest) -> None:
         runtime_state._enforce_rate("stop", request.principal)
-        self._send_json(
-            HTTPStatus.OK,
-            hosted_chat_api._stop_chat(request.team_id, request.lease),
+        result = hosted_chat_api._stop_chat(request.team_id, request.lease)
+        self._audit_security(
+            "chat_stop",
+            request.team_id,
+            result="ok" if result["accepted"] else "denied",
         )
+        self._send_json(HTTPStatus.OK, result)
 
     def _route_assistant_install(self, request: _AuthorizedRequest) -> None:
-        kind, account_id = request.principal
-        if kind != "account" or account_id is None:
-            raise runtime_state.ApiError(
-                HTTPStatus.UNAUTHORIZED,
-                "Assistant publication installation requires a Shimpz Account",
-            )
         body = self._read_team_body({"assistant_id", "source_digest"})
         assistant_id = assistant_registry.validate_assistant_id(body["assistant_id"])
         source_digest = body["source_digest"]
@@ -699,7 +791,7 @@ class Handler(BaseHTTPRequestHandler):
             installed = hosted_apps._install_assistant(
                 request.team_id,
                 binding,
-                account_id,
+                request.lease.owner,
                 request.lease,
                 authorize_start=authorize_start,
             )
@@ -721,7 +813,7 @@ class Handler(BaseHTTPRequestHandler):
             "oci_digest": installed["oci_digest"],
             "binding_digest": installed["binding_digest"],
         }
-        trace = audit.log(
+        trace = self._audit_security(
             "assistant_install",
             request.team_id,
             result="ok",
@@ -754,7 +846,7 @@ class Handler(BaseHTTPRequestHandler):
             assistant_id,
             request.lease,
         )
-        trace = audit.log(
+        trace = self._audit_security(
             "assistant_uninstall",
             request.team_id,
             result="ok",
@@ -773,7 +865,6 @@ class Handler(BaseHTTPRequestHandler):
 
 _GLOBAL_ROUTES = {
     "team-list": Handler._route_team_list,
-    "assistant-integration-complete": Handler._route_assistant_integration_complete,
 }
 _PREAUTHORIZED_ROUTES = {
     "team-create": Handler._route_team_create,

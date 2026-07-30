@@ -57,6 +57,7 @@ class OAuthIntegrationCompletion:
     provider: str
     scopes: tuple[str, ...]
     generation: int
+    resource_binding: tuple[str, str] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +179,7 @@ def _authorization_url(
     build_url: Callable[..., str],
     pending: integration_challenges.PendingIntegrationChallenge,
     session_binding: object,
+    resource_binding: object,
 ) -> str:
     try:
         selected = _missing_candidate(pending, store)
@@ -188,6 +190,7 @@ def _authorization_url(
             integration_id=selected.integration_id,
             provider_id=selected.provider,
             scopes=selected.scopes,
+            resource_binding=resource_binding,
         )
         return build_url(
             provider_id=public.provider_id,
@@ -261,6 +264,7 @@ def _complete(
             provider=metadata.provider,
             scopes=metadata.scopes,
             generation=metadata.generation,
+            resource_binding=exchange.resource_binding,
         )
     except (
         integration_store.OAuthIntegrationStoreError,
@@ -360,6 +364,8 @@ class OAuthIntegrationService:
         self,
         pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
+        *,
+        resource_binding: object = None,
     ) -> str:
         """Create one trusted URL for the first deterministic missing integration."""
         client_id, _client_secret, redirect_uri = self._client_configuration()
@@ -368,7 +374,14 @@ class OAuthIntegrationService:
             client_id=client_id,
             redirect_uri=redirect_uri,
         )
-        return _authorization_url(self._challenge, self._store, build_url, pending, session_binding)
+        return _authorization_url(
+            self._challenge,
+            self._store,
+            build_url,
+            pending,
+            session_binding,
+            resource_binding,
+        )
 
     def complete(
         self,
@@ -451,6 +464,8 @@ class BrokeredOAuthIntegrationService:
         self,
         pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
+        *,
+        resource_binding: object = None,
     ) -> str:
         return _authorization_url(
             self._challenge,
@@ -458,6 +473,7 @@ class BrokeredOAuthIntegrationService:
             self._broker.authorization_url,
             pending,
             session_binding,
+            resource_binding,
         )
 
     def complete(

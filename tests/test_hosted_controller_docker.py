@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -18,12 +19,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 TEAM = Path(__file__).resolve().parents[1]
+ACCOUNT_A = "a" * 32
+ACCOUNT_B = "b" * 32
 
 from docker_harness import DockerHarnessMixin
 
 
 class _AccountsHandler(BaseHTTPRequestHandler):
-    sessions: ClassVar[dict[str, str]] = {"session-a": "account_a", "session-b": "account_b"}
+    sessions: ClassVar[dict[str, str]] = {"session-a": ACCOUNT_A, "session-b": ACCOUNT_B}
+    capability: ClassVar[str] = ""
 
     def log_message(self, *_args) -> None:
         return
@@ -31,14 +35,37 @@ class _AccountsHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         try:
-            token = json.loads(self.rfile.read(length))["token"]
-            account_id = self.sessions[token]
-        except KeyError, TypeError, json.JSONDecodeError:
+            request = json.loads(self.rfile.read(length))
+            session_token = request["session_token"]
+            binding = request["binding"]
+            account_id = self.sessions[session_token]
+            if (
+                self.path != "/v1/internal/authority/evaluate"
+                or self.headers.get("Authorization") != f"Bearer {self.capability}"
+                or request["version"] != 1
+                or not isinstance(binding, dict)
+            ):
+                raise ValueError
+            encoded_binding = json.dumps(
+                binding,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+                allow_nan=False,
+            ).encode()
+        except KeyError, TypeError, ValueError, json.JSONDecodeError:
             status = HTTPStatus.FORBIDDEN
             payload = {"error": "invalid session"}
         else:
             status = HTTPStatus.OK
-            payload = {"account_id": account_id}
+            payload = {
+                "version": 1,
+                "account_id": account_id,
+                "supervisor": False,
+                "binding_digest": hashlib.sha256(encoded_binding).hexdigest(),
+            }
+            if binding["operation"] == "team-create":
+                payload["owner_account_id"] = binding.get("owner_account_id", account_id)
         encoded = json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -70,6 +97,26 @@ def _developers_secrets(directory: Path) -> None:
     key_path = directory / "delegation-public.pem"
     key_path.write_bytes(public_key)
     key_path.chmod(0o444)
+
+
+def _cross_tenant_request(
+    base: str,
+    method: str,
+    path: str,
+) -> tuple[dict[str, object] | bytes | None, dict[str, str] | None]:
+    bodyless = path in {
+        f"{base}/stop",
+        f"{base}/start",
+        f"{base}/restart",
+        f"{base}/chat/stop",
+    }
+    body: dict[str, object] | bytes | None = {} if method in {"POST", "PUT"} and not bodyless else None
+    if method == "POST" and path == f"{base}/files":
+        return b"x", {
+            "Content-Type": "text/plain",
+            "X-Shimpz-Filename": "private.txt",
+        }
+    return body, None
 
 
 class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
@@ -119,10 +166,20 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
         developers_secrets = tempfile.TemporaryDirectory()
         developers_secrets_path = Path(developers_secrets.name)
         _developers_secrets(developers_secrets_path)
+        authority_secrets = tempfile.TemporaryDirectory()
+        authority_secrets_path = Path(authority_secrets.name)
+        authority_secrets_path.chmod(0o750)
+        authority_token = uuid.uuid4().hex + uuid.uuid4().hex
+        authority_token_path = authority_secrets_path / "token"
+        authority_token_path.write_text(authority_token, encoding="ascii")
+        authority_token_path.chmod(0o440)
+        _AccountsHandler.capability = authority_token
 
         try:
             self._run(
                 "build",
+                "--file",
+                "hosted/Dockerfile",
                 "--build-arg",
                 f"DOCKER_GID={socket_gid}",
                 "--tag",
@@ -149,7 +206,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                 "--label",
                 "team.name=Account A Team",
                 "--label",
-                "team.owner=account_a",
+                f"team.owner={ACCOUNT_A}",
                 "--label",
                 "team.brain=runtime",
                 "--label",
@@ -175,10 +232,14 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
                 "128",
                 "--group-add",
                 socket_gid,
+                "--group-add",
+                str(authority_token_path.stat().st_gid),
                 "--volume",
                 "/var/run/docker.sock:/var/run/docker.sock",
                 "--volume",
                 f"{developers_secrets_path}:/run/shimpz-developers-controller:ro",
+                "--volume",
+                f"{authority_secrets_path}:/run/shimpz-account-team-authority:ro",
                 "--env",
                 f"SHIMPZ_ACCOUNTS_URL=http://{bridge_gateway}:{accounts.server_port}",
                 "--publish",
@@ -189,7 +250,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
 
             owner_status, owner_team = self._api(port, "session-a", "GET", f"/v1/teams/{team_id}/status")
             self.assertEqual(owner_status, HTTPStatus.OK, owner_team)
-            self.assertEqual(owner_team["owner"], "account_a")
+            self.assertEqual(owner_team["owner"], ACCOUNT_A)
 
             other_status, other_teams = self._api(port, "session-b", "GET", "/v1/teams")
             self.assertEqual(other_status, HTTPStatus.OK)
@@ -198,12 +259,16 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
             base = f"/v1/teams/{team_id}"
             routes = (
                 ("DELETE", base),
+                ("POST", f"{base}/create"),
                 ("GET", f"{base}/status"),
                 ("GET", f"{base}/logs?lines=1"),
                 ("POST", f"{base}/stop"),
                 ("POST", f"{base}/start"),
                 ("POST", f"{base}/restart"),
                 ("GET", f"{base}/assistant-integrations"),
+                ("GET", f"{base}/assistants"),
+                ("POST", f"{base}/assistants"),
+                ("DELETE", f"{base}/assistants/shimpz-cloudflare"),
                 ("POST", f"{base}/assistant-integrations/challenges/{'a' * 32}/authorize"),
                 ("DELETE", f"{base}/assistant-integrations/shimpz-cloudflare/cloudflare"),
                 ("GET", f"{base}/inference"),
@@ -219,9 +284,16 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
             )
             expected = {"error": f"team {team_id!r} not found"}
             for method, path in routes:
-                body = {} if method in {"POST", "PUT"} else None
+                body, extra_headers = _cross_tenant_request(base, method, path)
                 with self.subTest(method=method, path=path):
-                    status, payload = self._api(port, "session-b", method, path, body)
+                    status, payload = self._api(
+                        port,
+                        "session-b",
+                        method,
+                        path,
+                        body,
+                        extra_headers=extra_headers,
+                    )
                     self.assertEqual(status, HTTPStatus.NOT_FOUND)
                     self.assertEqual(payload, expected)
         finally:
@@ -231,6 +303,7 @@ class HostedControllerDockerTests(DockerHarnessMixin, unittest.TestCase):
             self._remove("rm", "--force", controller, anchor)
             self._remove("image", "rm", "--force", image)
             developers_secrets.cleanup()
+            authority_secrets.cleanup()
 
 
 if __name__ == "__main__":
