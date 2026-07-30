@@ -4,11 +4,12 @@ from http import HTTPStatus
 from typing import NoReturn
 
 from assistant.spec import validate_power_payload
-from assistant_human import assistant_integration_flow, oauth_integration_store
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import flow as integration_flow
+from integrations import store as integration_store
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
 from local_support.errors import ApiProblemError as ApiProblem
@@ -147,15 +148,15 @@ def _require_chat_private_inputs(
     requirements: chat_turn_engine.SegmentRequirements,
 ) -> bool:
     try:
-        requirements.integrations = assistant_integration_flow.requirements_for_batch(
+        requirements.integrations = integration_flow.requirements_for_batch(
             team_id,
             bindings,
             requests,
             self.assistant_integrations,
         )
     except (
-        assistant_integration_flow.IntegrationFlowError,
-        oauth_integration_store.OAuthIntegrationStoreError,
+        integration_flow.IntegrationFlowError,
+        integration_store.OAuthIntegrationStoreError,
     ) as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

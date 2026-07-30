@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from assistant_human import oauth_providers
+from integrations import providers as integration_providers
 
 
 class OAuthProviderTests(unittest.TestCase):
     def test_cloudflare_provider_is_core_owned_and_uses_confidential_pkce(self) -> None:
-        provider = oauth_providers.resolve("cloudflare")
+        provider = integration_providers.resolve("cloudflare")
 
         self.assertEqual(provider.authorization_endpoint, "https://dash.cloudflare.com/oauth2/auth")
         self.assertEqual(provider.token_endpoint, "https://dash.cloudflare.com/oauth2/token")
@@ -19,12 +19,12 @@ class OAuthProviderTests(unittest.TestCase):
             provider.allowed_scopes,
             {"dns.read", "offline_access", "zone.read"},
         )
-        self.assertEqual(set(oauth_providers.PROVIDERS), {"cloudflare"})
+        self.assertEqual(set(integration_providers.PROVIDERS), {"cloudflare"})
         with self.assertRaises(TypeError):
-            oauth_providers.PROVIDERS["evil"] = provider
+            integration_providers.PROVIDERS["evil"] = provider
 
     def test_connection_scopes_are_canonical_and_limited_to_the_trusted_provider(self) -> None:
-        intent = oauth_providers.integration_intent(
+        intent = integration_providers.integration_intent(
             "cloudflare",
             ("zone.read", "offline_access", "dns.read"),
         )
@@ -42,14 +42,14 @@ class OAuthProviderTests(unittest.TestCase):
             ("cloudflare", ("zone.read", "zone.read")),
             ("cloudflare", ("dns.write",)),
             ("cloudflare", ("zone/read",)),
-            ("cloudflare", tuple("scope" for _ in range(oauth_providers.MAX_REQUESTED_SCOPES + 1))),
+            ("cloudflare", tuple("scope" for _ in range(integration_providers.MAX_REQUESTED_SCOPES + 1))),
         )
         for provider_id, scopes in invalid:
             with (
                 self.subTest(provider=provider_id, scopes=scopes),
-                self.assertRaises(oauth_providers.OAuthProviderError),
+                self.assertRaises(integration_providers.OAuthProviderError),
             ):
-                oauth_providers.integration_intent(provider_id, scopes)
+                integration_providers.integration_intent(provider_id, scopes)
 
 
 if __name__ == "__main__":

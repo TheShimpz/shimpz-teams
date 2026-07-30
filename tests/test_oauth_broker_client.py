@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
-from assistant_human import oauth_broker_client
+from integrations import broker as integration_broker
 
 SCOPES = ("dns.read", "offline_access", "zone.read")
 STATE = "s" * 43
@@ -20,7 +20,7 @@ class Transport:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
 
-    def request(self, **request) -> oauth_broker_client.BrokerHTTPResponse:
+    def request(self, **request) -> integration_broker.BrokerHTTPResponse:
         self.requests.append(request)
         operation = urlsplit(str(request["url"])).path.rsplit("/", 1)[-1]
         if operation == "revoke":
@@ -33,7 +33,7 @@ class Transport:
                 "scopes": list(SCOPES),
                 "broker_lease": LEASE,
             }
-        return oauth_broker_client.BrokerHTTPResponse(
+        return integration_broker.BrokerHTTPResponse(
             200,
             "application/json",
             json.dumps(payload, separators=(",", ":")).encode(),
@@ -43,7 +43,7 @@ class Transport:
 class OAuthBrokerClientTests(unittest.TestCase):
     def setUp(self) -> None:
         self.transport = Transport()
-        self.client = oauth_broker_client.OAuthBrokerClient(self.transport)
+        self.client = integration_broker.OAuthBrokerClient(self.transport)
 
     def test_start_url_is_fixed_and_contains_only_public_pkce_fields(self) -> None:
         url = self.client.authorization_url(
@@ -70,7 +70,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
         self.assertEqual(self.transport.requests, [])
 
     def test_hosted_callback_mode_is_named_and_closed(self) -> None:
-        client = oauth_broker_client.OAuthBrokerClient(self.transport, callback_mode="hosted")
+        client = integration_broker.OAuthBrokerClient(self.transport, callback_mode="hosted")
         url = client.authorization_url(
             provider_id="cloudflare",
             state=STATE,
@@ -78,8 +78,8 @@ class OAuthBrokerClientTests(unittest.TestCase):
             scopes=SCOPES,
         )
         self.assertEqual(parse_qs(urlsplit(url).query)["callback"], ["hosted"])
-        with self.assertRaises(oauth_broker_client.OAuthBrokerClientError):
-            oauth_broker_client.OAuthBrokerClient(self.transport, callback_mode="https://evil.example")
+        with self.assertRaises(integration_broker.OAuthBrokerClientError):
+            integration_broker.OAuthBrokerClient(self.transport, callback_mode="https://evil.example")
 
     def test_fixed_transport_uses_only_the_authenticated_broker_proxy(self) -> None:
         response = Mock(
@@ -91,8 +91,8 @@ class OAuthBrokerClientTests(unittest.TestCase):
         )
         connection = Mock(getresponse=Mock(return_value=response))
         token = "a" * 64
-        with patch.object(oauth_broker_client.http.client, "HTTPSConnection", return_value=connection) as connect:
-            transport = oauth_broker_client.FixedBrokerTransport(
+        with patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect:
+            transport = integration_broker.FixedBrokerTransport(
                 proxy_host="oauth-broker-proxy",
                 proxy_token=token,
             )
@@ -122,8 +122,8 @@ class OAuthBrokerClientTests(unittest.TestCase):
             {"proxy_host": "oauth-broker-proxy", "proxy_token": "short"},
         )
         for values in invalid:
-            with self.subTest(values=set(values)), self.assertRaises(oauth_broker_client.OAuthBrokerClientError):
-                oauth_broker_client.FixedBrokerTransport(**values)
+            with self.subTest(values=set(values)), self.assertRaises(integration_broker.OAuthBrokerClientError):
+                integration_broker.FixedBrokerTransport(**values)
 
     def test_claim_refresh_and_revoke_use_only_fixed_broker_operations(self) -> None:
         claimed = self.client.claim(
@@ -169,7 +169,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
         self.assertTrue(all(b"client_secret" not in request["body"] for request in self.transport.requests))
 
     def test_invalid_provider_and_response_shapes_fail_without_reflection(self) -> None:
-        with self.assertRaises(oauth_broker_client.OAuthBrokerClientError):
+        with self.assertRaises(integration_broker.OAuthBrokerClientError):
             self.client.authorization_url(
                 provider_id="https://evil.example",
                 state=STATE,
@@ -180,15 +180,15 @@ class OAuthBrokerClientTests(unittest.TestCase):
         private = "private-broker-response-123456789"
 
         class InvalidTransport:
-            def request(self, **_request) -> oauth_broker_client.BrokerHTTPResponse:
-                return oauth_broker_client.BrokerHTTPResponse(
+            def request(self, **_request) -> integration_broker.BrokerHTTPResponse:
+                return integration_broker.BrokerHTTPResponse(
                     200,
                     "application/json",
                     json.dumps({"unexpected": private}).encode(),
                 )
 
-        client = oauth_broker_client.OAuthBrokerClient(InvalidTransport())
-        with self.assertRaises(oauth_broker_client.OAuthBrokerClientError) as captured:
+        client = integration_broker.OAuthBrokerClient(InvalidTransport())
+        with self.assertRaises(integration_broker.OAuthBrokerClientError) as captured:
             client.claim(
                 provider_id="cloudflare",
                 claim=CLAIM,

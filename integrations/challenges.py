@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from assistant_human import challenge_store
+from integrations import challenge_store
 
 MAX_PENDING_CHALLENGES = challenge_store.MAX_PENDING_CHALLENGES
 DEFAULT_TTL_SECONDS = challenge_store.DEFAULT_TTL_SECONDS

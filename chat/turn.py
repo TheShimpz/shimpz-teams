@@ -6,14 +6,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import NoReturn
 
-from assistant_human import (
-    assistant_integration_challenges,
-    assistant_integration_flow,
-    oauth_integration_store,
-)
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import flow as integration_flow
+from integrations import store as integration_store
 from power import journal as power_journal
 
 CHAT_PAUSED_STATUSES = frozenset({"integrations-required"})
@@ -110,7 +108,7 @@ def admit_integration_resume(strategy: IntegrationResumeStrategy) -> Integration
     """Make integration challenge, identity, requirement and one-use decisions once for both twins."""
     try:
         challenge = strategy.store.get(strategy.team_id, strategy.challenge_id)
-    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
+    except integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise strategy.expired_error() from exc
     pending = challenge.payload
     if not strategy.pending_valid(pending):
@@ -121,19 +119,19 @@ def admit_integration_resume(strategy: IntegrationResumeStrategy) -> Integration
         strategy.cancel_extra()
         raise strategy.context_error()
     try:
-        missing = assistant_integration_flow.requirements_for_batch(
+        missing = integration_flow.requirements_for_batch(
             strategy.team_id,
             context.bindings,
             context.requests,
             strategy.integration_store,
         )
-    except (assistant_integration_flow.IntegrationFlowError, oauth_integration_store.OAuthIntegrationStoreError) as exc:
+    except (integration_flow.IntegrationFlowError, integration_store.OAuthIntegrationStoreError) as exc:
         raise strategy.contract_error() from exc
     if missing:
         return IntegrationResumeAdmission(None, strategy.challenge_response(challenge))
     try:
         claimed = strategy.store.claim(strategy.team_id, challenge.id)
-    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
+    except integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise strategy.expired_error() from exc
     if claimed is not challenge:
         raise strategy.expired_error()

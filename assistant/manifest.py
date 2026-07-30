@@ -19,8 +19,8 @@ from typing import Any
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
-from assistant_human import oauth_providers
 from core import strict_json
+from integrations import providers as integration_providers
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
 CONTRACT_PATH = "/opt/shimpz/shimpz.contract.json"
@@ -163,8 +163,8 @@ def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclar
     for integration_id, scopes in value.items():
         identifier = _identifier(integration_id, kind="integration", maximum=MAX_SECRET_ID_LENGTH)
         try:
-            intent = oauth_providers.integration_intent(identifier, scopes)
-        except oauth_providers.OAuthProviderError as exc:
+            intent = integration_providers.integration_intent(identifier, scopes)
+        except integration_providers.OAuthProviderError as exc:
             raise ManifestError("Assistant integration declaration is invalid") from exc
         declarations.append(
             IntegrationDeclaration(

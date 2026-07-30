@@ -22,6 +22,7 @@ PRODUCTION_PACKAGES = {
     "http_boundary",
     "inference",
     "install",
+    "integrations",
     "local",
     "local_support",
     "power",
@@ -29,12 +30,10 @@ PRODUCTION_PACKAGES = {
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
 HOSTED_PACKAGE_DATA = {
-    "assistant_human": set(),
     "inference": {"inference/model_catalog.json"},
     "install": set(),
 }
 LOCAL_PACKAGE_DATA = {
-    "assistant_human": HOSTED_PACKAGE_DATA["assistant_human"],
     "inference": HOSTED_PACKAGE_DATA["inference"],
     "install": set(),
 }

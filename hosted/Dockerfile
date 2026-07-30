@@ -92,14 +92,8 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
 COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py ./hosted/
 COPY validate.py manifests.py audit.py ./
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
-COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
-     assistant_human/assistant_integration_flow.py \
-     assistant_human/challenge_store.py assistant_human/hosted_assistants.py \
+COPY assistant_human/__init__.py assistant_human/hosted_assistants.py \
      assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
-     assistant_human/oauth_integration_service.py \
-     assistant_human/oauth_integration_store.py assistant_human/oauth_broker_client.py \
-     assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
-     assistant_human/oauth_providers.py assistant_human/private_state.py \
      ./assistant_human/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
@@ -132,6 +126,10 @@ COPY http_boundary/__init__.py http_boundary/hosted.py http_boundary/hosted_cont
      http_boundary/runtime_state.py ./http_boundary/
 COPY inference/__init__.py inference/client.py inference/config.py inference/credentials.py \
      inference/model_catalog.json inference/token.py ./inference/
+COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \
+     integrations/challenges.py integrations/flow.py integrations/http.py \
+     integrations/pkce.py integrations/private_state.py integrations/providers.py \
+     integrations/service.py integrations/store.py ./integrations/
 COPY power/__init__.py power/execution.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 

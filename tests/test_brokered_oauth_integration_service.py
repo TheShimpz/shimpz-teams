@@ -6,13 +6,11 @@ import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_broker_client,
-    oauth_integration_service,
-    oauth_integration_store,
-    oauth_pkce_challenges,
-)
+from integrations import broker as integration_broker
+from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
+from integrations import service as integration_service
+from integrations import store as integration_store
 
 SCOPES = ("dns.read", "offline_access", "zone.read")
 SESSION = "browser-session-private-123456789"
@@ -27,7 +25,7 @@ class Transport:
     def __init__(self) -> None:
         self.requests: list[dict[str, object]] = []
 
-    def request(self, **request) -> oauth_broker_client.BrokerHTTPResponse:
+    def request(self, **request) -> integration_broker.BrokerHTTPResponse:
         self.requests.append(request)
         operation = urlsplit(str(request["url"])).path.rsplit("/", 1)[-1]
         payload = (
@@ -41,21 +39,21 @@ class Transport:
                 "broker_lease": LEASE,
             }
         )
-        return oauth_broker_client.BrokerHTTPResponse(
+        return integration_broker.BrokerHTTPResponse(
             200,
             "application/json",
             json.dumps(payload, separators=(",", ":")).encode(),
         )
 
 
-def pending() -> assistant_integration_challenges.PendingIntegrationChallenge:
-    requirement = assistant_integration_challenges.IntegrationRequirement(
+def pending() -> integration_challenges.PendingIntegrationChallenge:
+    requirement = integration_challenges.IntegrationRequirement(
         assistant_id="shimpz-cloudflare",
         assistant_name="Shimpz Cloudflare",
         power_ids=("list-zones",),
         integrations=(("cloudflare", "cloudflare", SCOPES),),
     )
-    return assistant_integration_challenges.IntegrationChallengeStore().create(
+    return integration_challenges.IntegrationChallengeStore().create(
         "team_1",
         (requirement,),
         {"private": "continuation"},
@@ -66,16 +64,16 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = oauth_integration_store.OAuthIntegrationStore(
+        self.store = integration_store.OAuthIntegrationStore(
             root / "state" / "integrations.json",
             root / "key" / "aes256.key",
             clock=lambda: 1_000_000_000,
         )
         self.transport = Transport()
-        self.service = oauth_integration_service.BrokeredOAuthIntegrationService(
-            challenge=oauth_pkce_challenges.OAuthPKCEChallengeStore(),
+        self.service = integration_service.BrokeredOAuthIntegrationService(
+            challenge=integration_pkce.OAuthPKCEChallengeStore(),
             store=self.store,
-            broker=oauth_broker_client.OAuthBrokerClient(self.transport),
+            broker=integration_broker.OAuthBrokerClient(self.transport),
         )
 
     def tearDown(self) -> None:
@@ -133,7 +131,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             url = self.service.authorization_url(pending(), start_session)
             state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
             session = "other-browser-session-private-123" if declaration is DECLARATION else start_session
-            with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+            with self.assertRaises(integration_service.OAuthIntegrationServiceError):
                 self.service.complete(
                     state,
                     CLAIM,

@@ -14,13 +14,13 @@ import manifests
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
-from assistant_human import oauth_integration_store
 from container_policy import hosted_resources
 from core.container import network as network_policy
 from egress import policy as egress_policy
 from hosted.install import publication
 from http_boundary import runtime_state
 from install import bindings as dynamic_assistants
+from integrations import store as integration_store
 
 
 class _IncompleteInstallRollback(runtime_state.ApiError):
@@ -362,13 +362,13 @@ def _retain_admitted_assistant_integrations(
             assistant_id,
             tuple(sorted(spec.contract.integrations)),
         )
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant integration state is unavailable",
         ) from exc
     if pruned:
-        runtime_state._assistant_integration_challenges.cancel_team(team_id)
+        runtime_state._integration_challenges.cancel_team(team_id)
 
 
 @runtime_state._serialize_against_team_chat
@@ -657,7 +657,7 @@ def _uninstall_assistant(
             lease,
             require_isolation=False,
         )
-        runtime_state._assistant_integration_challenges.cancel_team(team_id)
+        runtime_state._integration_challenges.cancel_team(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
             raise runtime_state.ApiError(
@@ -670,7 +670,7 @@ def _uninstall_assistant(
                 assistant_id,
             )
             runtime_state._dynamic_assistants.delete(team_id, assistant_id)
-        except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        except integration_store.OAuthIntegrationStoreError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant integration state is unavailable",

@@ -16,7 +16,6 @@ import audit
 import manifests
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
-from assistant_human import assistant_integration_flow, oauth_http_client, oauth_integration_store
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -25,6 +24,9 @@ from core.container import network as network_policy
 from http_boundary import runtime_state
 from inference import client as brain_runtime_client
 from inference import credentials as brain_credentials_client
+from integrations import flow as integration_flow
+from integrations import http as integration_http
+from integrations import store as integration_store
 from power import execution as power_execution
 from power import journal as power_journal
 from storage import files as team_storage
@@ -359,7 +361,7 @@ def _power_integration_generations(
                 declarations,
             ),
         )
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         raise power_journal.PowerJournalConflictError("Power integration state is unavailable") from exc
 
 
@@ -377,8 +379,8 @@ def _refresh_oauth_integration(
             refresh_token=refresh_token,
             scopes=scopes,
         )
-    except oauth_http_client.OAuthHTTPError as exc:
-        raise oauth_integration_store.OAuthIntegrationReauthorizationError(
+    except integration_http.OAuthHTTPError as exc:
+        raise integration_store.OAuthIntegrationReauthorizationError(
             "OAuth integration requires reauthorization"
         ) from exc
 
@@ -389,14 +391,14 @@ def _resolve_power_integrations(
     power_id: str,
 ) -> dict[str, dict[str, str]]:
     try:
-        return assistant_integration_flow.resolve_power_integrations(
+        return integration_flow.resolve_power_integrations(
             team_id,
             _hosted_integration_spec(active),
             power_id,
             runtime_state._assistant_integrations,
             _refresh_oauth_integration,
         )
-    except assistant_integration_flow.IntegrationFlowError as exc:
+    except integration_flow.IntegrationFlowError as exc:
         raise runtime_state.ApiError(
             power_execution.INTEGRATION_PRECONDITION_STATUS, "Assistant integration is unavailable"
         ) from exc
@@ -427,16 +429,16 @@ def _assistant_integration_inventory(
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
-            payload = assistant_integration_flow.inventory_payload(
+            payload = integration_flow.inventory_payload(
                 team_id,
                 _installed_assistant_specs(team_id),
                 runtime_state._assistant_integrations,
             )
-        except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        except integration_store.OAuthIntegrationStoreError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Assistant integration state is unavailable"
             ) from exc
-        except assistant_integration_flow.IntegrationFlowError as exc:
+        except integration_flow.IntegrationFlowError as exc:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration contract is unavailable") from exc
     return {"team_id": team_id, **payload}
 

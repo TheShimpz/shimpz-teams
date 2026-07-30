@@ -10,15 +10,12 @@ import docker.errors
 
 import audit
 from assistant import spec as assistant_registry
-from assistant_human import (
-    assistant_integration_challenges,
-    hosted_assistants,
-    hosted_chat_segment,
-    oauth_integration_service,
-)
+from assistant_human import hosted_assistants, hosted_chat_segment
 from chat import turn as chat_turn_engine
 from container_policy import hosted_resources
 from http_boundary import runtime_state
+from integrations import challenges as integration_challenges
+from integrations import service as integration_service
 
 
 @contextlib.contextmanager
@@ -82,7 +79,7 @@ def _chat(
 
 
 def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
-    integration = runtime_state._assistant_integration_challenges.current(team_id)
+    integration = runtime_state._integration_challenges.current(team_id)
     if integration is not None:
         return hosted_chat_segment._hosted_integration_challenge_payload(integration)
     return None
@@ -97,7 +94,7 @@ def _current_integration_declaration(team_id: str, assistant_id: str, integratio
     except runtime_state.ApiError, assistant_registry.AssistantSpecError:
         # The OAuth service intentionally receives one opaque typed failure so
         # registry, Docker, and manifest details cannot reach the callback response.
-        raise oauth_integration_service.OAuthIntegrationDeclarationError(
+        raise integration_service.OAuthIntegrationDeclarationError(
             "installed Assistant integration declaration is unavailable"
         ) from None
     else:
@@ -112,8 +109,8 @@ def _start_oauth_integration(
 ) -> dict[str, object]:
     hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
     try:
-        challenge = runtime_state._assistant_integration_challenges.get(team_id, challenge_id)
-    except assistant_integration_challenges.IntegrationChallengeNotFoundError as exc:
+        challenge = runtime_state._integration_challenges.get(team_id, challenge_id)
+    except integration_challenges.IntegrationChallengeNotFoundError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
             "Assistant integration request expired; retry the message",
@@ -123,9 +120,9 @@ def _start_oauth_integration(
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     try:
         authorization_url = runtime_state._oauth_integrations.authorization_url(challenge, session_binding)
-    except oauth_integration_service.OAuthIntegrationUnavailableError as exc:
+    except integration_service.OAuthIntegrationUnavailableError as exc:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integrations are already configured") from exc
-    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+    except integration_service.OAuthIntegrationServiceError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant integration could not be started",
@@ -146,19 +143,19 @@ def _complete_oauth_integration(
             body["session_binding"],
             _current_integration_declaration,
         )
-    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+    except integration_service.OAuthIntegrationServiceError as exc:
         raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant integration could not be completed") from exc
     try:
         hosted_resources._authorize(completion.team_id, principal)
     except Exception:
-        with contextlib.suppress(oauth_integration_service.OAuthIntegrationServiceError):
+        with contextlib.suppress(integration_service.OAuthIntegrationServiceError):
             runtime_state._oauth_integrations.disconnect(
                 completion.team_id,
                 completion.assistant_id,
                 completion.integration_id,
             )
         raise
-    pending = runtime_state._assistant_integration_challenges.current(completion.team_id)
+    pending = runtime_state._integration_challenges.current(completion.team_id)
     return {
         "connected": True,
         "team_id": completion.team_id,
@@ -180,10 +177,10 @@ def _disconnect_oauth_integration(
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         _current_integration_declaration(team_id, assistant_id, integration_id)
-        runtime_state._assistant_integration_challenges.cancel_team(team_id)
+        runtime_state._integration_challenges.cancel_team(team_id)
         try:
             disconnected = runtime_state._oauth_integrations.disconnect(team_id, assistant_id, integration_id)
-        except oauth_integration_service.OAuthIntegrationServiceError as exc:
+        except integration_service.OAuthIntegrationServiceError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Assistant integration could not be disconnected"
             ) from exc
@@ -218,7 +215,7 @@ def _resume_chat_integrations(
 
         admission = chat_turn_engine.admit_integration_resume(
             chat_turn_engine.IntegrationResumeStrategy(
-                store=runtime_state._assistant_integration_challenges,
+                store=runtime_state._integration_challenges,
                 team_id=team_id,
                 challenge_id=challenge_id,
                 pending_valid=lambda pending: (
@@ -290,7 +287,7 @@ def _stop_active_power(team_id: str, token: str | None) -> bool:
 
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     """Cancel one Controller-owned turn and fail-stop a Power already executing."""
-    integration_cancelled = runtime_state._assistant_integration_challenges.cancel_team(team_id)
+    integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
     with runtime_state._lock_for(team_id):
         container = hosted_resources._require_current_authorization(team_id, lease)
         container.reload()

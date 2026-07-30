@@ -26,15 +26,15 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
-assistant_integration_challenges = runtime_state.assistant_integration_challenges
+integration_challenges = runtime_state.integration_challenges
 assistant_manifest = hosted_apps.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 manifests = hosted_apps.manifests
 assistant_registry = hosted_apps.assistant_registry
 network_policy = hosted_resources.network_policy
-oauth_integration_store = runtime_state.oauth_integration_store
-oauth_http_client = runtime_state.oauth_http_client
+integration_store = runtime_state.integration_store
+integration_http = runtime_state.integration_http
 power_journal = runtime_state.power_journal
 hosted_egress_policy = hosted_apps.egress_policy
 dynamic_assistants = hosted_apps.dynamic_assistants

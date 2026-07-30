@@ -7,12 +7,12 @@ import math
 import re
 from dataclasses import asdict, dataclass
 
-from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import local_chat_continuation_store
 from core import strict_json
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import challenges as integration_challenges
 
 SCHEMA_VERSION = 1
 MAX_JSON_DEPTH = 16
@@ -176,7 +176,7 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
     if (
         kind != "integrations"
         or not requirements
-        or any(not isinstance(item, assistant_integration_challenges.IntegrationRequirement) for item in requirements)
+        or any(not isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements)
     ):
         raise ContinuationCodecError("continuation requirements are malformed")
     return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
@@ -415,7 +415,7 @@ def _tuple_text(value: object, maximum: int, label: str) -> tuple[str, ...]:
     return result
 
 
-def _integration_requirement(value: object) -> assistant_integration_challenges.IntegrationRequirement:
+def _integration_requirement(value: object) -> integration_challenges.IntegrationRequirement:
     raw = _mapping(
         value,
         {"assistant_id", "assistant_name", "power_ids", "integrations"},
@@ -434,7 +434,7 @@ def _integration_requirement(value: object) -> assistant_integration_challenges.
         )
     if not integrations:
         raise ContinuationCodecError("integration requirement is malformed")
-    return assistant_integration_challenges.IntegrationRequirement(
+    return integration_challenges.IntegrationRequirement(
         _component_id(raw["assistant_id"], "integration Assistant"),
         str(_text(raw["assistant_name"], 80, "integration Assistant name")),
         _tuple_text(raw["power_ids"], 80, "integration Powers"),

@@ -11,14 +11,12 @@ from pathlib import Path
 from unittest import mock
 
 from assistant import spec as assistant_registry
-from assistant_human import (
-    assistant_integration_challenges,
-    assistant_integration_flow,
-    oauth_http_client,
-    oauth_integration_store,
-)
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import flow as integration_flow
+from integrations import http as integration_http
+from integrations import store as integration_store
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
@@ -63,7 +61,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        self.store = oauth_integration_store.OAuthIntegrationStore(
+        self.store = integration_store.OAuthIntegrationStore(
             root / "state" / "integrations.json",
             root / "key" / "aes256.key",
         )
@@ -94,11 +92,11 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             "cloudflare",
             "cloudflare",
             SCOPES,
-            oauth_http_client.OAuthTokenSet(ACCESS_TOKEN, "refresh-token-value-123456789", SCOPES, 3600),
+            integration_http.OAuthTokenSet(ACCESS_TOKEN, "refresh-token-value-123456789", SCOPES, 3600),
         )
 
     def test_refresh_uses_the_configured_hosted_oauth_client(self) -> None:
-        token_set = oauth_http_client.OAuthTokenSet(ACCESS_TOKEN, "new-refresh-token", SCOPES, 3600)
+        token_set = integration_http.OAuthTokenSet(ACCESS_TOKEN, "new-refresh-token", SCOPES, 3600)
         oauth_http = mock.Mock()
         oauth_http.refresh.return_value = token_set
         client_secret = "-".join(("hosted", "client", "secret", "value"))
@@ -156,7 +154,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     inspect_memo=inspect_memo,
                 )
             )
-            payload = assistant_integration_flow.inventory_payload(
+            payload = integration_flow.inventory_payload(
                 TEAM_ID,
                 [hosted_assistants._hosted_integration_spec(self.active)],
                 self.store,
@@ -249,8 +247,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_admitted_contract_prunes_removed_integrations_and_cancels_paused_turn(self) -> None:
         self._connect()
-        challenge_store = assistant_integration_challenges.IntegrationChallengeStore()
-        requirement = assistant_integration_challenges.IntegrationRequirement(
+        challenge_store = integration_challenges.IntegrationChallengeStore()
+        requirement = integration_challenges.IntegrationRequirement(
             ASSISTANT_ID,
             "Shimpz Cloudflare",
             ("list-zones",),
@@ -264,7 +262,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         with (
             mock.patch.object(runtime_state, "_assistant_integrations", self.store),
-            mock.patch.object(runtime_state, "_assistant_integration_challenges", challenge_store),
+            mock.patch.object(runtime_state, "_integration_challenges", challenge_store),
         ):
             hosted_apps._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, without_integrations)
 
@@ -273,7 +271,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertNotIn(ACCESS_TOKEN, self.store.state_path.read_text(encoding="utf-8"))
 
     def test_authorize_and_callback_expose_no_oauth_private_material(self) -> None:
-        challenge_store = assistant_integration_challenges.IntegrationChallengeStore()
+        challenge_store = integration_challenges.IntegrationChallengeStore()
         continuation = chat_orchestrator.ChatContinuation(
             brain_runtime_client.RuntimeTurn("power-required", "", ()),
             (),
@@ -290,7 +288,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         challenge = challenge_store.create(
             TEAM_ID,
             (
-                assistant_integration_challenges.IntegrationRequirement(
+                integration_challenges.IntegrationRequirement(
                     ASSISTANT_ID,
                     "Shimpz Cloudflare",
                     ("list-zones",),
@@ -324,7 +322,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         with (
             mock.patch.multiple(
                 runtime_state,
-                _assistant_integration_challenges=challenge_store,
+                _integration_challenges=challenge_store,
                 _oauth_integrations=fake_service,
             ),
             mock.patch.multiple(
@@ -386,11 +384,11 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_team_teardown_cancels_integration_turn_and_purges_tokens(self) -> None:
         self._connect()
-        challenges = assistant_integration_challenges.IntegrationChallengeStore()
+        challenges = integration_challenges.IntegrationChallengeStore()
         challenges.create(
             TEAM_ID,
             (
-                assistant_integration_challenges.IntegrationRequirement(
+                integration_challenges.IntegrationRequirement(
                     ASSISTANT_ID,
                     "Shimpz Cloudflare",
                     ("list-zones",),
@@ -401,7 +399,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         )
         with (
             mock.patch.object(runtime_state, "_assistant_integrations", self.store),
-            mock.patch.object(runtime_state, "_assistant_integration_challenges", challenges),
+            mock.patch.object(runtime_state, "_integration_challenges", challenges),
         ):
             self.assertTrue(hosted_lifecycle._teardown_assistant_integrations(TEAM_ID))
 

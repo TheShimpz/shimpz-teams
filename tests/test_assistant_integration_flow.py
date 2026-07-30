@@ -11,8 +11,9 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from assistant.spec import IntegrationSpec, PowerSpec
-from assistant_human import assistant_integration_challenges, assistant_integration_flow
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import flow as integration_flow
 from local.install.runtime import AssistantSpec
 
 
@@ -154,7 +155,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             }
         )
 
-        requirements = assistant_integration_flow.requirements_for_batch(
+        requirements = integration_flow.requirements_for_batch(
             "team_1",
             {"cloudflare-assistant": _Active(spec)},
             (_request("read-profile", "one"), _request("publish-post", "two")),
@@ -170,13 +171,13 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
     def test_challenge_is_exact_bounded_public_metadata(self) -> None:
         spec = _spec()
-        requirement = assistant_integration_challenges.IntegrationRequirement(
+        requirement = integration_challenges.IntegrationRequirement(
             "cloudflare-assistant",
             "Cloudflare Assistant",
             ("publish-post",),
             (("cloudflare-write", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenge = assistant_integration_challenges.PendingIntegrationChallenge(
+        challenge = integration_challenges.PendingIntegrationChallenge(
             "a" * 32,
             "team_1",
             time.monotonic() + 300,
@@ -184,7 +185,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             {"input": "must-never-be-public"},
         )
 
-        payload = assistant_integration_flow.challenge_payload(
+        payload = integration_flow.challenge_payload(
             challenge,
             {"cloudflare-assistant": _Active(spec)},
         )
@@ -224,13 +225,13 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
     def test_cloudflare_challenge_projects_reviewed_oauth_metadata(self) -> None:
         spec = _cloudflare_spec()
-        requirement = assistant_integration_challenges.IntegrationRequirement(
+        requirement = integration_challenges.IntegrationRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             ("list-zones",),
             (("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenge = assistant_integration_challenges.PendingIntegrationChallenge(
+        challenge = integration_challenges.PendingIntegrationChallenge(
             "b" * 32,
             "team_1",
             time.monotonic() + 300,
@@ -238,7 +239,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             {"input": "must-never-be-public"},
         )
 
-        payload = assistant_integration_flow.challenge_payload(
+        payload = integration_flow.challenge_payload(
             challenge,
             {"shimpz-cloudflare": _Active(spec)},
         )
@@ -295,7 +296,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             }
         )
 
-        payload = assistant_integration_flow.inventory_payload("team_1", [spec], store)
+        payload = integration_flow.inventory_payload("team_1", [spec], store)
 
         self.assertEqual(set(payload), {"integrations"})
         self.assertEqual(payload["integrations"][0]["status"], "missing")
@@ -318,7 +319,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         store = _Store({}, {("cloudflare-assistant", "cloudflare-write"): token})
         refresh_calls: list[tuple[str, tuple[str, ...], str, str | None]] = []
 
-        integrations = assistant_integration_flow.resolve_power_integrations(
+        integrations = integration_flow.resolve_power_integrations(
             "team_1",
             spec,
             "publish-post",
@@ -360,19 +361,19 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                 )
             }
         )
-        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
-            assistant_integration_flow.requirements_for_batch(
+        with self.assertRaises(integration_flow.IntegrationFlowError):
+            integration_flow.requirements_for_batch(
                 "team_1",
                 {"cloudflare-assistant": _Active(spec)},
                 (_request("read-profile", "one"),),
                 drifted,
             )
-        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
-            assistant_integration_flow._assert_public_payload({"access_token": "private"})
+        with self.assertRaises(integration_flow.IntegrationFlowError):
+            integration_flow._assert_public_payload({"access_token": "private"})
 
         invalid_token_store = _Store({}, {("cloudflare-assistant", "cloudflare-read"): "short"})
-        with self.assertRaises(assistant_integration_flow.IntegrationFlowError):
-            assistant_integration_flow.resolve_power_integrations(
+        with self.assertRaises(integration_flow.IntegrationFlowError):
+            integration_flow.resolve_power_integrations(
                 "team_1",
                 spec,
                 "read-profile",

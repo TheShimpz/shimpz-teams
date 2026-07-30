@@ -8,12 +8,7 @@ from typing import NoReturn
 
 import manifests
 from assistant import spec as assistant_registry
-from assistant_human import (
-    assistant_integration_challenges,
-    assistant_integration_flow,
-    hosted_assistants,
-    oauth_integration_store,
-)
+from assistant_human import hosted_assistants
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from container_policy import hosted_apps, hosted_resources
@@ -21,6 +16,9 @@ from core.container import network as network_policy
 from http_boundary import runtime_state
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import challenges as integration_challenges
+from integrations import flow as integration_flow
+from integrations import store as integration_store
 from power import execution as power_execution
 from power import journal as power_journal
 
@@ -109,17 +107,17 @@ def _hosted_private_requirements(
     team_id: str,
     bindings: dict[str, hosted_assistants._ActiveAssistant],
     requests: tuple[brain_runtime_client.PowerRequest, ...],
-) -> tuple[assistant_integration_challenges.IntegrationRequirement, ...]:
+) -> tuple[integration_challenges.IntegrationRequirement, ...]:
     try:
-        return assistant_integration_flow.requirements_for_batch(
+        return integration_flow.requirements_for_batch(
             team_id,
             hosted_assistants._integration_bindings(bindings),
             requests,
             runtime_state._assistant_integrations,
         )
     except (
-        assistant_integration_flow.IntegrationFlowError,
-        oauth_integration_store.OAuthIntegrationStoreError,
+        integration_flow.IntegrationFlowError,
+        integration_store.OAuthIntegrationStoreError,
     ) as exc:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration contract is unavailable") from exc
 
@@ -432,7 +430,7 @@ def _commit_hosted_suspension(
 
 
 def _hosted_integration_challenge_payload(
-    challenge: assistant_integration_challenges.PendingIntegrationChallenge,
+    challenge: integration_challenges.PendingIntegrationChallenge,
 ) -> dict[str, object]:
     bindings: dict[str, hosted_assistants._HostedAssistantBinding] = {}
     try:
@@ -445,8 +443,8 @@ def _hosted_integration_challenge_payload(
             bindings[assistant_id] = hosted_assistants._HostedAssistantBinding(
                 hosted_assistants._hosted_integration_spec(active)
             )
-        return assistant_integration_flow.challenge_payload(challenge, bindings)
-    except (assistant_registry.AssistantSpecError, assistant_integration_flow.IntegrationFlowError) as exc:
+        return integration_flow.challenge_payload(challenge, bindings)
+    except (assistant_registry.AssistantSpecError, integration_flow.IntegrationFlowError) as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT, "Assistant integration contract changed; retry the message"
         ) from exc
@@ -456,14 +454,14 @@ def _pause_hosted_connection(
     team_id: str,
     token: str,
     outcome: chat_orchestrator.ChatSuspension,
-    requirements: tuple[assistant_integration_challenges.IntegrationRequirement, ...],
+    requirements: tuple[integration_challenges.IntegrationRequirement, ...],
     pending: hosted_assistants._PendingHostedChat,
 ) -> dict[str, object]:
     try:
-        challenge = runtime_state._assistant_integration_challenges.create(team_id, requirements, pending)
-    except assistant_integration_challenges.IntegrationChallengeError as exc:
+        challenge = runtime_state._integration_challenges.create(team_id, requirements, pending)
+    except integration_challenges.IntegrationChallengeError as exc:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration request is already pending") from exc
-    _commit_hosted_suspension(team_id, token, outcome, pending, runtime_state._assistant_integration_challenges)
+    _commit_hosted_suspension(team_id, token, outcome, pending, runtime_state._integration_challenges)
     return _hosted_integration_challenge_payload(challenge)
 
 

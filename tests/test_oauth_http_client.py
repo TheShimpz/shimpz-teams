@@ -6,7 +6,7 @@ from base64 import b64decode
 from dataclasses import dataclass, field
 from urllib.parse import parse_qs, urlsplit
 
-from assistant_human import oauth_http_client
+from integrations import http as integration_http
 
 CLIENT_ID = "cloudflare-client-id-123"
 CLIENT_CREDENTIAL = "cloudflare-client-secret-123"
@@ -21,17 +21,17 @@ REFRESH = "refresh-token-123456789"
 
 @dataclass
 class FakeTransport:
-    responses: list[oauth_http_client.OAuthHTTPResponse]
+    responses: list[integration_http.OAuthHTTPResponse]
     requests: list[dict[str, object]] = field(default_factory=list)
 
-    def request(self, **request: object) -> oauth_http_client.OAuthHTTPResponse:
+    def request(self, **request: object) -> integration_http.OAuthHTTPResponse:
         self.requests.append(request)
         return self.responses.pop(0)
 
 
 def response(payload: object, *, status: int = 200, content_type: str = "application/json"):
     body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-    return oauth_http_client.OAuthHTTPResponse(status, content_type, body)
+    return integration_http.OAuthHTTPResponse(status, content_type, body)
 
 
 def _assert_basic(request: dict[str, object]) -> None:
@@ -44,10 +44,10 @@ def _assert_basic(request: dict[str, object]) -> None:
 
 class OAuthHTTPClientTests(unittest.TestCase):
     def test_authorization_url_is_fixed_cloudflare_pkce_and_exact_redirect(self) -> None:
-        url = oauth_http_client.authorization_url(
+        url = integration_http.authorization_url(
             provider_id="cloudflare",
             client_id=CLIENT_ID,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             state=STATE,
             code_challenge=CHALLENGE,
             scopes=SCOPES,
@@ -62,7 +62,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
             {
                 "response_type": ["code"],
                 "client_id": [CLIENT_ID],
-                "redirect_uri": [oauth_http_client.LOCAL_REDIRECT_URI],
+                "redirect_uri": [integration_http.LOCAL_REDIRECT_URI],
                 "scope": ["dns.read offline_access zone.read"],
                 "state": [STATE],
                 "code_challenge": [CHALLENGE],
@@ -73,8 +73,8 @@ class OAuthHTTPClientTests(unittest.TestCase):
             "http://localhost:7777/api/oauth/cloudflare/callback",
             "https://evil.test/callback",
         ):
-            with self.subTest(redirect=redirect), self.assertRaises(oauth_http_client.OAuthHTTPError):
-                oauth_http_client.authorization_url(
+            with self.subTest(redirect=redirect), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http.authorization_url(
                     provider_id="cloudflare",
                     client_id=CLIENT_ID,
                     redirect_uri=redirect,
@@ -97,11 +97,11 @@ class OAuthHTTPClientTests(unittest.TestCase):
                 )
             ]
         )
-        tokens = oauth_http_client.OAuthHTTPClient(transport).exchange_code(
+        tokens = integration_http.OAuthHTTPClient(transport).exchange_code(
             provider_id="cloudflare",
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             code=CODE,
             code_verifier=VERIFIER,
             scopes=SCOPES,
@@ -131,7 +131,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
                 response(b"", content_type=""),
             ]
         )
-        client = oauth_http_client.OAuthHTTPClient(transport)
+        client = integration_http.OAuthHTTPClient(transport)
         tokens = client.refresh(
             provider_id="cloudflare",
             client_id=CLIENT_ID,
@@ -180,13 +180,13 @@ class OAuthHTTPClientTests(unittest.TestCase):
             transport = FakeTransport([provider_response])
             with (
                 self.subTest(body=provider_response.body),
-                self.assertRaises(oauth_http_client.OAuthHTTPError) as caught,
+                self.assertRaises(integration_http.OAuthHTTPError) as caught,
             ):
-                oauth_http_client.OAuthHTTPClient(transport).exchange_code(
+                integration_http.OAuthHTTPClient(transport).exchange_code(
                     provider_id="cloudflare",
                     client_id=CLIENT_ID,
                     client_secret=CLIENT_CREDENTIAL,
-                    redirect_uri=oauth_http_client.HOSTED_REDIRECT_URI,
+                    redirect_uri=integration_http.HOSTED_REDIRECT_URI,
                     code=CODE,
                     code_verifier=VERIFIER,
                     scopes=SCOPES,
@@ -197,36 +197,36 @@ class OAuthHTTPClientTests(unittest.TestCase):
     def test_inputs_and_response_size_are_bounded(self) -> None:
         transport = FakeTransport(
             [
-                oauth_http_client.OAuthHTTPResponse(
+                integration_http.OAuthHTTPResponse(
                     200,
                     "application/json",
-                    b"x" * (oauth_http_client.MAX_RESPONSE_BYTES + 1),
+                    b"x" * (integration_http.MAX_RESPONSE_BYTES + 1),
                 )
             ]
         )
-        with self.assertRaises(oauth_http_client.OAuthHTTPError):
-            oauth_http_client.OAuthHTTPClient(transport).exchange_code(
+        with self.assertRaises(integration_http.OAuthHTTPError):
+            integration_http.OAuthHTTPClient(transport).exchange_code(
                 provider_id="cloudflare",
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_CREDENTIAL,
-                redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+                redirect_uri=integration_http.LOCAL_REDIRECT_URI,
                 code=CODE,
                 code_verifier=VERIFIER,
                 scopes=SCOPES,
             )
         for invalid_client in ("short", "secret value", "x" * 257):
-            with self.subTest(client=invalid_client), self.assertRaises(oauth_http_client.OAuthHTTPError):
-                oauth_http_client.authorization_url(
+            with self.subTest(client=invalid_client), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http.authorization_url(
                     provider_id="cloudflare",
                     client_id=invalid_client,
-                    redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+                    redirect_uri=integration_http.LOCAL_REDIRECT_URI,
                     state=STATE,
                     code_challenge=CHALLENGE,
                     scopes=SCOPES,
                 )
         for invalid_secret in ("short", "secret value", "x" * 1025):
-            with self.subTest(secret=invalid_secret), self.assertRaises(oauth_http_client.OAuthHTTPError):
-                oauth_http_client.OAuthHTTPClient(FakeTransport([])).refresh(
+            with self.subTest(secret=invalid_secret), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http.OAuthHTTPClient(FakeTransport([])).refresh(
                     provider_id="cloudflare",
                     client_id=CLIENT_ID,
                     client_secret=invalid_secret,

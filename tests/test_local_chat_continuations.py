@@ -7,11 +7,11 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from assistant_human import assistant_integration_challenges
 from chat import orchestrator as chat_orchestrator
 from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import challenges as integration_challenges
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 TURN = brain_runtime_client.RuntimeTurn(
@@ -75,7 +75,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
     def test_round_trips_the_integration_suspension(self) -> None:
         requirements = (
-            assistant_integration_challenges.IntegrationRequirement(
+            integration_challenges.IntegrationRequirement(
                 "demo-assistant",
                 "Demo Assistant",
                 ("publish",),
@@ -86,7 +86,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
     def test_rejects_release_binding_and_decrypted_shape_drift(self) -> None:
         requirement = (
-            assistant_integration_challenges.IntegrationRequirement(
+            integration_challenges.IntegrationRequirement(
                 "demo-assistant",
                 "Demo Assistant",
                 ("publish",),

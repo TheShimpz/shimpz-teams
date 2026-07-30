@@ -18,19 +18,17 @@ import docker
 import manifests
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_http_client,
-    oauth_integration_service,
-    oauth_integration_store,
-    oauth_pkce_challenges,
-)
 from controller_runtime import token_store
 from hosted.install import developers_client, developers_delegation
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import artifact_trust, registry_auth
 from install import bindings as dynamic_assistants
+from integrations import challenges as integration_challenges
+from integrations import http as integration_http
+from integrations import pkce as integration_pkce
+from integrations import service as integration_service
+from integrations import store as integration_store
 from power import journal as power_journal
 from storage import files as team_storage
 
@@ -144,21 +142,21 @@ _brain_runtime = brain_runtime_client.BrainRuntimeClient()
 _assistant_genesis_cache = assistant_genesis.GenesisCache()
 _assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
 _assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
-_assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+_assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_STATE_PATH,
     ASSISTANT_INTEGRATION_KEY_PATH,
 )
-_assistant_integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
+_integration_challenges = integration_challenges.IntegrationChallengeStore()
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
-_oauth_pkce_challenges = oauth_pkce_challenges.OAuthPKCEChallengeStore()
-_oauth_http = oauth_http_client.OAuthHTTPClient()
+_integration_pkce = integration_pkce.OAuthPKCEChallengeStore()
+_oauth_http = integration_http.OAuthHTTPClient()
 _cloudflare_oauth_client_id = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_ID")
 _cloudflare_oauth_client_secret = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_SECRET")
-_oauth_integrations = oauth_integration_service.OAuthIntegrationService(
+_oauth_integrations = integration_service.OAuthIntegrationService(
     client_id=_cloudflare_oauth_client_id,
     client_secret=_cloudflare_oauth_client_secret,
-    redirect_uri=oauth_http_client.HOSTED_REDIRECT_URI,
-    challenge=_oauth_pkce_challenges,
+    redirect_uri=integration_http.HOSTED_REDIRECT_URI,
+    challenge=_integration_pkce,
     store=_assistant_integrations,
     http=_oauth_http,
 )

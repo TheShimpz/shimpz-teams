@@ -13,9 +13,11 @@ sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
 
-from assistant_human import assistant_integration_challenges, oauth_integration_store, oauth_pkce_challenges
 from controller_runtime import local_chat_continuation_store
 from inference import config as inference_config
+from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
+from integrations import store as integration_store
 from local import app as local_app
 from local.install.runtime import AssistantSpec
 from local_support import assistant_lifecycle
@@ -79,12 +81,12 @@ class LocalContractCase(unittest.TestCase):
             Path(directory) / "power-journal" / "journal.sqlite3"
         )
         self.addCleanup(controller.power_state.close)
-        controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+        controller.assistant_integrations = integration_store.OAuthIntegrationStore(
             Path(directory) / "assistant-integrations" / "state" / "integrations.json",
             Path(directory) / "assistant-integrations" / "key" / "aes256.key",
         )
-        controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
-        controller.oauth_pkce = oauth_pkce_challenges.OAuthPKCEChallengeStore()
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         controller.chat_continuations = local_chat_continuation_store.EncryptedContinuationStore(
             Path(directory) / "chat-continuations" / "state" / "continuations.json",
             Path(directory) / "chat-continuations" / "key" / "aes256.key",
@@ -134,13 +136,13 @@ class LocalContractCase(unittest.TestCase):
         controller._locks = tuple(threading.RLock() for _ in range(64))
         state_directory = tempfile.TemporaryDirectory()
         self.addCleanup(state_directory.cleanup)
-        controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+        controller.assistant_integrations = integration_store.OAuthIntegrationStore(
             Path(state_directory.name) / "assistant-integrations" / "state" / "integrations.json",
             Path(state_directory.name) / "assistant-integrations" / "key" / "aes256.key",
         )
-        controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
-        controller.oauth_pkce = oauth_pkce_challenges.OAuthPKCEChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         spec = SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,

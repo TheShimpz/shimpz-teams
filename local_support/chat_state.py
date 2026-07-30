@@ -10,9 +10,10 @@ from docker.errors import DockerException
 
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from assistant_human import assistant_integration_challenges, oauth_integration_store
 from controller_runtime import local_chat_continuation_store, local_chat_continuations
 from inference import config as inference_config
+from integrations import challenges as integration_challenges
+from integrations import store as integration_store
 from local.install.runtime import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import PendingLocalChat as _PendingLocalChat
@@ -192,21 +193,21 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
 def _delete_assistant_integration_state(self, team_id: str, assistant_id: str) -> None:
     try:
         self.assistant_integrations.delete_assistant(team_id, assistant_id)
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
 
 
 def _delete_team_integration_state(self, team_id: str) -> None:
     try:
         self.assistant_integrations.delete_team(team_id)
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
 
 
 def _delete_all_integration_state(self) -> None:
     try:
         self.assistant_integrations.delete_all()
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
 
 
@@ -217,7 +218,7 @@ def _retain_declared_assistant_integration_state(self, team_id: str, spec: Assis
             spec.assistant_id,
             tuple(sorted(spec.integrations)),
         )
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
     if pruned:
         self.integration_challenges.cancel_team(team_id)
@@ -285,7 +286,7 @@ def _restore_chat_continuation(
     except (
         local_chat_continuation_store.ContinuationStoreError,
         local_chat_continuations.ContinuationCodecError,
-        assistant_integration_challenges.IntegrationChallengeError,
+        integration_challenges.IntegrationChallengeError,
     ) as exc:
         self._raise_chat_continuation_problem(exc)
 

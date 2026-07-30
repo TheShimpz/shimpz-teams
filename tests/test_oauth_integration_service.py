@@ -6,13 +6,11 @@ import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_http_client,
-    oauth_integration_service,
-    oauth_integration_store,
-    oauth_pkce_challenges,
-)
+from integrations import challenges as integration_challenges
+from integrations import http as integration_http
+from integrations import pkce as integration_pkce
+from integrations import service as integration_service
+from integrations import store as integration_store
 
 CLIENT_ID = "cloudflare-client-123456789"
 CLIENT_CREDENTIAL = "cloudflare-secret-private-123456789"
@@ -26,8 +24,8 @@ REFRESH = "refresh-token-private-987654321"
 
 
 class SyntheticTransport:
-    def __init__(self, response: oauth_http_client.OAuthHTTPResponse | None = None) -> None:
-        self.response = response or oauth_http_client.OAuthHTTPResponse(
+    def __init__(self, response: integration_http.OAuthHTTPResponse | None = None) -> None:
+        self.response = response or integration_http.OAuthHTTPResponse(
             200,
             "application/json",
             json.dumps(
@@ -42,17 +40,17 @@ class SyntheticTransport:
         )
         self.requests: list[dict[str, object]] = []
 
-    def request(self, **request) -> oauth_http_client.OAuthHTTPResponse:
+    def request(self, **request) -> integration_http.OAuthHTTPResponse:
         self.requests.append(request)
         return self.response
 
 
 class SequenceTransport:
-    def __init__(self, responses: list[oauth_http_client.OAuthHTTPResponse]) -> None:
+    def __init__(self, responses: list[integration_http.OAuthHTTPResponse]) -> None:
         self.responses = responses
         self.requests: list[dict[str, object]] = []
 
-    def request(self, **request) -> oauth_http_client.OAuthHTTPResponse:
+    def request(self, **request) -> integration_http.OAuthHTTPResponse:
         self.requests.append(request)
         return self.responses.pop(0)
 
@@ -62,8 +60,8 @@ def requirement(
     *,
     provider: str = "cloudflare",
     scopes: tuple[str, ...] = SCOPES,
-) -> assistant_integration_challenges.IntegrationRequirement:
-    return assistant_integration_challenges.IntegrationRequirement(
+) -> integration_challenges.IntegrationRequirement:
+    return integration_challenges.IntegrationRequirement(
         assistant_id=assistant,
         assistant_name=assistant,
         power_ids=("list-zones",),
@@ -72,10 +70,10 @@ def requirement(
 
 
 def pending(
-    *requirements: assistant_integration_challenges.IntegrationRequirement,
+    *requirements: integration_challenges.IntegrationRequirement,
     team: str = "team_1",
-) -> assistant_integration_challenges.PendingIntegrationChallenge:
-    return assistant_integration_challenges.IntegrationChallengeStore().create(
+) -> integration_challenges.PendingIntegrationChallenge:
+    return integration_challenges.IntegrationChallengeStore().create(
         team,
         tuple(requirements or (requirement(),)),
         {"private": "paused user input"},
@@ -86,18 +84,18 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = oauth_integration_store.OAuthIntegrationStore(
+        self.store = integration_store.OAuthIntegrationStore(
             root / "state" / "integrations.json",
             root / "key" / "aes256.key",
             clock=lambda: 1_000_000_000,
         )
-        self.challenges = oauth_pkce_challenges.OAuthPKCEChallengeStore()
+        self.challenges = integration_pkce.OAuthPKCEChallengeStore()
         self.transport = SyntheticTransport()
-        self.http = oauth_http_client.OAuthHTTPClient(self.transport)
-        self.service = oauth_integration_service.OAuthIntegrationService(
+        self.http = integration_http.OAuthHTTPClient(self.transport)
+        self.service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,
@@ -125,7 +123,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             "cloudflare",
             "cloudflare",
             SCOPES,
-            oauth_http_client.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
         )
         flow = pending(requirement("z-assistant"), requirement("a-assistant"))
 
@@ -133,7 +131,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         parsed = urlsplit(url)
         query = parse_qs(parsed.query, strict_parsing=True)
         self.assertEqual((parsed.scheme, parsed.netloc, parsed.path), ("https", "dash.cloudflare.com", "/oauth2/auth"))
-        self.assertEqual(query["redirect_uri"], [oauth_http_client.LOCAL_REDIRECT_URI])
+        self.assertEqual(query["redirect_uri"], [integration_http.LOCAL_REDIRECT_URI])
         self.assertEqual(query["client_id"], [CLIENT_ID])
         self.assertEqual(query["code_challenge_method"], ["S256"])
         self.assertEqual(query["scope"], [" ".join(SCOPES)])
@@ -153,14 +151,14 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
 
     def test_wrong_session_does_not_consume_but_success_and_replay_are_one_use(self) -> None:
         state = self._state(self.service.authorization_url(pending(requirement()), SESSION))
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
             self._complete(state, session=OTHER_SESSION)
         self.assertEqual(self.transport.requests, [])
 
         completed = self._complete(state)
         self.assertEqual(completed.integration_id, "cloudflare")
         self.assertEqual(len(self.transport.requests), 1)
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
             self._complete(state)
         self.assertEqual(len(self.transport.requests), 1)
 
@@ -172,7 +170,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         for current in drifted:
             with self.subTest(current=current):
                 state = self._state(self.service.authorization_url(pending(requirement()), SESSION))
-                with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+                with self.assertRaises(integration_service.OAuthIntegrationServiceError):
                     self.service.complete(
                         state,
                         CODE,
@@ -180,7 +178,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
                         lambda _team, _assistant, _integration, value=current: value,
                     )
                 self.assertEqual(self.transport.requests, [])
-                with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+                with self.assertRaises(integration_service.OAuthIntegrationServiceError):
                     self._complete(state)
 
     def test_provider_scope_and_configuration_injection_fail_closed(self) -> None:
@@ -190,38 +188,38 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         ):
             with (
                 self.subTest(malicious=malicious),
-                self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError),
+                self.assertRaises(integration_service.OAuthIntegrationServiceError),
             ):
                 self.service.authorization_url(pending(malicious), SESSION)
         self.assertEqual(self.challenges.cancel_all(), 0)
         self.assertEqual(self.transport.requests, [])
 
-        malformed = assistant_integration_challenges.PendingIntegrationChallenge(
+        malformed = integration_challenges.PendingIntegrationChallenge(
             id="0" * 32,
             team_id="team_1",
             expires_at=0,
             requirements=(requirement(),),
             payload=None,
         )
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
             self.service.authorization_url(malformed, SESSION)
 
-        lazy = oauth_integration_service.OAuthIntegrationService(
+        lazy = integration_service.OAuthIntegrationService(
             client_id=None,
             client_secret=None,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,
         )
         self.assertNotIn(CLIENT_ID, repr(self.service))
         with self.assertRaisesRegex(
-            oauth_integration_service.OAuthIntegrationServiceError,
+            integration_service.OAuthIntegrationServiceError,
             "not configured",
         ):
             lazy.authorization_url(pending(requirement()), SESSION)
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
-            oauth_integration_service.OAuthIntegrationService(
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
+            integration_service.OAuthIntegrationService(
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_CREDENTIAL,
                 redirect_uri="https://evil.example/callback",
@@ -233,7 +231,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
     def test_expired_stored_integration_can_start_fresh_authorization(self) -> None:
         root = Path(self.temporary.name)
         now = [1_000]
-        store = oauth_integration_store.OAuthIntegrationStore(
+        store = integration_store.OAuthIntegrationStore(
             root / "expired-state" / "integrations.json",
             root / "expired-key" / "aes256.key",
             clock=lambda: now[0],
@@ -244,14 +242,14 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             "cloudflare",
             "cloudflare",
             SCOPES,
-            oauth_http_client.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 30),
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 30),
         )
         now[0] = 1_031
-        service = oauth_integration_service.OAuthIntegrationService(
+        service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
-            challenge=oauth_pkce_challenges.OAuthPKCEChallengeStore(),
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            challenge=integration_pkce.OAuthPKCEChallengeStore(),
             store=store,
             http=self.http,
         )
@@ -261,7 +259,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
     def test_provider_response_and_callback_errors_never_reflect_private_values(self) -> None:
         leaked = "provider-private-response-123456789"
         transport = SyntheticTransport(
-            oauth_http_client.OAuthHTTPResponse(
+            integration_http.OAuthHTTPResponse(
                 200,
                 "application/json",
                 json.dumps(
@@ -275,16 +273,16 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
                 ).encode(),
             )
         )
-        service = oauth_integration_service.OAuthIntegrationService(
+        service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
-            http=oauth_http_client.OAuthHTTPClient(transport),
+            http=integration_http.OAuthHTTPClient(transport),
         )
         state = self._state(service.authorization_url(pending(requirement()), SESSION))
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError) as captured:
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError) as captured:
             service.complete(
                 state,
                 CODE,
@@ -297,13 +295,13 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
 
         next_state = self._state(service.authorization_url(pending(requirement()), SESSION))
         callback_secret = "-".join(("manifest", "parser", "private", "value", "123456789"))
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError) as callback:
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError) as callback:
             service.complete(
                 next_state,
                 CODE,
                 SESSION,
                 lambda _team, _assistant, _integration: (_ for _ in ()).throw(
-                    oauth_integration_service.OAuthIntegrationDeclarationError(callback_secret)
+                    integration_service.OAuthIntegrationDeclarationError(callback_secret)
                 ),
             )
         self.assertNotIn(callback_secret, f"{callback.exception!r} {callback.exception}")
@@ -312,7 +310,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         state = self._state(self.service.authorization_url(pending(requirement()), SESSION))
         self._complete(state)
         requests = len(self.transport.requests)
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationUnavailableError):
+        with self.assertRaises(integration_service.OAuthIntegrationUnavailableError):
             self.service.authorization_url(pending(requirement()), SESSION)
         self.assertTrue(self.service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
         self.assertFalse(self.service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
@@ -340,25 +338,25 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             "cloudflare",
             "cloudflare",
             SCOPES,
-            oauth_http_client.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
         )
         private_provider_body = b'{"error":"private-provider-detail-123456789"}'
         transport = SequenceTransport(
             [
-                oauth_http_client.OAuthHTTPResponse(200, "application/json", b"{}"),
-                oauth_http_client.OAuthHTTPResponse(503, "application/json", private_provider_body),
+                integration_http.OAuthHTTPResponse(200, "application/json", b"{}"),
+                integration_http.OAuthHTTPResponse(503, "application/json", private_provider_body),
             ]
         )
-        service = oauth_integration_service.OAuthIntegrationService(
+        service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
-            http=oauth_http_client.OAuthHTTPClient(transport),
+            http=integration_http.OAuthHTTPClient(transport),
         )
 
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError) as failed:
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError) as failed:
             service.disconnect("team_1", "shimpz-cloudflare", "cloudflare")
         rendered = f"{failed.exception!r} {failed.exception}"
         for private in (ACCESS, REFRESH, CLIENT_ID, CLIENT_CREDENTIAL, "private-provider-detail"):
@@ -370,8 +368,8 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
 
         transport.responses.extend(
             [
-                oauth_http_client.OAuthHTTPResponse(200, "application/json", b"{}"),
-                oauth_http_client.OAuthHTTPResponse(200, "application/json", b"{}"),
+                integration_http.OAuthHTTPResponse(200, "application/json", b"{}"),
+                integration_http.OAuthHTTPResponse(200, "application/json", b"{}"),
             ]
         )
         self.assertTrue(service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
@@ -389,17 +387,17 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             "cloudflare",
             "cloudflare",
             SCOPES,
-            oauth_http_client.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
         )
-        service = oauth_integration_service.OAuthIntegrationService(
+        service = integration_service.OAuthIntegrationService(
             client_id=None,
             client_secret=None,
-            redirect_uri=oauth_http_client.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,
         )
-        with self.assertRaises(oauth_integration_service.OAuthIntegrationServiceError):
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
             service.disconnect("team_1", "shimpz-cloudflare", "cloudflare")
         self.assertEqual(self.transport.requests, [])
         self.assertEqual(

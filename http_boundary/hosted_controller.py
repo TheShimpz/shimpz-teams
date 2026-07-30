@@ -626,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
         submit: bool,
     ) -> None:
         if not submit:
-            pending = runtime_state._assistant_integration_challenges.current(request.team_id)
+            pending = runtime_state._integration_challenges.current(request.team_id)
             self._send_json(
                 HTTPStatus.OK,
                 (

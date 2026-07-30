@@ -16,7 +16,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from assistant_human import oauth_providers
+from integrations import providers as integration_providers
 
 DEFAULT_TTL_SECONDS = 300
 MAX_PENDING_CHALLENGES = 128
@@ -176,7 +176,7 @@ class OAuthPKCEChallengeStore:
         scopes: object,
     ) -> OAuthAuthorizationChallenge:
         binding = self._binding(session_binding, team_id, assistant_id, integration_id)
-        intent = oauth_providers.integration_intent(provider_id, scopes)
+        intent = integration_providers.integration_intent(provider_id, scopes)
         now = time.monotonic()
         with self._lock:
             self._expire(now)

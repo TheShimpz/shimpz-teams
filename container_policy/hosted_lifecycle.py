@@ -10,13 +10,14 @@ import docker.errors
 import audit
 import manifests
 from assistant import spec as assistant_registry
-from assistant_human import hosted_assistants, oauth_integration_store
+from assistant_human import hosted_assistants
 from container_policy import hosted_apps, hosted_resources
 from controller_runtime import cleanup_state, postgresql_service_client
 from core.container import network as network_policy
 from http_boundary import runtime_state
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import store as integration_store
 from power import journal as power_journal
 from storage import files as team_storage
 
@@ -176,10 +177,10 @@ def _teardown_inference(team_id: str) -> bool:
 
 
 def _teardown_assistant_integrations(team_id: str) -> bool:
-    runtime_state._assistant_integration_challenges.cancel_team(team_id)
+    runtime_state._integration_challenges.cancel_team(team_id)
     try:
         runtime_state._assistant_integrations.delete_team(team_id)
-    except oauth_integration_store.OAuthIntegrationStoreError:
+    except integration_store.OAuthIntegrationStoreError:
         return False
     return True
 

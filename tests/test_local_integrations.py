@@ -17,16 +17,14 @@ sys.path.insert(0, str(TEAM))
 from local_assistant_fixture import assistant_spec
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestPublicationRegistry
 
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_broker_client,
-    oauth_integration_service,
-    oauth_integration_store,
-)
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from integrations import broker as integration_broker
+from integrations import challenges as integration_challenges
+from integrations import service as integration_service
+from integrations import store as integration_store
 from local import app as local_app
 from local.install.runtime import AssistantSpec
 from local_support.chat_segment import SegmentRequest
@@ -51,13 +49,13 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
             def complete(_state, _claim, _session_binding, resolver):
                 try:
                     current = resolver("team_1", spec.assistant_id, "cloudflare")
-                except oauth_integration_service.OAuthIntegrationDeclarationError as exc:
-                    raise oauth_integration_service.OAuthIntegrationServiceError(
+                except integration_service.OAuthIntegrationDeclarationError as exc:
+                    raise integration_service.OAuthIntegrationServiceError(
                         "OAuth integration declaration is unavailable"
                     ) from exc
                 if current is not declaration:
                     raise AssertionError("callback resolved an unexpected declaration")
-                return oauth_integration_service.OAuthIntegrationCompletion(
+                return integration_service.OAuthIntegrationCompletion(
                     "team_1",
                     spec.assistant_id,
                     "cloudflare",
@@ -104,7 +102,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
     def test_controller_accepts_injected_integration_state(self) -> None:
         injected_store = SimpleNamespace()
-        injected_challenges = assistant_integration_challenges.IntegrationChallengeStore()
+        injected_challenges = integration_challenges.IntegrationChallengeStore()
         controller = local_app.LocalController(
             SimpleNamespace(
                 info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
@@ -131,7 +129,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_team_integration_teardown_prevents_same_id_resurrection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
                 Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
@@ -164,7 +162,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller._locks = tuple(threading.RLock() for _ in range(64))
             controller.registry = self._registry()
-            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
                 Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
@@ -233,10 +231,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     "SHIMPZ_OAUTH_CALLBACK_MODE": "loopback",
                 },
             ),
-            mock.patch.object(oauth_broker_client, "FixedBrokerTransport", return_value=transport) as transport_type,
-            mock.patch.object(oauth_broker_client, "OAuthBrokerClient", return_value=broker) as broker_type,
+            mock.patch.object(integration_broker, "FixedBrokerTransport", return_value=transport) as transport_type,
+            mock.patch.object(integration_broker, "OAuthBrokerClient", return_value=broker) as broker_type,
             mock.patch.object(
-                oauth_integration_service,
+                integration_service,
                 "BrokeredOAuthIntegrationService",
                 return_value=service,
             ) as service_type,
@@ -268,13 +266,13 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertIs(controller.oauth_service, service)
 
     def test_authorization_and_callback_delegate_to_one_brokered_service(self) -> None:
-        requirement = assistant_integration_challenges.IntegrationRequirement(
+        requirement = integration_challenges.IntegrationRequirement(
             assistant_id="shimpz-cloudflare",
             assistant_name="Shimpz Cloudflare",
             power_ids=("list-zones",),
             integrations=(("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
-        challenges = assistant_integration_challenges.IntegrationChallengeStore()
+        challenges = integration_challenges.IntegrationChallengeStore()
         pending = challenges.create("team_1", (requirement,), {"private": "continuation"})
         calls: list[tuple[str, object]] = []
 
@@ -291,7 +289,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
             def complete(self, state, claim, session_binding, resolver):
                 calls.append(("complete", (state, claim, session_binding, resolver)))
-                return oauth_integration_service.OAuthIntegrationCompletion(
+                return integration_service.OAuthIntegrationCompletion(
                     "team_1",
                     "shimpz-cloudflare",
                     "cloudflare",
@@ -408,7 +406,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
             )
-            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
                 Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )
@@ -461,7 +459,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             round_index=0,
         )
         requirements = (
-            assistant_integration_challenges.IntegrationRequirement(
+            integration_challenges.IntegrationRequirement(
                 assistant_id=spec.assistant_id,
                 assistant_name=spec.name,
                 power_ids=("list-zones",),
@@ -473,10 +471,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = registry
             controller._locks = tuple(threading.RLock() for _ in range(64))
-            controller.integration_challenges = assistant_integration_challenges.IntegrationChallengeStore()
+            controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
             controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
             controller.oauth_pkce = SimpleNamespace(cancel_team=lambda _team: 0)
-            controller.assistant_integrations = oauth_integration_store.OAuthIntegrationStore(
+            controller.assistant_integrations = integration_store.OAuthIntegrationStore(
                 Path(directory) / "state" / "integrations.json",
                 Path(directory) / "key" / "aes256.key",
             )

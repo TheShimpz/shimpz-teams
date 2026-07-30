@@ -24,8 +24,9 @@ from typing import Literal
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from assistant_human import oauth_providers, private_state
 from core import strict_json
+from integrations import private_state
+from integrations import providers as integration_providers
 
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-integrations/state/integrations.json")
 KEY_PATH = Path("/var/lib/shimpz-local/assistant-integrations/key/aes256.key")
@@ -179,8 +180,8 @@ def _stored_status(value: object) -> StoredStatus:
 
 def _intent(provider_id: object, scopes: object) -> tuple[str, tuple[str, ...]]:
     try:
-        intent = oauth_providers.integration_intent(provider_id, scopes)
-    except oauth_providers.OAuthProviderError as exc:
+        intent = integration_providers.integration_intent(provider_id, scopes)
+    except integration_providers.OAuthProviderError as exc:
         raise OAuthIntegrationValidationError("OAuth integration declaration is invalid") from exc
     return intent.provider.id, intent.scopes
 

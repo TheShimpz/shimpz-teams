@@ -5,13 +5,11 @@ from typing import NoReturn
 
 from docker.errors import DockerException
 
-from assistant_human import (
-    assistant_integration_challenges,
-    assistant_integration_flow,
-    oauth_integration_service,
-    oauth_integration_store,
-)
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import flow as integration_flow
+from integrations import service as integration_service
+from integrations import store as integration_store
 from local.install.runtime import AssistantSpec
 from local_support.chat_types import ActiveAssistant as _ActiveAssistant
 from local_support.chat_types import required_active_assistant as _required_active_assistant
@@ -38,7 +36,7 @@ def _power_integration_generations(
                 declarations,
             ),
         )
-    except oauth_integration_store.OAuthIntegrationStoreError as exc:
+    except integration_store.OAuthIntegrationStoreError as exc:
         raise power_journal.PowerJournalConflictError("Power integration state is unavailable") from exc
 
 
@@ -64,14 +62,14 @@ def _resolve_power_integrations(
     power_id: str,
 ) -> dict[str, dict[str, str]]:
     try:
-        return assistant_integration_flow.resolve_power_integrations(
+        return integration_flow.resolve_power_integrations(
             team_id,
             spec,
             power_id,
             self.assistant_integrations,
             self._refresh_oauth_integration,
         )
-    except assistant_integration_flow.IntegrationFlowError as exc:
+    except integration_flow.IntegrationFlowError as exc:
         raise ApiProblem(
             power_execution.INTEGRATION_PRECONDITION_STATUS,
             "Assistant integration is unavailable",
@@ -100,7 +98,7 @@ def _require_power_rpc_envelope(
         ) from exc
 
 
-def _raise_integration_problem(exc: oauth_integration_store.OAuthIntegrationStoreError) -> NoReturn:
+def _raise_integration_problem(exc: integration_store.OAuthIntegrationStoreError) -> NoReturn:
     raise ApiProblem(
         HTTPStatus.SERVICE_UNAVAILABLE,
         "Assistant integration state is unavailable",
@@ -116,14 +114,14 @@ def list_assistant_integrations(self, team_id: str) -> dict[str, object]:
             for assistant_id in self.assistant_lifecycle._assistant_ids(team_id)
         ]
         try:
-            payload = assistant_integration_flow.inventory_payload(
+            payload = integration_flow.inventory_payload(
                 team_id,
                 specs,
                 self.assistant_integrations,
             )
-        except oauth_integration_store.OAuthIntegrationStoreError as exc:
+        except integration_store.OAuthIntegrationStoreError as exc:
             self._raise_integration_problem(exc)
-        except assistant_integration_flow.IntegrationFlowError as exc:
+        except integration_flow.IntegrationFlowError as exc:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "Assistant integration contract is unavailable",
@@ -144,13 +142,13 @@ def start_assistant_integration_authorization(
             challenge,
             session_binding,
         )
-    except assistant_integration_challenges.IntegrationChallengeError as exc:
+    except integration_challenges.IntegrationChallengeError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant integration request expired; retry the message",
             code="assistant-integration-challenge-expired",
         ) from exc
-    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+    except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,
             "Assistant integration authorization is unavailable",
@@ -172,20 +170,20 @@ def _current_integration_declaration(
             assistant_id not in self.assistant_lifecycle._assistant_ids(team_id, running_only=True)
             or declaration is None
         ):
-            raise oauth_integration_service.OAuthIntegrationDeclarationError(
+            raise integration_service.OAuthIntegrationDeclarationError(
                 "OAuth integration declaration is unavailable"
             )
         try:
             container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
             container.reload()
         except (ApiProblem, DockerException) as exc:
-            raise oauth_integration_service.OAuthIntegrationDeclarationError(
+            raise integration_service.OAuthIntegrationDeclarationError(
                 "OAuth integration declaration is unavailable"
             ) from exc
         attrs = container.attrs if isinstance(container.attrs, dict) else {}
         config = attrs.get("Config")
         if not isinstance(config, dict) or not self.assistant_lifecycle._has_current_assistant_artifact(config, spec):
-            raise oauth_integration_service.OAuthIntegrationDeclarationError(
+            raise integration_service.OAuthIntegrationDeclarationError(
                 "OAuth integration declaration is unavailable"
             )
         return declaration
@@ -205,7 +203,7 @@ def complete_cloudflare_oauth_callback(
             session_binding,
             self._current_integration_declaration,
         )
-    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+    except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,
             "Assistant integration authorization could not be completed",
@@ -231,7 +229,7 @@ def disconnect_assistant_integration(
             assistant_id,
             integration_id,
         )
-    except oauth_integration_service.OAuthIntegrationServiceError as exc:
+    except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,
             "Assistant integration could not be disconnected",

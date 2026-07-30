@@ -5,7 +5,7 @@ import hashlib
 import unittest
 from unittest import mock
 
-from assistant_human import oauth_pkce_challenges
+from integrations import pkce as integration_pkce
 
 SESSION_ONE = "session-binding-one-123456789"
 SESSION_TWO = "session-binding-two-123456789"
@@ -13,7 +13,7 @@ SCOPES = ("dns.read", "offline_access", "zone.read")
 
 
 def create(
-    store: oauth_pkce_challenges.OAuthPKCEChallengeStore,
+    store: integration_pkce.OAuthPKCEChallengeStore,
     *,
     session: str = SESSION_ONE,
     team: str = "team_1",
@@ -32,7 +32,7 @@ def create(
 
 class OAuthPKCEChallengeTests(unittest.TestCase):
     def test_s256_verifier_is_private_bound_and_single_use(self) -> None:
-        store = oauth_pkce_challenges.OAuthPKCEChallengeStore()
+        store = integration_pkce.OAuthPKCEChallengeStore()
         challenge = create(store)
 
         self.assertEqual(challenge.code_challenge_method, "S256")
@@ -53,7 +53,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             binding.update(mismatched)
             with (
                 self.subTest(mismatched=mismatched),
-                self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError),
+                self.assertRaises(integration_pkce.OAuthChallengeNotFoundError),
             ):
                 store.claim(state=challenge.state, **binding)
 
@@ -76,7 +76,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             (exchange.team_id, exchange.assistant_id, exchange.integration_id),
             ("team_1", "shimpz-cloudflare", "cloudflare"),
         )
-        with self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError):
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim(
                 state=challenge.state,
                 session_binding=SESSION_ONE,
@@ -86,10 +86,10 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             )
 
     def test_callback_recovers_private_binding_only_for_the_starting_browser(self) -> None:
-        store = oauth_pkce_challenges.OAuthPKCEChallengeStore()
+        store = integration_pkce.OAuthPKCEChallengeStore()
         challenge = create(store)
 
-        with self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError):
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim_callback(state=challenge.state, session_binding=SESSION_TWO)
         exchange = store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
         self.assertEqual(exchange.provider_id, "cloudflare")
@@ -97,18 +97,18 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         self.assertEqual(exchange.assistant_id, "shimpz-cloudflare")
         self.assertEqual(exchange.integration_id, "cloudflare")
         self.assertNotIn(SESSION_ONE, repr(exchange))
-        with self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError):
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim_callback(state=challenge.state, session_binding=SESSION_ONE)
 
     def test_expiry_and_binding_collision_fail_closed(self) -> None:
-        store = oauth_pkce_challenges.OAuthPKCEChallengeStore(ttl_seconds=30)
-        with mock.patch.object(oauth_pkce_challenges.time, "monotonic", return_value=100.0):
+        store = integration_pkce.OAuthPKCEChallengeStore(ttl_seconds=30)
+        with mock.patch.object(integration_pkce.time, "monotonic", return_value=100.0):
             challenge = create(store)
-            with self.assertRaisesRegex(oauth_pkce_challenges.OAuthChallengeError, "pending"):
+            with self.assertRaisesRegex(integration_pkce.OAuthChallengeError, "pending"):
                 create(store)
         with (
-            mock.patch.object(oauth_pkce_challenges.time, "monotonic", return_value=130.0),
-            self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError),
+            mock.patch.object(integration_pkce.time, "monotonic", return_value=130.0),
+            self.assertRaises(integration_pkce.OAuthChallengeNotFoundError),
         ):
             store.claim(
                 state=challenge.state,
@@ -119,39 +119,39 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             )
 
     def test_global_session_and_team_caps_are_independent(self) -> None:
-        global_store = oauth_pkce_challenges.OAuthPKCEChallengeStore(
+        global_store = integration_pkce.OAuthPKCEChallengeStore(
             capacity=1,
             per_session=1,
             per_team=1,
         )
         create(global_store)
-        with self.assertRaisesRegex(oauth_pkce_challenges.OAuthChallengeError, "capacity"):
+        with self.assertRaisesRegex(integration_pkce.OAuthChallengeError, "capacity"):
             create(global_store, session=SESSION_TWO, team="team_2")
 
-        session_store = oauth_pkce_challenges.OAuthPKCEChallengeStore(
+        session_store = integration_pkce.OAuthPKCEChallengeStore(
             capacity=3,
             per_session=1,
             per_team=3,
         )
         create(session_store)
-        with self.assertRaisesRegex(oauth_pkce_challenges.OAuthChallengeError, "session"):
+        with self.assertRaisesRegex(integration_pkce.OAuthChallengeError, "session"):
             create(session_store, team="team_2")
 
-        team_store = oauth_pkce_challenges.OAuthPKCEChallengeStore(
+        team_store = integration_pkce.OAuthPKCEChallengeStore(
             capacity=3,
             per_session=3,
             per_team=1,
         )
         create(team_store)
-        with self.assertRaisesRegex(oauth_pkce_challenges.OAuthChallengeError, "Team"):
+        with self.assertRaisesRegex(integration_pkce.OAuthChallengeError, "Team"):
             create(team_store, session=SESSION_TWO, assistant="other-assistant")
 
     def test_cancel_is_scoped_and_invalid_inputs_never_create_state(self) -> None:
-        store = oauth_pkce_challenges.OAuthPKCEChallengeStore(capacity=4, per_session=4, per_team=4)
+        store = integration_pkce.OAuthPKCEChallengeStore(capacity=4, per_session=4, per_team=4)
         first = create(store)
         second = create(store, session=SESSION_TWO, team="team_2")
         self.assertEqual(store.cancel_session(SESSION_ONE), 1)
-        with self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError):
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim(
                 state=first.state,
                 session_binding=SESSION_ONE,
@@ -161,7 +161,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             )
         self.assertEqual(store.cancel_team("team_2"), 1)
         self.assertEqual(store.cancel_all(), 0)
-        with self.assertRaises(oauth_pkce_challenges.OAuthChallengeNotFoundError):
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
             store.claim(
                 state=second.state,
                 session_binding=SESSION_TWO,

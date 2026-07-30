@@ -13,14 +13,12 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_broker_client,
-    oauth_http_client,
-    oauth_integration_store,
-    oauth_pkce_challenges,
-    oauth_providers,
-)
+from integrations import broker as integration_broker
+from integrations import challenges as integration_challenges
+from integrations import http as integration_http
+from integrations import pkce as integration_pkce
+from integrations import providers as integration_providers
+from integrations import store as integration_store
 
 _CLIENT_ID = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
 _CLIENT_SECRET = re.compile(r"[!-~]{16,1024}\Z")
@@ -29,8 +27,8 @@ _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _PENDING_ID = re.compile(r"[0-9a-f]{32}\Z")
 _REDIRECT_URIS = frozenset(
     {
-        oauth_http_client.LOCAL_REDIRECT_URI,
-        oauth_http_client.HOSTED_REDIRECT_URI,
+        integration_http.LOCAL_REDIRECT_URI,
+        integration_http.HOSTED_REDIRECT_URI,
     }
 )
 MAX_REQUIREMENTS = 32
@@ -87,8 +85,8 @@ def _declaration(value: object) -> tuple[str, tuple[str, ...]]:
         except (AttributeError, TypeError) as exc:
             raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from exc
     try:
-        intent = oauth_providers.integration_intent(provider, scopes)
-    except oauth_providers.OAuthProviderError as exc:
+        intent = integration_providers.integration_intent(provider, scopes)
+    except integration_providers.OAuthProviderError as exc:
         raise OAuthIntegrationServiceError("OAuth integration declaration is unavailable") from exc
     return intent.provider.id, intent.scopes
 
@@ -96,7 +94,7 @@ def _declaration(value: object) -> tuple[str, tuple[str, ...]]:
 def _candidates(
     pending: object,
 ) -> tuple[_Candidate, ...]:
-    if not isinstance(pending, assistant_integration_challenges.PendingIntegrationChallenge):
+    if not isinstance(pending, integration_challenges.PendingIntegrationChallenge):
         raise OAuthIntegrationServiceError("pending OAuth integration is unavailable")
     if (
         not isinstance(pending.requirements, tuple)
@@ -114,7 +112,7 @@ def _candidates(
     seen: set[tuple[str, str]] = set()
     for requirement in pending.requirements:
         if (
-            not isinstance(requirement, assistant_integration_challenges.IntegrationRequirement)
+            not isinstance(requirement, integration_challenges.IntegrationRequirement)
             or not isinstance(requirement.integrations, tuple)
             or not 1 <= len(requirement.integrations) <= MAX_INTEGRATIONS_PER_REQUIREMENT
         ):
@@ -143,13 +141,13 @@ def _candidates(
 
 
 def _missing_candidate(
-    pending: assistant_integration_challenges.PendingIntegrationChallenge,
-    store: oauth_integration_store.OAuthIntegrationStore,
+    pending: integration_challenges.PendingIntegrationChallenge,
+    store: integration_store.OAuthIntegrationStore,
 ) -> _Candidate:
     candidates = _candidates(pending)
     metadata_by_binding: dict[
         tuple[str, str],
-        oauth_integration_store.OAuthIntegrationMetadata,
+        integration_store.OAuthIntegrationMetadata,
     ] = {}
     by_assistant: dict[str, dict[str, dict[str, object]]] = {}
     for candidate in candidates:
@@ -175,10 +173,10 @@ def _missing_candidate(
 
 
 def _authorization_url(
-    challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-    store: oauth_integration_store.OAuthIntegrationStore,
+    challenge: integration_pkce.OAuthPKCEChallengeStore,
+    store: integration_store.OAuthIntegrationStore,
     build_url: Callable[..., str],
-    pending: assistant_integration_challenges.PendingIntegrationChallenge,
+    pending: integration_challenges.PendingIntegrationChallenge,
     session_binding: object,
 ) -> str:
     try:
@@ -200,12 +198,12 @@ def _authorization_url(
     except OAuthIntegrationUnavailableError:
         raise
     except (
-        assistant_integration_challenges.IntegrationChallengeError,
-        oauth_integration_store.OAuthIntegrationStoreError,
-        oauth_broker_client.OAuthBrokerClientError,
-        oauth_http_client.OAuthHTTPError,
-        oauth_pkce_challenges.OAuthChallengeError,
-        oauth_providers.OAuthProviderError,
+        integration_challenges.IntegrationChallengeError,
+        integration_store.OAuthIntegrationStoreError,
+        integration_broker.OAuthBrokerClientError,
+        integration_http.OAuthHTTPError,
+        integration_pkce.OAuthChallengeError,
+        integration_providers.OAuthProviderError,
         OAuthIntegrationServiceError,
         KeyError,
         TypeError,
@@ -214,8 +212,8 @@ def _authorization_url(
 
 
 def _complete(
-    challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-    store: oauth_integration_store.OAuthIntegrationStore,
+    challenge: integration_pkce.OAuthPKCEChallengeStore,
+    store: integration_store.OAuthIntegrationStore,
     exchange_tokens: Callable[..., object],
     state: object,
     claim_or_code: object,
@@ -265,18 +263,18 @@ def _complete(
             generation=metadata.generation,
         )
     except (
-        oauth_integration_store.OAuthIntegrationStoreError,
-        oauth_broker_client.OAuthBrokerClientError,
-        oauth_http_client.OAuthHTTPError,
-        oauth_pkce_challenges.OAuthChallengeError,
-        oauth_providers.OAuthProviderError,
+        integration_store.OAuthIntegrationStoreError,
+        integration_broker.OAuthBrokerClientError,
+        integration_http.OAuthHTTPError,
+        integration_pkce.OAuthChallengeError,
+        integration_providers.OAuthProviderError,
         OAuthIntegrationServiceError,
     ):
         raise OAuthIntegrationServiceError("OAuth integration could not be completed") from None
 
 
 def _exchange_code(
-    http: oauth_http_client.OAuthHTTPClient,
+    http: integration_http.OAuthHTTPClient,
     client_configuration: tuple[str, str, str],
     *,
     provider_id: object,
@@ -299,7 +297,7 @@ def _exchange_code(
 
 
 def _claim_broker(
-    broker: oauth_broker_client.OAuthBrokerClient,
+    broker: integration_broker.OAuthBrokerClient,
     *,
     provider_id: object,
     credential: object,
@@ -325,14 +323,14 @@ class OAuthIntegrationService:
         client_id: object,
         client_secret: object,
         redirect_uri: object,
-        challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-        store: oauth_integration_store.OAuthIntegrationStore,
-        http: oauth_http_client.OAuthHTTPClient,
+        challenge: integration_pkce.OAuthPKCEChallengeStore,
+        store: integration_store.OAuthIntegrationStore,
+        http: integration_http.OAuthHTTPClient,
     ) -> None:
         if (
-            not isinstance(challenge, oauth_pkce_challenges.OAuthPKCEChallengeStore)
-            or not isinstance(store, oauth_integration_store.OAuthIntegrationStore)
-            or not isinstance(http, oauth_http_client.OAuthHTTPClient)
+            not isinstance(challenge, integration_pkce.OAuthPKCEChallengeStore)
+            or not isinstance(store, integration_store.OAuthIntegrationStore)
+            or not isinstance(http, integration_http.OAuthHTTPClient)
             or redirect_uri not in _REDIRECT_URIS
         ):
             raise OAuthIntegrationServiceError("OAuth integration service configuration is invalid")
@@ -360,13 +358,13 @@ class OAuthIntegrationService:
 
     def authorization_url(
         self,
-        pending: assistant_integration_challenges.PendingIntegrationChallenge,
+        pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
     ) -> str:
         """Create one trusted URL for the first deterministic missing integration."""
         client_id, _client_secret, redirect_uri = self._client_configuration()
         build_url = functools.partial(
-            oauth_http_client.authorization_url,
+            integration_http.authorization_url,
             client_id=client_id,
             redirect_uri=redirect_uri,
         )
@@ -419,8 +417,8 @@ class OAuthIntegrationService:
                 revoke,
             )
         except (
-            oauth_integration_store.OAuthIntegrationStoreError,
-            oauth_http_client.OAuthHTTPError,
+            integration_store.OAuthIntegrationStoreError,
+            integration_http.OAuthHTTPError,
             OAuthIntegrationServiceError,
         ):
             raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None
@@ -432,14 +430,14 @@ class BrokeredOAuthIntegrationService:
     def __init__(
         self,
         *,
-        challenge: oauth_pkce_challenges.OAuthPKCEChallengeStore,
-        store: oauth_integration_store.OAuthIntegrationStore,
-        broker: oauth_broker_client.OAuthBrokerClient,
+        challenge: integration_pkce.OAuthPKCEChallengeStore,
+        store: integration_store.OAuthIntegrationStore,
+        broker: integration_broker.OAuthBrokerClient,
     ) -> None:
         if (
-            not isinstance(challenge, oauth_pkce_challenges.OAuthPKCEChallengeStore)
-            or not isinstance(store, oauth_integration_store.OAuthIntegrationStore)
-            or not isinstance(broker, oauth_broker_client.OAuthBrokerClient)
+            not isinstance(challenge, integration_pkce.OAuthPKCEChallengeStore)
+            or not isinstance(store, integration_store.OAuthIntegrationStore)
+            or not isinstance(broker, integration_broker.OAuthBrokerClient)
         ):
             raise OAuthIntegrationServiceError("brokered OAuth integration service configuration is invalid")
         self._challenge = challenge
@@ -451,7 +449,7 @@ class BrokeredOAuthIntegrationService:
 
     def authorization_url(
         self,
-        pending: assistant_integration_challenges.PendingIntegrationChallenge,
+        pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
     ) -> str:
         return _authorization_url(
@@ -494,7 +492,7 @@ class BrokeredOAuthIntegrationService:
                 broker_lease=broker_lease,
                 scopes=scopes,
             )
-        except oauth_broker_client.OAuthBrokerClientError:
+        except integration_broker.OAuthBrokerClientError:
             raise OAuthIntegrationServiceError("OAuth integration could not be refreshed") from None
 
     def disconnect(
@@ -523,7 +521,7 @@ class BrokeredOAuthIntegrationService:
                 revoke,
             )
         except (
-            oauth_integration_store.OAuthIntegrationStoreError,
-            oauth_broker_client.OAuthBrokerClientError,
+            integration_store.OAuthIntegrationStoreError,
+            integration_broker.OAuthBrokerClientError,
         ):
             raise OAuthIntegrationServiceError("OAuth integration could not be disconnected") from None

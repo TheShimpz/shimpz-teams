@@ -16,8 +16,9 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
-from assistant_human import oauth_http_client, oauth_providers
 from core import strict_json
+from integrations import http as integration_http
+from integrations import providers as integration_providers
 
 BROKER_ORIGIN = "https://shimpz.com"
 DEFAULT_CALLBACK_MODE = "loopback"
@@ -155,8 +156,8 @@ def _private_text(
 
 def _intent(provider_id: object, scopes: object) -> tuple[str, tuple[str, ...]]:
     try:
-        intent = oauth_providers.integration_intent(provider_id, scopes)
-    except oauth_providers.OAuthProviderError as exc:
+        intent = integration_providers.integration_intent(provider_id, scopes)
+    except integration_providers.OAuthProviderError as exc:
         raise OAuthBrokerClientError("OAuth integration declaration is invalid") from exc
     if intent.provider.id != "cloudflare":
         raise OAuthBrokerClientError("OAuth provider is unavailable")
@@ -229,7 +230,7 @@ class OAuthBrokerClient:
         return _object(response)
 
     @staticmethod
-    def _tokens(value: dict[str, object], scopes: tuple[str, ...]) -> oauth_http_client.OAuthTokenSet:
+    def _tokens(value: dict[str, object], scopes: tuple[str, ...]) -> integration_http.OAuthTokenSet:
         if set(value) != {
             "access_token",
             "refresh_token",
@@ -250,7 +251,7 @@ class OAuthBrokerClient:
             or _LEASE.fullmatch(lease) is None
         ):
             raise OAuthBrokerClientError("OAuth broker response is invalid")
-        return oauth_http_client.OAuthTokenSet(
+        return integration_http.OAuthTokenSet(
             access_token=_private_text(value.get("access_token"), "access token"),
             refresh_token=_private_text(value.get("refresh_token"), "refresh token"),
             scopes=scopes,
@@ -266,7 +267,7 @@ class OAuthBrokerClient:
         state: object,
         code_verifier: object,
         scopes: object,
-    ) -> oauth_http_client.OAuthTokenSet:
+    ) -> integration_http.OAuthTokenSet:
         _provider, canonical_scopes = _intent(provider_id, scopes)
         if not isinstance(claim, str) or _CLAIM.fullmatch(claim) is None:
             raise OAuthBrokerClientError("OAuth claim is invalid")
@@ -295,7 +296,7 @@ class OAuthBrokerClient:
         refresh_token: object,
         broker_lease: object,
         scopes: object,
-    ) -> oauth_http_client.OAuthTokenSet:
+    ) -> integration_http.OAuthTokenSet:
         _provider, canonical_scopes = _intent(provider_id, scopes)
         if not isinstance(broker_lease, str) or _LEASE.fullmatch(broker_lease) is None:
             raise OAuthBrokerClientError("OAuth broker lease is invalid")

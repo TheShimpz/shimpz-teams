@@ -25,13 +25,6 @@ from docker.errors import APIError, DockerException
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_power_payload
-from assistant_human import (
-    assistant_integration_challenges,
-    oauth_broker_client,
-    oauth_integration_service,
-    oauth_integration_store,
-    oauth_pkce_challenges,
-)
 from controller_runtime import (
     local_chat_continuation_store,
     local_token_store,
@@ -40,6 +33,11 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
 from install import artifact_trust, bindings, registry_auth
+from integrations import broker as integration_broker
+from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
+from integrations import service as integration_service
+from integrations import store as integration_store
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry
 from local_support import assistant_api as local_assistant_api
@@ -356,11 +354,11 @@ class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
     brain_runtime: brain_runtime_client.BrainRuntimeClient | None = None
     power_state: power_journal.PowerJournal | None = None
-    assistant_integrations: oauth_integration_store.OAuthIntegrationStore | None = None
-    integration_challenges: assistant_integration_challenges.IntegrationChallengeStore | None = None
-    oauth_pkce: oauth_pkce_challenges.OAuthPKCEChallengeStore | None = None
-    oauth_broker: oauth_broker_client.OAuthBrokerClient | None = None
-    oauth_service: oauth_integration_service.BrokeredOAuthIntegrationService | None = None
+    assistant_integrations: integration_store.OAuthIntegrationStore | None = None
+    integration_challenges: integration_challenges.IntegrationChallengeStore | None = None
+    oauth_pkce: integration_pkce.OAuthPKCEChallengeStore | None = None
+    oauth_broker: integration_broker.OAuthBrokerClient | None = None
+    oauth_service: integration_service.BrokeredOAuthIntegrationService | None = None
     chat_continuations: local_chat_continuation_store.EncryptedContinuationStore | None = None
     developers: local_developers.DevelopersClient | None = None
     artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
@@ -405,20 +403,20 @@ class LocalController:
             else power_journal.PowerJournal(LOCAL_POWER_JOURNAL_PATH)
         )
         self.assistant_integrations = (
-            dependencies.assistant_integrations or oauth_integration_store.OAuthIntegrationStore()
+            dependencies.assistant_integrations or integration_store.OAuthIntegrationStore()
         )
         self.integration_challenges = (
-            dependencies.integration_challenges or assistant_integration_challenges.IntegrationChallengeStore()
+            dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
-        self.oauth_pkce = dependencies.oauth_pkce or oauth_pkce_challenges.OAuthPKCEChallengeStore()
-        self.oauth_broker = dependencies.oauth_broker or oauth_broker_client.OAuthBrokerClient(
-            transport=oauth_broker_client.FixedBrokerTransport(
+        self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
+        self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
+            transport=integration_broker.FixedBrokerTransport(
                 proxy_host=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_HOST"),
                 proxy_token=os.environ.get("SHIMPZ_OAUTH_BROKER_PROXY_TOKEN"),
             ),
             callback_mode=os.environ.get("SHIMPZ_OAUTH_CALLBACK_MODE", "loopback"),
         )
-        self.oauth_service = dependencies.oauth_service or oauth_integration_service.BrokeredOAuthIntegrationService(
+        self.oauth_service = dependencies.oauth_service or integration_service.BrokeredOAuthIntegrationService(
             challenge=self.oauth_pkce,
             store=self.assistant_integrations,
             broker=self.oauth_broker,

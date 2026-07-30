@@ -37,12 +37,6 @@ COPY local/__init__.py local/app.py local/healthcheck.py ./local/
 COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
-COPY assistant_human/__init__.py assistant_human/assistant_integration_challenges.py \
-    assistant_human/assistant_integration_flow.py \
-    assistant_human/challenge_store.py assistant_human/oauth_integration_service.py \
-    assistant_human/oauth_integration_store.py assistant_human/oauth_broker_client.py \
-    assistant_human/oauth_http_client.py assistant_human/oauth_pkce_challenges.py \
-    assistant_human/oauth_providers.py assistant_human/private_state.py ./assistant_human/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
 COPY controller_runtime/__init__.py controller_runtime/local_chat_continuations.py \
     controller_runtime/local_chat_continuation_store.py \
@@ -55,6 +49,10 @@ COPY egress/__init__.py egress/policy.py ./egress/
 COPY http_boundary/__init__.py http_boundary/local.py ./http_boundary/
 COPY inference/__init__.py inference/client.py inference/config.py inference/model_catalog.json \
     inference/token.py ./inference/
+COPY integrations/__init__.py integrations/broker.py integrations/challenge_store.py \
+    integrations/challenges.py integrations/flow.py integrations/http.py \
+    integrations/pkce.py integrations/private_state.py integrations/providers.py \
+    integrations/service.py integrations/store.py ./integrations/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py \
     install/registry_auth.py ./install/
 COPY protocol/install/v1/definitions.schema.json protocol/install/v1/resolve-response.schema.json \

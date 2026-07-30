@@ -14,8 +14,9 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
-from assistant_human import assistant_integration_challenges, oauth_providers
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import providers as integration_providers
 
 MAX_BATCH_POWERS = 64
 MAX_INTEGRATION_REQUIREMENTS = 64
@@ -155,17 +156,17 @@ def _intent(integration_id: object, declaration: object) -> tuple[str, str, tupl
     try:
         provider = declaration.provider  # type: ignore[attr-defined]
         scopes = declaration.scopes  # type: ignore[attr-defined]
-        resolved = oauth_providers.integration_intent(provider, scopes)
-    except (AttributeError, TypeError, oauth_providers.OAuthProviderError) as exc:
+        resolved = integration_providers.integration_intent(provider, scopes)
+    except (AttributeError, TypeError, integration_providers.OAuthProviderError) as exc:
         raise IntegrationFlowError("Assistant integration declaration is invalid") from exc
     return identifier, resolved.provider.id, resolved.scopes
 
 
 def _provider_metadata(provider_id: str) -> tuple[str, str]:
     try:
-        provider = oauth_providers.resolve(provider_id)
+        provider = integration_providers.resolve(provider_id)
         name, summary = _PROVIDER_PUBLIC_METADATA[provider.id]
-    except (KeyError, oauth_providers.OAuthProviderError) as exc:
+    except (KeyError, integration_providers.OAuthProviderError) as exc:
         raise IntegrationFlowError("OAuth provider has no reviewed public metadata") from exc
     return name, summary
 
@@ -247,7 +248,7 @@ def requirements_for_batch(
     bindings: Mapping[str, _ActiveBinding],
     requests: Sequence[brain_runtime_client.PowerRequest],
     store: _IntegrationStore,
-) -> tuple[assistant_integration_challenges.IntegrationRequirement, ...]:
+) -> tuple[integration_challenges.IntegrationRequirement, ...]:
     """Return every unusable integration before the first Power may execute."""
     team = _team_id(team_id)
     if isinstance(requests, str | bytes) or len(requests) > MAX_BATCH_POWERS:
@@ -271,7 +272,7 @@ def requirements_for_batch(
                 raise IntegrationFlowError("Power references an undeclared integration")
             grouped.setdefault(spec.assistant_id, {}).setdefault(identifier, set()).add(power_id)
 
-    requirements: list[assistant_integration_challenges.IntegrationRequirement] = []
+    requirements: list[integration_challenges.IntegrationRequirement] = []
     for assistant_id in sorted(grouped):
         spec = specs[assistant_id]
         declarations = {identifier: spec.integrations[identifier] for identifier in sorted(grouped[assistant_id])}
@@ -282,7 +283,7 @@ def requirements_for_batch(
                 continue
             identifier, provider, scopes = _intent(integration_id, declarations[integration_id])
             requirements.append(
-                assistant_integration_challenges.IntegrationRequirement(
+                integration_challenges.IntegrationRequirement(
                     assistant_id=assistant_id,
                     assistant_name=spec.name,
                     power_ids=tuple(sorted(grouped[assistant_id][integration_id])),
@@ -294,7 +295,7 @@ def requirements_for_batch(
     return tuple(requirements)
 
 
-def _expires_in(challenge: assistant_integration_challenges.PendingIntegrationChallenge) -> int:
+def _expires_in(challenge: integration_challenges.PendingIntegrationChallenge) -> int:
     try:
         remaining = math.ceil(challenge.expires_at - time.monotonic())
     except (AttributeError, TypeError, ValueError, OverflowError) as exc:
@@ -316,12 +317,12 @@ def _assert_public_payload(value: object) -> None:
 
 
 def challenge_payload(
-    challenge: assistant_integration_challenges.PendingIntegrationChallenge,
+    challenge: integration_challenges.PendingIntegrationChallenge,
     bindings: Mapping[str, _ActiveBinding],
 ) -> dict[str, object]:
     """Project one pending turn without Power input, OAuth state, or token material."""
     if (
-        not isinstance(challenge, assistant_integration_challenges.PendingIntegrationChallenge)
+        not isinstance(challenge, integration_challenges.PendingIntegrationChallenge)
         or not 1 <= len(challenge.requirements) <= MAX_INTEGRATION_REQUIREMENTS
     ):
         raise IntegrationFlowError("integration challenge is invalid")
