@@ -8,16 +8,22 @@ does not own Brain, Account, Assistant-release, or egress-proxy responsibilities
 
 ## Source organization
 
-- `hosted/` contains the Hosted entrypoint, healthcheck, and Hosted-only responsibilities.
+- `assistant/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`, `power/`, and `storage/` are
+  profile-neutral Team responsibilities.
+- `core/` contains only cohesive invariants shared by both profiles: strict JSON, HTTP parsing, container identity,
+  isolation, and network policy.
+- `hosted/` owns the Hosted entrypoint, state, authority, audit, validation, token, and container construction.
+  Its `assistant/`, `chat/`, `http/`, `install/`, and `team/` children separate runtime responsibilities.
+- `local/` owns the Local entrypoint, state, audit, validation, token, labels, and lifecycle used by
+  `install.shimpz.com`. Its `assistant/`, `chat/`, `http/`, and `install/` children express the same profile
+  ownership without sharing materially different controller code with Hosted.
 - `install/` owns profile-neutral publication verification and binding; `hosted/install/` owns Hosted-only
   authorization and materialization adapters.
 - `protocol/http/` is Team's HTTP authority; `protocol/assistant/` and `protocol/install/` are exact pinned mirrors
   used for independent admission and installation conformance.
-- `local/` contains the Local entrypoint, healthcheck, and image definition used by `install.shimpz.com`.
-- `chat/`, `egress/`, `inference/`, and `power/` are profile-neutral Team responsibilities.
 - `egress/` owns Team policy and bindings; the enforcement proxy remains in the Assistant domain.
-- `core/` contains only low-level Team invariants shared by both profiles, currently strict JSON and HTTP contracts.
-- Remaining root packages are unclassified transitional source, not a precedent for placing new files at root.
+- The repository root contains governance and dependency metadata only; runtime Python belongs to a named
+  responsibility or profile.
 
 Directory names use the shortest clear responsibility term, such as `install/`. A peer domain may appear in a leaf
 adapter name but never as a child domain owned by Team.
