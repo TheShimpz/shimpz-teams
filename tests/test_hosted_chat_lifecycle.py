@@ -863,9 +863,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
     def test_destroy_retries_thread_delete_without_teardown_after_redacted_failure(self) -> None:
         delete_calls: list[str] = []
-        teardown = mock.Mock(
-            return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
-        )
+        teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES))
         clear = mock.Mock()
         lease = hosted_resources._AuthorizationLease(
             team_id="team_1",
@@ -922,9 +920,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         self.assertTrue(result["destroyed"])
 
     def test_destroy_journal_failure_is_redacted_before_teardown(self) -> None:
-        teardown = mock.Mock(
-            return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
-        )
+        teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES))
         clear = mock.Mock()
         lease = hosted_resources._AuthorizationLease(
             team_id="team_1",

@@ -211,9 +211,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
             self.assertEqual(audit_log.call_args.kwargs["principal_class"], expected_class)
 
     def test_api_failures_classify_server_errors_as_errors_and_client_failures_as_denials(self) -> None:
-        server = developers_http._runtime_failure(
-            runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "unavailable")
-        )
+        server = developers_http._runtime_failure(runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "unavailable"))
         client = developers_http._runtime_failure(runtime_state.ApiError(HTTPStatus.CONFLICT, "denied"))
 
         self.assertEqual(server.result, "error")

@@ -190,9 +190,7 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             self._delete_team_conversation(team_id, network)
             residue_absent.update(("brain_checkpoints", "power_checkpoints"))
             removed = self._remove_team_assistants(team_id, containers)
-            residue_absent.update(
-                ("assistant_containers", "egress_policies", "publication_bindings")
-            )
+            residue_absent.update(("assistant_containers", "egress_policies", "publication_bindings"))
             storage_removed = self._delete_team_persistence(team_id)
             residue_absent.update(("inference_configuration", "team_storage"))
             destroyed = self._remove_team_network(network)

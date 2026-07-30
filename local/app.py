@@ -401,9 +401,7 @@ class LocalController:
             if dependencies.power_state is not None
             else power_journal.PowerJournal(LOCAL_POWER_JOURNAL_PATH)
         )
-        self.assistant_integrations = (
-            dependencies.assistant_integrations or integration_store.OAuthIntegrationStore()
-        )
+        self.assistant_integrations = dependencies.assistant_integrations or integration_store.OAuthIntegrationStore()
         self.integration_challenges = (
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )

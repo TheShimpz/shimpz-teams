@@ -195,11 +195,7 @@ def supervisor_header(
     headers: dict[str, str],
 ) -> str:
     encoded = (
-        body
-        if isinstance(body, bytes)
-        else None
-        if body is None
-        else json.dumps(body, separators=(",", ":")).encode()
+        body if isinstance(body, bytes) else None if body is None else json.dumps(body, separators=(",", ":")).encode()
     )
     issued_at = int(time.time())
     claims: dict[str, object] = {
@@ -225,9 +221,9 @@ def supervisor_header(
 
 
 def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
-    resolution = json.loads(
-        (TEAM / "protocol" / "install" / "v1" / "vectors.json").read_bytes()
-    )["fixtures"]["resolve_response"]["value"]
+    resolution = json.loads((TEAM / "protocol" / "install" / "v1" / "vectors.json").read_bytes())["fixtures"][
+        "resolve_response"
+    ]["value"]
     manifest = (FIXTURE / "shimpz.toml").read_bytes()
     machine_contract = (FIXTURE / "shimpz.contract.json").read_bytes()
     flow.source_digest = f"sha256:{hashlib.sha256(manifest + machine_contract).hexdigest()}"

@@ -337,10 +337,7 @@ class HostedAuthorizationTests(unittest.TestCase):
 
     def test_dispatch_binds_exact_json_and_supervisor_owner_assignment(self) -> None:
         owner = "b" * 32
-        body = (
-            b'{ "team_name": "Marketing", '
-            b'"owner_account_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }'
-        )
+        body = b'{ "team_name": "Marketing", "owner_account_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }'
         handler = self._request_handler(
             f"/v1/teams/{TEAM_ID}/create",
             body,

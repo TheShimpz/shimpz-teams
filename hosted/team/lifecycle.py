@@ -434,9 +434,7 @@ def _delete_generation_state(team_id: str, container_id: str) -> set[str]:
     if not container_id:
         return {"brain_checkpoints", "power_checkpoints"}
     try:
-        runtime_state._brain_runtime.delete_thread(
-            hosted_resources._brain_thread_id(team_id, container_id)
-        )
+        runtime_state._brain_runtime.delete_thread(hosted_resources._brain_thread_id(team_id, container_id))
     except brain_runtime_client.BrainRuntimeError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,

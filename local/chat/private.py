@@ -170,9 +170,7 @@ def _current_integration_declaration(
             assistant_id not in self.assistant_lifecycle._assistant_ids(team_id, running_only=True)
             or declaration is None
         ):
-            raise integration_service.OAuthIntegrationDeclarationError(
-                "OAuth integration declaration is unavailable"
-            )
+            raise integration_service.OAuthIntegrationDeclarationError("OAuth integration declaration is unavailable")
         try:
             container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
             container.reload()
@@ -183,9 +181,7 @@ def _current_integration_declaration(
         attrs = container.attrs if isinstance(container.attrs, dict) else {}
         config = attrs.get("Config")
         if not isinstance(config, dict) or not self.assistant_lifecycle._has_current_assistant_artifact(config, spec):
-            raise integration_service.OAuthIntegrationDeclarationError(
-                "OAuth integration declaration is unavailable"
-            )
+            raise integration_service.OAuthIntegrationDeclarationError("OAuth integration declaration is unavailable")
         return declaration
 
 

@@ -167,9 +167,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
         )
-        controller.power_state = SimpleNamespace(
-            purge=lambda generation: events.append(("purge-power", generation))
-        )
+        controller.power_state = SimpleNamespace(purge=lambda generation: events.append(("purge-power", generation)))
         controller._wire_collaborators()
         controller.assistant_lifecycle._validate_network = lambda _network, team_id, **_kwargs: events.append(
             ("validate-network", team_id)
