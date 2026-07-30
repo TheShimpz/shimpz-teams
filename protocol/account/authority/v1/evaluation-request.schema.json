@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shimpz.com/account/authority/v1/evaluation-request.schema.json",
+  "title": "Account authority evaluation request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "session_token", "binding"],
+  "properties": {
+    "version": {"const": 1},
+    "session_token": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^[ -~]+$"
+    },
+    "binding": {"$ref": "#/$defs/binding"}
+  },
+  "$defs": {
+    "parameterMap": {
+      "type": "object",
+      "maxProperties": 8,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]{0,31}$"},
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512,
+        "x-maxUtf8Bytes": 512
+      }
+    },
+    "queryMap": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "minLength": 1,
+        "maxLength": 64,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+        "x-maxUtf8Bytes": 64
+      },
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 512,
+        "pattern": "^[^\\u0000-\\u001f\\u007f]*$",
+        "x-maxUtf8Bytes": 512
+      }
+    },
+    "noneBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "length", "sha256"],
+      "properties": {
+        "kind": {"const": "none"},
+        "length": {"const": 0},
+        "sha256": {
+          "const": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      }
+    },
+    "jsonBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "length", "sha256"],
+      "properties": {
+        "kind": {"const": "json"},
+        "length": {"type": "integer", "minimum": 2, "maximum": 26214400},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "fileBody": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "length", "filename", "media_type"],
+      "properties": {
+        "kind": {"const": "file"},
+        "length": {"type": "integer", "minimum": 1, "maximum": 26214400},
+        "filename": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^(?!\\.$|\\.\\.$|\\s|.*\\s$)(?!.*[\\\\/])[^\\u0000-\\u001f\\u007f]+$",
+          "x-maxUtf8Bytes": 255
+        },
+        "media_type": {
+          "type": "string",
+          "maxLength": 127,
+          "pattern": "^[a-z0-9][a-z0-9!#$&^_.+\\-]*/[a-z0-9][a-z0-9!#$&^_.+\\-]*$"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "x-maxCanonicalUtf8Bytes": 8192,
+      "required": ["method", "operation", "params", "query", "body"],
+      "properties": {
+        "method": {"enum": ["DELETE", "GET", "POST", "PUT"]},
+        "operation": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        },
+        "params": {"$ref": "#/$defs/parameterMap"},
+        "query": {"$ref": "#/$defs/queryMap"},
+        "body": {
+          "oneOf": [
+            {"$ref": "#/$defs/noneBody"},
+            {"$ref": "#/$defs/jsonBody"},
+            {"$ref": "#/$defs/fileBody"}
+          ]
+        },
+        "owner_account_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
+    }
+  }
+}

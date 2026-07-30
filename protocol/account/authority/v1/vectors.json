@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "canonicalization": "UTF-8 JSON with sorted keys, no insignificant whitespace, and non-ASCII preserved",
+  "vectors": [
+    {
+      "name": "bodyless Team list",
+      "binding": {
+        "method": "GET",
+        "operation": "team-list",
+        "params": {},
+        "query": {},
+        "body": {
+          "kind": "none",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "binding_digest": "a0d23ca6ff1ca8612aa6be31a12a7374c67435568c057756384af1bcc27d08d6"
+    },
+    {
+      "name": "Supervisor assigns Team Owner",
+      "binding": {
+        "method": "POST",
+        "operation": "team-create",
+        "params": {"team_id": "0123456789abcdef01234567_team"},
+        "query": {},
+        "body": {
+          "kind": "json",
+          "length": 57,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "owner_account_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "binding_digest": "e5c463917e7df9967ddf9d3a50f10486aa426e98380cccfcc726044669862389"
+    },
+    {
+      "name": "file metadata before content read",
+      "binding": {
+        "method": "POST",
+        "operation": "file-upload",
+        "params": {"team_id": "0123456789abcdef01234567_team"},
+        "query": {},
+        "body": {
+          "kind": "file",
+          "length": 26214400,
+          "filename": "relatório.txt",
+          "media_type": "text/plain"
+        }
+      },
+      "binding_digest": "666c0fb4d0a2d6dbeb0f1431d7f57b73d7af4c23d464881306461bcf8d2334af"
+    },
+    {
+      "name": "bounded Team logs query",
+      "binding": {
+        "method": "GET",
+        "operation": "team-logs",
+        "params": {"team_id": "0123456789abcdef01234567_team"},
+        "query": {"lines": "200"},
+        "body": {
+          "kind": "none",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "binding_digest": "8a598b06c5326f6a1d520bdf2bda0228ea65b216b5895a8e6a6645f465736b12"
+    }
+  ]
+}

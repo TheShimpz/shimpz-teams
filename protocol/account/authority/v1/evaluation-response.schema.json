@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shimpz.com/account/authority/v1/evaluation-response.schema.json",
+  "title": "Account authority evaluation response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "account_id", "supervisor", "binding_digest"],
+  "properties": {
+    "version": {"const": 1},
+    "account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "supervisor": {"type": "boolean"},
+    "binding_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "owner_account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+  }
+}
