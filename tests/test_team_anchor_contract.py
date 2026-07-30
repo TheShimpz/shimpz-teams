@@ -7,8 +7,8 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-import manifests
 from core.container import network as network_policy
+from hosted import container as manifests
 
 
 class TeamAnchorContractTests(unittest.TestCase):

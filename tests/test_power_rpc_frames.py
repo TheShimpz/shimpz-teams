@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_assistant_fixture import hosted_assistants, runtime_state
 
-import manifests
+from hosted import container as manifests
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy

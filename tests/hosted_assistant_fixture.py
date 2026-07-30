@@ -9,7 +9,8 @@ from pathlib import Path
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-_CONTROLLER_RUNTIME = importlib.import_module("controller_runtime")
+importlib.import_module("hosted")
+importlib.import_module("hosted.team")
 
 _MODULES_BEFORE_APP_LOAD = dict(sys.modules)
 
@@ -87,7 +88,7 @@ def _stub(name: str, **members):
         setattr(module, key, value)
     sys.modules[name] = module
     parent_name, separator, child_name = name.rpartition(".")
-    parent = _CONTROLLER_RUNTIME if parent_name == "controller_runtime" else sys.modules.get(parent_name)
+    parent = sys.modules.get(parent_name)
     if separator and parent is not None:
         setattr(parent, child_name, module)
     return module
@@ -109,7 +110,7 @@ class _PostgreSQLServiceError(Exception):
     pass
 
 
-_stub("controller_runtime.accounts_client", verify=lambda _token: None)
+_stub("hosted.authority", verify=lambda _token: None)
 _stub("audit", log=lambda *_args, **_kwargs: "trace")
 _stub(
     "inference.credentials",
@@ -119,13 +120,13 @@ _stub(
     generation_is_current=lambda *_args: True,
 )
 _stub(
-    "controller_runtime.postgresql_service_client",
+    "hosted.team.postgresql",
     PostgreSQLServiceError=_PostgreSQLServiceError,
     provision_team=lambda _team_id: {"database_url": "postgres://scoped"},
     drop_team=lambda *_args: {},
     finalize_team_drop=lambda *_args: {},
 )
-_stub("controller_runtime.token_store", ensure_token=lambda: "operator-token")
+_stub("hosted.token", ensure_token=lambda: "operator-token")
 
 spec = importlib.util.spec_from_file_location("team_assistant_hosted_test", TEAM / "hosted" / "app.py")
 app = importlib.util.module_from_spec(spec)
@@ -134,9 +135,9 @@ sys.modules[spec.name] = app
 spec.loader.exec_module(app)
 
 runtime_state = sys.modules["hosted.state"]
-hosted_resources = sys.modules["container_policy.hosted_resources"]
+hosted_resources = sys.modules["hosted.team.resources"]
 hosted_apps = sys.modules["container_policy.hosted_apps"]
-hosted_lifecycle = sys.modules["container_policy.hosted_lifecycle"]
+hosted_lifecycle = sys.modules["hosted.team.lifecycle"]
 hosted_assistants = sys.modules["assistant_human.hosted_assistants"]
 hosted_chat_api = sys.modules["assistant_human.hosted_chat_api"]
 hosted_chat_segment = sys.modules["assistant_human.hosted_chat_segment"]
@@ -210,11 +211,11 @@ for module_name in (
     "docker.errors",
     "docker.utils",
     "docker.utils.socket",
-    "controller_runtime.accounts_client",
+    "hosted.authority",
     "audit",
     "inference.credentials",
-    "controller_runtime.postgresql_service_client",
-    "controller_runtime.token_store",
+    "hosted.team.postgresql",
+    "hosted.token",
 ):
     current = sys.modules.get(module_name)
     previous = _MODULES_BEFORE_APP_LOAD.get(module_name)

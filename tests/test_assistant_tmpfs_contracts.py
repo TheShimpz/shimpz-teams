@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from local_assistant_fixture import hosted_spec
 from local_controller_harness import LocalContractCase
 
-import manifests
+from hosted import container as manifests
 
 
 class AssistantTmpfsContracts(LocalContractCase):

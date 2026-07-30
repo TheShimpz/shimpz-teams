@@ -15,7 +15,6 @@ PRODUCTION_PACKAGES = {
     "assistant_human",
     "chat",
     "container_policy",
-    "controller_runtime",
     "core",
     "egress",
     "hosted",

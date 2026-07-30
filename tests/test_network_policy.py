@@ -14,8 +14,8 @@ import types
 import unittest
 from pathlib import Path
 
-import manifests
 from core.container import network as policy
+from hosted import container as manifests
 from hosted import healthcheck as team_healthcheck
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -384,7 +384,7 @@ def test_shipping_healthcheck_constants_mirror_lifecycle_manifests() -> None:
         "shipping readiness pins the same default Brain image as lifecycle admission",
     )
     health_image = _environment_get(ROOT / "hosted" / "healthcheck.py", "REQUIRED_BRAIN_IMAGES")
-    manifest_image = _environment_get(ROOT / "manifests.py", "IMAGE")
+    manifest_image = _environment_get(ROOT / "hosted" / "container.py", "IMAGE")
     check(
         ast.literal_eval(health_image.args[0]) == ast.literal_eval(manifest_image.args[0]),
         "shipping readiness and lifecycle admission use the same Brain image environment key",

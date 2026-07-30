@@ -12,11 +12,11 @@ from http import HTTPStatus
 import docker
 import docker.errors
 
-import manifests
 import validate
 from assistant import spec as assistant_registry
-from controller_runtime import cleanup_state
 from core.container import network as network_policy
+from hosted import cleanup as cleanup_state
+from hosted import container as manifests
 from hosted import state as runtime_state
 from hosted.install import publication
 from inference import config as inference_config

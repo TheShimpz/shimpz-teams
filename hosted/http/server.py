@@ -18,10 +18,10 @@ import audit
 import validate
 from assistant import spec as assistant_registry
 from assistant_human import hosted_assistants, hosted_chat_api, hosted_chat_segment
-from container_policy import hosted_apps, hosted_lifecycle, hosted_resources
-from controller_runtime import accounts_client
+from container_policy import hosted_apps
 from core.http import stdlib
 from core.http import strict as strict_http
+from hosted import authority as accounts_client
 from hosted import state as runtime_state
 from hosted.http import routes as hosted
 from hosted.install import (
@@ -29,6 +29,8 @@ from hosted.install import (
     developers_delegation,
     publication,
 )
+from hosted.team import lifecycle as hosted_lifecycle
+from hosted.team import resources as hosted_resources
 from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants

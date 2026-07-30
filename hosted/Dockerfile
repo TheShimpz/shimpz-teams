@@ -89,24 +89,22 @@ RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
     UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
     rm -rf /root/.cache/uv
 
-COPY hosted/__init__.py hosted/app.py hosted/healthcheck.py hosted/state.py ./hosted/
-COPY validate.py manifests.py audit.py ./
+COPY hosted/__init__.py hosted/app.py hosted/authority.py hosted/cleanup.py hosted/container.py \
+     hosted/healthcheck.py hosted/state.py hosted/token.py ./hosted/
+COPY validate.py audit.py ./
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY assistant_human/__init__.py assistant_human/hosted_assistants.py \
      assistant_human/hosted_chat_api.py assistant_human/hosted_chat_segment.py \
      ./assistant_human/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
-COPY controller_runtime/__init__.py controller_runtime/accounts_client.py \
-     controller_runtime/cleanup_state.py \
-     controller_runtime/postgresql_service_client.py \
-     controller_runtime/token_store.py ./controller_runtime/
-COPY container_policy/__init__.py container_policy/hosted_apps.py container_policy/hosted_lifecycle.py \
-     container_policy/hosted_resources.py ./container_policy/
+COPY container_policy/__init__.py container_policy/hosted_apps.py ./container_policy/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/publication.py \
      ./hosted/install/
 COPY hosted/http/__init__.py hosted/http/routes.py hosted/http/server.py ./hosted/http/
+COPY hosted/team/__init__.py hosted/team/lifecycle.py hosted/team/postgresql.py \
+     hosted/team/resources.py ./hosted/team/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
      install/contract.py install/registry_auth.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/

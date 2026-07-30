@@ -15,10 +15,10 @@ from pathlib import Path
 
 import docker
 
-import manifests
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from controller_runtime import token_store
+from hosted import container as manifests
+from hosted import token as token_store
 from hosted.install import developers_client, developers_delegation
 from inference import client as brain_runtime_client
 from inference import config as inference_config

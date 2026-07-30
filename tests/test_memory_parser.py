@@ -8,8 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import manifests
 from core.container import network as network_policy
+from hosted import container as manifests
 
 
 class SingleMemoryParser(unittest.TestCase):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from controller_runtime import postgresql_service_client
+from hosted.team import postgresql as postgresql_service_client
 
 
 class PostgreSQLServiceClientTests(unittest.TestCase):

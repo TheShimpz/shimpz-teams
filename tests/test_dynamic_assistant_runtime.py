@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import manifests
+from hosted import container as manifests
 from hosted.install.publication import assistant_spec
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT

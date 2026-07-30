@@ -8,13 +8,15 @@ from http import HTTPStatus
 import docker.errors
 
 import audit
-import manifests
 from assistant import spec as assistant_registry
 from assistant_human import hosted_assistants
-from container_policy import hosted_apps, hosted_resources
-from controller_runtime import cleanup_state, postgresql_service_client
+from container_policy import hosted_apps
 from core.container import network as network_policy
+from hosted import cleanup as cleanup_state
+from hosted import container as manifests
 from hosted import state as runtime_state
+from hosted.team import postgresql as postgresql_service_client
+from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import store as integration_store
