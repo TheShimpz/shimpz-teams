@@ -34,6 +34,37 @@ integration_store = runtime_state.integration_store
 integration_http = runtime_state.integration_http
 power_journal = runtime_state.power_journal
 hosted_egress_policy = hosted_apps.egress_policy
+TEARDOWN_RESIDUES = (
+    "assistant_containers",
+    "brain_container",
+    "cleanup_authority",
+    "database",
+    "database_role",
+    "egress_policies",
+    "inference_configuration",
+    "integration_credentials",
+    "publication_bindings",
+    "team_networks",
+    "team_storage",
+    "team_volumes",
+)
+TEAM_RESIDUES = [
+    "assistant_containers",
+    "brain_checkpoints",
+    "brain_container",
+    "cleanup_authority",
+    "database",
+    "database_role",
+    "egress_policies",
+    "inference_configuration",
+    "integration_credentials",
+    "power_checkpoints",
+    "publication_bindings",
+    "runtime_state",
+    "team_networks",
+    "team_storage",
+    "team_volumes",
+]
 
 
 def hosted_power_batch(round_index: int, count: int) -> brain_runtime_client.RuntimeTurn:
@@ -721,7 +752,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
         def teardown(team_id: str, *, owner: str, brain_id: str):
             events.append(("teardown", team_id, owner, brain_id))
-            return hosted_resources._CleanupResult(True, True)
+            return hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
 
         journal = types.SimpleNamespace(purge=lambda generation: events.append(("journal-purged", generation)))
 
@@ -761,7 +792,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "team_id": "team_1",
                 "destroyed": True,
                 "db_dropped": True,
-                "residue_absent": list(hosted_lifecycle._TEAM_RESIDUE_ABSENCE),
+                "residue_absent": TEAM_RESIDUES,
             },
         )
 
@@ -803,7 +834,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 hosted_lifecycle,
                 "_teardown",
                 side_effect=lambda team_id, *, owner, brain_id: (
-                    events.append(("teardown", team_id, owner, brain_id)) or hosted_resources._CleanupResult(True, True)
+                    events.append(("teardown", team_id, owner, brain_id))
+                    or hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
                 ),
             ),
         ):
@@ -825,13 +857,15 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "team_id": "team_1",
                 "destroyed": True,
                 "db_dropped": True,
-                "residue_absent": list(hosted_lifecycle._TEAM_RESIDUE_ABSENCE),
+                "residue_absent": TEAM_RESIDUES,
             },
         )
 
     def test_destroy_retries_thread_delete_without_teardown_after_redacted_failure(self) -> None:
         delete_calls: list[str] = []
-        teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True))
+        teardown = mock.Mock(
+            return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
+        )
         clear = mock.Mock()
         lease = hosted_resources._AuthorizationLease(
             team_id="team_1",
@@ -888,7 +922,9 @@ class HostedChatLifecycleTests(unittest.TestCase):
         self.assertTrue(result["destroyed"])
 
     def test_destroy_journal_failure_is_redacted_before_teardown(self) -> None:
-        teardown = mock.Mock(return_value=hosted_resources._CleanupResult(True, True))
+        teardown = mock.Mock(
+            return_value=hosted_resources._CleanupResult(True, True, TEARDOWN_RESIDUES)
+        )
         clear = mock.Mock()
         lease = hosted_resources._AuthorizationLease(
             team_id="team_1",

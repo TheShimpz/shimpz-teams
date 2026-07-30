@@ -23,21 +23,24 @@ from integrations import store as integration_store
 from power import journal as power_journal
 from storage import files as team_storage
 
-_TEAM_RESIDUE_ABSENCE = (
-    "brain_checkpoints",
-    "power_checkpoints",
-    "assistant_containers",
-    "publication_bindings",
-    "egress_policies",
-    "team_storage",
-    "inference_configuration",
-    "integration_credentials",
-    "team_networks",
-    "brain_container",
-    "team_volumes",
-    "database",
-    "database_role",
-    "cleanup_authority",
+_TEAM_RESIDUE_ABSENCE = frozenset(
+    {
+        "assistant_containers",
+        "brain_checkpoints",
+        "brain_container",
+        "cleanup_authority",
+        "database",
+        "database_role",
+        "egress_policies",
+        "inference_configuration",
+        "integration_credentials",
+        "power_checkpoints",
+        "publication_bindings",
+        "runtime_state",
+        "team_networks",
+        "team_storage",
+        "team_volumes",
+    }
 )
 
 
@@ -259,6 +262,31 @@ def _finalize_teardown(team_id: str, record: cleanup_state.Record) -> bool:
     return True
 
 
+def _teardown_artifacts(team_id: str, brain) -> tuple[bool, set[str]]:
+    absent: set[str] = set()
+    phases = (
+        (lambda: _stop_teardown_brain(brain), ()),
+        (
+            lambda: _teardown_assistants(team_id),
+            ("assistant_containers", "publication_bindings", "egress_policies"),
+        ),
+        (lambda: _teardown_storage(team_id), ("team_storage",)),
+        (lambda: _teardown_inference(team_id), ("inference_configuration",)),
+        (
+            lambda: _teardown_assistant_integrations(team_id),
+            ("integration_credentials",),
+        ),
+        (lambda: _teardown_network_planes(team_id), ("team_networks",)),
+        (lambda: _remove_teardown_brain(brain), ("brain_container",)),
+        (lambda: _teardown_volumes(team_id), ("team_volumes",)),
+    )
+    for phase, residues in phases:
+        if not phase():
+            return False, absent
+        absent.update(residues)
+    return True, absent
+
+
 def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._CleanupResult:
     """Remove every Team artifact, preserving a durable owner-bound retry anchor throughout."""
     brain_valid, brain = _owned_teardown_brain(team_id, owner, brain_id)
@@ -271,25 +299,23 @@ def _teardown(team_id: str, *, owner: str, brain_id: str) -> hosted_resources._C
         record = cleanup_state.begin(team_id, owner, brain_id)
     except cleanup_state.CleanupStateError:
         return hosted_resources._CleanupResult(False, False)
-    if (
-        not _stop_teardown_brain(brain)
-        or not _teardown_assistants(team_id)
-        or not _teardown_storage(team_id)
-        or not _teardown_inference(team_id)
-        or not _teardown_assistant_integrations(team_id)
-        or not _teardown_network_planes(team_id)
-        or not _remove_teardown_brain(brain)
-        or not _teardown_volumes(team_id)
-    ):
-        return hosted_resources._CleanupResult(False, record.db_dropped)
+    artifacts_removed, absent = _teardown_artifacts(team_id, brain)
+    if not artifacts_removed:
+        return hosted_resources._CleanupResult(
+            False,
+            record.db_dropped,
+            tuple(sorted(absent)),
+        )
     record = _drop_teardown_database(team_id, record)
     if record is None:
-        return hosted_resources._CleanupResult(False, False)
+        return hosted_resources._CleanupResult(False, False, tuple(sorted(absent)))
+    absent.add("database")
     # postgresql-service keeps a retired, idempotent principal until this provisioner-authorized finalizer;
     # only then is the controller's cleartext principal removed. Both operations are retry-safe.
     if not _finalize_teardown(team_id, record):
-        return hosted_resources._CleanupResult(False, True)
-    return hosted_resources._CleanupResult(True, True)
+        return hosted_resources._CleanupResult(False, True, tuple(sorted(absent)))
+    absent.update(("cleanup_authority", "database_role"))
+    return hosted_resources._CleanupResult(True, True, tuple(sorted(absent)))
 
 
 def _create(team_id: str, body: dict, owner: str) -> dict:
@@ -435,6 +461,7 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
         if not chat_lock.acquire(timeout=30):
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
         try:
+            residue_absent = {"brain_checkpoints", "power_checkpoints"}
             if lease.container_id:
                 try:
                     runtime_state._brain_runtime.delete_thread(
@@ -454,16 +481,23 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
                     ) from exc
             cleanup = _teardown(team_id, owner=lease.owner, brain_id=lease.container_id)
             runtime_state._clear_team_id_runtime_state(team_id)
+            residue_absent.update(cleanup.residue_absent)
+            residue_absent.add("runtime_state")
             if not cleanup.complete:
                 raise runtime_state.ApiError(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     "Team teardown is incomplete; retry destroy or contact the Supervisor",
                 )
+            if residue_absent != _TEAM_RESIDUE_ABSENCE:
+                raise runtime_state.ApiError(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "Team teardown proof is incomplete; retry destroy or contact the Supervisor",
+                )
             return {
                 "team_id": team_id,
                 "destroyed": True,
                 "db_dropped": cleanup.db_dropped,
-                "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
+                "residue_absent": sorted(residue_absent),
             }
         finally:
             chat_lock.release()

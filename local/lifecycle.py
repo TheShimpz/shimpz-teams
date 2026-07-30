@@ -27,17 +27,20 @@ from local.validation import brain_thread_id as _brain_thread_id
 from power import journal as power_journal
 from storage import files as team_storage
 
-_TEAM_RESIDUE_ABSENCE = (
-    "chat_continuations",
-    "brain_checkpoints",
-    "power_checkpoints",
-    "assistant_containers",
-    "publication_bindings",
-    "egress_policies",
-    "team_storage",
-    "inference_configuration",
-    "integration_credentials",
-    "team_networks",
+_TEAM_RESIDUE_ABSENCE = frozenset(
+    {
+        "assistant_containers",
+        "brain_checkpoints",
+        "chat_continuations",
+        "egress_policies",
+        "inference_configuration",
+        "integration_credentials",
+        "power_checkpoints",
+        "publication_bindings",
+        "runtime_state",
+        "team_networks",
+        "team_storage",
+    }
 )
 
 
@@ -158,9 +161,18 @@ def _remove_team_network(self, network) -> bool:
     return True
 
 
+def _clear_team_runtime_state(self, team_id: str) -> None:
+    with self.chat_turn_service._active_chat_guard:
+        token = self.chat_turn_service._active_chat_tokens.pop(team_id, None)
+        self.chat_turn_service._active_power_containers.pop(team_id, None)
+        if token is not None:
+            self.chat_turn_service._cancelled_chat_tokens.discard(token)
+
+
 def destroy_team(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
+    residue_absent = {"chat_continuations"}
     self.chat_turn_service._cancel_chat_for_destroy(team_id)
 
     chat_lock = self.chat_turn_service._chat_lock(team_id)
@@ -176,16 +188,31 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             containers = self._team_assistant_containers(team_id)
             self._validate_destroy_containers(containers, team_id, network)
             self._delete_team_conversation(team_id, network)
+            residue_absent.update(("brain_checkpoints", "power_checkpoints"))
             removed = self._remove_team_assistants(team_id, containers)
+            residue_absent.update(
+                ("assistant_containers", "egress_policies", "publication_bindings")
+            )
             storage_removed = self._delete_team_persistence(team_id)
+            residue_absent.update(("inference_configuration", "team_storage"))
             destroyed = self._remove_team_network(network)
+            residue_absent.add("team_networks")
             self._delete_team_private_state(team_id)
+            residue_absent.add("integration_credentials")
+            self._clear_team_runtime_state(team_id)
+            residue_absent.add("runtime_state")
+            if residue_absent != _TEAM_RESIDUE_ABSENCE:
+                raise ApiProblem(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "Team teardown proof is incomplete",
+                    code="teardown-incomplete",
+                )
             return {
                 "team_id": team_id,
                 "destroyed": destroyed,
                 "assistants_removed": removed,
                 "storage_removed": storage_removed,
-                "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
+                "residue_absent": sorted(residue_absent),
             }
     finally:
         chat_lock.release()
@@ -262,26 +289,38 @@ def _remove_space_resources(
     containers: list,
     networks: list,
     owned_assistants: set[tuple[str, str]],
-) -> bool:
+) -> tuple[bool, set[str]]:
+    absent = {"integration_credentials"}
     self.chat_turn_service._delete_all_integration_state()
     for network in networks:
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self._delete_team_conversation(team_id, network)
+    absent.update(("brain_checkpoints", "power_checkpoints"))
     for container in containers:
         container.remove(force=True)
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
+    absent.add("assistant_containers")
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
+    absent.update(("egress_policies", "publication_bindings"))
     for network in networks:
         self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)
     storage_removed = self.storage.destroy_all()
+    absent.add("team_storage")
     for network in networks:
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self.inference_store.delete(team_id)
+    absent.add("inference_configuration")
     for network in networks:
         network.remove()
-    return storage_removed
+    absent.add("team_networks")
+    team_ids = {team_id for team_id, _assistant_id in owned_assistants}
+    team_ids.update(network.attrs["Labels"][TEAM_LABEL] for network in networks)
+    for team_id in team_ids:
+        self._clear_team_runtime_state(team_id)
+    absent.add("runtime_state")
+    return storage_removed, absent
 
 
 def reset_space(self) -> dict[str, object]:
@@ -293,7 +332,11 @@ def reset_space(self) -> dict[str, object]:
         try:
             containers, networks = self._reset_inventory()
             owned_assistants = self._reset_assistant_identities(containers, networks)
-            storage_removed = self._remove_space_resources(containers, networks, owned_assistants)
+            storage_removed, residue_absent = self._remove_space_resources(
+                containers,
+                networks,
+                owned_assistants,
+            )
         except ApiProblem:
             raise
         except team_storage.StorageError as exc:
@@ -306,10 +349,17 @@ def reset_space(self) -> dict[str, object]:
                 "Docker could not reset the Space",
                 code="docker-reset-failed",
             ) from exc
+        residue_absent.add("chat_continuations")
+        if residue_absent != _TEAM_RESIDUE_ABSENCE:
+            raise ApiProblem(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "Space reset proof is incomplete",
+                code="teardown-incomplete",
+            )
         return {
             "reset": True,
             "assistants_removed": len(containers),
             "teams_removed": len(networks),
             "storage_removed": storage_removed,
-            "residue_absent": list(_TEAM_RESIDUE_ABSENCE),
+            "residue_absent": sorted(residue_absent),
         }

@@ -30,6 +30,19 @@ TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "12345
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-space@sha256:" + "a" * 64
+LOCAL_TEAM_RESIDUES = [
+    "assistant_containers",
+    "brain_checkpoints",
+    "chat_continuations",
+    "egress_policies",
+    "inference_configuration",
+    "integration_credentials",
+    "power_checkpoints",
+    "publication_bindings",
+    "runtime_state",
+    "team_networks",
+    "team_storage",
+]
 
 
 class LocalTurnLifecycleTests(LocalContractCase):
@@ -126,7 +139,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "destroyed": True,
                 "assistants_removed": 1,
                 "storage_removed": True,
-                "residue_absent": list(local_app.local_team_lifecycle._TEAM_RESIDUE_ABSENCE),
+                "residue_absent": LOCAL_TEAM_RESIDUES,
             },
         )
         self.assertEqual(controller.registry.identities(), set())
@@ -174,7 +187,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(result["teams_removed"], 1)
         self.assertEqual(
             result["residue_absent"],
-            list(local_app.local_team_lifecycle._TEAM_RESIDUE_ABSENCE),
+            LOCAL_TEAM_RESIDUES,
         )
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
         self.assertIn(("purge-power", "a" * 64), events)

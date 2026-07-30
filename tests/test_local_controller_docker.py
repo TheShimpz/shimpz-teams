@@ -761,16 +761,17 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(
             destroyed["residue_absent"],
             [
-                "chat_continuations",
-                "brain_checkpoints",
-                "power_checkpoints",
                 "assistant_containers",
-                "publication_bindings",
+                "brain_checkpoints",
+                "chat_continuations",
                 "egress_policies",
-                "team_storage",
                 "inference_configuration",
                 "integration_credentials",
+                "power_checkpoints",
+                "publication_bindings",
+                "runtime_state",
                 "team_networks",
+                "team_storage",
             ],
         )
         self.assertNotEqual(
@@ -832,16 +833,17 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self.assertEqual(
             reset["residue_absent"],
             [
-                "chat_continuations",
-                "brain_checkpoints",
-                "power_checkpoints",
                 "assistant_containers",
-                "publication_bindings",
+                "brain_checkpoints",
+                "chat_continuations",
                 "egress_policies",
-                "team_storage",
                 "inference_configuration",
                 "integration_credentials",
+                "power_checkpoints",
+                "publication_bindings",
+                "runtime_state",
                 "team_networks",
+                "team_storage",
             ],
         )
         _, reset_again = self._api(flow.port, flow.token, "DELETE", "/v1/space")

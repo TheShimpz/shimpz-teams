@@ -201,6 +201,23 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             pending = cleanup_state.load("team_1")
 
         self.assertTrue(result.complete)
+        self.assertEqual(
+            result.residue_absent,
+            (
+                "assistant_containers",
+                "brain_container",
+                "cleanup_authority",
+                "database",
+                "database_role",
+                "egress_policies",
+                "inference_configuration",
+                "integration_credentials",
+                "publication_bindings",
+                "team_networks",
+                "team_storage",
+                "team_volumes",
+            ),
+        )
         self.assertIsNone(pending)
         self.assertEqual(
             events,
@@ -234,6 +251,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             pending = cleanup_state.load("team_1")
 
         self.assertFalse(result.complete)
+        self.assertEqual(result.residue_absent, ())
         self.assertIsNotNone(pending)
         self.assertEqual((pending.owner, pending.brain_id, pending.db_dropped), ("account_1", brain.id, False))
 

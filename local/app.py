@@ -373,6 +373,7 @@ class LocalController:
     _delete_team_persistence = local_team_lifecycle._delete_team_persistence
     _delete_team_private_state = local_team_lifecycle._delete_team_private_state
     _remove_team_network = local_team_lifecycle._remove_team_network
+    _clear_team_runtime_state = local_team_lifecycle._clear_team_runtime_state
     destroy_team = local_team_lifecycle.destroy_team
     _validate_reset_container = local_team_lifecycle._validate_reset_container
     _reset_inventory = local_team_lifecycle._reset_inventory

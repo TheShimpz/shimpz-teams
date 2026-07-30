@@ -408,6 +408,7 @@ class _CleanupResult:
 
     artifacts_removed: bool
     db_dropped: bool
+    residue_absent: tuple[str, ...] = ()
 
     @property
     def complete(self) -> bool:
