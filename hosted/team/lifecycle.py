@@ -430,6 +430,30 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
         }
 
 
+def _delete_generation_state(team_id: str, container_id: str) -> set[str]:
+    if not container_id:
+        return {"brain_checkpoints", "power_checkpoints"}
+    try:
+        runtime_state._brain_runtime.delete_thread(
+            hosted_resources._brain_thread_id(team_id, container_id)
+        )
+    except brain_runtime_client.BrainRuntimeError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Team conversation state could not be deleted",
+        ) from exc
+    residue_absent = {"brain_checkpoints"}
+    try:
+        runtime_state._power_execution_journal().purge(container_id)
+    except power_journal.PowerJournalError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Team Power execution state could not be deleted",
+        ) from exc
+    residue_absent.add("power_checkpoints")
+    return residue_absent
+
+
 def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     with runtime_state._lock_for(team_id):
         # Destruction is the supported remediation for runtime drift.
@@ -461,24 +485,7 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
         if not chat_lock.acquire(timeout=30):
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
         try:
-            residue_absent = {"brain_checkpoints", "power_checkpoints"}
-            if lease.container_id:
-                try:
-                    runtime_state._brain_runtime.delete_thread(
-                        hosted_resources._brain_thread_id(team_id, lease.container_id)
-                    )
-                except brain_runtime_client.BrainRuntimeError as exc:
-                    raise runtime_state.ApiError(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "Team conversation state could not be deleted",
-                    ) from exc
-                try:
-                    runtime_state._power_execution_journal().purge(lease.container_id)
-                except power_journal.PowerJournalError as exc:
-                    raise runtime_state.ApiError(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "Team Power execution state could not be deleted",
-                    ) from exc
+            residue_absent = _delete_generation_state(team_id, lease.container_id)
             cleanup = _teardown(team_id, owner=lease.owner, brain_id=lease.container_id)
             runtime_state._clear_team_id_runtime_state(team_id)
             residue_absent.update(cleanup.residue_absent)
