@@ -72,6 +72,7 @@ class DockerFlow:
     continuation_state_volume: str
     continuation_key_volume: str
     supervisor_key_volume: str
+    account_egress_capability_volume: str
     egress_policy_volume: str
     egress_audit_volume: str
     space_id: str
@@ -132,6 +133,7 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         continuation_state_volume=f"shimpz-local-continuation-state-{unique}",
         continuation_key_volume=f"shimpz-local-continuation-key-{unique}",
         supervisor_key_volume=f"shimpz-local-supervisor-key-{unique}",
+        account_egress_capability_volume=f"shimpz-account-egress-capability-{unique}",
         egress_policy_volume=f"shimpz-local-egress-policy-{unique}",
         egress_audit_volume=f"shimpz-local-egress-audit-{unique}",
         space_id=f"test-space-{unique}",

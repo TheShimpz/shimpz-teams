@@ -254,6 +254,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self._run("volume", "create", flow.continuation_state_volume)
         self._run("volume", "create", flow.continuation_key_volume)
         self._run("volume", "create", flow.supervisor_key_volume)
+        self._run("volume", "create", flow.account_egress_capability_volume)
         self._run("volume", "create", flow.egress_policy_volume)
         self._run("volume", "create", flow.egress_audit_volume)
         self._run("network", "create", flow.outbound_network)
@@ -296,6 +297,23 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "r.write_bytes(base64.b64decode(os.environ['SHIMPZ_TEST_PUBLICATION'],validate=True)); "
             "os.chown(r.parent,10001,10001); r.parent.chmod(0o700); "
             "os.chown(r,10001,10001); r.chmod(0o600)",
+        )
+        self._run(
+            "run",
+            "--rm",
+            "--user",
+            "0:0",
+            "--network",
+            "none",
+            "--volume",
+            f"{flow.account_egress_capability_volume}:/run/shimpz-account-egress",
+            "--entrypoint",
+            "/opt/venv/bin/python",
+            flow.controller_tag,
+            "-c",
+            "import os; from pathlib import Path; "
+            "p=Path('/run/shimpz-account-egress/token'); p.write_text('a'*64,encoding='ascii'); "
+            "os.chown(p,0,10022); p.chmod(0o440)",
         )
         self._run(
             "run",
@@ -370,6 +388,8 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "10017",
             "--group-add",
             "10021",
+            "--group-add",
+            "10022",
             "--volume",
             "/var/run/docker.sock:/var/run/docker.sock",
             "--volume",
@@ -393,6 +413,8 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--volume",
             f"{flow.supervisor_key_volume}:/run/shimpz-local-supervisor:ro",
             "--volume",
+            f"{flow.account_egress_capability_volume}:/run/shimpz-account-egress:ro",
+            "--volume",
             f"{FIXTURE / 'local-controller-fixture.py'}:/local-controller-fixture.py:ro",
             "--volume",
             f"{flow.egress_policy_volume}:/var/lib/shimpz-local/app-egress",
@@ -402,6 +424,10 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             f"SHIMPZ_APP_EGRESS_PROXY_CONTAINER={flow.egress_proxy}",
             "--env",
             "SHIMPZ_APP_EGRESS_POLICY_DIR=/var/lib/shimpz-local/app-egress",
+            "--env",
+            "SHIMPZ_OAUTH_BROKER_PROXY_HOST=oauth-broker-proxy",
+            "--env",
+            "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE=/run/shimpz-account-egress/token",
             "--env",
             f"SHIMPZ_BRAIN_RUNTIME_URL=http://{flow.bridge_gateway}:{flow.brain_server.server_port}",
             "--publish",
@@ -914,6 +940,15 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink,s.st_size)",
         ).stdout.strip()
         self.assertEqual(runtime_token_mode, "0o440 10001 10016 1 64")
+        account_egress_capability_mode = self._run(
+            "exec",
+            flow.controller,
+            "/opt/venv/bin/python",
+            "-c",
+            "import os,stat; s=os.stat('/run/shimpz-account-egress/token'); "
+            "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink,s.st_size)",
+        ).stdout.strip()
+        self.assertEqual(account_egress_capability_mode, "0o440 0 10022 1 64")
 
         # Leave one exact-owned pair for the outer finally. This proves cleanup does not depend
         # on reaching the controller reset route and therefore also runs after an earlier failure.
@@ -964,6 +999,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             flow.continuation_state_volume,
             flow.continuation_key_volume,
             flow.supervisor_key_volume,
+            flow.account_egress_capability_volume,
             flow.egress_policy_volume,
             flow.egress_audit_volume,
         )
