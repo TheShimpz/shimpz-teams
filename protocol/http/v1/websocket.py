@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import re
-import threading
 from urllib.parse import urlparse
 
 HEX_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -19,31 +17,6 @@ class FrameError(ValueError):
         self.status = status
         self.detail = detail
         self.close_code = close_code
-
-
-class ExecutorSaturatedError(RuntimeError):
-    """The fixed worker and queue budget has no free admission slot."""
-
-
-class BoundedThreadPoolExecutor(concurrent.futures.ThreadPoolExecutor):
-    """ThreadPoolExecutor with a hard cap on running plus queued futures."""
-
-    def __init__(self, *, max_workers: int, max_outstanding: int, thread_name_prefix: str) -> None:
-        if max_workers < 1 or max_outstanding < max_workers:
-            raise ValueError("invalid bounded executor capacity")
-        self._permits = threading.BoundedSemaphore(max_outstanding)
-        super().__init__(max_workers=max_workers, thread_name_prefix=thread_name_prefix)
-
-    def submit(self, fn, /, *args, **kwargs):
-        if not self._permits.acquire(blocking=False):
-            raise ExecutorSaturatedError("blocking worker admission is full")
-        try:
-            future = super().submit(fn, *args, **kwargs)
-        except BaseException:
-            self._permits.release()
-            raise
-        future.add_done_callback(lambda _completed: self._permits.release())
-        return future
 
 
 def canonical_origin(value: str | None) -> str | None:
