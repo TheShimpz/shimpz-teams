@@ -58,7 +58,7 @@
           "@creator"
         ],
         "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "image_reference": "ghcr.io/theshimpz/shimpz-assistants@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "image_reference": "ghcr.io/theshimpz/shimpz-assistant@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "oci_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "platforms": [
           "linux/amd64",
@@ -348,7 +348,20 @@
         "path": [
           "image_reference"
         ],
-        "value": "ghcr.io/theshimpz/shimpz-assistants:latest"
+        "value": "ghcr.io/theshimpz/shimpz-assistant:latest"
+      }
+    },
+    {
+      "name": "resolve_retired_plural_image_package",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "image_reference"
+        ],
+        "value": "ghcr.io/theshimpz/shimpz-assistants@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       }
     },
     {

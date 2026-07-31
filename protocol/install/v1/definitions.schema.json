@@ -39,7 +39,7 @@
     },
     "imageReference": {
       "type": "string",
-      "pattern": "^ghcr\\.io/theshimpz/shimpz-assistants@sha256:[0-9a-f]{64}$"
+      "pattern": "^ghcr\\.io/theshimpz/shimpz-assistant@sha256:[0-9a-f]{64}$"
     },
     "trustReference": {
       "type": "string",

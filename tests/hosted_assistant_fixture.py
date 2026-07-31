@@ -195,7 +195,7 @@ hosted_developers_http = sys.modules["hosted.install.http"]
 
 from local_assistant_fixture import hosted_spec as _hosted_spec
 
-HOSTED_SPEC = _hosted_spec("ghcr.io/theshimpz/shimpz-assistants@sha256:" + ("a" * 64))
+HOSTED_SPEC = _hosted_spec("ghcr.io/theshimpz/shimpz-assistant@sha256:" + ("a" * 64))
 HOSTED_BINDING = types.SimpleNamespace(
     team_id="team_1",
     assistant_id="shimpz-cloudflare",

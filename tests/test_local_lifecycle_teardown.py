@@ -32,8 +32,8 @@ TEST_SECRET_VALUES = {
 }
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
-CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "b" * 64
-OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "a" * 64
+CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
+OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
 
 
 class LocalLifecycleTeardownTests(LocalContractCase):
@@ -224,8 +224,8 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
         self.assertTrue(local_runtime.is_digest_ref(OUTDATED_ASSISTANT_IMAGE))
-        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistants@sha256:" + "0" * 64))
-        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistants:latest"))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistant@sha256:" + "0" * 64))
+        self.assertFalse(local_runtime.is_digest_ref("ghcr.io/theshimpz/shimpz-assistant:latest"))
 
         for drift in ("missing-label", "image-label-mismatch", "foreign-repository", "wrong-name"):
             with self.subTest(drift=drift):

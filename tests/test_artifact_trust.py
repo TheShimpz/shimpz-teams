@@ -37,7 +37,7 @@ def _attestation(resolution: dict[str, object]) -> list[dict[str, str]]:
         "_type": "https://in-toto.io/Statement/v0.1",
         "subject": [
             {
-                "name": "ghcr.io/theshimpz/shimpz-assistants",
+                "name": "ghcr.io/theshimpz/shimpz-assistant",
                 "digest": {"sha256": resolution["oci_digest"].removeprefix("sha256:")},
             }
         ],

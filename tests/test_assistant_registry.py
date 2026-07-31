@@ -14,7 +14,7 @@ from local.install import runtime as local_runtime
 
 class SharedRegistry(unittest.TestCase):
     def test_both_reject_all_zero_digest(self):
-        zero = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + "0" * 64
+        zero = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "0" * 64
         self.assertFalse(assistant_registry.is_digest_image(zero))
         self.assertFalse(local_runtime.is_digest_ref(zero))
 

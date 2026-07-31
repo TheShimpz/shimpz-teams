@@ -113,7 +113,7 @@ def _validate_lifetime(
 
 
 def _validate_resolve(value: dict[str, object]) -> None:
-    expected = f"ghcr.io/theshimpz/shimpz-assistants@{value.get('oci_digest')}"
+    expected = f"ghcr.io/theshimpz/shimpz-assistant@{value.get('oci_digest')}"
     if value.get("image_reference") != expected:
         raise ContractValidationError("resolve_digest_mismatch")
     intents = value.get("integrations")

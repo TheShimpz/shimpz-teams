@@ -453,7 +453,7 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
             "health caches one immutable resolution consistently across its inspection pass",
         )
 
-        assistant_ref = "ghcr.io/theshimpz/shimpz-assistants@sha256:" + ("a" * 64)
+        assistant_ref = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + ("a" * 64)
         assistant = {
             "Config": {
                 "Labels": {

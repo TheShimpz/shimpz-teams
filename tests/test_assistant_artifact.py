@@ -104,7 +104,7 @@ class AssistantArtifactTests(unittest.TestCase):
     def test_digest_or_assistant_label_mismatch_is_refused_without_a_pull(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
         mismatches = (
-            _assistant_image(digest="ghcr.io/theshimpz/shimpz-assistants@sha256:" + "c" * 64),
+            _assistant_image(digest="ghcr.io/theshimpz/shimpz-assistant@sha256:" + "c" * 64),
             _assistant_image(assistant_id="other-assistant"),
             _assistant_image(source_digest="sha256:" + ("d" * 64)),
         )
