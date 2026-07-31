@@ -35,6 +35,7 @@ RUNTIME = "runsc"
 RUNTIME_PATH = network_policy.TEAM_RUNTIME_PATH
 CONTAINER_TMP = str(PurePosixPath("/") / "tmp")
 
+
 def build_inbox_tar(filename: str, data: bytes) -> bytes:
     """A single-file tar for put_archive into the team's workspace inbox.
 
