@@ -24,7 +24,7 @@
 
 ## Shared delivery
 
-- Read the canonical [Shimpz architecture](https://github.com/TheShimpz/shimpz/blob/main/docs/ARCHITECTURE.md)
+- Read the canonical [Shimpz architecture](https://github.com/TheShimpz/shimpz/blob/main/.context/ARCHITECTURE.md)
   before changing vocabulary, cross-domain authority, protocols, topology, or placement.
 - Deliver the smallest useful microtask, validate it, commit it with a clear English conventional message, and
   push it immediately.
