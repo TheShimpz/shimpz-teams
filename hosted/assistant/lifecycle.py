@@ -273,7 +273,7 @@ def _activate_admitted_egress(
     hosted_resources._safe_connect(
         network,
         container_spec.ASSISTANT_EGRESS_CONTAINER,
-        aliases=["assistant-egress"],
+        aliases=["shimpz-assistant-egress"],
         required=True,
     )
 

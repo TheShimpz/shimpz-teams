@@ -113,7 +113,7 @@ class EgressPolicyStore:
     root: Path
     policy_gid: int
     no_proxy: str
-    proxy_alias: str = "assistant-egress"
+    proxy_alias: str = "shimpz-assistant-egress"
     proxy_port: int = 8889
 
     def _require_root(self) -> Path:

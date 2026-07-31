@@ -19,7 +19,7 @@ from . import registry_auth
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
-RELEASE_PROXY_URL = "http://assistant-release:8888"
+RELEASE_PROXY_URL = "http://shimpz-assistant-release:8888"
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
 _RELEASE_PROXY_ENVIRONMENT = (

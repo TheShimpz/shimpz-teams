@@ -40,7 +40,7 @@ WORKSPACE_VOLUME_KIND = "workspace"
 VOLUME_KINDS = frozenset({CONFIG_VOLUME_KIND, WORKSPACE_VOLUME_KIND})
 
 POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgres{SUFFIX}")
-ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"assistant-egress{SUFFIX}")
+ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"shimpz-assistant-egress{SUFFIX}")
 
 ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_RUNTIME_CAP_ADD = frozenset()
@@ -49,7 +49,7 @@ SHARED_ROLE_LABEL = "shimpz.team.shared.role"
 POSTGRES_ROLE = "postgres"
 ASSISTANT_EGRESS_ROLE = "assistant-egress"
 SHARED_ROLES = frozenset({POSTGRES_ROLE, ASSISTANT_EGRESS_ROLE})
-RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress"})
+RESERVED_SERVICE_ALIASES = frozenset({"postgres", "shimpz-assistant-egress"})
 
 
 def _normalized_capabilities(values: object) -> set[str]:
@@ -312,7 +312,7 @@ def _required_aliases(role: tuple[str, str]) -> frozenset[str]:
     if name == "postgres":
         return frozenset({"postgres"})
     if name == "assistant-egress":
-        return frozenset({"assistant-egress"})
+        return frozenset({"shimpz-assistant-egress"})
     if name == "assistant":
         return frozenset({value, f"{value}.team"})
     return frozenset()

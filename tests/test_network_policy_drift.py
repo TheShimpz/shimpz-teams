@@ -211,7 +211,7 @@ def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
         "teardown recognizes the exact configured core dependency",
     )
     app_proxy = _container(
-        "assistant-egress",
+        "shimpz-assistant-egress",
         policy.ASSISTANT_EGRESS_CONTAINER,
         labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
     )

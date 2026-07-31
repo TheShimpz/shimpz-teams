@@ -581,8 +581,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         drifted_environments = {
             "wrong-token": {**expected, "HTTPS_PROXY": expected["HTTPS_PROXY"].replace(token, "b" * 32)},
             "missing-lowercase": {key: value for key, value in expected.items() if key != "https_proxy"},
-            "http-proxy": {**expected, "HTTP_PROXY": "http://assistant-egress:8889"},
-            "all-proxy": {**expected, "all_proxy": "http://assistant-egress:8889"},
+            "http-proxy": {**expected, "HTTP_PROXY": "http://shimpz-assistant-egress:8889"},
+            "all-proxy": {**expected, "all_proxy": "http://shimpz-assistant-egress:8889"},
         }
         for name, environment in drifted_environments.items():
             with self.subTest(name=name), self.assertRaises(runtime_state.ApiError) as caught:

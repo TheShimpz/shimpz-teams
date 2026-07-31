@@ -736,7 +736,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
         proxy_networks = proxy_metadata["NetworkSettings"]["Networks"]
         self.assertEqual(set(proxy_networks), {flow.outbound_network, flow.network_name})
-        self.assertIn("assistant-egress", proxy_networks[flow.network_name]["Aliases"])
+        self.assertIn("shimpz-assistant-egress", proxy_networks[flow.network_name]["Aliases"])
         policy_contract = self._run(
             "exec",
             flow.controller,

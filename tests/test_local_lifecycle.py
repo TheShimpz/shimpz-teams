@@ -158,7 +158,7 @@ class LocalLifecycleTests(LocalContractCase):
         second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
-        proxy_environment = {"HTTPS_PROXY": "http://assistant-egress:8889"}
+        proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
         for container in (first, second):
             container.attrs["Config"]["Env"] = [f"{key}={value}" for key, value in proxy_environment.items()]
         network_name = controller.assistant_lifecycle._network_name("team_1")
@@ -196,7 +196,7 @@ class LocalLifecycleTests(LocalContractCase):
         second.labels[local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.attrs["Config"]["Labels"][local_app.ASSISTANT_LABEL] = second_spec.assistant_id
         second.name = controller.assistant_lifecycle._container_name("team_1", second_spec.assistant_id)
-        proxy_environment = {"HTTPS_PROXY": "http://assistant-egress:8889"}
+        proxy_environment = {"HTTPS_PROXY": "http://shimpz-assistant-egress:8889"}
         network_name = controller.assistant_lifecycle._network_name("team_1")
         for container in (first, second):
             container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE

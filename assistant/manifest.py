@@ -492,7 +492,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     if manifest["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
     assistant_id = _identifier(manifest["id"], kind="id")
-    if assistant_id in {"postgres", "assistant-egress"}:
+    if assistant_id in {"postgres", "shimpz-assistant-egress"}:
         raise ManifestError("Assistant id is reserved")
     version = manifest["version"]
     if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
