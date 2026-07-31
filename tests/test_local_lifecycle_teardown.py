@@ -235,7 +235,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 elif drift == "image-label-mismatch":
                     container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
                 elif drift == "foreign-repository":
-                    foreign = "evil.example/shimpz-assistants@sha256:" + "c" * 64
+                    foreign = "evil.example/shimpz-assistant@sha256:" + "c" * 64
                     container.labels[local_app.IMAGE_LABEL] = foreign
                     container.attrs["Config"]["Image"] = foreign
                 else:

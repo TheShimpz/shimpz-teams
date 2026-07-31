@@ -47,8 +47,9 @@ class DevelopersControllerVectorTests(unittest.TestCase):
                 if case["valid"]:
                     self.validator.validate(fixture["schema"], value)
                 else:
-                    with self.assertRaises(ContractValidationError):
+                    with self.assertRaises(ContractValidationError) as raised:
                         self.validator.validate(fixture["schema"], value)
+                    self.assertEqual(raised.exception.code, case["error"])
 
     def test_validation_errors_do_not_echo_input(self) -> None:
         secret = "attacker-controlled-secret"
