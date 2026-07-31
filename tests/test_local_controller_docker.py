@@ -262,9 +262,11 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self._run("network", "create", flow.outbound_network)
         self._run(
             "build",
+            "--file",
+            str(TEAM.parent / "egress" / "Dockerfile"),
             "--tag",
             flow.egress_proxy_tag,
-            str(TEAM.parent / "assistants" / "egress"),
+            str(TEAM.parent),
         )
         public_key = flow.supervisor_private_key.public_key().public_bytes(
             Encoding.PEM,
@@ -342,6 +344,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--label",
             "com.shimpz.local.kind=assistant-egress",
             flow.egress_proxy_tag,
+            "assistant",
         )
         socket_gid = str(Path("/var/run/docker.sock").stat().st_gid)
         self._run(
