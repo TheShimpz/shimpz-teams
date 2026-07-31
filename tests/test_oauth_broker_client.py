@@ -104,7 +104,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             ) as read_capability,
         ):
             transport = integration_broker.FixedBrokerTransport(
-                proxy_host="oauth-broker-proxy",
+                proxy_host="shimpz-account-egress",
                 proxy_capability_file=capability_path,
             )
             result = transport.request(
@@ -115,7 +115,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
 
         self.assertEqual(result.status, 200)
         read_capability.assert_called_once_with(capability_path)
-        connect.assert_called_once_with("oauth-broker-proxy", 8889, timeout=10)
+        connect.assert_called_once_with("shimpz-account-egress", 8889, timeout=10)
         tunnel = connection.set_tunnel.call_args
         self.assertEqual(tunnel.args, ("shimpz.com", 443))
         self.assertRegex(tunnel.kwargs["headers"]["Proxy-Authorization"], r"^Basic [A-Za-z0-9+/]+=*$")
@@ -128,14 +128,14 @@ class OAuthBrokerClientTests(unittest.TestCase):
 
     def test_fixed_transport_rejects_partial_or_foreign_proxy_configuration(self) -> None:
         invalid = (
-            {"proxy_host": "oauth-broker-proxy"},
+            {"proxy_host": "shimpz-account-egress"},
             {"proxy_capability_file": "/run/shimpz-account-egress/token"},
             {
                 "proxy_host": "evil.example",
                 "proxy_capability_file": "/run/shimpz-account-egress/token",
             },
             {
-                "proxy_host": "oauth-broker-proxy",
+                "proxy_host": "shimpz-account-egress",
                 "proxy_capability_file": "relative/token",
             },
         )

@@ -228,7 +228,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             mock.patch.dict(
                 os.environ,
                 {
-                    "SHIMPZ_OAUTH_BROKER_PROXY_HOST": "oauth-broker-proxy",
+                    "SHIMPZ_OAUTH_BROKER_PROXY_HOST": "shimpz-account-egress",
                     "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token",
                     "SHIMPZ_OAUTH_CALLBACK_MODE": "loopback",
                 },
@@ -262,7 +262,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             )
 
         transport_type.assert_called_once_with(
-            proxy_host="oauth-broker-proxy",
+            proxy_host="shimpz-account-egress",
             proxy_capability_file="/run/shimpz-account-egress/token",
         )
         broker_type.assert_called_once_with(transport=transport, callback_mode="loopback")
@@ -273,7 +273,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_local_controller_requires_complete_account_egress_configuration(self) -> None:
         invalid = (
             {},
-            {"SHIMPZ_OAUTH_BROKER_PROXY_HOST": "oauth-broker-proxy"},
+            {"SHIMPZ_OAUTH_BROKER_PROXY_HOST": "shimpz-account-egress"},
             {"SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token"},
         )
         for environment in invalid:

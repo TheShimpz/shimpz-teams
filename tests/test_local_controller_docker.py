@@ -411,7 +411,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--env",
             "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR=/var/lib/shimpz-local/assistant-egress",
             "--env",
-            "SHIMPZ_OAUTH_BROKER_PROXY_HOST=oauth-broker-proxy",
+            "SHIMPZ_OAUTH_BROKER_PROXY_HOST=shimpz-account-egress",
             "--env",
             "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE=/run/shimpz-account-egress/token",
             "--env",
