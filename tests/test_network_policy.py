@@ -207,7 +207,7 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
     )
     assistant_id = ASSISTANT_ID
     assistant = _container(
-        "app-id",
+        "assistant-id",
         policy.team_assistant_container_name(TEAM_ID, assistant_id),
         labels={
             "team.assistant.runtime": "1",
@@ -247,14 +247,14 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         labels=policy.shared_service_labels(policy.POSTGRES_ROLE),
         networks={CORE: _endpoint("core-id", "postgres")},
     )
-    app_proxy = _container(
-        "app-proxy-id",
+    assistant_egress = _container(
+        "assistant-egress-id",
         policy.ASSISTANT_EGRESS_CONTAINER,
         labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
         networks={CORE: _endpoint("core-id", policy.ASSISTANT_EGRESS_CONTAINER)},
     )
-    containers = {item["Id"]: item for item in (runtime, assistant, postgres, app_proxy)}
-    core = _network(policy.CORE_KIND, "core-id", "runtime-id", "app-id", "postgres-id", "app-proxy-id")
+    containers = {item["Id"]: item for item in (runtime, assistant, postgres, assistant_egress)}
+    core = _network(policy.CORE_KIND, "core-id", "runtime-id", "assistant-id", "postgres-id", "assistant-egress-id")
     return core, containers
 
 
@@ -329,7 +329,7 @@ def test_valid_core_topology_and_security_posture() -> None:
         "core accepts only Runtime, Assistants, PostgreSQL, and the Assistant proxy",
     )
     check(_workload_valid(containers["runtime-id"]), "Runtime posture is exact")
-    check(_workload_valid(containers["app-id"]), "Assistant posture is exact")
+    check(_workload_valid(containers["assistant-id"]), "Assistant posture is exact")
     check(
         policy.daemon_security_options_valid(
             {"SecurityOptions": ["name=apparmor", "name=seccomp,profile=builtin", "name=cgroupns"]}
@@ -341,7 +341,7 @@ def test_valid_core_topology_and_security_posture() -> None:
 def test_core_accepts_multiple_distinct_assistants() -> None:
     core, containers = _valid_topology()
     second_id = "research-assistant"
-    second = copy.deepcopy(containers["app-id"])
+    second = copy.deepcopy(containers["assistant-id"])
     second["Id"] = "second-assistant-id"
     second["Name"] = f"/{policy.team_assistant_container_name(TEAM_ID, second_id)}"
     second["Config"]["Labels"]["team.assistant"] = second_id
@@ -442,7 +442,7 @@ def test_engine_29_capability_prefix_is_normalized() -> None:
 
 def test_assistant_tmpfs_requires_the_compact_runtime_contract() -> None:
     _core, containers = _valid_topology()
-    assistant = containers["app-id"]
+    assistant = containers["assistant-id"]
     check(_workload_valid(assistant), "a bound Assistant admits the 64 MiB tmpfs posture")
     assistant["HostConfig"]["Tmpfs"] = {policy.TMPFS_MOUNT_PATH: "size=256m"}
     check(
@@ -499,13 +499,13 @@ def test_health_resolves_each_workload_role_to_its_trusted_image_id() -> None:
 def test_health_tracks_running_runtimes_without_weakening_stopped_posture() -> None:
     _core, containers = _valid_topology()
     runtime = containers["runtime-id"]
-    assistant = containers["app-id"]
+    assistant = containers["assistant-id"]
     runtime_ref = team_healthcheck.REQUIRED_TEAM_IMAGE
     assistant_ref = ASSISTANT_IMAGE_REF
     runtime["Config"]["Image"], runtime["Image"] = runtime_ref, "sha256:health-runtime"
     assistant["Config"]["Image"], assistant["Image"] = assistant_ref, "sha256:health-assistant"
     runtime["State"]["Running"] = False
-    metadata_by_id = {"runtime-id": runtime, "app-id": assistant}
+    metadata_by_id = {"runtime-id": runtime, "assistant-id": assistant}
     summaries = [
         {"Id": container_id, "Labels": metadata["Config"]["Labels"]}
         for container_id, metadata in metadata_by_id.items()
@@ -527,7 +527,7 @@ def test_health_tracks_running_runtimes_without_weakening_stopped_posture() -> N
             and inspected[4]
             == {
                 "runtime-id": (TEAM_ID, frozenset({policy.CORE_KIND}), False),
-                "app-id": (TEAM_ID, frozenset({policy.CORE_KIND}), True),
+                "assistant-id": (TEAM_ID, frozenset({policy.CORE_KIND}), True),
             },
             "health tracks stopped and running workloads separately for static/live endpoint proof",
         )
@@ -610,7 +610,7 @@ def test_health_tolerates_only_stopped_unbound_assistants() -> None:
 def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     core, containers = _valid_topology()
     containers["runtime-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_TEAM_IMAGE
-    containers["app-id"]["Config"]["Image"] = ASSISTANT_IMAGE_REF
+    containers["assistant-id"]["Config"]["Image"] = ASSISTANT_IMAGE_REF
     orphan = _container(
         "orphan-id",
         "orphan",

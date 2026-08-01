@@ -439,7 +439,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         )
         network = types.SimpleNamespace(
             disconnect=lambda target: events.append(("disconnect", target.id)),
-            connect=lambda target, *, aliases: events.append(("connect-app", target.id, tuple(aliases))),
+            connect=lambda target, *, aliases: events.append(("connect-assistant", target.id, tuple(aliases))),
         )
 
         def create(**_kwargs):
@@ -510,7 +510,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 "runtime",
                 "create",
                 ("disconnect", "assistant-generation"),
-                ("connect-app", "assistant-generation", ("shimpz-cloudflare", "shimpz-cloudflare.team")),
+                ("connect-assistant", "assistant-generation", ("shimpz-cloudflare", "shimpz-cloudflare.team")),
                 "admit",
                 ("remove-container", "assistant-generation"),
             ],

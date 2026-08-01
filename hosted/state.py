@@ -73,7 +73,7 @@ FILE_UPLOAD_RATE_LIMIT = _positive_int_env("SHIMPZ_TEAM_FILE_UPLOAD_RATE_LIMIT",
 FILE_UPLOAD_RATE_WINDOW_SECONDS = _positive_int_env("SHIMPZ_TEAM_FILE_UPLOAD_RATE_WINDOW_SECONDS", 3600)
 MAX_HTTP_CONCURRENCY = _positive_int_env("SHIMPZ_TEAM_MAX_HTTP_CONCURRENCY", 64)
 HTTP_CONNECTION_TIMEOUT_SECONDS = _positive_int_env("SHIMPZ_TEAM_HTTP_CONNECTION_TIMEOUT_SECONDS", 30)
-# One token-gated proxy serves every app, with each token confined to its own allowlist in this volume.
+# One token-gated proxy serves every Assistant, with each token confined to its own allowlist in this volume.
 ASSISTANT_EGRESS_POLICY_DIR = Path(os.environ.get("SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR", "/assistant-egress-policy"))
 ASSISTANT_EGRESS_POLICY_GID = 10017
 TEAM_STORAGE_ROOT = Path("/var/lib/team/storage")

@@ -125,7 +125,7 @@ def team_assistant_container_name(team_id: str, assistant_id: str) -> str:
 
 
 def core_deps() -> list[tuple[str, list[str]]]:
-    """Shared services allowed on a Team's app/data plane."""
+    """Shared Services allowed on a Team's Assistant/data plane."""
     return [(POSTGRES_CONTAINER, ["postgres"])]
 
 

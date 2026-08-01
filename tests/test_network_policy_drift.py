@@ -23,7 +23,7 @@ from test_network_policy import (
 from core.container import network as policy
 
 
-def test_foreign_services_and_extra_app_networks_fail_closed() -> None:
+def test_foreign_services_and_extra_assistant_networks_fail_closed() -> None:
     core, containers = _valid_topology()
     broad_on_core = copy.deepcopy(core)
     broad_proxy = _container(
@@ -37,9 +37,9 @@ def test_foreign_services_and_extra_app_networks_fail_closed() -> None:
     check(not _members_valid(broad_on_core, containers, policy.CORE_KIND), "retired broad proxy on core fails closed")
 
     _core, containers = _valid_topology()
-    containers["app-id"]["NetworkSettings"]["Networks"]["foreign"] = _endpoint("foreign-id", ASSISTANT_ID)
+    containers["assistant-id"]["NetworkSettings"]["Networks"]["foreign"] = _endpoint("foreign-id", ASSISTANT_ID)
     check(
-        not _workload_valid(containers["app-id"]),
+        not _workload_valid(containers["assistant-id"]),
         "Assistant with any extra network fails its workload posture",
     )
 
@@ -77,14 +77,14 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
         "the same omission fails whenever core requires live Runtime membership",
     )
     check(
-        policy.workload_live_membership_valid(core, containers["app-id"], TEAM_ID, policy.CORE_KIND),
+        policy.workload_live_membership_valid(core, containers["assistant-id"], TEAM_ID, policy.CORE_KIND),
         "a running Assistant remains valid on core while its exact Runtime is intentionally stopped",
     )
-    app_omitted = copy.deepcopy(core)
-    del app_omitted["Containers"]["app-id"]
+    assistant_omitted = copy.deepcopy(core)
+    del assistant_omitted["Containers"]["assistant-id"]
     check(
         policy.network_members_valid(
-            app_omitted,
+            assistant_omitted,
             containers,
             TEAM_ID,
             policy.CORE_KIND,
@@ -95,8 +95,8 @@ def test_stopped_brain_omission_keeps_static_proof_and_rejects_posture_drift() -
     )
     check(
         not policy.workload_live_membership_valid(
-            app_omitted,
-            containers["app-id"],
+            assistant_omitted,
+            containers["assistant-id"],
             TEAM_ID,
             policy.CORE_KIND,
         ),
@@ -210,17 +210,17 @@ def test_network_reuse_rejects_wrong_identity_and_contamination() -> None:
         policy.network_member_managed(containers["postgres-id"], TEAM_ID, policy.CORE_KIND),
         "teardown recognizes the exact configured core dependency",
     )
-    app_proxy = _container(
+    assistant_egress = _container(
         "shimpz-assistant-egress",
         policy.ASSISTANT_EGRESS_CONTAINER,
         labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
     )
     check(
-        policy.network_member_managed(app_proxy, TEAM_ID, policy.CORE_KIND),
+        policy.network_member_managed(assistant_egress, TEAM_ID, policy.CORE_KIND),
         "cleanup recognizes the exact token proxy on the core plane",
     )
     check(
-        not policy.network_member_managed(app_proxy, TEAM_ID, "brain-egress"),
+        not policy.network_member_managed(assistant_egress, TEAM_ID, "brain-egress"),
         "cleanup never accepts the retired Runtime-egress plane",
     )
     name_only_postgres = _container("name-only", policy.POSTGRES_CONTAINER)
@@ -240,7 +240,7 @@ def test_alias_and_endpoint_identity_drift_fail_closed() -> None:
     check(not _members_valid(core, containers, policy.CORE_KIND), "endpoint/network ID mismatch is rejected")
 
     core, containers = _valid_topology()
-    containers["app-id"]["NetworkSettings"]["Networks"][CORE]["Aliases"].append("postgres")
+    containers["assistant-id"]["NetworkSettings"]["Networks"][CORE]["Aliases"].append("postgres")
     check(not _members_valid(core, containers, policy.CORE_KIND), "Assistant cannot claim a reserved service alias")
 
     core, containers = _valid_topology()
@@ -314,11 +314,11 @@ def test_workload_security_drift_fail_closed() -> None:
         ("wrong immutable image ID", lambda item: item.update(Image="sha256:attacker")),
     )
     for label, mutate in mutations:
-        drifted = copy.deepcopy(containers["app-id"])
+        drifted = copy.deepcopy(containers["assistant-id"])
         mutate(drifted)
         check(not _workload_valid(drifted), f"Assistant {label} is rejected")
 
-    false_nnp = copy.deepcopy(containers["app-id"])
+    false_nnp = copy.deepcopy(containers["assistant-id"])
     false_nnp["HostConfig"]["SecurityOpt"] = ["no-new-privileges:false", "apparmor=docker-default"]
     check(not _workload_valid(false_nnp), "disabled no-new-privileges is rejected")
 
@@ -335,7 +335,7 @@ def test_workload_security_drift_fail_closed() -> None:
     runtime["HostConfig"]["MemoryReservation"] = policy.RUNTIME_MEMORY_RESERVATION_BYTES + 1
     check(not _workload_valid(runtime), "Runtime memory reservation drift is rejected")
 
-    normalized = copy.deepcopy(containers["app-id"])
+    normalized = copy.deepcopy(containers["assistant-id"])
     normalized["HostConfig"]["UTSMode"] = "private"
     check(
         _workload_valid(normalized),
