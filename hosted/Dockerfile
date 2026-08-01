@@ -7,7 +7,7 @@
 # process's own UID is unprivileged (10001) — defense-in-depth against trivial filesystem tampering,
 # not a claim that socket access itself is contained (holding the socket is host-root-equivalent).
 # Pinned by digest; bump deliberately.
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 ARG SOURCE_DATE_EPOCH=0
 
 ARG DEBIAN_SNAPSHOT=20260623T000000Z
@@ -26,9 +26,9 @@ RUN set -eux; \
     test "$(grep -Fc "https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" /etc/apt/sources.list.d/debian-snapshot.list)" -eq 2; \
     test "$(grep -Fc "https://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" /etc/apt/sources.list.d/debian-snapshot.list)" -eq 1
 
-ARG UV_VERSION=0.11.25
+ARG UV_VERSION=0.12.1
 # The hash pins the immutable versioned installer served by astral.sh.
-ARG UV_INSTALL_SHA256=ca2de1bca2913ba30ce88658b6d90a663c627ecac378803aa58084a9adb35a46
+ARG UV_INSTALL_SHA256=d3f5412d38c99f9d024901843bf98206f0d2c6dbe64df40d0b740e2751ca62c1
 ARG COSIGN_VERSION=3.0.6
 ARG COSIGN_AMD64_SHA256=c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
 ARG COSIGN_ARM64_SHA256=bedac92e8c3729864e13d4a17048007cfafa79d5deca993a43a90ffe018ef2b8

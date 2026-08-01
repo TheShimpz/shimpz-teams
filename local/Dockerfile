@@ -3,10 +3,10 @@
 #
 # Separate local-only Team controller. It does not copy the hosted app.py/runsc/PG control
 # plane; only the narrow LangGraph runtime protocol and Controller-owned Power loop are shared.
-FROM ghcr.io/astral-sh/uv:0.11.25@sha256:1e3808aa9023d0980e7c15b1fa7c1ac16ff35925780cf5c459858b2d693f01a9 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 ARG SOURCE_DATE_EPOCH=0
 
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS dependencies
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
 ARG SOURCE_DATE_EPOCH=0
 ARG COSIGN_VERSION=3.0.6
 ARG COSIGN_AMD64_SHA256=c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c - && \
     install -m 0755 /tmp/cosign /opt/venv/bin/cosign
 
-FROM python:3.14-slim@sha256:b877e50bd90de10af8d82c57a022fc2e0dc731c5320d762a27986facfc3355c1 AS runtime
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS runtime
 ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
