@@ -18,7 +18,10 @@ class TeamAnchorContractTests(unittest.TestCase):
             "Team 1",
         )
 
-        self.assertIn("registry.k8s.io/pause:3.10.2@sha256:", kwargs["image"])
+        self.assertEqual(
+            kwargs["image"],
+            "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4",
+        )
         self.assertEqual(kwargs["environment"], {"SHIMPZ_TEAM_ID": "team_1", "SHIMPZ_TEAM_NAME": "Team 1"})
         self.assertNotIn("postgresql://", repr(kwargs))
         self.assertNotIn("team.brain", kwargs["labels"])
