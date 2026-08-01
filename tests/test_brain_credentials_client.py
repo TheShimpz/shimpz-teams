@@ -56,7 +56,7 @@ class BrainCredentialsClientTests(unittest.TestCase):
 
         def post(_base_url, path, payload, _token_file, _session=None):
             requests.append((path, payload))
-            if path == "/v1/internal/brains/resolve":
+            if path == "/v1/internal/model-providers/resolve":
                 return 200, {
                     "auth_type": "api_key",
                     "secret_ref": {"opaque": "envelope"},
@@ -79,7 +79,7 @@ class BrainCredentialsClientTests(unittest.TestCase):
         self.assertEqual(
             [path for path, _payload in requests],
             [
-                "/v1/internal/brains/resolve",
+                "/v1/internal/model-providers/resolve",
                 "/v1/deliver",
             ],
         )
@@ -150,14 +150,14 @@ class BrainCredentialsClientTests(unittest.TestCase):
             ):
                 first = brain_credentials_client._post(
                     "http://account:7079",
-                    "/v1/internal/brains/generation-check",
+                    "/v1/internal/model-providers/generation-check",
                     {"generation": 1},
                     token_path,
                     session,
                 )
                 second = brain_credentials_client._post(
                     "http://account:7079",
-                    "/v1/internal/brains/generation-check",
+                    "/v1/internal/model-providers/generation-check",
                     {"generation": 1},
                     token_path,
                     session,
@@ -208,14 +208,14 @@ class BrainCredentialsClientTests(unittest.TestCase):
             ):
                 first = brain_credentials_client._post(
                     "http://account:7079",
-                    "/v1/internal/brains/generation-check",
+                    "/v1/internal/model-providers/generation-check",
                     {"generation": 1},
                     token_path,
                     session,
                 )
                 second = brain_credentials_client._post(
                     "http://account:7079",
-                    "/v1/internal/brains/generation-check",
+                    "/v1/internal/model-providers/generation-check",
                     {"generation": 2},
                     token_path,
                     session,

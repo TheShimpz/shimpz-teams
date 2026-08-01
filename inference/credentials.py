@@ -300,7 +300,7 @@ def resolve(
     _require_provider(provider)
     status, resolved = _post(
         ACCOUNT_URL,
-        "/v1/internal/brains/resolve",
+        "/v1/internal/model-providers/resolve",
         {"account_id": account_id, "provider": provider},
         RESOLVE_TOKEN_FILE,
         session,
@@ -353,7 +353,7 @@ def generation_is_current(
         raise BrainCredentialError("Brain credential generation is invalid")
     status, result = _post(
         ACCOUNT_URL,
-        "/v1/internal/brains/generation-check",
+        "/v1/internal/model-providers/generation-check",
         {
             "account_id": account_id,
             "provider": provider,
