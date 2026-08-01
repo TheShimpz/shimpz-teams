@@ -914,4 +914,4 @@ def _require_current_authorization(
         _require_team_isolation(container)
     return container
 
-    # ── installed apps (the P4 deploy arm) ───────────────────────────────────────
+    # ── installed Assistants ─────────────────────────────────────────────────────

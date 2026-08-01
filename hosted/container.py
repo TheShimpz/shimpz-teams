@@ -21,7 +21,7 @@ from assistant.spec import AssistantSpec
 from core.container import network as network_policy
 from power import execution as power_execution
 
-# Multi-instance (R137): SHIMPZ_SUFFIX names this Space's resources; empty (the default) is prod.
+# SHIMPZ_SUFFIX distinguishes resources when multiple Spaces share one host; empty is the primary Space.
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")
 DEFAULT_TEAM_IMAGE = (
     "registry.k8s.io/pause:3.10.1@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
