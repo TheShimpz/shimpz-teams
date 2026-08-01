@@ -102,7 +102,7 @@ def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:
 
 def _image_labels_valid(image, spec: AssistantSpec) -> bool:
     labels = (image.attrs.get("Config") or {}).get("Labels") or {}
-    return labels.get("org.shimpz.assistant.id") == spec.assistant_id and labels.get("org.shimpz.assistant.api") == "1"
+    return all(labels.get(key) == value for key, value in spec.required_image_labels)
 
 
 def _trusted_image(self, spec: AssistantSpec):

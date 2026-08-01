@@ -306,6 +306,10 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             image="example.invalid/assistant@sha256:" + ("c" * 64),
             powers={"list-zones": local_power},
             allowed_hosts=(),
+            required_image_labels=(
+                ("org.shimpz.assistant.id", assistant_id),
+                ("org.shimpz.source.digest", "sha256:" + ("d" * 64)),
+            ),
         )
         local_active = ActiveAssistant(local_spec, assistant_container.id)
         request = SimpleNamespace(

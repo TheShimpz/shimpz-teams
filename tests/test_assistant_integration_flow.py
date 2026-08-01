@@ -96,6 +96,10 @@ def _spec() -> AssistantSpec:
             ),
         },
         allowed_hosts=("api.cloudflare.com",),
+        required_image_labels=(
+            ("org.shimpz.assistant.id", "cloudflare-assistant"),
+            ("org.shimpz.source.digest", "sha256:" + ("a" * 64)),
+        ),
         integrations={
             "cloudflare-read": IntegrationSpec("cloudflare", read_scopes),
             "cloudflare-write": IntegrationSpec("cloudflare", write_scopes),
@@ -122,6 +126,10 @@ def _cloudflare_spec() -> AssistantSpec:
             )
         },
         allowed_hosts=("api.cloudflare.com",),
+        required_image_labels=(
+            ("org.shimpz.assistant.id", "shimpz-cloudflare"),
+            ("org.shimpz.source.digest", "sha256:" + ("b" * 64)),
+        ),
         integrations={
             "cloudflare": IntegrationSpec("cloudflare", ("dns.read", "offline_access", "zone.read")),
         },

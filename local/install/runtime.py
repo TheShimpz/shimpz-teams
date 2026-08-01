@@ -21,6 +21,7 @@ class AssistantSpec:
     image: str
     powers: dict[str, PowerSpec]
     allowed_hosts: tuple[str, ...]
+    required_image_labels: tuple[tuple[str, str], ...]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
 

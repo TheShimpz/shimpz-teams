@@ -79,6 +79,10 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             image=str(binding.resolution["image_reference"]),
             powers=powers,
             allowed_hosts=reviewed.allowed_hosts,
+            required_image_labels=(
+                ("org.shimpz.assistant.id", binding.assistant_id),
+                ("org.shimpz.source.digest", str(binding.resolution["source_digest"])),
+            ),
             integrations=integrations,
             machine_contract=machine_contract,
         )

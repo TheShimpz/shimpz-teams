@@ -76,6 +76,10 @@ def assistant_spec(image: str) -> AssistantSpec:
         image=image,
         powers=powers,
         allowed_hosts=("api.cloudflare.com",),
+        required_image_labels=(
+            ("org.shimpz.assistant.id", "shimpz-cloudflare"),
+            ("org.shimpz.source.digest", "sha256:" + ("c" * 64)),
+        ),
         integrations=integrations,
         machine_contract={
             "version": 1,

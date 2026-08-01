@@ -104,6 +104,13 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
             self.assertEqual(first.assistant_id, RESOLUTION["assistant_id"])
             self.assertEqual(first.image, RESOLUTION["image_reference"])
+            self.assertEqual(
+                first.required_image_labels,
+                (
+                    ("org.shimpz.assistant.id", RESOLUTION["assistant_id"]),
+                    ("org.shimpz.source.digest", RESOLUTION["source_digest"]),
+                ),
+            )
             self.assertEqual(second, first)
             self.assertEqual(registry.get("team_1", first.assistant_id), first)
             self.assertEqual(registry.list("team_2"), (second,))
