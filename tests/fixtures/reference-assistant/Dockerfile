@@ -10,7 +10,6 @@ RUN groupadd --gid 10001 assistant && \
     chmod 0444 /opt/shimpz/shimpz.toml /opt/shimpz/shimpz.contract.json && \
     chmod 0555 /usr/local/bin/shimpz-power
 
-LABEL org.shimpz.assistant.id="shimpz-cloudflare" \
-      org.shimpz.source.digest="sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+LABEL org.shimpz.assistant.id="shimpz-cloudflare"
 USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/python3", "-c", "import signal; signal.pause()"]

@@ -34,6 +34,7 @@ from docker_harness import DockerHarnessMixin
 from local_controller_docker_fixture import (
     DockerFlow,
     fixture_resolution,
+    fixture_source_digest,
     new_flow,
     prepare_account_egress_capability,
     runtime_secret_metadata,
@@ -190,6 +191,8 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
             "--load",
             "--tag",
             flow.fixture_tag,
+            "--label",
+            f"org.shimpz.source.digest={fixture_source_digest()}",
             "--file",
             str(FIXTURE / "Dockerfile"),
             str(TEAM),
@@ -263,7 +266,7 @@ class DockerFlowTests(DockerHarnessMixin, unittest.TestCase):
         self._run(
             "build",
             "--file",
-            str(TEAM.parent / "egress" / "Dockerfile"),
+            str(TEAM.parent / ".egress" / "Dockerfile"),
             "--tag",
             flow.egress_proxy_tag,
             str(TEAM.parent),

@@ -14,6 +14,7 @@ from unittest import mock
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
 from local import app as local_app
+from local.assistant import resources as local_resources
 from local.install.developers import DevelopersClient, DevelopersError, PublicationNotInstallableError
 from local.install.registry import PublicationRegistry
 
@@ -118,6 +119,29 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 registry.identities(),
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},
             )
+
+    def test_trusted_image_requires_the_bound_publication_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            spec = registry.put("team_1", _runtime_resolution())
+            image = SimpleNamespace(
+                attrs={
+                    "Config": {"Labels": dict(spec.required_image_labels)},
+                    "RepoDigests": [spec.image],
+                },
+                reload=mock.Mock(),
+            )
+            lifecycle = SimpleNamespace(
+                client=SimpleNamespace(images=SimpleNamespace(get=mock.Mock(return_value=image))),
+                _image_labels_valid=local_resources._image_labels_valid,
+            )
+
+            self.assertIs(local_resources._trusted_image(lifecycle, spec), image)
+            image.attrs["Config"]["Labels"]["org.shimpz.source.digest"] = "sha256:" + ("0" * 64)
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                local_resources._trusted_image(lifecycle, spec)
+
+        self.assertEqual(caught.exception.code, "image-contract-mismatch")
 
     def test_controller_verifies_and_reauthorizes_before_local_start(self) -> None:
         resolution = _runtime_resolution()

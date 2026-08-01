@@ -25,6 +25,12 @@ TEAM = Path(__file__).resolve().parents[1]
 FIXTURE = TEAM / "tests" / "fixtures" / "reference-assistant"
 
 
+def fixture_source_digest() -> str:
+    manifest = (FIXTURE / "shimpz.toml").read_bytes()
+    machine_contract = (FIXTURE / "shimpz.contract.json").read_bytes()
+    return f"sha256:{hashlib.sha256(manifest + machine_contract).hexdigest()}"
+
+
 class BrainLifecycleHandler(BaseHTTPRequestHandler):
     """Minimal real HTTP peer for the controller's closed thread-deletion contract."""
 
@@ -146,6 +152,7 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         supervisor_private_key=Ed25519PrivateKey.generate(),
         supervisor_id=secrets.token_hex(16),
         supervisor_session=secrets.token_hex(32),
+        source_digest=fixture_source_digest(),
     )
 
 
@@ -278,7 +285,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
     ]["value"]
     manifest = (FIXTURE / "shimpz.toml").read_bytes()
     machine_contract = (FIXTURE / "shimpz.contract.json").read_bytes()
-    flow.source_digest = f"sha256:{hashlib.sha256(manifest + machine_contract).hexdigest()}"
+    flow.source_digest = fixture_source_digest()
     resolution.update(
         {
             "assistant_id": "shimpz-cloudflare",
