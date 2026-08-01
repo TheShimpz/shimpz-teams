@@ -28,7 +28,7 @@ import hosted_assistant_fixture as harness
 app = harness.app
 hosted_chat_api = harness.hosted_chat_api
 hosted_assistants = harness.hosted_assistants
-hosted_apps = harness.hosted_apps
+assistant_lifecycle = harness.assistant_lifecycle
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_lifecycle = harness.hosted_lifecycle
 hosted_resources = harness.hosted_resources
@@ -266,7 +266,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_assistant_integrations", self.store),
             mock.patch.object(runtime_state, "_integration_challenges", challenge_store),
         ):
-            hosted_apps._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, without_integrations)
+            assistant_lifecycle._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, without_integrations)
 
         self.assertIsNone(challenge_store.current(TEAM_ID))
         self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, {}), ())

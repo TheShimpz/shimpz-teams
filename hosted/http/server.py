@@ -21,7 +21,7 @@ from hosted import audit
 from hosted import authority as account_authority
 from hosted import state as runtime_state
 from hosted import validation as validate
-from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import api as hosted_chat_api
 from hosted.chat import segment as hosted_chat_segment
@@ -788,7 +788,7 @@ class Handler(BaseHTTPRequestHandler):
                         "Assistant publication changed before installation"
                     )
 
-            installed = hosted_apps._install_assistant(
+            installed = assistant_lifecycle._install_assistant(
                 request.team_id,
                 binding,
                 request.lease.owner,
@@ -823,7 +823,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(HTTPStatus.OK, {**response, "trace_id": trace}, no_store=True)
 
     def _route_assistant_list(self, request: _AuthorizedRequest) -> None:
-        inventory = hosted_apps._list_assistants(request.team_id, request.lease)
+        inventory = assistant_lifecycle._list_assistants(request.team_id, request.lease)
         self._send_json(
             HTTPStatus.OK,
             {"assistants": inventory["assistants"]},
@@ -841,7 +841,7 @@ class Handler(BaseHTTPRequestHandler):
             ) from exc
         if binding is None:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed")
-        result = hosted_apps._uninstall_assistant(
+        result = assistant_lifecycle._uninstall_assistant(
             request.team_id,
             assistant_id,
             request.lease,

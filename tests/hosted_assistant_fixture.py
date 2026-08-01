@@ -185,7 +185,7 @@ spec.loader.exec_module(app)
 
 runtime_state = sys.modules["hosted.state"]
 hosted_resources = sys.modules["hosted.team.resources"]
-hosted_apps = sys.modules["hosted.assistant.lifecycle"]
+assistant_lifecycle = sys.modules["hosted.assistant.lifecycle"]
 hosted_lifecycle = sys.modules["hosted.team.lifecycle"]
 hosted_assistants = sys.modules["hosted.assistant.runtime"]
 hosted_chat_api = sys.modules["hosted.chat.api"]

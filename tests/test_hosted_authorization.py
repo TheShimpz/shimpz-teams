@@ -447,7 +447,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             mock.patch.object(hosted_resources, "_get_container", return_value=container),
             mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
             mock.patch.object(
-                hosted_controller.hosted_apps,
+                hosted_controller.assistant_lifecycle,
                 "_team_assistant_containers",
                 return_value=[],
             ),

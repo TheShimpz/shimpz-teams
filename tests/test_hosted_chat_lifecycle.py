@@ -15,7 +15,7 @@ from hosted_assistant_fixture import (
     HOSTED_BINDING,
     HOSTED_SPEC,
     app,
-    hosted_apps,
+    assistant_lifecycle,
     hosted_assistants,
     hosted_chat_api,
     hosted_chat_segment,
@@ -25,15 +25,15 @@ from hosted_assistant_fixture import (
 )
 
 integration_challenges = runtime_state.integration_challenges
-assistant_manifest = hosted_apps.assistant_manifest
+assistant_manifest = assistant_lifecycle.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
-assistant_registry = hosted_apps.assistant_registry
+assistant_registry = assistant_lifecycle.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
 integration_http = runtime_state.integration_http
 power_journal = runtime_state.power_journal
-hosted_egress_policy = hosted_apps.egress_policy
+hosted_egress_policy = assistant_lifecycle.egress_policy
 TEARDOWN_RESIDUES = (
     "assistant_containers",
     "cleanup_authority",
@@ -176,7 +176,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         )
         environment.enter_context(
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_require_assistant_genesis",
                 return_value="Use only the declared Cloudflare Powers.",
             )
@@ -207,14 +207,14 @@ class HostedChatLifecycleTests(unittest.TestCase):
     def test_hosted_lifecycle_rejects_an_active_chat_before_any_mutation(self) -> None:
         lease = types.SimpleNamespace(owner="account_1")
         operations = (
-            lambda: hosted_apps._install_assistant(
+            lambda: assistant_lifecycle._install_assistant(
                 "team_1",
                 HOSTED_BINDING,
                 "account_1",
                 lease,
                 authorize_start=lambda: None,
             ),
-            lambda: hosted_apps._uninstall_assistant(
+            lambda: assistant_lifecycle._uninstall_assistant(
                 "team_1",
                 "shimpz-cloudflare",
                 lease,
@@ -396,11 +396,11 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _require_model_credential_current=require_current,
             ),
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_require_assistant_genesis",
                 return_value="Use only declared Powers.",
             ),
-            mock.patch.object(hosted_apps, "_dynamic_binding_snapshot", return_value={}),
+            mock.patch.object(assistant_lifecycle, "_dynamic_binding_snapshot", return_value={}),
             mock.patch.object(
                 hosted_assistants,
                 "_installed_assistant",
@@ -562,7 +562,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     _invoke_assistant_power=invoke,
                 ),
                 mock.patch.object(
-                    hosted_apps,
+                    assistant_lifecycle,
                     "_require_assistant_genesis",
                     side_effect=lambda container: f"Compose Powers for {container.id}.",
                 ),

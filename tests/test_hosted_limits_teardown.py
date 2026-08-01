@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from hosted_assistant_fixture import hosted_apps, hosted_lifecycle, hosted_resources, runtime_state
+from hosted_assistant_fixture import assistant_lifecycle, hosted_lifecycle, hosted_resources, runtime_state
 
 cleanup_state = hosted_lifecycle.cleanup_state
 postgresql_service_client = hosted_lifecycle.postgresql_service_client
@@ -150,8 +150,8 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             return hosted_resources._CleanupResult(True, True)
 
         with (
-            mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=[container]),
-            mock.patch.object(hosted_apps, "_teardown_assistant", side_effect=teardown),
+            mock.patch.object(assistant_lifecycle, "_team_assistant_containers", return_value=[container]),
+            mock.patch.object(assistant_lifecycle, "_teardown_assistant", side_effect=teardown),
             mock.patch.object(runtime_state, "_dynamic_assistants", BindingStore()),
         ):
             complete = hosted_lifecycle._teardown_assistants("team_1")

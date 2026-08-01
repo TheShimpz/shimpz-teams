@@ -345,7 +345,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 _power_integration_generations=lambda *_args: hosted_events.append("integrations") or (),
             ),
             mock.patch.object(
-                hosted_harness.hosted_apps,
+                hosted_harness.assistant_lifecycle,
                 "_require_assistant_genesis",
                 return_value="Use the declared Power.",
             ),

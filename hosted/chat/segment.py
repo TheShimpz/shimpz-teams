@@ -12,7 +12,7 @@ from chat import turn as chat_turn_engine
 from core.container import network as network_policy
 from hosted import container as container_spec
 from hosted import state as runtime_state
-from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
@@ -160,11 +160,11 @@ def _hosted_chat_current_identity(
         validation.inspect_memo,
     )
     team_name = hosted_resources._team_name_from_anchor(current_anchor)
-    dynamic_bindings = hosted_apps._dynamic_binding_snapshot(
+    dynamic_bindings = assistant_lifecycle._dynamic_binding_snapshot(
         request.team_id,
         tuple(active.assistant_id for active in assistants),
     )
-    egress_store = hosted_apps._egress_store() if assistants else None
+    egress_store = assistant_lifecycle._egress_store() if assistants else None
     current = tuple(
         hosted_assistants._installed_assistant(
             request.team_id,
@@ -314,7 +314,7 @@ def _run_hosted_chat_segment_with_metadata(
             credential_session,
         )
         genesis_by_id = {
-            active.assistant_id: hosted_apps._require_assistant_genesis(active.container)
+            active.assistant_id: assistant_lifecycle._require_assistant_genesis(active.container)
             for active in prepared_assistants
         }
         context = brain_runtime_client.RuntimeContext(

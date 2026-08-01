@@ -12,7 +12,7 @@ from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
 from hosted import state as runtime_state
-from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.team import postgresql as postgresql_service_client
 from hosted.team import resources as hosted_resources
@@ -144,7 +144,7 @@ def _stop_teardown_runtime(runtime) -> bool:
 
 def _teardown_assistants(team_id: str) -> bool:
     try:
-        assistant_containers = hosted_apps._team_assistant_containers(team_id)
+        assistant_containers = assistant_lifecycle._team_assistant_containers(team_id)
     except docker.errors.DockerException:
         return False
     cleanup_complete = True
@@ -153,7 +153,7 @@ def _teardown_assistants(team_id: str) -> bool:
         if not isinstance(assistant_id, str) or assistant_registry.ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
             cleanup_complete = False
             continue
-        result = hosted_apps._teardown_assistant(
+        result = assistant_lifecycle._teardown_assistant(
             team_id,
             assistant_id,
             container=assistant_container,
@@ -170,7 +170,7 @@ def _teardown_assistants(team_id: str) -> bool:
     except dynamic_assistants.DynamicAssistantError:
         return False
     for binding in remaining_bindings:
-        result = hosted_apps._teardown_assistant(
+        result = assistant_lifecycle._teardown_assistant(
             team_id,
             binding.assistant_id,
             container=None,

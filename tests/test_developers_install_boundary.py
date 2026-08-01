@@ -11,7 +11,7 @@ from http import HTTPStatus
 from unittest import mock
 
 from hosted_assistant_fixture import (
-    hosted_apps,
+    assistant_lifecycle,
     hosted_controller,
     hosted_lifecycle,
     hosted_resources,
@@ -131,7 +131,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
                 return_value=materialized_spec,
             ) as assistant_spec,
             mock.patch.object(hosted_resources, "_prepare_assistant_image", side_effect=prepare_image),
-            mock.patch.object(hosted_apps, "_install_assistant", side_effect=install),
+            mock.patch.object(assistant_lifecycle, "_install_assistant", side_effect=install),
         ):
             developers_http._install(self._request(handler))
 

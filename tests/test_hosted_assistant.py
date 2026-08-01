@@ -19,7 +19,7 @@ from hosted_assistant_fixture import (
     HOSTED_BINDING,
     HOSTED_SPEC,
     app,
-    hosted_apps,
+    assistant_lifecycle,
     hosted_chat_segment,
     hosted_controller,
     hosted_resources,
@@ -29,16 +29,16 @@ from hosted_assistant_fixture import (
 from hosted import container as container_spec
 
 integration_challenges = runtime_state.integration_challenges
-assistant_manifest = hosted_apps.assistant_manifest
+assistant_manifest = assistant_lifecycle.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
-assistant_registry = hosted_apps.assistant_registry
+assistant_registry = assistant_lifecycle.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
 integration_http = runtime_state.integration_http
 power_journal = runtime_state.power_journal
-hosted_egress_policy = hosted_apps.egress_policy
-dynamic_assistants = hosted_apps.dynamic_assistants
+hosted_egress_policy = assistant_lifecycle.egress_policy
+dynamic_assistants = assistant_lifecycle.dynamic_assistants
 
 
 class _RouteHarness:
@@ -189,7 +189,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             ),
             mock.patch.object(hosted_resources, "_prepare_assistant_image"),
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_install_assistant",
                 side_effect=install,
             ) as install_assistant,
@@ -260,7 +260,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         }
 
         with mock.patch.object(
-            hosted_apps,
+            assistant_lifecycle,
             "_list_assistants",
             return_value=inventory,
         ):
@@ -290,7 +290,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
                 return_value=SimpleNamespace(assistant_id="example-assistant"),
             ),
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_uninstall_assistant",
                 return_value={"uninstalled": True},
             ) as uninstall,
@@ -341,12 +341,14 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 _assistant_machine_contract_cache=machine_cache,
             ),
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_require_assistant_genesis",
                 return_value="Use reviewed Powers.",
             ),
         ):
-            self.assertEqual(hosted_apps._admit_assistant_contract(spec, container), tuple(sorted(spec.allowed_hosts)))
+            self.assertEqual(
+                assistant_lifecycle._admit_assistant_contract(spec, container), tuple(sorted(spec.allowed_hosts))
+            )
         self.assertEqual(len(reviewed_contracts), 1)
 
         self.assertEqual(
@@ -370,7 +372,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             ),
             mock.patch.object(assistant_manifest, "read_container_manifest_contract", return_value=exact),
         ):
-            self.assertEqual(hosted_apps._require_assistant_allowed_hosts(spec, container), exact.allowed_hosts)
+            self.assertEqual(assistant_lifecycle._require_assistant_allowed_hosts(spec, container), exact.allowed_hosts)
         for declared in drifted:
             with (
                 self.subTest(declared=declared),
@@ -386,7 +388,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 ),
                 self.assertRaises(runtime_state.ApiError) as drift,
             ):
-                hosted_apps._require_assistant_allowed_hosts(spec, container)
+                assistant_lifecycle._require_assistant_allowed_hosts(spec, container)
             self.assertEqual(drift.exception.status, HTTPStatus.CONFLICT)
 
         def reject(_container, _reviewed):
@@ -400,13 +402,13 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_apps._admit_assistant_contract(spec, container)
+            assistant_lifecycle._admit_assistant_contract(spec, container)
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_assistant_readiness_does_not_require_http(self) -> None:
         container = types.SimpleNamespace(status="running", reload=mock.Mock())
-        self.assertEqual(hosted_apps._wait_assistant_ready(container), (True, "running"))
-        self.assertEqual(hosted_apps._assistant_ready_now(container), (True, "running"))
+        self.assertEqual(assistant_lifecycle._wait_assistant_ready(container), (True, "running"))
+        self.assertEqual(assistant_lifecycle._assistant_ready_now(container), (True, "running"))
 
     def test_teardown_refuses_a_container_without_exact_assistant_identity(self) -> None:
         container = types.SimpleNamespace(attrs={}, reload=mock.Mock())
@@ -415,7 +417,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             "assistant_identity_valid",
             return_value=False,
         ):
-            result = hosted_apps._teardown_assistant(
+            result = assistant_lifecycle._teardown_assistant(
                 "team_1",
                 "shimpz-cloudflare",
                 container=container,
@@ -476,23 +478,23 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     _start_team_with_isolation=lambda _container, **_kwargs: events.append("start"),
                     _remove_team_container=lambda target: events.append(("remove-container", target.id)) or True,
                 ),
-                mock.patch.object(hosted_apps, "_admit_assistant_contract", side_effect=reject),
+                mock.patch.object(assistant_lifecycle, "_admit_assistant_contract", side_effect=reject),
                 mock.patch.object(
-                    hosted_apps,
+                    assistant_lifecycle,
                     "_write_egress_policy",
                     side_effect=lambda *_args: events.append("write-policy"),
                 ),
                 mock.patch.object(
-                    hosted_apps.publication,
+                    assistant_lifecycle.publication,
                     "assistant_spec",
                     return_value=HOSTED_SPEC,
                 ),
-                mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=[]),
+                mock.patch.object(assistant_lifecycle, "_team_assistant_containers", return_value=[]),
                 mock.patch.object(container_spec, "build_assistant_kwargs", return_value={}),
                 mock.patch.object(network_policy, "assistant_identity_valid", return_value=True),
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
-                hosted_apps._install_assistant(
+                assistant_lifecycle._install_assistant(
                     "team_1",
                     HOSTED_BINDING,
                     "account_1",
@@ -524,17 +526,17 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 ASSISTANT_EGRESS_POLICY_DIR=Path(directory),
                 ASSISTANT_EGRESS_POLICY_GID=os.getgid(),
             ):
-                token = hosted_apps._assistant_egress_token("team_1", "shimpz-cloudflare")
+                token = assistant_lifecycle._assistant_egress_token("team_1", "shimpz-cloudflare")
                 assert token is not None
-                hosted_apps._write_egress_policy(token, hosts)
+                assistant_lifecycle._write_egress_policy(token, hosts)
                 self.assertEqual(
-                    hosted_apps._validate_egress_policy("team_1", "shimpz-cloudflare", hosts),
+                    assistant_lifecycle._validate_egress_policy("team_1", "shimpz-cloudflare", hosts),
                     token,
                 )
 
                 (Path(directory) / f"{token}.json").write_text('["evil.example"]', encoding="ascii")
                 with self.assertRaises(runtime_state.ApiError) as caught:
-                    hosted_apps._validate_egress_policy("team_1", "shimpz-cloudflare", hosts)
+                    assistant_lifecycle._validate_egress_policy("team_1", "shimpz-cloudflare", hosts)
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_egress_reservation_constructs_one_store_for_the_operation(self) -> None:
@@ -554,14 +556,14 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     wraps=hosted_egress_policy.EgressPolicyStore,
                 ) as store_constructor,
             ):
-                token, environment = hosted_apps._reserve_egress_environment(
+                token, environment = assistant_lifecycle._reserve_egress_environment(
                     "team_1",
                     "shimpz-cloudflare",
                     hosts,
                 )
 
         self.assertIsNotNone(token)
-        self.assertEqual(environment, hosted_apps._egress_proxy_environment(token))
+        self.assertEqual(environment, assistant_lifecycle._egress_proxy_environment(token))
         store_constructor.assert_called_once_with(
             policy_root,
             os.getgid(),
@@ -571,8 +573,8 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
     def test_nonempty_hosts_require_the_exact_admitted_proxy_token(self) -> None:
         token = "a" * 32
         hosts = ("api.open-meteo.com",)
-        expected = hosted_apps._egress_proxy_environment(token)
-        hosted_apps._validate_assistant_proxy_environment(
+        expected = assistant_lifecycle._egress_proxy_environment(token)
+        assistant_lifecycle._validate_assistant_proxy_environment(
             self._container_with_environment(expected),
             token,
             hosts,
@@ -586,7 +588,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         }
         for name, environment in drifted_environments.items():
             with self.subTest(name=name), self.assertRaises(runtime_state.ApiError) as caught:
-                hosted_apps._validate_assistant_proxy_environment(
+                assistant_lifecycle._validate_assistant_proxy_environment(
                     self._container_with_environment(environment),
                     token,
                     hosts,
@@ -594,7 +596,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_empty_hosts_forbid_every_proxy_environment_variable(self) -> None:
-        hosted_apps._validate_assistant_proxy_environment(
+        assistant_lifecycle._validate_assistant_proxy_environment(
             self._container_with_environment({"SHIMPZ_TEAM_ID": "team_1"}),
             None,
             (),
@@ -602,7 +604,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
 
         for key in ("HTTPS_PROXY", "http_proxy", "ALL_PROXY", "no_proxy", "FTP_PROXY", "custom_proxy"):
             with self.subTest(key=key), self.assertRaises(runtime_state.ApiError) as caught:
-                hosted_apps._validate_assistant_proxy_environment(
+                assistant_lifecycle._validate_assistant_proxy_environment(
                     self._container_with_environment({key: "unexpected"}),
                     None,
                     (),
@@ -642,9 +644,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
             store.put("team_1", resolution)
             with mock.patch.object(runtime_state, "_dynamic_assistants", store):
-                assistant_id, spec = hosted_apps._resolve_team_assistant("team_1", "hello-world")
+                assistant_id, spec = assistant_lifecycle._resolve_team_assistant("team_1", "hello-world")
                 with self.assertRaises(assistant_registry.AssistantSpecError):
-                    hosted_apps._resolve_team_assistant("team_2", "hello-world")
+                    assistant_lifecycle._resolve_team_assistant("team_2", "hello-world")
 
         self.assertEqual(assistant_id, "hello-world")
         self.assertEqual(spec.image, resolution["image_reference"])
@@ -696,7 +698,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = dynamic_assistants.DynamicAssistantStore(Path(directory) / "bindings.json")
             binding = store.put("team_1", resolution)
-            spec = hosted_apps.publication.assistant_spec(binding)
+            spec = assistant_lifecycle.publication.assistant_spec(binding)
             with (
                 mock.patch.object(network_policy, "runtime_identity_valid", return_value=False),
                 mock.patch.object(hosted_resources, "_trusted_image_id", return_value="sha256:image"),
@@ -751,9 +753,9 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             retained = dynamic_assistants.DynamicAssistantStore(root / "retained.json")
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
-                mock.patch.object(hosted_apps, "_install_assistant_locked", return_value=installed),
+                mock.patch.object(assistant_lifecycle, "_install_assistant_locked", return_value=installed),
             ):
-                result = hosted_apps._install_assistant(
+                result = assistant_lifecycle._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",
@@ -781,7 +783,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
-                    hosted_apps,
+                    assistant_lifecycle,
                     "_install_assistant_locked",
                     side_effect=runtime_state.ApiError(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -790,7 +792,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
                 ),
                 self.assertRaises(runtime_state.ApiError),
             ):
-                hosted_apps._install_assistant(
+                assistant_lifecycle._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",
@@ -814,16 +816,16 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             with (
                 mock.patch.object(runtime_state, "_dynamic_assistants", retained),
                 mock.patch.object(
-                    hosted_apps,
+                    assistant_lifecycle,
                     "_install_assistant_locked",
-                    side_effect=hosted_apps._IncompleteInstallRollback(
+                    side_effect=assistant_lifecycle._IncompleteInstallRollback(
                         HTTPStatus.INTERNAL_SERVER_ERROR,
                         "rollback is incomplete",
                     ),
                 ),
-                self.assertRaises(hosted_apps._IncompleteInstallRollback),
+                self.assertRaises(assistant_lifecycle._IncompleteInstallRollback),
             ):
-                hosted_apps._install_assistant(
+                assistant_lifecycle._install_assistant(
                     "team_1",
                     incoming,
                     "creator_1",

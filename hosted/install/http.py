@@ -13,7 +13,7 @@ from core.http import stdlib
 from core.http import strict as strict_http
 from hosted import audit
 from hosted import state as runtime_state
-from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.install import developers_client, developers_delegation, publication
 from hosted.team import lifecycle as hosted_lifecycle
 from hosted.team import resources as hosted_resources
@@ -126,7 +126,7 @@ def _install(request: RequestIO) -> None:
         if not _install_authorization_matches(receipt, expected, int(time.time())):
             raise developers_client.InstallAuthorizationDeniedError("installation authorization does not match")
 
-    installed = hosted_apps._install_assistant(
+    installed = assistant_lifecycle._install_assistant(
         body["team_id"],
         binding,
         request.account_id,

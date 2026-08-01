@@ -6,7 +6,7 @@ from unittest import mock
 
 from hosted_assistant_fixture import (
     HOSTED_SPEC,
-    hosted_apps,
+    assistant_lifecycle,
     hosted_assistants,
     hosted_resources,
     runtime_state,
@@ -50,9 +50,9 @@ class HostedAssistantInventoryTests(unittest.TestCase):
         )
         with (
             mock.patch.object(runtime_state, "_docker", engine),
-            mock.patch.object(hosted_apps, "_team_assistant_containers", return_value=candidates),
+            mock.patch.object(assistant_lifecycle, "_team_assistant_containers", return_value=candidates),
             mock.patch.object(
-                hosted_apps,
+                assistant_lifecycle,
                 "_resolve_team_assistant",
                 side_effect=lambda _team_id, assistant_id, *_args: (
                     assistant_id,

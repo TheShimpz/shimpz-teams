@@ -21,7 +21,7 @@ from core.container import network as network_policy
 from hosted import audit
 from hosted import container as container_spec
 from hosted import state as runtime_state
-from hosted.assistant import lifecycle as hosted_apps
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import credentials as brain_credentials_client
@@ -126,7 +126,7 @@ def _installed_assistant(
     dynamic_bindings: dict[str, object] | None = None,
     egress_store=None,
 ):
-    assistant_id, spec = hosted_apps._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
+    assistant_id, spec = assistant_lifecycle._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
     contract = spec.contract
     container = candidate
     if container is None:
@@ -150,10 +150,10 @@ def _installed_assistant(
         refreshed=True,
         workload_spec=spec,
     )
-    allowed_hosts = hosted_apps._require_assistant_allowed_hosts(spec, container)
-    current_egress_store = egress_store if egress_store is not None else hosted_apps._egress_store()
-    token = hosted_apps._validate_admitted_egress(team_id, assistant_id, allowed_hosts, current_egress_store)
-    hosted_apps._validate_assistant_proxy_environment(container, token, allowed_hosts, current_egress_store)
+    allowed_hosts = assistant_lifecycle._require_assistant_allowed_hosts(spec, container)
+    current_egress_store = egress_store if egress_store is not None else assistant_lifecycle._egress_store()
+    token = assistant_lifecycle._validate_admitted_egress(team_id, assistant_id, allowed_hosts, current_egress_store)
+    assistant_lifecycle._validate_assistant_proxy_environment(container, token, allowed_hosts, current_egress_store)
     return assistant_id, contract, container
 
 
@@ -162,7 +162,7 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
     seen: set[str] = set()
     inspect_memo: dict[str, object] = {}
     try:
-        installed = hosted_apps._team_assistant_containers(team_id)
+        installed = assistant_lifecycle._team_assistant_containers(team_id)
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "installed Assistants could not be listed"
@@ -172,14 +172,14 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
         for candidate in installed
         if isinstance((assistant_id := (candidate.labels or {}).get("team.assistant")), str)
     )
-    dynamic_bindings = hosted_apps._dynamic_binding_snapshot(team_id, candidate_ids)
-    egress_store = hosted_apps._egress_store() if candidate_ids else None
+    dynamic_bindings = assistant_lifecycle._dynamic_binding_snapshot(team_id, candidate_ids)
+    egress_store = assistant_lifecycle._egress_store() if candidate_ids else None
     for candidate in installed:
         assistant_id = (candidate.labels or {}).get("team.assistant")
         if not isinstance(assistant_id, str):
             continue
         try:
-            _resolved_id, spec = hosted_apps._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
+            _resolved_id, spec = assistant_lifecycle._resolve_team_assistant(team_id, assistant_id, dynamic_bindings)
         except assistant_registry.AssistantSpecError:
             continue
         try:
@@ -448,7 +448,7 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
     specs: list[_HostedAssistantSpec] = []
     seen: set[str] = set()
     try:
-        containers = hosted_apps._team_assistant_containers(team_id)
+        containers = assistant_lifecycle._team_assistant_containers(team_id)
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "installed Assistants could not be listed"
@@ -458,7 +458,7 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
         if not isinstance(assistant_id, str):
             continue
         try:
-            _resolved_id, assistant_spec = hosted_apps._resolve_team_assistant(team_id, assistant_id)
+            _resolved_id, assistant_spec = assistant_lifecycle._resolve_team_assistant(team_id, assistant_id)
         except assistant_registry.AssistantSpecError:
             continue
         if assistant_id in seen:
