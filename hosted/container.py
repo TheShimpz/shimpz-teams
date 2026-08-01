@@ -24,7 +24,7 @@ from power import execution as power_execution
 # SHIMPZ_SUFFIX distinguishes resources when multiple Spaces share one host; empty is the primary Space.
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")
 DEFAULT_TEAM_IMAGE = (
-    "registry.k8s.io/pause:3.10.1@sha256:278fb9dbcca9518083ad1e11276933a2e96f23de604a3a08cc3c80002767d24c"
+    "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
 )
 IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
 # Hostile-tenant Teams are unconditionally locked to gVisor. This is deliberately not an

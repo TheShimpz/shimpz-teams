@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 TEAM = Path(__file__).resolve().parents[1]
 FIXTURE = TEAM / "tests" / "fixtures" / "reference-assistant"
 REGISTRY_IMAGE = "registry:2.8.3@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
-BUILDKIT_IMAGE = "moby/buildkit:v0.31.1@sha256:6b59b7df63a8cb9902736f9ddf7fcff8261613d3e7449b8ea8b7537fc399c03a"
+BUILDKIT_IMAGE = "moby/buildkit:v0.32.0@sha256:1f8167fcb0eca5b7126353d35299386945cbb8949cc516c592a49f80cfce4fa2"
 MANAGED_LABEL = "com.shimpz.local.managed"
 PROFILE_LABEL = "com.shimpz.local.profile"
 SPACE_LABEL = "com.shimpz.local.space-id"

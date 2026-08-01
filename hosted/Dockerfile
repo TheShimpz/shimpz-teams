@@ -10,7 +10,7 @@
 FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
 ARG SOURCE_DATE_EPOCH=0
 
-ARG DEBIAN_SNAPSHOT=20260623T000000Z
+ARG DEBIAN_SNAPSHOT=20260731T000000Z
 RUN set -eux; \
     . /etc/os-release; \
     archive_keyring="$(find /usr/share/keyrings -maxdepth 1 -type f -name 'debian-archive-keyring.*' -print -quit)"; \
@@ -29,9 +29,9 @@ RUN set -eux; \
 ARG UV_VERSION=0.12.1
 # The hash pins the immutable versioned installer served by astral.sh.
 ARG UV_INSTALL_SHA256=d3f5412d38c99f9d024901843bf98206f0d2c6dbe64df40d0b740e2751ca62c1
-ARG COSIGN_VERSION=3.0.6
-ARG COSIGN_AMD64_SHA256=c956e5dfcac53d52bcf058360d579472f0c1d2d9b69f55209e256fe7783f4c74
-ARG COSIGN_ARM64_SHA256=bedac92e8c3729864e13d4a17048007cfafa79d5deca993a43a90ffe018ef2b8
+ARG COSIGN_VERSION=3.1.2
+ARG COSIGN_AMD64_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf
+ARG COSIGN_ARM64_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302
 ARG TARGETARCH
 # Must match the GID that owns /var/run/docker.sock on the host (stat -c '%g' /var/run/docker.sock).
 ARG DOCKER_GID=989
