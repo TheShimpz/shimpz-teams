@@ -42,7 +42,7 @@ ARG SHIMPZ_TEAM_TOKEN_GID=10010
 # MUST match the Service image's SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID so the shared 0440 token is readable.
 ARG SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID=10004
 ARG SHIMPZ_INTEGRATION_SECRETS_UNSEAL_TOKEN_GID=10012
-ARG SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID=10013
+ARG SHIMPZ_ACCOUNT_MODEL_PROVIDER_RESOLVE_TOKEN_GID=10013
 ARG SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID=10019
 # Controller-owned token shared read-only with the isolated Brain runtime.
 ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016
@@ -75,12 +75,12 @@ RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_TEAM_TOKEN_GID}" shimpzteam-token \
     && groupadd -g "${SHIMPZ_POSTGRESQL_SERVICE_TOKEN_GID}" shimpzpostgresql-token \
     && groupadd -g "${SHIMPZ_INTEGRATION_SECRETS_UNSEAL_TOKEN_GID}" shimpzintegrationsecrets-unseal-token \
-    && groupadd -g "${SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_GID}" shimpzbrain-resolve \
+    && groupadd -g "${SHIMPZ_ACCOUNT_MODEL_PROVIDER_RESOLVE_TOKEN_GID}" shimpzmodelprovider-resolve \
     && groupadd -g "${SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID}" shimpzaccount-team-authority \
     && groupadd -g "${SHIMPZ_BRAIN_RUNTIME_TOKEN_GID}" shimpzbrain-runtime-token \
     && groupadd -g "${SHIMPZ_ASSISTANT_EGRESS_POLICY_GID}" shimpzassistant-egress-policy \
     && useradd -u 10001 -g dockersock \
-        -G shimpzteam-token,shimpzpostgresql-token,shimpzintegrationsecrets-unseal-token,shimpzbrain-resolve,shimpzaccount-team-authority,shimpzbrain-runtime-token,shimpzassistant-egress-policy \
+        -G shimpzteam-token,shimpzpostgresql-token,shimpzintegrationsecrets-unseal-token,shimpzmodelprovider-resolve,shimpzaccount-team-authority,shimpzbrain-runtime-token,shimpzassistant-egress-policy \
         -M -s /usr/sbin/nologin shimpzteam
 
 WORKDIR /app
@@ -150,14 +150,14 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/assistant-integrations/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
-        /assistant-egress-policy /run/shimpz-integration-secrets-unseal /run/shimpz-account-brain-resolve \
+        /assistant-egress-policy /run/shimpz-integration-secrets-unseal /run/shimpz-account-model-provider-resolve \
         /run/shimpz-account-team-authority \
         /run/shimpz-brain-runtime \
     && chown shimpzteam:shimpzteam-token /run/shimpz-team && chmod 750 /run/shimpz-team \
     && chown shimpzteam:shimpzintegrationsecrets-unseal-token /run/shimpz-integration-secrets-unseal \
-    && chown shimpzteam:shimpzbrain-resolve /run/shimpz-account-brain-resolve \
+    && chown shimpzteam:shimpzmodelprovider-resolve /run/shimpz-account-model-provider-resolve \
     && chown shimpzteam:shimpzaccount-team-authority /run/shimpz-account-team-authority \
-    && chmod 0750 /run/shimpz-integration-secrets-unseal /run/shimpz-account-brain-resolve \
+    && chmod 0750 /run/shimpz-integration-secrets-unseal /run/shimpz-account-model-provider-resolve \
         /run/shimpz-account-team-authority \
     && chown shimpzteam:shimpzbrain-runtime-token /run/shimpz-brain-runtime \
     && chmod 0750 /run/shimpz-brain-runtime \

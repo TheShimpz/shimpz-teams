@@ -31,8 +31,8 @@ from inference.config import PROVIDERS as MODEL_PROVIDERS
 ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNT_URL", "http://account:7079")
 RESOLVE_TOKEN_FILE = Path(
     os.environ.get(
-        "SHIMPZ_ACCOUNT_BRAIN_RESOLVE_TOKEN_FILE",
-        "/run/shimpz-account-brain-resolve/token",
+        "SHIMPZ_ACCOUNT_MODEL_PROVIDER_RESOLVE_TOKEN_FILE",
+        "/run/shimpz-account-model-provider-resolve/token",
     )
 )
 INTEGRATION_SECRETS_URL = os.environ.get("SHIMPZ_INTEGRATION_SECRETS_URL", "http://integration-secrets:7080")
