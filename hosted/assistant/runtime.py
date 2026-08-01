@@ -24,7 +24,7 @@ from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
-from inference import credentials as brain_credentials_client
+from inference import integration_secrets as integration_secrets_client
 from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import store as integration_store
@@ -655,13 +655,13 @@ def _chat_file_metadata(
 def _model_credential(
     owner: str,
     provider: str,
-    credential_session: brain_credentials_client.BrainCredentialSession | None = None,
+    credential_session: integration_secrets_client.IntegrationSecretSession | None = None,
 ) -> tuple[str, int]:
     if not owner:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "this Team has no account owner for model credentials")
     try:
-        credential = brain_credentials_client.resolve(owner, provider, credential_session)
-    except brain_credentials_client.BrainCredentialError as exc:
+        credential = integration_secrets_client.resolve(owner, provider, credential_session)
+    except integration_secrets_client.IntegrationSecretError as exc:
         raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "model credential service is unavailable") from exc
     if credential is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"configure the {provider!r} API key before chatting")
@@ -675,11 +675,11 @@ def _require_model_credential_current(
     owner: str,
     provider: str,
     generation: int,
-    credential_session: brain_credentials_client.BrainCredentialSession | None = None,
+    credential_session: integration_secrets_client.IntegrationSecretSession | None = None,
 ) -> None:
     try:
-        current = brain_credentials_client.generation_is_current(owner, provider, generation, credential_session)
-    except brain_credentials_client.BrainCredentialError as exc:
+        current = integration_secrets_client.generation_is_current(owner, provider, generation, credential_session)
+    except integration_secrets_client.IntegrationSecretError as exc:
         raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "model credential could not be verified") from exc
     if not current:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "model credential changed or was revoked; retry")

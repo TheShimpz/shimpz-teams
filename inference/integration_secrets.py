@@ -35,11 +35,11 @@ RESOLVE_TOKEN_FILE = Path(
         "/run/shimpz-account-brain-resolve/token",
     )
 )
-BRAINCRED_URL = os.environ.get("SHIMPZ_BRAINCRED_URL", "http://brain-credentials:7080")
+INTEGRATION_SECRETS_URL = os.environ.get("SHIMPZ_INTEGRATION_SECRETS_URL", "http://integration-secrets:7080")
 UNSEAL_TOKEN_FILE = Path(
     os.environ.get(
-        "SHIMPZ_BRAINCRED_UNSEAL_TOKEN_FILE",
-        "/run/shimpz-braincred-unseal/token",
+        "SHIMPZ_INTEGRATION_SECRETS_UNSEAL_TOKEN_FILE",
+        "/run/shimpz-integration-secrets-unseal/token",
     )
 )
 MAX_RESPONSE_BYTES = 96 * 1024
@@ -56,13 +56,13 @@ _token_cache: dict[Path, tuple[tuple[int, int, int, int, int], str]] = {}
 _token_cache_lock = threading.Lock()
 
 
-class BrainCredentialError(Exception):
+class IntegrationSecretError(Exception):
     """Credential control plane failed without exposing secret-bearing response material."""
 
 
 def _require_provider(provider: str) -> None:
     if provider not in SUPPORTED_PROVIDERS:
-        raise BrainCredentialError("Brain credential provider is unsupported")
+        raise IntegrationSecretError("Integration secret provider is unsupported")
 
 
 def _b64encode(value: bytes) -> str:
@@ -71,11 +71,11 @@ def _b64encode(value: bytes) -> str:
 
 def _b64decode(value: object) -> bytes:
     if not isinstance(value, str):
-        raise BrainCredentialError("Brain credential delivery returned invalid ciphertext")
+        raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     try:
         return base64.b64decode(value, altchars=b"-_", validate=True)
     except ValueError as exc:
-        raise BrainCredentialError("Brain credential delivery returned invalid ciphertext") from exc
+        raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext") from exc
 
 
 def _delivery_aad(
@@ -91,7 +91,7 @@ def _delivery_aad(
             "alg": DELIVERY_ALGORITHM,
             "auth_type": auth_type,
             "provider": provider,
-            "purpose": "shimpz-brain-credential-delivery",
+            "purpose": "shimpz-integration-secret-delivery",
             "recipient_public_key": _b64encode(recipient_public_key),
             "sender_public_key": _b64encode(sender_public_key),
             "v": DELIVERY_VERSION,
@@ -109,9 +109,9 @@ def _open_delivery(
     delivery: object,
 ) -> str:
     if not isinstance(delivery, dict):
-        raise BrainCredentialError("Brain credential delivery returned invalid ciphertext")
+        raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     if delivery.get("v") != DELIVERY_VERSION or delivery.get("alg") != DELIVERY_ALGORITHM:
-        raise BrainCredentialError("Brain credential delivery returned invalid ciphertext")
+        raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     sender_public_key = _b64decode(delivery.get("sender_public_key"))
     salt = _b64decode(delivery.get("salt"))
     nonce = _b64decode(delivery.get("nonce"))
@@ -122,7 +122,7 @@ def _open_delivery(
         or len(nonce) != DELIVERY_NONCE_BYTES
         or not 16 < len(ciphertext) <= MAX_SECRET_BYTES + 16
     ):
-        raise BrainCredentialError("Brain credential delivery returned invalid ciphertext")
+        raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     recipient_public_key = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     aad = _delivery_aad(
         account_id,
@@ -142,9 +142,9 @@ def _open_delivery(
         plaintext = AESGCM(delivery_key).decrypt(nonce, ciphertext, aad)
         secret = plaintext.decode()
     except (InvalidTag, UnicodeDecodeError, ValueError) as exc:
-        raise BrainCredentialError("Brain credential delivery authentication failed") from exc
+        raise IntegrationSecretError("Integration secret delivery authentication failed") from exc
     if not secret or "\0" in secret:
-        raise BrainCredentialError("Brain credential delivery returned invalid plaintext")
+        raise IntegrationSecretError("Integration secret delivery returned invalid plaintext")
     return secret
 
 
@@ -164,7 +164,7 @@ def _token(path: Path) -> str:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0))
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not 1 <= before.st_size <= MAX_TOKEN_BYTES:
-            raise BrainCredentialError("Brain credential service is unavailable")
+            raise IntegrationSecretError("Integration secret service is unavailable")
         identity = _file_identity(before)
         with _token_cache_lock:
             cached = _token_cache.get(path)
@@ -178,24 +178,24 @@ def _token(path: Path) -> str:
             raw.extend(chunk)
         after = os.fstat(descriptor)
     except OSError as exc:
-        raise BrainCredentialError("Brain credential service is unavailable") from exc
+        raise IntegrationSecretError("Integration secret service is unavailable") from exc
     finally:
         if descriptor >= 0:
             os.close(descriptor)
     if len(raw) != before.st_size or identity != _file_identity(after):
-        raise BrainCredentialError("Brain credential service is unavailable")
+        raise IntegrationSecretError("Integration secret service is unavailable")
     try:
         token = bytes(raw).decode("utf-8").strip()
     except UnicodeError as exc:
-        raise BrainCredentialError("Brain credential service is unavailable") from exc
+        raise IntegrationSecretError("Integration secret service is unavailable") from exc
     if not token or any(character in token for character in "\0\r\n"):
-        raise BrainCredentialError("Brain credential service is unavailable")
+        raise IntegrationSecretError("Integration secret service is unavailable")
     with _token_cache_lock:
         _token_cache[path] = (identity, token)
     return token
 
 
-class BrainCredentialSession:
+class IntegrationSecretSession:
     """Keep credential-service transports alive for one hosted chat turn."""
 
     def __init__(self) -> None:
@@ -228,7 +228,7 @@ class BrainCredentialSession:
             with suppress(OSError):
                 connection.close()
 
-    def __enter__(self) -> BrainCredentialSession:
+    def __enter__(self) -> IntegrationSecretSession:
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -240,13 +240,13 @@ def _post(
     path: str,
     payload: dict,
     token_file: Path,
-    session: BrainCredentialSession | None = None,
+    session: IntegrationSecretSession | None = None,
 ) -> tuple[int, dict]:
     parsed = urlparse(base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise BrainCredentialError("Brain credential service is unavailable")
+        raise IntegrationSecretError("Integration secret service is unavailable")
     connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
-    current_session = session or BrainCredentialSession()
+    current_session = session or IntegrationSecretSession()
     owned_session = session is None
     host = parsed.hostname
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -273,7 +273,7 @@ def _post(
                 # only a previously healthy transport that the bounded server closed while idle.
                 if attempt == 0 and reused:
                     continue
-                raise BrainCredentialError("Brain credential service is unavailable") from exc
+                raise IntegrationSecretError("Integration secret service is unavailable") from exc
             if len(raw) > MAX_RESPONSE_BYTES or getattr(response, "will_close", False):
                 current_session.discard(key)
             break
@@ -281,20 +281,20 @@ def _post(
         if owned_session:
             current_session.close()
     if len(raw) > MAX_RESPONSE_BYTES:
-        raise BrainCredentialError("Brain credential service returned an invalid response")
+        raise IntegrationSecretError("Integration secret service returned an invalid response")
     try:
         result = json.loads(raw or b"{}")
     except json.JSONDecodeError as exc:
-        raise BrainCredentialError("Brain credential service returned an invalid response") from exc
+        raise IntegrationSecretError("Integration secret service returned an invalid response") from exc
     if not isinstance(result, dict):
-        raise BrainCredentialError("Brain credential service returned an invalid response")
+        raise IntegrationSecretError("Integration secret service returned an invalid response")
     return response.status, result
 
 
 def resolve(
     account_id: str,
     provider: str,
-    session: BrainCredentialSession | None = None,
+    session: IntegrationSecretSession | None = None,
 ) -> tuple[str, str, int] | None:
     """Return ``('api_key', plaintext, generation)`` via one encrypted delivery."""
     _require_provider(provider)
@@ -308,7 +308,7 @@ def resolve(
     if status == 404:
         return None
     if status != 200:
-        raise BrainCredentialError("Brain credential lookup failed")
+        raise IntegrationSecretError("Integration secret lookup failed")
     auth_type = resolved.get("auth_type")
     envelope = resolved.get("secret_ref")
     generation = resolved.get("generation")
@@ -319,11 +319,11 @@ def resolve(
         or isinstance(generation, bool)
         or generation < 1
     ):
-        raise BrainCredentialError("Brain credential lookup returned invalid metadata")
+        raise IntegrationSecretError("Integration secret lookup returned invalid metadata")
     private_key = x25519.X25519PrivateKey.generate()
     recipient_public_key = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     status, delivered = _post(
-        BRAINCRED_URL,
+        INTEGRATION_SECRETS_URL,
         "/v1/deliver",
         {
             "account_id": account_id,
@@ -336,7 +336,7 @@ def resolve(
         session,
     )
     if status != 200 or "secret" in delivered:
-        raise BrainCredentialError("Brain credential delivery failed")
+        raise IntegrationSecretError("Integration secret delivery failed")
     secret = _open_delivery(private_key, account_id, provider, auth_type, delivered.get("delivery"))
     return auth_type, secret, generation
 
@@ -345,12 +345,12 @@ def generation_is_current(
     account_id: str,
     provider: str,
     generation: int,
-    session: BrainCredentialSession | None = None,
+    session: IntegrationSecretSession | None = None,
 ) -> bool:
     """Check the in-memory key lease; False means revoke/replace won the race."""
     _require_provider(provider)
     if not isinstance(generation, int) or isinstance(generation, bool) or generation < 1:
-        raise BrainCredentialError("Brain credential generation is invalid")
+        raise IntegrationSecretError("Integration secret generation is invalid")
     status, result = _post(
         ACCOUNT_URL,
         "/v1/internal/model-providers/generation-check",
@@ -367,4 +367,4 @@ def generation_is_current(
         return True
     if status == 409 and valid is False:
         return False
-    raise BrainCredentialError("Brain credential generation check failed")
+    raise IntegrationSecretError("Integration secret generation check failed")

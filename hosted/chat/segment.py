@@ -253,7 +253,7 @@ def _execute_hosted_power(
 
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
     with (
-        hosted_assistants.brain_credentials_client.BrainCredentialSession() as credential_session,
+        hosted_assistants.integration_secrets_client.IntegrationSecretSession() as credential_session,
         hosted_assistants._chat_file_metadata_connection(request.team_id, request.file_ids) as metadata_connection,
     ):
         return _run_hosted_chat_segment_with_metadata(request, metadata_connection, credential_session)

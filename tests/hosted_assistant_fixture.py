@@ -96,11 +96,11 @@ def _stub(name: str, **members):
     return module
 
 
-class _BrainCredentialError(Exception):
+class _IntegrationSecretError(Exception):
     pass
 
 
-class _BrainCredentialSession:
+class _IntegrationSecretSession:
     def __enter__(self):
         return self
 
@@ -162,9 +162,9 @@ _stub(
 )
 _stub("hosted.audit", log=lambda *_args, **_kwargs: "trace")
 _stub(
-    "inference.credentials",
-    BrainCredentialError=_BrainCredentialError,
-    BrainCredentialSession=_BrainCredentialSession,
+    "inference.integration_secrets",
+    IntegrationSecretError=_IntegrationSecretError,
+    IntegrationSecretSession=_IntegrationSecretSession,
     resolve=lambda *_args: None,
     generation_is_current=lambda *_args: True,
 )
@@ -263,7 +263,7 @@ for module_name in (
     "docker.utils.socket",
     "hosted.authority",
     "hosted.audit",
-    "inference.credentials",
+    "inference.integration_secrets",
     "hosted.team.postgresql",
     "hosted.token",
 ):
