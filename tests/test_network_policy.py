@@ -338,6 +338,23 @@ def test_valid_core_topology_and_security_posture() -> None:
     )
 
 
+def test_core_accepts_multiple_distinct_assistants() -> None:
+    core, containers = _valid_topology()
+    second_id = "research-assistant"
+    second = copy.deepcopy(containers["app-id"])
+    second["Id"] = "second-assistant-id"
+    second["Name"] = f"/{policy.team_assistant_container_name(TEAM_ID, second_id)}"
+    second["Config"]["Labels"]["team.assistant"] = second_id
+    second["NetworkSettings"]["Networks"][CORE] = _endpoint("core-id", second_id, f"{second_id}.team")
+    containers[second["Id"]] = second
+    core["Containers"][second["Id"]] = {}
+
+    check(
+        _members_valid(core, containers, policy.CORE_KIND),
+        "one Team core network accepts multiple distinctly identified Assistants",
+    )
+
+
 def test_daemon_admission_requires_exact_runsc_path_and_builtin_seccomp() -> None:
     valid = {
         "Runtimes": {"runsc": {"path": policy.TEAM_RUNTIME_PATH, "runtimeArgs": None}},

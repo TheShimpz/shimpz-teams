@@ -473,7 +473,7 @@ def network_members_valid(
             break
         role_name = role[0]
         seen[role_name] = seen.get(role_name, 0) + 1
-        if role_name != "app" and seen[role_name] != 1:
+        if role_name != "assistant" and seen[role_name] != 1:
             valid = False
             break
         endpoint = _network_endpoint(metadata, network_name(team_id, kind))
