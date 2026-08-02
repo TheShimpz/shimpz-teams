@@ -381,6 +381,12 @@ CONTROLLER_ROUTES = (
     ),
     _controller_route(
         "DELETE",
+        "/v1/teams/:team_id/assistant-integrations/challenges/:challenge_id/authorize",
+        "assistant-integration-cancel",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "DELETE",
         "/v1/teams/:team_id/assistant-integrations/:assistant_id/:integration_id",
         "assistant-integration-disconnect",
     ),

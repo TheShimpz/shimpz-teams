@@ -38,6 +38,7 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
         challenge = create(store)
 
         self.assertEqual(challenge.code_challenge_method, "S256")
+        self.assertEqual(challenge.expires_in, 600)
         self.assertNotIn("verifier", repr(challenge).lower())
         self.assertNotIn(SESSION_ONE, repr(store._pending))
         for mismatched in (

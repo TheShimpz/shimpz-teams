@@ -498,6 +498,13 @@ class BrokeredOAuthIntegrationService:
             current_declaration_callback,
         )
 
+    def cancel(self, session_binding: object) -> bool:
+        """Remove only the PKCE continuation held for one fresh Admin handoff."""
+        try:
+            return self._challenge.cancel_session(session_binding) > 0
+        except integration_pkce.OAuthChallengeError:
+            raise OAuthIntegrationServiceError("OAuth integration could not be cancelled") from None
+
     def refresh(
         self,
         provider: object,

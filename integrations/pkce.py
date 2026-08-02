@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from integrations import providers as integration_providers
 
-DEFAULT_TTL_SECONDS = 300
+DEFAULT_TTL_SECONDS = 600
 MAX_PENDING_CHALLENGES = 128
 MAX_PENDING_PER_SESSION = 4
 MAX_PENDING_PER_TEAM = 16

@@ -215,6 +215,21 @@ def complete_cloudflare_oauth_callback(
     }
 
 
+def cancel_assistant_integration_authorization(
+    self,
+    session_binding: object,
+) -> dict[str, object]:
+    try:
+        cancelled = self.oauth_service.cancel(session_binding)
+    except integration_service.OAuthIntegrationServiceError as exc:
+        raise ApiProblem(
+            HTTPStatus.BAD_GATEWAY,
+            "Assistant integration authorization could not be cancelled",
+            code="assistant-integration-oauth-unavailable",
+        ) from exc
+    return {"cancelled": cancelled}
+
+
 def disconnect_assistant_integration(
     self,
     team_id: object,

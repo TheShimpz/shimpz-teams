@@ -317,6 +317,7 @@ class ChatTurnService:
     start_assistant_integration_authorization = local_chat_private.start_assistant_integration_authorization
     _current_integration_declaration = local_chat_private._current_integration_declaration
     complete_cloudflare_oauth_callback = local_chat_private.complete_cloudflare_oauth_callback
+    cancel_assistant_integration_authorization = local_chat_private.cancel_assistant_integration_authorization
     disconnect_assistant_integration = local_chat_private.disconnect_assistant_integration
     pending_chat_integrations = local_chat_private.pending_chat_integrations
 

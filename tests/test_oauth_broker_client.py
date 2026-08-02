@@ -82,6 +82,14 @@ class OAuthBrokerClientTests(unittest.TestCase):
             callback_mode="hosted",
         )
         self.assertEqual(parse_qs(urlsplit(url).query)["callback"], ["hosted"])
+        out_of_band = self.client.authorization_url(
+            provider_id="cloudflare",
+            state=STATE,
+            code_challenge=CHALLENGE,
+            scopes=SCOPES,
+            callback_mode="out-of-band",
+        )
+        self.assertEqual(parse_qs(urlsplit(out_of_band).query)["callback"], ["out-of-band"])
         with self.assertRaises(integration_broker.OAuthBrokerClientError):
             self.client.authorization_url(
                 provider_id="cloudflare",

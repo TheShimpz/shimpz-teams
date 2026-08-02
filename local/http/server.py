@@ -35,6 +35,7 @@ _MACHINE_ONLY_OPERATIONS = frozenset({"health", "assistant-integration-complete"
 _JSON_BODY_LIMITS = {
     "assistant-install": MAX_BODY_BYTES,
     "assistant-integration-authorize": MAX_BODY_BYTES,
+    "assistant-integration-cancel": MAX_BODY_BYTES,
     "assistant-integration-complete": MAX_BODY_BYTES,
     "assistant-invoke": MAX_BODY_BYTES,
     "chat": MAX_CHAT_BODY_BYTES,
@@ -495,6 +496,23 @@ class Handler(BaseHTTPRequestHandler):
                     body["callback_mode"],
                 ),
                 "assistant-integration-authorize",
+                team_id,
+                None,
+            )
+        if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "DELETE":
+            body = self._body()
+            if set(body) != {"session_binding"}:
+                raise ApiProblem(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    "OAuth cancellation is invalid",
+                    code="invalid-body",
+                )
+            return (
+                HTTPStatus.OK,
+                self.server.controller.chat_turn_service.cancel_assistant_integration_authorization(
+                    body["session_binding"]
+                ),
+                "assistant-integration-cancel",
                 team_id,
                 None,
             )

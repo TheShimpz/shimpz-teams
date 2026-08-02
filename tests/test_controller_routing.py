@@ -46,7 +46,15 @@ class ControllerRoutingTests(unittest.TestCase):
                     self.assertIsNone(strict_http.resolve_controller_route(profile, "GET", _parts(path)))
 
     def test_profile_only_routes_fail_closed_on_the_other_controller(self) -> None:
-        cases = ((strict_http.HOSTED_CONTROLLER, "POST", "/v1/teams/team_1/chat/stream", "chat-stream"),)
+        cases = (
+            (strict_http.HOSTED_CONTROLLER, "POST", "/v1/teams/team_1/chat/stream", "chat-stream"),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "DELETE",
+                "/v1/teams/team_1/assistant-integrations/challenges/challenge-1/authorize",
+                "assistant-integration-cancel",
+            ),
+        )
         for profile, method, path, operation in cases:
             with self.subTest(profile=profile, path=path):
                 match = strict_http.resolve_controller_route(profile, method, _parts(path))

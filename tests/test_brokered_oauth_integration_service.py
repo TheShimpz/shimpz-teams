@@ -159,6 +159,21 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
 
         create.assert_not_called()
 
+    def test_out_of_band_challenge_can_be_cancelled_without_a_broker_claim(self) -> None:
+        url = self.service.authorization_url(pending(), SESSION, callback_mode="out-of-band")
+        state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
+
+        self.assertTrue(self.service.cancel(SESSION))
+        self.assertFalse(self.service.cancel(SESSION))
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
+            self.service.complete(
+                state,
+                CLAIM,
+                SESSION,
+                lambda _team, _assistant, _integration: DECLARATION,
+            )
+        self.assertEqual(self.transport.requests, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -329,6 +329,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     None,
                 )
 
+            def cancel(self, session_binding):
+                calls.append(("cancel", session_binding))
+                return True
+
         controller = object.__new__(local_app.LocalController)
         controller.integration_challenges = challenges
         controller.oauth_service = Service()
@@ -346,6 +350,9 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             claim="a" * 64,
             session_binding="browser-session-private-123456789",
         )
+        cancelled = controller.chat_turn_service.cancel_assistant_integration_authorization(
+            "second-browser-session-private-123456789"
+        )
 
         self.assertEqual(set(started), {"authorization_url"})
         self.assertEqual(
@@ -357,7 +364,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 "integration_id": "cloudflare",
             },
         )
-        self.assertEqual([call[0] for call in calls], ["start", "complete"])
+        self.assertEqual(cancelled, {"cancelled": True})
+        self.assertEqual([call[0] for call in calls], ["start", "complete", "cancel"])
 
     def test_internal_oauth_routes_are_closed_and_exact(self) -> None:
         chat_turn_service = SimpleNamespace(
@@ -370,12 +378,13 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 "assistant_id": "shimpz-cloudflare",
                 "integration_id": "cloudflare",
             },
+            cancel_assistant_integration_authorization=lambda _binding: {"cancelled": True},
             disconnect_assistant_integration=lambda *_values: {"disconnected": True},
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
         handler._body = lambda **_kwargs: {
-            "callback_mode": "hosted",
+            "callback_mode": "out-of-band",
             "session_binding": "browser-session-private-123456789",
         }
         handler.command = "POST"
@@ -394,6 +403,22 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(authorize[0], HTTPStatus.OK)
         self.assertEqual(authorize[2], "assistant-integration-authorize")
 
+        handler.command = "DELETE"
+        handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
+        cancelled = handler._assistant_integration_route(
+            [
+                "v1",
+                "teams",
+                "team_1",
+                "assistant-integrations",
+                "challenges",
+                "a" * 32,
+                "authorize",
+            ]
+        )
+        self.assertEqual(cancelled[:3], (HTTPStatus.OK, {"cancelled": True}, "assistant-integration-cancel"))
+
+        handler.command = "POST"
         handler._body = lambda **_kwargs: {
             "callback_mode": "https://attacker.example",
             "session_binding": "browser-session-private-123456789",
