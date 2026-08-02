@@ -465,12 +465,17 @@ class BrokeredOAuthIntegrationService:
         pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
         *,
+        callback_mode: object,
         resource_binding: object = None,
     ) -> str:
+        build_url = functools.partial(
+            self._broker.authorization_url,
+            callback_mode=callback_mode,
+        )
         return _authorization_url(
             self._challenge,
             self._store,
-            self._broker.authorization_url,
+            build_url,
             pending,
             session_binding,
             resource_binding,

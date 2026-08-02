@@ -230,7 +230,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 {
                     "SHIMPZ_OAUTH_BROKER_PROXY_HOST": "shimpz-account-egress",
                     "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE": "/run/shimpz-account-egress/token",
-                    "SHIMPZ_OAUTH_CALLBACK_MODE": "loopback",
                 },
             ),
             mock.patch.object(integration_broker, "FixedBrokerTransport", return_value=transport) as transport_type,
@@ -265,7 +264,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             proxy_host="shimpz-account-egress",
             proxy_capability_file="/run/shimpz-account-egress/token",
         )
-        broker_type.assert_called_once_with(transport=transport, callback_mode="loopback")
+        broker_type.assert_called_once_with(transport=transport)
         service_type.assert_called_once_with(challenge=pkce, store=integrations, broker=broker)
         self.assertIs(controller.oauth_broker, broker)
         self.assertIs(controller.oauth_service, service)
@@ -308,8 +307,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         calls: list[tuple[str, object]] = []
 
         class Service:
-            def authorization_url(self, challenge, session_binding):
-                calls.append(("start", (challenge, session_binding)))
+            def authorization_url(self, challenge, session_binding, *, callback_mode):
+                calls.append(("start", (challenge, session_binding, callback_mode)))
                 return (
                     "https://shimpz.com/api/oauth/cloudflare/start?state="
                     + "s" * 43
@@ -340,6 +339,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "team_1",
             pending.id,
             "browser-session-private-123456789",
+            "hosted",
         )
         completed = controller.chat_turn_service.complete_cloudflare_oauth_callback(
             state="s" * 43,
@@ -361,8 +361,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
     def test_internal_oauth_routes_are_closed_and_exact(self) -> None:
         chat_turn_service = SimpleNamespace(
-            start_assistant_integration_authorization=lambda team, challenge, binding: {
-                "authorization_url": f"https://shimpz.com/{team}/{challenge}/{binding}"
+            start_assistant_integration_authorization=lambda team, challenge, binding, callback_mode: {
+                "authorization_url": f"https://shimpz.com/{team}/{challenge}/{binding}/{callback_mode}"
             },
             complete_cloudflare_oauth_callback=lambda **_values: {
                 "connected": True,
@@ -374,7 +374,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
-        handler._body = lambda **_kwargs: {"session_binding": "browser-session-private-123456789"}
+        handler._body = lambda **_kwargs: {
+            "callback_mode": "hosted",
+            "session_binding": "browser-session-private-123456789",
+        }
         handler.command = "POST"
 
         authorize = handler._assistant_integration_route(

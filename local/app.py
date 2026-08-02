@@ -419,7 +419,6 @@ class LocalController:
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
-            callback_mode=os.environ.get("SHIMPZ_OAUTH_CALLBACK_MODE", "loopback"),
         )
         self.oauth_service = dependencies.oauth_service or integration_service.BrokeredOAuthIntegrationService(
             challenge=self.oauth_pkce,

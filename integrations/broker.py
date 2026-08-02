@@ -196,11 +196,8 @@ class OAuthBrokerClient:
     def __init__(
         self,
         transport: BrokerTransport | None = None,
-        *,
-        callback_mode: str = DEFAULT_CALLBACK_MODE,
     ) -> None:
         self._transport = transport or FixedBrokerTransport()
-        self._callback_mode = _callback_mode(callback_mode)
 
     def __repr__(self) -> str:
         return "<OAuthBrokerClient shimpz.com>"
@@ -212,14 +209,16 @@ class OAuthBrokerClient:
         state: object,
         code_challenge: object,
         scopes: object,
+        callback_mode: object,
     ) -> str:
         _provider, canonical_scopes = _intent(provider_id, scopes)
+        callback = _callback_mode(callback_mode)
         query = urlencode(
             {
                 "state": _binding(state, "state"),
                 "code_challenge": _binding(code_challenge, "challenge"),
                 "scope": " ".join(canonical_scopes),
-                "callback": self._callback_mode,
+                "callback": callback,
             }
         )
         return f"{BROKER_ORIGIN}/api/oauth/cloudflare/start?{query}"

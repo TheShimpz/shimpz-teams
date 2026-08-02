@@ -54,6 +54,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
             state=STATE,
             code_challenge=CHALLENGE,
             scopes=SCOPES,
+            callback_mode="loopback",
         )
         parsed = urlsplit(url)
         self.assertEqual(
@@ -73,16 +74,22 @@ class OAuthBrokerClientTests(unittest.TestCase):
         self.assertEqual(self.transport.requests, [])
 
     def test_hosted_callback_mode_is_named_and_closed(self) -> None:
-        client = integration_broker.OAuthBrokerClient(self.transport, callback_mode="hosted")
-        url = client.authorization_url(
+        url = self.client.authorization_url(
             provider_id="cloudflare",
             state=STATE,
             code_challenge=CHALLENGE,
             scopes=SCOPES,
+            callback_mode="hosted",
         )
         self.assertEqual(parse_qs(urlsplit(url).query)["callback"], ["hosted"])
         with self.assertRaises(integration_broker.OAuthBrokerClientError):
-            integration_broker.OAuthBrokerClient(self.transport, callback_mode="https://evil.example")
+            self.client.authorization_url(
+                provider_id="cloudflare",
+                state=STATE,
+                code_challenge=CHALLENGE,
+                scopes=SCOPES,
+                callback_mode="https://evil.example",
+            )
 
     def test_fixed_transport_uses_only_the_authenticated_broker_proxy(self) -> None:
         response = Mock(
@@ -219,6 +226,7 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 state=STATE,
                 code_challenge=CHALLENGE,
                 scopes=SCOPES,
+                callback_mode="loopback",
             )
 
         private = "private-broker-response-123456789"

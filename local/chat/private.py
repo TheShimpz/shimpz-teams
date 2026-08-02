@@ -135,12 +135,14 @@ def start_assistant_integration_authorization(
     team_id: object,
     challenge_id: object,
     session_binding: object,
+    callback_mode: object,
 ) -> dict[str, object]:
     try:
         challenge = self.integration_challenges.get(team_id, challenge_id)
         authorization_url = self.oauth_service.authorization_url(
             challenge,
             session_binding,
+            callback_mode=callback_mode,
         )
     except integration_challenges.IntegrationChallengeError as exc:
         raise ApiProblem(

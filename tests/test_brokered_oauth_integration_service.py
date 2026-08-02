@@ -80,7 +80,8 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_full_flow_uses_broker_and_never_requires_client_credentials(self) -> None:
-        url = self.service.authorization_url(pending(), SESSION)
+        url = self.service.authorization_url(pending(), SESSION, callback_mode="hosted")
+        self.assertEqual(parse_qs(urlsplit(url).query, strict_parsing=True)["callback"], ["hosted"])
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
         completion = self.service.complete(
@@ -128,7 +129,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             {"provider": "cloudflare", "scopes": ("zone.read",)},
         ):
             start_session = SESSION if declaration is DECLARATION else "second-browser-session-private-123456789"
-            url = self.service.authorization_url(pending(), start_session)
+            url = self.service.authorization_url(pending(), start_session, callback_mode="loopback")
             state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
             session = "other-browser-session-private-123" if declaration is DECLARATION else start_session
             with self.assertRaises(integration_service.OAuthIntegrationServiceError):

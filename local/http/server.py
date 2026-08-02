@@ -473,7 +473,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "POST":
             body = self._body()
-            if set(body) != {"session_binding"}:
+            if set(body) != {"callback_mode", "session_binding"}:
                 raise ApiProblem(
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                     "OAuth authorization is invalid",
@@ -485,6 +485,7 @@ class Handler(BaseHTTPRequestHandler):
                     team_id,
                     parts[5],
                     body["session_binding"],
+                    body["callback_mode"],
                 ),
                 "assistant-integration-authorize",
                 team_id,
