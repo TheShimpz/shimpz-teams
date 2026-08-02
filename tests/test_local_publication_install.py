@@ -128,6 +128,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             self.assertEqual(second, first)
             self.assertEqual(registry.get("team_1", first.assistant_id), first)
             self.assertEqual(registry.list("team_2"), (second,))
+            self.assertIsNone(registry.get("team_3", first.assistant_id))
+            self.assertEqual(registry.list("team_3"), ())
             self.assertEqual(
                 registry.identities(),
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},
@@ -158,15 +160,19 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_controller_verifies_and_reauthorizes_before_local_start(self) -> None:
         resolution = _runtime_resolution()
+        events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
-            controller.developers.resolve.return_value = resolution
+            controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
             controller.artifact_trust = mock.Mock()
+            controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
 
             def install(team_id, assistant_id, *, authorize_start):
+                events.append("install")
                 authorize_start()
+                events.append("start")
                 return {"assistant": assistant_id, "installed": True}
 
             controller.assistant_lifecycle = SimpleNamespace(install_assistant=install)
@@ -180,5 +186,32 @@ class LocalPublicationInstallTests(unittest.TestCase):
             result,
             {"assistant": resolution["assistant_id"], "installed": True},
         )
+        self.assertEqual(events, ["resolve", "verify", "install", "resolve", "start"])
         self.assertEqual(controller.developers.resolve.call_count, 2)
         controller.artifact_trust.verify.assert_called_once_with(resolution)
+
+    def test_controller_refuses_a_publication_changed_before_local_start(self) -> None:
+        resolution = _runtime_resolution()
+        changed = copy.deepcopy(resolution)
+        changed["oci_digest"] = "sha256:" + ("0" * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            controller = object.__new__(local_app.LocalController)
+            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.developers = mock.Mock()
+            controller.developers.resolve.side_effect = (resolution, changed)
+            controller.artifact_trust = mock.Mock()
+
+            def install(_team_id, _assistant_id, *, authorize_start):
+                authorize_start()
+                raise AssertionError("changed publication reached local start")
+
+            controller.assistant_lifecycle = SimpleNamespace(install_assistant=install)
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.install_publication(
+                    "team_1",
+                    resolution["assistant_id"],
+                    resolution["source_digest"],
+                )
+
+        self.assertEqual(caught.exception.code, "assistant-not-installable")
+        self.assertIsNone(controller.registry.get("team_1", resolution["assistant_id"]))
