@@ -138,6 +138,33 @@ class ArtifactTrustTests(unittest.TestCase):
         self.assertTrue(all(not Path(path).exists() for path in docker_configs))
         self.assertTrue(all(not Path(value.removeprefix("HOME=")).exists() for value in homes))
 
+    def test_cosign_has_an_output_independent_process_deadline(self) -> None:
+        api = mock.Mock()
+        api.exec_create.return_value = {"Id": "timed-out"}
+        api.exec_start.return_value = iter(())
+        api.exec_inspect.return_value = {"ExitCode": 124}
+        verifier = ArtifactTrustVerifier(
+            types.SimpleNamespace(api=api),
+            container_id="a" * 64,
+            credentials=AUTH,
+            trust_root=self._trust_root,
+        )
+
+        with self.assertRaisesRegex(ArtifactTrustError, "timed out"):
+            verifier._run_cosign(("verify", "image"))
+
+        self.assertEqual(
+            api.exec_create.call_args.kwargs["cmd"],
+            [
+                "/usr/bin/timeout",
+                "--kill-after=5s",
+                "90s",
+                "/usr/local/bin/cosign",
+                "verify",
+                "image",
+            ],
+        )
+
     def test_rejects_a_non_private_tuf_cache(self) -> None:
         self._trust_root.mkdir(mode=0o755)
 

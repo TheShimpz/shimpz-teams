@@ -22,6 +22,7 @@ TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
 RELEASE_PROXY_URL = "http://shimpz-assistant-release:8888"
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
+_TIMEOUT_EXIT_CODES = frozenset({124, 137})
 _RELEASE_PROXY_ENVIRONMENT = (
     f"HTTPS_PROXY={RELEASE_PROXY_URL}",
     f"https_proxy={RELEASE_PROXY_URL}",
@@ -137,7 +138,13 @@ class ArtifactTrustVerifier:
             try:
                 execution = self._docker.api.exec_create(
                     container=self._container_id,
-                    cmd=[self._binary, *arguments],
+                    cmd=[
+                        "/usr/bin/timeout",
+                        "--kill-after=5s",
+                        f"{_TIMEOUT_SECONDS}s",
+                        self._binary,
+                        *arguments,
+                    ],
                     stdout=True,
                     stderr=True,
                     stdin=False,
@@ -168,6 +175,8 @@ class ArtifactTrustVerifier:
                     if len(output) + error_bytes > _MAX_OUTPUT_BYTES:
                         raise ArtifactTrustError("Cosign verification output is too large")
                 result = self._docker.api.exec_inspect(execution_id)
+                if result.get("ExitCode") in _TIMEOUT_EXIT_CODES:
+                    raise ArtifactTrustError("Cosign verification timed out")
                 if result.get("ExitCode") != 0:
                     raise ArtifactTrustError("Cosign verification failed")
                 return bytes(output)

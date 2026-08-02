@@ -74,7 +74,8 @@ COPY protocol/http/v1/supervisor.py ./protocol/http/v1/
 COPY power/__init__.py power/execution.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 
-RUN groupadd --gid 10001 shimpzlocal && \
+RUN test -x /usr/bin/timeout && \
+    groupadd --gid 10001 shimpzlocal && \
     groupadd --gid 10010 shimpzteam-token && \
     groupadd --gid 10016 shimpzbrain-runtime-token && \
     groupadd --gid 10017 shimpzassistant-egress-policy && \
