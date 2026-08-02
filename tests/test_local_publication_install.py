@@ -42,6 +42,7 @@ class _Connection:
     response = _Response(500, {})
     requests: ClassVar[list[tuple[object, ...]]] = []
     connections: ClassVar[list[tuple[tuple[object, ...], dict[str, object]]]] = []
+    tunnels: ClassVar[list[tuple[object, ...]]] = []
 
     def __init__(self, *args: object, **kwargs: object) -> None:
         self.arguments = args, kwargs
@@ -49,6 +50,9 @@ class _Connection:
 
     def request(self, *args: object, **kwargs: object) -> None:
         self.requests.append((*args, kwargs))
+
+    def set_tunnel(self, *args: object, **kwargs: object) -> None:
+        self.tunnels.append((*args, kwargs))
 
     def getresponse(self) -> _Response:
         return self.response
@@ -61,8 +65,9 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def setUp(self) -> None:
         _Connection.requests = []
         _Connection.connections = []
+        _Connection.tunnels = []
 
-    def test_resolves_exact_publication_from_fixed_https_origin(self) -> None:
+    def test_resolves_exact_publication_through_fixed_release_proxy(self) -> None:
         _Connection.response = _Response(200, copy.deepcopy(RESOLUTION))
 
         with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
@@ -71,8 +76,9 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(resolved, RESOLUTION)
         self.assertEqual(
             _Connection.connections,
-            [(("developers.shimpz.com", 443), {"timeout": 10})],
+            [(("shimpz-assistant-release", 8888), {"timeout": 10})],
         )
+        self.assertEqual(_Connection.tunnels, [("developers.shimpz.com", 443, {})])
         method, path, request = _Connection.requests[0]
         self.assertEqual(method, "GET")
         self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}")

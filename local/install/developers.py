@@ -11,6 +11,8 @@ from install.contract import ContractValidationError, ContractValidator
 
 _HOST = "developers.shimpz.com"
 _PORT = 443
+_RELEASE_PROXY_HOST = "shimpz-assistant-release"
+_RELEASE_PROXY_PORT = 8888
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -29,7 +31,12 @@ class DevelopersClient:
     def resolve(self, source_digest: str) -> dict[str, Any]:
         if _SOURCE_DIGEST.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
-        connection = http.client.HTTPSConnection(_HOST, _PORT, timeout=_TIMEOUT_SECONDS)
+        connection = http.client.HTTPSConnection(
+            _RELEASE_PROXY_HOST,
+            _RELEASE_PROXY_PORT,
+            timeout=_TIMEOUT_SECONDS,
+        )
+        connection.set_tunnel(_HOST, _PORT)
         try:
             connection.request(
                 "GET",
