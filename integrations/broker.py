@@ -23,8 +23,7 @@ from integrations import http as integration_http
 from integrations import providers as integration_providers
 
 BROKER_ORIGIN = "https://shimpz.com"
-DEFAULT_CALLBACK_MODE = "loopback"
-CALLBACK_MODES = frozenset({DEFAULT_CALLBACK_MODE, "hosted"})
+CALLBACK_MODES = frozenset({"loopback", "hosted"})
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
