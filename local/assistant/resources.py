@@ -208,7 +208,7 @@ def _validate_container_egress(
     reviewed_hosts = self._validate_container_egress_environment(team_id, spec, environment)
     if reviewed_hosts:
         proxy = egress_proxy() if egress_proxy is not None else None
-        self._validate_egress_proxy_attachment(network_name, proxy)
+        self._reconcile_egress_proxy_attachment(team_id, network_name, proxy)
     return reviewed_hosts
 
 

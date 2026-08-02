@@ -246,19 +246,29 @@ def _egress_proxy(self):
     return proxy
 
 
-def _connect_egress_proxy(self, network) -> None:
-    proxy = self._egress_proxy()
+def _connect_egress_proxy(self, network, proxy=None) -> None:
+    proxy = proxy if proxy is not None else self._egress_proxy()
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if attached is None:
         try:
             network.connect(proxy, aliases=[ASSISTANT_EGRESS_ALIAS])
             proxy.reload()
         except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant egress proxy could not join the Team",
-                code="egress-proxy-unavailable",
-            ) from exc
+            try:
+                proxy.reload()
+            except DockerException:
+                raise ApiProblem(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Assistant egress proxy could not join the Team",
+                    code="egress-proxy-unavailable",
+                ) from exc
+            attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
+            if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
+                raise ApiProblem(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Assistant egress proxy could not join the Team",
+                    code="egress-proxy-unavailable",
+                ) from exc
         attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
         raise ApiProblem(
@@ -268,16 +278,25 @@ def _connect_egress_proxy(self, network) -> None:
         )
 
 
-def _validate_egress_proxy_attachment(self, network_name: str, proxy=None) -> None:
-    if proxy is None:
-        proxy = self._egress_proxy()
+def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, proxy=None) -> None:
+    proxy = proxy if proxy is not None else self._egress_proxy()
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
-    if not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or []):
+    if isinstance(attached, dict):
+        if ASSISTANT_EGRESS_ALIAS in (attached.get("Aliases") or []):
+            return
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its Team attachment contract",
             code="egress-proxy-drift",
         )
+    network = self._network(team_id)
+    if network.name != network_name:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Team resource ownership conflict",
+            code="ownership-conflict",
+        )
+    self._connect_egress_proxy(network, proxy)
 
 
 def _disconnect_egress_proxy(self, network) -> None:

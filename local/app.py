@@ -203,7 +203,7 @@ class AssistantLifecycle:
     _remove_egress_policy = local_egress._remove_egress_policy
     _egress_proxy = local_egress._egress_proxy
     _connect_egress_proxy = local_egress._connect_egress_proxy
-    _validate_egress_proxy_attachment = local_egress._validate_egress_proxy_attachment
+    _reconcile_egress_proxy_attachment = local_egress._reconcile_egress_proxy_attachment
     _disconnect_egress_proxy = local_egress._disconnect_egress_proxy
     _disconnect_egress_proxy_if_attached = local_egress._disconnect_egress_proxy_if_attached
     _managed_team_networks = local_egress._managed_team_networks

@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from docker.errors import DockerException
 from local_controller_harness import TestPublicationRegistry
 
 from local import app as local_app
@@ -196,6 +197,92 @@ class LocalAssistantEgressTests(unittest.TestCase):
             self.spec,
             self.network.name,
         )
+
+    def test_valid_request_reconnects_recreated_proxy_without_restarting_team(self) -> None:
+        environment = self.controller.assistant_lifecycle._activate_assistant_egress(
+            "team_1",
+            self.spec,
+            self.network,
+            tuple(sorted(self.spec.allowed_hosts)),
+        )
+        self.network.disconnect(self.proxy)
+
+        with mock.patch.object(
+            self.controller.assistant_lifecycle,
+            "_network",
+            return_value=self.network,
+        ) as current_network:
+            reviewed = self.controller.assistant_lifecycle._validate_container_egress(
+                "team_1",
+                self.spec,
+                self.network.name,
+                environment,
+                lambda: self.proxy,
+            )
+
+        self.assertEqual(reviewed, self.spec.allowed_hosts)
+        current_network.assert_called_once_with("team_1")
+        self.assertEqual(
+            self.proxy.attrs["NetworkSettings"]["Networks"][self.network.name]["Aliases"],
+            [local_egress.ASSISTANT_EGRESS_ALIAS],
+        )
+
+    def test_request_reconciliation_accepts_a_concurrent_exact_attachment(self) -> None:
+        def concurrent_connect(proxy, *, aliases):
+            self.network.connect = original_connect
+            original_connect(proxy, aliases=aliases)
+            raise DockerException("attachment completed concurrently")
+
+        original_connect = self.network.connect
+        self.network.connect = concurrent_connect
+        with mock.patch.object(
+            self.controller.assistant_lifecycle,
+            "_network",
+            return_value=self.network,
+        ):
+            self.controller.assistant_lifecycle._reconcile_egress_proxy_attachment(
+                "team_1",
+                self.network.name,
+                self.proxy,
+            )
+
+        self.assertEqual(
+            self.proxy.attrs["NetworkSettings"]["Networks"][self.network.name]["Aliases"],
+            [local_egress.ASSISTANT_EGRESS_ALIAS],
+        )
+
+    def test_request_reconciliation_fails_closed_on_attachment_error(self) -> None:
+        with (
+            mock.patch.object(
+                self.controller.assistant_lifecycle,
+                "_network",
+                return_value=self.network,
+            ),
+            mock.patch.object(self.network, "connect", side_effect=DockerException("unavailable")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            self.controller.assistant_lifecycle._reconcile_egress_proxy_attachment(
+                "team_1",
+                self.network.name,
+                self.proxy,
+            )
+
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+
+    def test_request_reconciliation_refuses_a_wrong_existing_alias(self) -> None:
+        self.proxy.attrs["NetworkSettings"]["Networks"][self.network.name] = {"Aliases": ["wrong"]}
+        with (
+            mock.patch.object(self.network, "connect", wraps=self.network.connect) as connect,
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            self.controller.assistant_lifecycle._reconcile_egress_proxy_attachment(
+                "team_1",
+                self.network.name,
+                self.proxy,
+            )
+
+        self.assertEqual(caught.exception.code, "egress-proxy-drift")
+        connect.assert_not_called()
 
     def test_last_uninstall_removes_policy_and_detaches_proxy(self) -> None:
         environment = self.controller.assistant_lifecycle._activate_assistant_egress(
