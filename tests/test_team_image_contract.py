@@ -319,8 +319,11 @@ class StaticTeamImageContractTests(unittest.TestCase):
         self.assertIn(f"FROM {UV_IMAGE} AS uv", dockerfile)
         self.assertIn("COPY --from=uv /uv /usr/local/bin/uv", dockerfile)
         self.assertIn("COPY --from=dependencies /opt/venv /opt/venv", runtime)
-        self.assertTrue(
-            any(line.startswith("HEALTHCHECK ") and f'"{LOCAL_ENTRYPOINTS[1]}"]' in line for line in logical_lines),
+        healthcheck = next(line for line in logical_lines if line.startswith("HEALTHCHECK "))
+        self.assertEqual(
+            " ".join(healthcheck.split()),
+            "HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --start-interval=1s --retries=3 "
+            f'CMD ["/opt/venv/bin/python", "-m", "{LOCAL_ENTRYPOINTS[1]}"]',
         )
         self.assertIn(
             f'ENTRYPOINT ["/opt/venv/bin/python", "-m", "{LOCAL_ENTRYPOINTS[0]}"]',

@@ -114,6 +114,6 @@ LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams
 
 USER 10001:10001
 EXPOSE 7077
-HEALTHCHECK --interval=10s --timeout=4s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=4s --start-period=30s --start-interval=1s --retries=3 \
     CMD ["/opt/venv/bin/python", "-m", "local.healthcheck"]
 ENTRYPOINT ["/opt/venv/bin/python", "-m", "local.app"]
