@@ -468,9 +468,13 @@ class BrokeredOAuthIntegrationService:
         callback_mode: object,
         resource_binding: object = None,
     ) -> str:
+        try:
+            selected_callback_mode = integration_broker.canonical_callback_mode(callback_mode)
+        except integration_broker.OAuthBrokerClientError:
+            raise OAuthIntegrationServiceError("OAuth callback mode is invalid") from None
         build_url = functools.partial(
             self._broker.authorization_url,
-            callback_mode=callback_mode,
+            callback_mode=selected_callback_mode,
         )
         return _authorization_url(
             self._challenge,

@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from integrations import broker as integration_broker
@@ -70,8 +71,9 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             clock=lambda: 1_000_000_000,
         )
         self.transport = Transport()
+        self.challenge = integration_pkce.OAuthPKCEChallengeStore()
         self.service = integration_service.BrokeredOAuthIntegrationService(
-            challenge=integration_pkce.OAuthPKCEChallengeStore(),
+            challenge=self.challenge,
             store=self.store,
             broker=integration_broker.OAuthBrokerClient(self.transport),
         )
@@ -140,6 +142,22 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
                     lambda _team, _assistant, _integration, value=declaration: value,
                 )
         self.assertEqual(self.transport.requests, [])
+
+    def test_invalid_callback_mode_creates_no_pkce_challenge(self) -> None:
+        with (
+            mock.patch.object(self.challenge, "create", wraps=self.challenge.create) as create,
+            self.assertRaisesRegex(
+                integration_service.OAuthIntegrationServiceError,
+                "callback mode is invalid",
+            ),
+        ):
+            self.service.authorization_url(
+                pending(),
+                SESSION,
+                callback_mode="https://attacker.example",
+            )
+
+        create.assert_not_called()
 
 
 if __name__ == "__main__":

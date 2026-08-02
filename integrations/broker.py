@@ -140,7 +140,7 @@ def _binding(value: object, label: str = "binding") -> str:
     return value
 
 
-def _callback_mode(value: object) -> str:
+def canonical_callback_mode(value: object) -> str:
     if not isinstance(value, str) or value not in CALLBACK_MODES:
         raise OAuthBrokerClientError("OAuth callback mode is invalid")
     return value
@@ -212,7 +212,7 @@ class OAuthBrokerClient:
         callback_mode: object,
     ) -> str:
         _provider, canonical_scopes = _intent(provider_id, scopes)
-        callback = _callback_mode(callback_mode)
+        callback = canonical_callback_mode(callback_mode)
         query = urlencode(
             {
                 "state": _binding(state, "state"),

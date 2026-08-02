@@ -11,6 +11,7 @@ from docker.errors import DockerException
 
 from chat import turn as chat_turn_engine
 from core.http import strict as strict_http
+from integrations import broker as integration_broker
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
@@ -474,6 +475,12 @@ class Handler(BaseHTTPRequestHandler):
         if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "POST":
             body = self._body()
             if set(body) != {"callback_mode", "session_binding"}:
+                raise ApiProblem(
+                    HTTPStatus.UNPROCESSABLE_ENTITY,
+                    "OAuth authorization is invalid",
+                    code="invalid-body",
+                )
+            if body["callback_mode"] not in integration_broker.CALLBACK_MODES:
                 raise ApiProblem(
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                     "OAuth authorization is invalid",

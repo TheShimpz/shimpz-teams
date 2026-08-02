@@ -395,6 +395,23 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(authorize[2], "assistant-integration-authorize")
 
         handler._body = lambda **_kwargs: {
+            "callback_mode": "https://attacker.example",
+            "session_binding": "browser-session-private-123456789",
+        }
+        with self.assertRaisesRegex(local_app.ApiProblem, "OAuth authorization is invalid"):
+            handler._assistant_integration_route(
+                [
+                    "v1",
+                    "teams",
+                    "team_1",
+                    "assistant-integrations",
+                    "challenges",
+                    "a" * 32,
+                    "authorize",
+                ]
+            )
+
+        handler._body = lambda **_kwargs: {
             "state": "s" * 43,
             "claim": "a" * 64,
             "session_binding": "browser-session-private-123456789",
