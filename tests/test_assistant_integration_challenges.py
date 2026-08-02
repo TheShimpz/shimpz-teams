@@ -22,6 +22,13 @@ def requirement() -> integration_challenges.IntegrationRequirement:
 
 
 class AssistantIntegrationChallengeTests(unittest.TestCase):
+    def test_default_lifetime_encloses_the_brokered_oauth_transaction(self) -> None:
+        store = integration_challenges.IntegrationChallengeStore()
+        with mock.patch.object(integration_challenges.time, "monotonic", return_value=100.0):
+            challenge = store.create("team_1", (requirement(),), object())
+
+        self.assertEqual(challenge.expires_at, 700.0)
+
     def test_challenge_is_team_bound_single_use_and_keeps_payload_private(self) -> None:
         store = integration_challenges.IntegrationChallengeStore()
         private = {"continuation": "private user input"}

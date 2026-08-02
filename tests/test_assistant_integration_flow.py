@@ -188,7 +188,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         challenge = integration_challenges.PendingIntegrationChallenge(
             "a" * 32,
             "team_1",
-            time.monotonic() + 300,
+            time.monotonic() + 600,
             (requirement,),
             {"input": "must-never-be-public"},
         )
@@ -203,7 +203,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             {"team_id", "status", "turn_id", "challenge_id", "expires_in", "requirements"},
         )
         self.assertEqual(payload["status"], "integrations-required")
-        self.assertIn(payload["expires_in"], {299, 300})
+        self.assertIn(payload["expires_in"], {599, 600})
         self.assertEqual(
             payload["requirements"],
             [

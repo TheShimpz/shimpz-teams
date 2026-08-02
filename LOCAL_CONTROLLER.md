@@ -99,12 +99,16 @@ abstraction and total code without improving either Controller's safety contract
 | --- | --- | --- |
 | `GET` | `/v1/teams/{team_id}/assistant-integrations` | list redacted connected-Integration state |
 | `POST` | `/v1/teams/{team_id}/assistant-integrations/challenges/{challenge_id}/authorize` | start bounded OAuth authorization |
+| `DELETE` | `/v1/teams/{team_id}/assistant-integrations/challenges/{challenge_id}/authorize` | cancel the exact fresh OAuth authorization |
 | `DELETE` | `/v1/teams/{team_id}/assistant-integrations/{assistant_id}/{integration_id}` | disconnect and delete one credential |
 | `POST` | `/v1/oauth/cloudflare/callback` | redeem the broker claim bound to the Admin session |
 
 OAuth authorization material crosses the dedicated broker path, never chat frames. The controller
 stores only encrypted Integration credentials, returns redacted metadata, binds claims/challenges to one
 Team and Admin session, and deletes local and broker state on disconnect or Team teardown.
+The authorization request body contains exactly `callback_mode` and `session_binding`; callback mode is one of
+`loopback`, `hosted`, or `out-of-band`. Cancellation contains exactly `session_binding`. Broker claim redemption
+contains exactly `state`, `claim`, and `session_binding`. All three bodies reject additional fields.
 
 ## Assistant execution
 

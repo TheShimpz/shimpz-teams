@@ -9,7 +9,7 @@ from typing import Any
 from integrations import challenge_store
 
 MAX_PENDING_CHALLENGES = challenge_store.MAX_PENDING_CHALLENGES
-DEFAULT_TTL_SECONDS = challenge_store.DEFAULT_TTL_SECONDS
+DEFAULT_TTL_SECONDS = 600
 
 
 class IntegrationChallengeError(RuntimeError):
