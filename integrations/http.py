@@ -21,7 +21,6 @@ from integrations import providers as integration_providers
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
-LOCAL_REDIRECT_URI = "http://127.0.0.1:7777/api/oauth/cloudflare/callback"
 HOSTED_REDIRECT_URI = "https://shimpz.com/api/oauth/cloudflare/callback"
 _CLIENT_ID = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
 _STATE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
@@ -109,7 +108,7 @@ def _client_id(value: object) -> str:
 
 
 def _redirect_uri(provider_id: str, value: object) -> str:
-    if provider_id != "cloudflare" or value not in {LOCAL_REDIRECT_URI, HOSTED_REDIRECT_URI}:
+    if provider_id != "cloudflare" or value != HOSTED_REDIRECT_URI:
         raise OAuthHTTPError("OAuth callback configuration is invalid")
     return str(value)
 

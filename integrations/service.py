@@ -25,12 +25,7 @@ _CLIENT_SECRET = re.compile(r"[!-~]{16,1024}\Z")
 _COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _PENDING_ID = re.compile(r"[0-9a-f]{32}\Z")
-_REDIRECT_URIS = frozenset(
-    {
-        integration_http.LOCAL_REDIRECT_URI,
-        integration_http.HOSTED_REDIRECT_URI,
-    }
-)
+_REDIRECT_URIS = frozenset({integration_http.HOSTED_REDIRECT_URI})
 MAX_REQUIREMENTS = 32
 MAX_INTEGRATIONS_PER_REQUIREMENT = 16
 

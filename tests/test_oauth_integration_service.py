@@ -95,7 +95,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         self.service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,
@@ -131,7 +131,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         parsed = urlsplit(url)
         query = parse_qs(parsed.query, strict_parsing=True)
         self.assertEqual((parsed.scheme, parsed.netloc, parsed.path), ("https", "dash.cloudflare.com", "/oauth2/auth"))
-        self.assertEqual(query["redirect_uri"], [integration_http.LOCAL_REDIRECT_URI])
+        self.assertEqual(query["redirect_uri"], [integration_http.HOSTED_REDIRECT_URI])
         self.assertEqual(query["client_id"], [CLIENT_ID])
         self.assertEqual(query["code_challenge_method"], ["S256"])
         self.assertEqual(query["scope"], [" ".join(SCOPES)])
@@ -207,7 +207,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         lazy = integration_service.OAuthIntegrationService(
             client_id=None,
             client_secret=None,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,
@@ -248,7 +248,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=integration_pkce.OAuthPKCEChallengeStore(),
             store=store,
             http=self.http,
@@ -276,7 +276,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=integration_http.OAuthHTTPClient(transport),
@@ -350,7 +350,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         service = integration_service.OAuthIntegrationService(
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=integration_http.OAuthHTTPClient(transport),
@@ -392,7 +392,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         service = integration_service.OAuthIntegrationService(
             client_id=None,
             client_secret=None,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             challenge=self.challenges,
             store=self.store,
             http=self.http,

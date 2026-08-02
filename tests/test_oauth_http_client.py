@@ -47,7 +47,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
         url = integration_http.authorization_url(
             provider_id="cloudflare",
             client_id=CLIENT_ID,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             state=STATE,
             code_challenge=CHALLENGE,
             scopes=SCOPES,
@@ -62,7 +62,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
             {
                 "response_type": ["code"],
                 "client_id": [CLIENT_ID],
-                "redirect_uri": [integration_http.LOCAL_REDIRECT_URI],
+                "redirect_uri": [integration_http.HOSTED_REDIRECT_URI],
                 "scope": ["dns.read offline_access zone.read"],
                 "state": [STATE],
                 "code_challenge": [CHALLENGE],
@@ -70,6 +70,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
             },
         )
         for redirect in (
+            "http://127.0.0.1:7777/api/oauth/cloudflare/callback",
             "http://localhost:7777/api/oauth/cloudflare/callback",
             "https://evil.test/callback",
         ):
@@ -101,7 +102,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
             provider_id="cloudflare",
             client_id=CLIENT_ID,
             client_secret=CLIENT_CREDENTIAL,
-            redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+            redirect_uri=integration_http.HOSTED_REDIRECT_URI,
             code=CODE,
             code_verifier=VERIFIER,
             scopes=SCOPES,
@@ -209,7 +210,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
                 provider_id="cloudflare",
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_CREDENTIAL,
-                redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+                redirect_uri=integration_http.HOSTED_REDIRECT_URI,
                 code=CODE,
                 code_verifier=VERIFIER,
                 scopes=SCOPES,
@@ -219,7 +220,7 @@ class OAuthHTTPClientTests(unittest.TestCase):
                 integration_http.authorization_url(
                     provider_id="cloudflare",
                     client_id=invalid_client,
-                    redirect_uri=integration_http.LOCAL_REDIRECT_URI,
+                    redirect_uri=integration_http.HOSTED_REDIRECT_URI,
                     state=STATE,
                     code_challenge=CHALLENGE,
                     scopes=SCOPES,
