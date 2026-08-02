@@ -18,9 +18,7 @@ class LocalEgressRecoveryMixin:
             flow.controller,
         ).stdout.strip()
         self._run("network", "disconnect", flow.network_name, flow.egress_proxy)
-        detached_networks = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]["NetworkSettings"][
-            "Networks"
-        ]
+        detached_networks = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]["NetworkSettings"]["Networks"]
         self.assertNotIn(flow.network_name, detached_networks)
 
         inventory_status, inventory = self._api(
@@ -32,9 +30,7 @@ class LocalEgressRecoveryMixin:
         self.assertEqual(inventory_status, 200, inventory)
         self.assertEqual(inventory["assistants"], [{"assistant": "shimpz-cloudflare", "status": "running"}])
 
-        repaired_networks = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]["NetworkSettings"][
-            "Networks"
-        ]
+        repaired_networks = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]["NetworkSettings"]["Networks"]
         self.assertIn(flow.network_name, repaired_networks)
         self.assertIn("shimpz-assistant-egress", repaired_networks[flow.network_name]["Aliases"])
         self.assertEqual(
