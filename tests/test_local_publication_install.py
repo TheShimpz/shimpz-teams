@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import ssl
 import tempfile
 import unittest
 from pathlib import Path
@@ -75,9 +76,15 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
         self.assertEqual(resolved, RESOLUTION)
         self.assertEqual(
-            _Connection.connections,
-            [(("shimpz-assistant-release", 8888), {"timeout": 10})],
+            _Connection.connections[0][0],
+            ("shimpz-assistant-release", 8888),
         )
+        connection_options = _Connection.connections[0][1]
+        self.assertEqual(connection_options["timeout"], 10)
+        tls_context = connection_options["context"]
+        self.assertIsInstance(tls_context, ssl.SSLContext)
+        self.assertTrue(tls_context.check_hostname)
+        self.assertEqual(tls_context.verify_mode, ssl.CERT_REQUIRED)
         self.assertEqual(_Connection.tunnels, [("developers.shimpz.com", 443, {})])
         method, path, request = _Connection.requests[0]
         self.assertEqual(method, "GET")

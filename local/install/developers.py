@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import ssl
 from typing import Any
 
 from install.contract import ContractValidationError, ContractValidator
@@ -16,6 +17,7 @@ _RELEASE_PROXY_PORT = 8888
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
 _CONTRACTS = ContractValidator()
 
 
@@ -35,6 +37,7 @@ class DevelopersClient:
             _RELEASE_PROXY_HOST,
             _RELEASE_PROXY_PORT,
             timeout=_TIMEOUT_SECONDS,
+            context=_TLS_CONTEXT,
         )
         connection.set_tunnel(_HOST, _PORT)
         try:
