@@ -13,6 +13,7 @@ import os
 import secrets
 import sys
 import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -756,21 +757,10 @@ class LocalController:
                     spec.assistant_id,
                     authorize_start=authorize_start,
                 )
-            candidate, successor = self.registry.replacement(
+            return self._install_bound_publication(
                 team_id,
-                existing.binding_digest,
-                resolution,
-            )
-            if not is_successor(existing, candidate):
-                raise local_developers.PublicationNotInstallableError("publication is not a newer Assistant version")
-            previous = self.registry.get(team_id, assistant_id)
-            if previous is None:
-                raise bindings.DynamicAssistantConflictError("the Assistant binding changed before update")
-            return self.assistant_lifecycle.update_assistant(
-                team_id,
-                previous,
-                successor,
-                previous_binding=existing,
+                assistant_id,
+                existing,
                 resolution=resolution,
                 authorize_start=authorize_start,
             )
@@ -804,6 +794,40 @@ class LocalController:
                 "Assistant publication binding failed",
                 code="assistant-binding-conflict",
             ) from exc
+
+    def _install_bound_publication(
+        self,
+        team_id: str,
+        assistant_id: str,
+        existing: bindings.DynamicAssistantBinding,
+        *,
+        resolution: dict[str, object],
+        authorize_start: Callable[[], None],
+    ) -> dict[str, object]:
+        candidate, successor = self.registry.replacement(
+            team_id,
+            existing.binding_digest,
+            resolution,
+        )
+        if candidate == existing:
+            return self.assistant_lifecycle.install_assistant(
+                team_id,
+                successor.assistant_id,
+                authorize_start=authorize_start,
+            )
+        if not is_successor(existing, candidate):
+            raise local_developers.PublicationNotInstallableError("publication is not a newer Assistant version")
+        previous = self.registry.get(team_id, assistant_id)
+        if previous is None:
+            raise bindings.DynamicAssistantConflictError("the Assistant binding changed before update")
+        return self.assistant_lifecycle.update_assistant(
+            team_id,
+            previous,
+            successor,
+            previous_binding=existing,
+            resolution=resolution,
+            authorize_start=authorize_start,
+        )
 
     def health(self) -> dict[str, str]:
         try:

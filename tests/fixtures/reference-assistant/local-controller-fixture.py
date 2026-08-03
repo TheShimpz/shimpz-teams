@@ -25,6 +25,10 @@ class _Developers:
             raise developers.PublicationNotInstallableError("publication is not available")
         return copy.deepcopy(self._resolution)
 
+    @staticmethod
+    def catalog() -> tuple[developers.CatalogPublication, ...]:
+        return ()
+
 
 class _ArtifactTrust:
     def __init__(self, resolution: dict[str, object]) -> None:

@@ -198,6 +198,33 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertIsNotNone(committed)
         self.assertEqual(committed.resolution["source_digest"], successor["source_digest"])
 
+    def test_controller_recovers_the_same_bound_publication_idempotently(self) -> None:
+        resolution = _runtime_resolution()
+        events: list[str] = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller = object.__new__(local_app.LocalController)
+            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry.put("team_1", resolution)
+            controller.developers = mock.Mock()
+            controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
+            controller.artifact_trust = mock.Mock()
+            controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
+
+            def install(_team_id, assistant_id, *, authorize_start):
+                events.append("recover")
+                authorize_start()
+                return {"assistant": assistant_id, "installed": False}
+
+            controller.assistant_lifecycle = SimpleNamespace(install_assistant=install)
+            result = controller.install_publication(
+                "team_1",
+                resolution["assistant_id"],
+                resolution["source_digest"],
+            )
+
+        self.assertEqual(result, {"assistant": resolution["assistant_id"], "installed": False})
+        self.assertEqual(events, ["resolve", "verify", "recover", "resolve"])
+
     def test_automatic_update_fence_rejects_a_removed_binding_before_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
