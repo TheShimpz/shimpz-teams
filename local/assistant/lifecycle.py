@@ -287,7 +287,7 @@ def _binding_uses_image(self, image_id: str) -> bool | None:
                     return True
             except ImageNotFound:
                 continue
-    except (bindings.DynamicAssistantError, DockerException):
+    except bindings.DynamicAssistantError, DockerException:
         log.warning("Assistant update residue cleanup deferred: binding images are unavailable")
         return None
     return False
@@ -313,10 +313,7 @@ def _remove_retired_image(self, image_id: str) -> bool:
     except DockerException:
         log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
         return False
-    if any(
-        image_id in {container.attrs.get("ImageID"), container.attrs.get("Image")}
-        for container in containers
-    ):
+    if any(image_id in {container.attrs.get("ImageID"), container.attrs.get("Image")} for container in containers):
         return False
     return self._delete_retired_image(image_id)
 
@@ -346,7 +343,7 @@ def sweep_residues(self) -> None:
 def _queue_residue(self, image_id: str) -> None:
     try:
         self.residues.add(image_id)
-    except (bindings.DynamicAssistantError, OSError):
+    except bindings.DynamicAssistantError, OSError:
         log.exception("Assistant update residue could not be queued")
         if not self._remove_retired_image(image_id):
             log.warning("Assistant update left one unqueued image residue")
@@ -534,7 +531,7 @@ def recover_updates(self) -> None:
                     self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
                     self._queue_residue(update.previous_image_id)
                 self._clear_update(update)
-            except (ApiProblem, RuntimeError, DockerException):
+            except ApiProblem, RuntimeError, DockerException:
                 log.exception(
                     "Assistant update recovery deferred for %s/%s",
                     update.team_id,

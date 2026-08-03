@@ -58,14 +58,11 @@ class AutomaticAssistantUpdater:
         try:
             targets = {item.assistant_id: item for item in self._controller.developers.catalog()}
             installed = self._controller.registry.bindings()
-        except (developers.DevelopersError, bindings.DynamicAssistantError):
+        except developers.DevelopersError, bindings.DynamicAssistantError:
             log.warning("Automatic Assistant update check deferred: Developers is unavailable")
             self._record_result(None, None, "error", "cycle:unavailable")
             return False
-        active_keys = {
-            (binding.team_id, binding.assistant_id, binding.binding_digest)
-            for binding in installed
-        }
+        active_keys = {(binding.team_id, binding.assistant_id, binding.binding_digest) for binding in installed}
         self._failures = {key: value for key, value in self._failures.items() if key in active_keys}
         self._retry_after = {key: value for key, value in self._retry_after.items() if key in active_keys}
         now = self._clock()
@@ -76,7 +73,7 @@ class AutomaticAssistantUpdater:
             target = targets.get(binding.assistant_id)
             try:
                 current_version = _binding_version(binding)
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 log.exception("Automatic Assistant update check found an invalid installed binding")
                 self._record_result(binding.team_id, binding.assistant_id, "error", "binding:invalid")
                 continue
@@ -125,7 +122,7 @@ class AutomaticAssistantUpdater:
         while not self._stop.wait(delay):
             try:
                 succeeded = self.run_once()
-            except (RuntimeError, DockerException, KeyError, TypeError, ValueError):
+            except RuntimeError, DockerException, KeyError, TypeError, ValueError:
                 log.exception("Automatic Assistant updater recovered from an unexpected failure")
                 self._record_result(None, None, "error", "thread:runtime-unavailable")
                 succeeded = False

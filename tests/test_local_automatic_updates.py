@@ -29,9 +29,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         calls: list[tuple[object, ...]] = []
         controller = SimpleNamespace(
             developers=SimpleNamespace(
-                catalog=lambda: (
-                    CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),
-                )
+                catalog=lambda: (CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),)
             ),
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=lambda *args, **options: calls.append((*args, options)),
@@ -78,9 +76,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
 
         controller = SimpleNamespace(
             developers=SimpleNamespace(
-                catalog=lambda: (
-                    CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),
-                )
+                catalog=lambda: (CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),)
             ),
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=install,
@@ -113,9 +109,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
 
         controller = SimpleNamespace(
             developers=SimpleNamespace(
-                catalog=lambda: (
-                    CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),
-                )
+                catalog=lambda: (CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),)
             ),
             registry=SimpleNamespace(bindings=lambda: (binding,)),
             install_publication=install,

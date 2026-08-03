@@ -762,9 +762,7 @@ class LocalController:
                 resolution,
             )
             if not is_successor(existing, candidate):
-                raise local_developers.PublicationNotInstallableError(
-                    "publication is not a newer Assistant version"
-                )
+                raise local_developers.PublicationNotInstallableError("publication is not a newer Assistant version")
             previous = self.registry.get(team_id, assistant_id)
             if previous is None:
                 raise bindings.DynamicAssistantConflictError("the Assistant binding changed before update")
