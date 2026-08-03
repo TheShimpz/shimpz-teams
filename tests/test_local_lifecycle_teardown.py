@@ -155,6 +155,28 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(events, ["reload", ("remove", True)])
         self.assertFalse(controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare"))
 
+    def test_uninstall_removes_an_isolated_container_with_an_invalid_manifest(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: self.fail(
+            "teardown must not admit a retiring Assistant manifest"
+        )
+
+        result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
+        self.assertEqual(events, ["reload", ("remove", True)])
+
+    def test_team_teardown_accepts_an_isolated_container_with_an_invalid_manifest(self) -> None:
+        controller, container, events = self._lifecycle_controller()
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: self.fail(
+            "teardown must not admit a retiring Assistant manifest"
+        )
+        network = controller.assistant_lifecycle._network("team_1")
+
+        controller._validate_destroy_containers([container], "team_1", network)
+
+        self.assertEqual(events, ["reload"])
+
     def test_install_rejects_security_drift_without_resolving_or_removing(self) -> None:
         controller, container, events = self._lifecycle_controller()
         container.attrs["HostConfig"]["Privileged"] = True

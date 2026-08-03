@@ -349,7 +349,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
             return {"assistant": assistant_id, "uninstalled": False}
-        self._validate_container_security(container, team_id, spec, network.name)
+        self._validate_container_isolation(container, team_id, spec, network.name)
         remaining_egress = (
             self._team_has_egress_assistant(team_id, excluding=assistant_id) if spec.allowed_hosts else None
         )

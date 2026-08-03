@@ -76,7 +76,7 @@ def _validate_destroy_containers(self, containers: list, team_id: str, network) 
                 "Team resources failed their ownership contract",
                 code="ownership-conflict",
             )
-        self.assistant_lifecycle._validate_container_security(container, team_id, spec, network.name)
+        self.assistant_lifecycle._validate_container_isolation(container, team_id, spec, network.name)
 
 
 def _delete_team_conversation(self, team_id: str, network) -> None:
