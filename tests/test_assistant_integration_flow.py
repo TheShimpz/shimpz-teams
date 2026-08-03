@@ -155,7 +155,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                     "cloudflare-write",
                     "cloudflare",
                     tuple(sorted(spec.integrations["cloudflare-write"].scopes)),
-                    "refresh-required",
+                    "reauthorization-required",
                     _Integration("123", "reader", "Reader"),
                     expiry,
                     2,
@@ -176,6 +176,31 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             requirements[0].integrations,
             (("cloudflare-write", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
+
+    def test_batch_treats_refresh_required_integration_as_machine_recoverable(self) -> None:
+        spec = _spec()
+        store = _Store(
+            {
+                ("cloudflare-assistant", "cloudflare-write"): _Metadata(
+                    "cloudflare-write",
+                    "cloudflare",
+                    tuple(sorted(spec.integrations["cloudflare-write"].scopes)),
+                    "refresh-required",
+                    _Integration("123", "reader", "Reader"),
+                    int(time.time()) - 1,
+                    2,
+                ),
+            }
+        )
+
+        requirements = integration_flow.requirements_for_batch(
+            "team_1",
+            {"cloudflare-assistant": _Active(spec)},
+            (_request("publish-post", "one"),),
+            store,
+        )
+
+        self.assertEqual(requirements, ())
 
     def test_challenge_is_exact_bounded_public_metadata(self) -> None:
         spec = _spec()

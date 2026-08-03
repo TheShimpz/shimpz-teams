@@ -32,6 +32,9 @@ from local.install.runtime import AssistantSpec
 
 TEST_ACCESS_TOKEN = "oauth-access-test-token-123456789"
 TEST_REFRESH_TOKEN = "oauth-refresh-test-token-123456789"
+TEST_REFRESHED_ACCESS_TOKEN = "-".join(("refreshed", "access", "token", "123456789"))
+TEST_REFRESHED_REFRESH_TOKEN = "-".join(("refreshed", "refresh", "token", "123456789"))
+TEST_TURN_TOKEN = "-".join(("turn", "token", "private", "123456789"))
 
 
 class LocalOAuthArtifactCurrencyTests(LocalContractCase):
@@ -629,6 +632,140 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             handler._chat_route(["v1", "teams", "team_1", "chat", "integrations"]),
             (HTTPStatus.OK, completed, "chat-integration-submit", "team_1", None),
         )
+
+
+class LocalOAuthRefreshTurnTests(LocalContractCase):
+    @staticmethod
+    def _runtime(request, *, reply="Done"):
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                return brain_runtime_client.RuntimeTurn("completed", reply, ())
+
+        return Runtime()
+
+    def _expired_controller(self, directory: str, runtime, refresh):
+        controller = self._chat_controller(directory, runtime)
+        now = [1_000]
+        store = integration_store.OAuthIntegrationStore(
+            Path(directory) / "expired-integrations" / "state" / "integrations.json",
+            Path(directory) / "expired-integrations" / "key" / "aes256.key",
+            clock=lambda: now[0],
+        )
+        spec = controller.registry["shimpz-cloudflare"]
+        declaration = spec.integrations["cloudflare"]
+        store.put(
+            "team_1",
+            spec.assistant_id,
+            "cloudflare",
+            declaration.provider,
+            declaration.scopes,
+            SimpleNamespace(
+                access_token=TEST_ACCESS_TOKEN,
+                refresh_token=TEST_REFRESH_TOKEN,
+                broker_lease="broker-lease-private-material-123456789",
+                scopes=declaration.scopes,
+                expires_in=30,
+            ),
+        )
+        now[0] += 31
+        controller.assistant_integrations = store
+        controller.chat_turn_service.assistant_integrations = store
+        controller.chat_turn_service.oauth_service = SimpleNamespace(refresh=refresh)
+        controller.chat_turn_service._invoke_chat_power = lambda *_args: {
+            "zones": [],
+            "pagination": {
+                "page": 1,
+                "per_page": 25,
+                "count": 0,
+                "total_count": 0,
+                "total_pages": 0,
+            },
+        }
+        return controller, store, spec
+
+    @staticmethod
+    def _segment_request(spec: AssistantSpec) -> SegmentRequest:
+        return SegmentRequest(
+            team_id="team_1",
+            file_ids=[],
+            assistant_ids=(spec.assistant_id,),
+            provider="openai",
+            api_key="test-api-key",
+            token=TEST_TURN_TOKEN,
+            message="List my Cloudflare zones",
+        )
+
+    def test_expired_grant_refreshes_once_before_power_batch(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            interrupt_id="call-1",
+            assistant_id="shimpz-cloudflare",
+            power="list-zones",
+            input={"page": 1, "per_page": 25},
+        )
+        refresh_calls: list[tuple[object, ...]] = []
+
+        def refresh(provider, scopes, refresh_token, broker_lease):
+            refresh_calls.append((provider, scopes, refresh_token, broker_lease))
+            return SimpleNamespace(
+                access_token=TEST_REFRESHED_ACCESS_TOKEN,
+                refresh_token=TEST_REFRESHED_REFRESH_TOKEN,
+                broker_lease="refreshed-broker-lease-123456789",
+                scopes=scopes,
+                expires_in=3600,
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller, store, spec = self._expired_controller(
+                directory,
+                self._runtime(request),
+                refresh,
+            )
+
+            result = controller.chat_turn_service._run_chat_segment(self._segment_request(spec))
+            metadata = store.metadata("team_1", spec.assistant_id, spec.integrations)
+
+        self.assertIsInstance(result.outcome, chat_orchestrator.ChatOutcome)
+        self.assertEqual(result.outcome.reply, "Done")
+        self.assertEqual(result.integrations, ())
+        self.assertEqual(len(refresh_calls), 1)
+        self.assertEqual(metadata[0].status, "connected")
+        self.assertEqual(metadata[0].generation, 2)
+
+    def test_refresh_failure_is_fail_closed_without_oauth_challenge(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            interrupt_id="call-1",
+            assistant_id="shimpz-cloudflare",
+            power="list-zones",
+            input={"page": 1, "per_page": 25},
+        )
+
+        def refresh(*_args):
+            raise integration_broker.OAuthBrokerClientError("OAuth broker operation failed")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller, store, spec = self._expired_controller(
+                directory,
+                self._runtime(request),
+                refresh,
+            )
+
+            with self.assertRaises(local_app.ApiProblem) as failed:
+                controller.chat_turn_service._run_chat_segment(self._segment_request(spec))
+            metadata = store.metadata("team_1", spec.assistant_id, spec.integrations)
+            pending = controller.integration_challenges.current("team_1")
+
+        self.assertEqual(
+            (failed.exception.status, failed.exception.code),
+            (HTTPStatus.PRECONDITION_REQUIRED, "assistant-integration-unavailable"),
+        )
+        self.assertNotIn(TEST_ACCESS_TOKEN, repr(failed.exception))
+        self.assertNotIn(TEST_REFRESH_TOKEN, repr(failed.exception))
+        self.assertIsNone(pending)
+        self.assertEqual(metadata[0].status, "refresh-required")
+        self.assertEqual(metadata[0].generation, 1)
 
 
 if __name__ == "__main__":

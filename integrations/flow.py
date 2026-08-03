@@ -279,7 +279,7 @@ def requirements_for_batch(
         metadata = _metadata_for(team, spec, declarations, store)
         for integration_id in sorted(declarations):
             item = metadata[integration_id]
-            if item.status == "connected":
+            if item.status in {"connected", "refresh-required"}:
                 continue
             identifier, provider, scopes = _intent(integration_id, declarations[integration_id])
             requirements.append(

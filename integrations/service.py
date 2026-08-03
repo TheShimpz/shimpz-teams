@@ -159,7 +159,7 @@ def _missing_candidate(
             candidate
             for candidate in candidates
             if metadata_by_binding[(candidate.assistant_id, candidate.integration_id)].status
-            in {"missing", "refresh-required", "reauthorization-required"}
+            in {"missing", "reauthorization-required"}
         ),
         None,
     )

@@ -228,7 +228,7 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
                 http=self.http,
             )
 
-    def test_expired_stored_integration_can_start_fresh_authorization(self) -> None:
+    def test_expired_refreshable_integration_does_not_start_fresh_authorization(self) -> None:
         root = Path(self.temporary.name)
         now = [1_000]
         store = integration_store.OAuthIntegrationStore(
@@ -253,8 +253,11 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             store=store,
             http=self.http,
         )
-        url = service.authorization_url(pending(requirement()), SESSION)
-        self.assertEqual(urlsplit(url).hostname, "dash.cloudflare.com")
+        with self.assertRaisesRegex(
+            integration_service.OAuthIntegrationUnavailableError,
+            "already configured",
+        ):
+            service.authorization_url(pending(requirement()), SESSION)
 
     def test_provider_response_and_callback_errors_never_reflect_private_values(self) -> None:
         leaked = "provider-private-response-123456789"

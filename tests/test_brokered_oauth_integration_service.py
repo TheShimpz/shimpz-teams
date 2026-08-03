@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
+from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
@@ -172,6 +173,43 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
                 SESSION,
                 lambda _team, _assistant, _integration: DECLARATION,
             )
+        self.assertEqual(self.transport.requests, [])
+
+    def test_refresh_required_grant_does_not_start_new_authorization(self) -> None:
+        now = [1_000_000_000]
+        root = Path(self.temporary.name)
+        store = integration_store.OAuthIntegrationStore(
+            root / "refresh-state" / "integrations.json",
+            root / "refresh-key" / "aes256.key",
+            clock=lambda: now[0],
+        )
+        store.put(
+            "team_1",
+            "shimpz-cloudflare",
+            "cloudflare",
+            "cloudflare",
+            SCOPES,
+            integration_http.OAuthTokenSet(
+                access_token=ACCESS,
+                refresh_token=REFRESH,
+                scopes=SCOPES,
+                expires_in=30,
+                broker_lease=LEASE,
+            ),
+        )
+        now[0] += 31
+        service = integration_service.BrokeredOAuthIntegrationService(
+            challenge=integration_pkce.OAuthPKCEChallengeStore(),
+            store=store,
+            broker=integration_broker.OAuthBrokerClient(self.transport),
+        )
+
+        with self.assertRaisesRegex(
+            integration_service.OAuthIntegrationUnavailableError,
+            "already configured",
+        ):
+            service.authorization_url(pending(), SESSION, callback_mode="hosted")
+
         self.assertEqual(self.transport.requests, [])
 
 
