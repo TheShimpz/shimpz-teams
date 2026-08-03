@@ -70,6 +70,19 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertFalse(self.store.delete("team_1", "hello-world"))
         self.assertEqual(self.store.list("team_1"), ())
 
+    def test_replace_is_atomic_and_fenced_by_the_previous_binding_digest(self) -> None:
+        previous = self.store.put("team_1", copy.deepcopy(RESOLUTION))
+        replacement = copy.deepcopy(RESOLUTION)
+        replacement["source_digest"] = f"sha256:{'9' * 64}"
+
+        current = self.store.replace("team_1", previous.binding_digest, replacement)
+
+        self.assertEqual(self.store.get("team_1", "hello-world"), current)
+        self.assertNotEqual(current.binding_digest, previous.binding_digest)
+        with self.assertRaises(DynamicAssistantConflictError):
+            self.store.replace("team_1", previous.binding_digest, copy.deepcopy(RESOLUTION))
+        self.assertEqual(self.store.get("team_1", "hello-world"), current)
+
     def test_rejects_invalid_resolution_before_writing(self) -> None:
         invalid = copy.deepcopy(RESOLUTION)
         invalid["image_reference"] = "ghcr.io/attacker/assistant@sha256:" + "b" * 64

@@ -20,6 +20,7 @@ _MAX_BINDINGS = 4096
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
+_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTRACTS = ContractValidator()
 
 
@@ -68,6 +69,26 @@ class DynamicAssistantStore:
         _validate_identity(team_id, assistant_id)
         with self._shared_lock():
             return _find(self._read(), team_id, assistant_id)
+
+    def replace(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        resolution: dict[str, Any],
+    ) -> DynamicAssistantBinding:
+        replacement = binding_from_resolution(team_id, resolution)
+        if _DIGEST_RE.fullmatch(expected_binding_digest) is None:
+            raise DynamicAssistantConflictError("the expected Assistant binding digest is invalid")
+        with self._exclusive_lock():
+            bindings = self._read()
+            existing = _find(bindings, team_id, replacement.assistant_id)
+            if existing is None or existing.binding_digest != expected_binding_digest:
+                raise DynamicAssistantConflictError("the Assistant binding changed before replacement")
+            if existing == replacement:
+                return existing
+            bindings[bindings.index(existing)] = replacement
+            self._write(bindings)
+        return replacement
 
     def list(self, team_id: str) -> tuple[DynamicAssistantBinding, ...]:
         _validate_team_id(team_id)
