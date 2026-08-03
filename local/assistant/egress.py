@@ -37,6 +37,12 @@ ASSISTANT_EGRESS_POLICY_DIR = Path(
     )
 )
 _CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_ENABLED_NO_NEW_PRIVILEGES = frozenset({"no-new-privileges", "no-new-privileges:true"})
+
+
+def _security_options_valid(options: object) -> bool:
+    """Accept only Docker's enabled rendering of the Local proxy's sole security option."""
+    return isinstance(options, list) and len(options) == 1 and str(options[0]) in _ENABLED_NO_NEW_PRIVILEGES
 
 
 def _egress_store() -> egress_policy.EgressPolicyStore:
@@ -221,7 +227,6 @@ def _egress_proxy(self):
         SPACE_LABEL: self.space_id,
         KIND_LABEL: ASSISTANT_EGRESS_KIND,
     }
-    security_options = host.get("SecurityOpt") or []
     mounts = attrs.get("Mounts") or []
     policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
     if (
@@ -230,9 +235,9 @@ def _egress_proxy(self):
         or not self._labels_include(labels, expected_labels)
         or config.get("User") not in {"10005", "10005:10005"}
         or host.get("ReadonlyRootfs") is not True
-        or "ALL" not in (host.get("CapDrop") or [])
-        or not any(str(option).startswith("no-new-privileges") for option in security_options)
-        or any("seccomp=unconfined" in str(option) for option in security_options)
+        or set(host.get("CapDrop") or []) != {"ALL"}
+        or host.get("CapAdd") not in (None, [])
+        or not _security_options_valid(host.get("SecurityOpt"))
         or host.get("Privileged") is not False
         or host.get("PortBindings") not in (None, {})
         or len(policy_mounts) != 1

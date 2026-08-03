@@ -32,6 +32,7 @@ class _Proxy:
             "HostConfig": {
                 "ReadonlyRootfs": True,
                 "CapDrop": ["ALL"],
+                "CapAdd": None,
                 "SecurityOpt": ["no-new-privileges:true"],
                 "Privileged": False,
                 "PortBindings": {},
@@ -165,6 +166,25 @@ class LocalAssistantEgressTests(unittest.TestCase):
             local_egress.ASSISTANT_EGRESS_ALIAS,
             local_egress.ASSISTANT_EGRESS_PORT,
         )
+
+    def test_proxy_profile_rejects_privilege_option_drift(self) -> None:
+        drifts = {
+            "disabled no-new-privileges": lambda host: host.update(SecurityOpt=["no-new-privileges:false"]),
+            "unconfined apparmor": lambda host: host.update(
+                SecurityOpt=["no-new-privileges:true", "apparmor=unconfined"]
+            ),
+            "added capability": lambda host: host.update(CapAdd=["NET_RAW"]),
+        }
+        for name, drift in drifts.items():
+            with self.subTest(name=name):
+                self.proxy = _Proxy("local-space")
+                self.controller.client.containers.proxy = self.proxy
+                drift(self.proxy.attrs["HostConfig"])
+
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.controller.assistant_lifecycle._egress_proxy()
+
+                self.assertEqual(caught.exception.code, "egress-proxy-drift")
 
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
         team_id = "team_1"

@@ -351,6 +351,15 @@ class DockerFlowTests(LocalEgressRecoveryMixin, DockerHarnessMixin, unittest.Tes
             flow.egress_proxy_tag,
             "assistant",
         )
+        egress_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
+        egress_host = egress_metadata["HostConfig"]
+        self.assertEqual(set(egress_host["CapDrop"]), {"ALL"})
+        self.assertIn(egress_host.get("CapAdd"), (None, []))
+        self.assertEqual(len(egress_host["SecurityOpt"]), 1)
+        self.assertIn(
+            egress_host["SecurityOpt"][0],
+            {"no-new-privileges", "no-new-privileges:true"},
+        )
         socket_gid = str(Path("/var/run/docker.sock").stat().st_gid)
         self._run(
             "run",
