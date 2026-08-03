@@ -18,6 +18,7 @@ ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
 ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
+ASSISTANT_ULIMITS = local_container_policy.ASSISTANT_ULIMITS
 
 
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
@@ -134,7 +135,13 @@ def _create_assistant_container(
             cpuset_cpus=self.cpuset_cpus,
             pids_limit=ASSISTANT_PIDS,
             tmpfs=ASSISTANT_TMPFS,
-            ulimits=[Ulimit(name="nofile", soft=1024, hard=1024)],
+            ulimits=[
+                Ulimit(
+                    name="nofile",
+                    soft=local_container_policy.ASSISTANT_NOFILE_LIMIT,
+                    hard=local_container_policy.ASSISTANT_NOFILE_LIMIT,
+                )
+            ],
             restart_policy={"Name": "no"},
             log_config=LogConfig(type=LogConfig.types.JSON, config={"max-size": "1m", "max-file": "2"}),
         )

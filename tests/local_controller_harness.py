@@ -175,6 +175,7 @@ class LocalContractCase(unittest.TestCase):
                 "HostConfig": {
                     "ReadonlyRootfs": True,
                     "CapDrop": ["ALL"],
+                    "CapAdd": None,
                     "SecurityOpt": ["no-new-privileges:true"],
                     "Privileged": False,
                     "NetworkMode": network_name,
@@ -186,6 +187,8 @@ class LocalContractCase(unittest.TestCase):
                     "IpcMode": "private",
                     "CgroupnsMode": "private",
                     "Tmpfs": dict(assistant_lifecycle.ASSISTANT_TMPFS),
+                    "Ulimits": list(assistant_lifecycle.ASSISTANT_ULIMITS),
+                    "Sysctls": None,
                     "AutoRemove": False,
                     "RestartPolicy": {"Name": "no"},
                     "LogConfig": {

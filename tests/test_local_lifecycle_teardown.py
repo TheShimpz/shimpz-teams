@@ -171,6 +171,29 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         )
         self.assertEqual(events, ["reload"])
 
+    def test_container_profile_rejects_privilege_and_kernel_limit_drift(self) -> None:
+        drifts = {
+            "disabled no-new-privileges": lambda host: host.update(SecurityOpt=["no-new-privileges:false"]),
+            "unconfined apparmor": lambda host: host.update(
+                SecurityOpt=["no-new-privileges:true", "apparmor=unconfined"]
+            ),
+            "added capability": lambda host: host.update(CapAdd=["NET_RAW"]),
+            "raised file limit": lambda host: host.update(
+                Ulimits=[{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
+            ),
+            "kernel sysctl": lambda host: host.update(Sysctls={"net.ipv4.ip_forward": "1"}),
+        }
+        for name, drift in drifts.items():
+            with self.subTest(name=name):
+                controller, container, events = self._lifecycle_controller()
+                drift(container.attrs["HostConfig"])
+
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    controller.list_assistants("team_1")
+
+                self.assertEqual(caught.exception.code, "assistant-isolation-drift")
+                self.assertEqual(events, ["reload"])
+
     def test_uninstall_never_removes_a_container_with_wrong_ownership(self) -> None:
         controller, container, events = self._lifecycle_controller()
         container.labels[local_app.SPACE_LABEL] = "other-space"

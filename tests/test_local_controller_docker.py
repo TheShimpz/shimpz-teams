@@ -42,6 +42,7 @@ from local_controller_docker_fixture import (
     supervisor_header,
 )
 
+from local.assistant import isolation as local_container_policy
 from power import execution as power_execution
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -626,15 +627,18 @@ class DockerFlowTests(LocalEgressRecoveryMixin, DockerHarnessMixin, unittest.Tes
         host = metadata["HostConfig"]
         self.assertEqual(metadata["Config"]["User"], "10001:10001")
         self.assertTrue(host["ReadonlyRootfs"])
-        self.assertIn("ALL", host["CapDrop"])
-        self.assertTrue(any(item.startswith("no-new-privileges") for item in host["SecurityOpt"]))
-        self.assertNotIn("seccomp=unconfined", host["SecurityOpt"])
+        self.assertEqual(set(host["CapDrop"]), {"ALL"})
+        self.assertIn(host.get("CapAdd"), (None, []))
+        self.assertEqual(len(host["SecurityOpt"]), 1)
+        self.assertIn(host["SecurityOpt"][0], {"no-new-privileges", "no-new-privileges:true"})
         self.assertEqual(host["Memory"], 128 * 1024 * 1024)
         self.assertEqual(host["MemorySwap"], 128 * 1024 * 1024)
         self.assertEqual(host["NanoCpus"], 250_000_000)
         self.assertEqual(host["PidsLimit"], 64)
         self.assertEqual(host["CpusetCpus"], flow.test_cpuset)
         self.assertEqual(host.get("Tmpfs"), {"/tmp": "size=256m"})
+        self.assertEqual(host.get("Ulimits"), local_container_policy.ASSISTANT_ULIMITS)
+        self.assertIn(host.get("Sysctls"), (None, {}))
         self.assertEqual(metadata["Mounts"], [])
         self.assertIn(host["PortBindings"], (None, {}))
         networks = metadata["NetworkSettings"]["Networks"]
