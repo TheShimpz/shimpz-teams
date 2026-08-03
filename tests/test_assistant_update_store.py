@@ -69,14 +69,21 @@ class AssistantUpdateStoreTests(unittest.TestCase):
 
     def test_residue_queue_is_idempotent_and_independent_from_transactions(self) -> None:
         image_id = f"sha256:{'a' * 64}"
+        second_image_id = f"sha256:{'b' * 64}"
 
         residue = self.residues.add(image_id)
+        second = self.residues.add(second_image_id)
 
         self.assertEqual(self.residues.add(image_id), residue)
-        self.assertEqual(self.residues.list(), (residue,))
+        self.assertEqual(self.residues.list(), (residue, second))
         self.residues.clear(residue)
         self.residues.clear(residue)
+        self.residues.clear(second)
         self.assertEqual(self.residues.list(), ())
+        self.assertEqual(
+            sorted(path.name for path in (Path(self.directory.name) / "residues").iterdir()),
+            [".lock"],
+        )
 
     def test_lock_os_errors_are_normalized_to_store_errors(self) -> None:
         previous = self.bindings.put("team_1", copy.deepcopy(RESOLUTION))

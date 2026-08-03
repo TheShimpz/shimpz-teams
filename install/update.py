@@ -129,11 +129,12 @@ class AssistantResidueStore:
 
     def __init__(self, root: Path) -> None:
         self._root = root
+        self._lock_path = root / ".lock"
 
     def add(self, image_id: str) -> AssistantResidue:
         residue = AssistantResidue(_image_id(image_id))
         path = self._path(residue)
-        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+        with _FileLock(self._lock_path, fcntl.LOCK_EX):
             current = self._read(path)
             if current is not None:
                 if current == residue:
@@ -143,23 +144,23 @@ class AssistantResidueStore:
         return residue
 
     def list(self) -> tuple[AssistantResidue, ...]:
-        try:
-            paths = tuple(sorted(self._root.glob("*.json")))
-        except OSError as exc:
-            raise bindings.DynamicAssistantError("Assistant residues cannot be listed") from exc
-        residues: list[AssistantResidue] = []
-        for path in paths:
-            with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_SH):
+        with _FileLock(self._lock_path, fcntl.LOCK_SH):
+            try:
+                paths = tuple(sorted(self._root.glob("*.json")))
+            except OSError as exc:
+                raise bindings.DynamicAssistantError("Assistant residues cannot be listed") from exc
+            residues: list[AssistantResidue] = []
+            for path in paths:
                 residue = self._read(path)
-            if residue is not None:
-                if self._path(residue) != path:
-                    raise bindings.DynamicAssistantError("Assistant residue filename is invalid")
-                residues.append(residue)
+                if residue is not None:
+                    if self._path(residue) != path:
+                        raise bindings.DynamicAssistantError("Assistant residue filename is invalid")
+                    residues.append(residue)
         return tuple(sorted(residues, key=lambda item: item.image_id))
 
     def clear(self, residue: AssistantResidue) -> None:
         path = self._path(residue)
-        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+        with _FileLock(self._lock_path, fcntl.LOCK_EX):
             current = self._read(path)
             if current is None:
                 return
