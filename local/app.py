@@ -55,6 +55,7 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
+from local.install import automatic as local_automatic_updates
 from local.install import developers as local_developers
 from local.install.registry import PublicationRegistry, is_successor
 from local.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
@@ -710,9 +711,19 @@ class LocalController:
         team_id: str,
         assistant_id: str,
         source_digest: str,
+        *,
+        expected_binding_digest: str | None = None,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
         existing = self.registry.binding(team_id, assistant_id)
+        if expected_binding_digest is not None and (
+            existing is None or existing.binding_digest != expected_binding_digest
+        ):
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant binding changed before automatic update",
+                code="assistant-update-conflict",
+            )
         try:
             resolution = self.developers.resolve(source_digest)
             if resolution["assistant_id"] != assistant_id:
@@ -930,6 +941,7 @@ def main() -> int:
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
+        updater = local_automatic_updates.AutomaticAssistantUpdater(controller)
     except (KeyError, RuntimeError, DockerException) as exc:
         print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)
         return 1
@@ -939,10 +951,12 @@ def main() -> int:
         principal=local_audit.AuditPrincipal("team-local", "machine"),
     )
     try:
+        updater.start()
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        updater.close()
         server.server_close()
         client.close()
         local_audit.close()

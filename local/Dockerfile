@@ -35,7 +35,7 @@ COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/app.py local/audit.py local/authority.py local/errors.py local/healthcheck.py \
     local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
-COPY local/install/__init__.py local/install/developers.py local/install/registry.py \
+COPY local/install/__init__.py local/install/automatic.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py ./local/install/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/

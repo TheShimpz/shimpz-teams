@@ -91,6 +91,31 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}")
         self.assertEqual(request, {"headers": {"Accept": "application/json"}})
 
+    def test_catalog_returns_only_bounded_update_coordinates(self) -> None:
+        _Connection.response = _Response(
+            200,
+            {
+                "version": 1,
+                "assistants": [
+                    {
+                        "assistant_id": "hello-world",
+                        "assistant_version": "0.2.0",
+                        "source_digest": f"sha256:{'9' * 64}",
+                        "name": "Hello World",
+                    }
+                ],
+            },
+        )
+
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+            catalog = DevelopersClient().catalog()
+
+        self.assertEqual(
+            tuple((item.assistant_id, item.assistant_version, item.source_digest) for item in catalog),
+            (("hello-world", "0.2.0", f"sha256:{'9' * 64}"),),
+        )
+        self.assertEqual(_Connection.requests[0][1], "/api/v1/assistants")
+
     def test_resolution_fails_closed_for_missing_or_malformed_publication(self) -> None:
         for status, error in ((404, PublicationNotInstallableError), (503, DevelopersError)):
             _Connection.response = _Response(status, {})
@@ -172,6 +197,23 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(events, ["resolve", "verify", "update", "resolve"])
         self.assertIsNotNone(committed)
         self.assertEqual(committed.resolution["source_digest"], successor["source_digest"])
+
+    def test_automatic_update_fence_rejects_a_removed_binding_before_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = object.__new__(local_app.LocalController)
+            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.developers = mock.Mock()
+
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.install_publication(
+                    "team_1",
+                    RESOLUTION["assistant_id"],
+                    RESOLUTION["source_digest"],
+                    expected_binding_digest=f"sha256:{'1' * 64}",
+                )
+
+        self.assertEqual(caught.exception.code, "assistant-update-conflict")
+        controller.developers.resolve.assert_not_called()
 
     def test_trusted_image_requires_the_bound_publication_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

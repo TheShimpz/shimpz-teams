@@ -173,6 +173,10 @@ class LocalContractTests(LocalContractCase):
             serve_forever=lambda **_kwargs: events.append("serve"),
             server_close=lambda: events.append("server-close"),
         )
+        updater = SimpleNamespace(
+            start=lambda: events.append("updates-start"),
+            close=lambda: events.append("updates-close"),
+        )
 
         with (
             mock.patch.dict(os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
@@ -216,6 +220,11 @@ class LocalContractTests(LocalContractCase):
                 "BoundedServer",
                 side_effect=lambda *_args: events.append("server") or server,
             ),
+            mock.patch.object(
+                local_app.local_automatic_updates,
+                "AutomaticAssistantUpdater",
+                side_effect=lambda *_args: events.append("updates") or updater,
+            ),
             mock.patch.object(local_app.local_audit, "record", side_effect=lambda *_args, **_kwargs: "trace"),
         ):
             result = local_app.main()
@@ -231,7 +240,10 @@ class LocalContractTests(LocalContractCase):
                 "storage",
                 "controller",
                 "server",
+                "updates",
+                "updates-start",
                 "serve",
+                "updates-close",
                 "server-close",
                 "client-close",
             ],

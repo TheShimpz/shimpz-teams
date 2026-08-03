@@ -64,6 +64,9 @@ class PublicationRegistry:
     def identities(self) -> set[tuple[str, str]]:
         return {(binding.team_id, binding.assistant_id) for binding in self._store.snapshot()}
 
+    def bindings(self) -> tuple[bindings.DynamicAssistantBinding, ...]:
+        return self._store.snapshot()
+
     def all(self) -> tuple[AssistantSpec, ...]:
         unique: dict[tuple[str, str], AssistantSpec] = {}
         for binding in self._store.snapshot():
