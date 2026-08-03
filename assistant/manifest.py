@@ -191,6 +191,24 @@ def canonical_manifest_contract(
     )
 
 
+def update_preserves_authority(previous: ManifestContract, successor: ManifestContract) -> bool:
+    """Return whether a successor stays within an already approved authority envelope."""
+    if not isinstance(previous, ManifestContract) or not isinstance(successor, ManifestContract):
+        raise ManifestError("Assistant update manifest contract is invalid")
+    if not set(successor.allowed_hosts).issubset(previous.allowed_hosts):
+        return False
+    previous_integrations = {integration.id: integration for integration in previous.integrations}
+    for integration in successor.integrations:
+        approved = previous_integrations.get(integration.id)
+        if (
+            approved is None
+            or integration.provider != approved.provider
+            or not set(integration.scopes).issubset(approved.scopes)
+        ):
+            return False
+    return True
+
+
 def reviewed_manifest_contract(
     *,
     allowed_hosts: object,

@@ -127,6 +127,40 @@ class AssistantManifestTests(unittest.TestCase):
 
         self.assertEqual(declared, reviewed)
 
+    def test_update_authority_allows_only_equal_or_narrower_manifest_contracts(self) -> None:
+        previous = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com", "api.example.com"),
+            integration_declarations={
+                "cloudflare": ("zone.read", "dns.read", "offline_access"),
+            },
+        )
+        narrowing = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com",),
+            integration_declarations={"cloudflare": ("zone.read",)},
+        )
+        widened_host = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com", "api.example.com", "api.openai.com"),
+            integration_declarations={"cloudflare": ("zone.read",)},
+        )
+        widened_scope = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com",),
+            integration_declarations={"cloudflare": ("zone.read", "dns.read", "offline_access")},
+        )
+        added_integration = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com",),
+            integration_declarations={"cloudflare": ("zone.read",)},
+        )
+        no_integration = assistant_manifest.canonical_manifest_contract(
+            allowed_hosts=("api.cloudflare.com",),
+        )
+
+        self.assertTrue(assistant_manifest.update_preserves_authority(previous, previous))
+        self.assertTrue(assistant_manifest.update_preserves_authority(previous, narrowing))
+        self.assertFalse(assistant_manifest.update_preserves_authority(narrowing, widened_host))
+        self.assertFalse(assistant_manifest.update_preserves_authority(narrowing, widened_scope))
+        self.assertFalse(assistant_manifest.update_preserves_authority(no_integration, added_integration))
+        self.assertTrue(assistant_manifest.update_preserves_authority(added_integration, no_integration))
+
     def test_reviewed_catalog_rejects_reserved_and_oversized_assistant_ids(self) -> None:
         invalid = (
             "postgres",
