@@ -89,6 +89,14 @@ one active/paused turn. Selection and workload identity are revalidated before p
 Power, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
 executes Powers and resumes the checkpoint.
 
+The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
+`started`/`finished` records surround actual Team context, model, Power preparation, individual Power,
+Power-result, and reply-validation operations. Finished records carry monotonic elapsed milliseconds;
+Power records also carry their bounded position. One terminal record contains the existing HTTP status and
+response object and remains the only operation result. Progress carries no messages, schemas, arguments,
+results, Assistant identities, provider data, traces, or credentials. A disconnected progress consumer cannot
+change the admitted turn's outcome. `protocol/http/v1/progress.py` owns the exact framing and bounds.
+
 The former 1.2–1.6k twin-Controller LOC reduction target is intentionally dropped: security-sensitive
 decisions are now shared, while extracting the remaining runtime-preparation wiring would add more
 abstraction and total code without improving either Controller's safety contract.
