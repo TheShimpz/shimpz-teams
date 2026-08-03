@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import websocket
-
 PHASES = frozenset(
     {
         "model",
@@ -29,6 +27,15 @@ class ProgressContractError(ValueError):
 
 def _reject_json_constant(_value: str) -> None:
     raise ValueError("non-finite JSON number")
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    value: dict[str, object] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError("duplicate JSON field")
+        value[key] = item
+    return value
 
 
 def _integer(value: object, *, minimum: int, maximum: int, label: str) -> int:
@@ -114,7 +121,7 @@ def decode_line(raw: object) -> dict[str, object]:
     try:
         value = json.loads(
             raw,
-            object_pairs_hook=websocket.unique_json_object,
+            object_pairs_hook=_unique_json_object,
             parse_constant=_reject_json_constant,
         )
     except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError) as exc:
