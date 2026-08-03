@@ -1,6 +1,7 @@
 """Local Assistant container install, update, and uninstall lifecycle."""
 
 import logging
+import re
 from collections.abc import Callable
 from contextlib import suppress
 from http import HTTPStatus
@@ -23,10 +24,18 @@ ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
 ASSISTANT_ULIMITS = local_container_policy.ASSISTANT_ULIMITS
 log = logging.getLogger("shimpz.team.local.assistant.lifecycle")
+_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
     return problem.code == "assistant-not-ready"
+
+
+def _retired_image_id(container) -> str | None:
+    image_id = container.attrs.get("Image")
+    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+        return None
+    return image_id
 
 
 def _serialize_against_local_team_chat(
@@ -624,8 +633,10 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 )
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
+            self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": False}
         self._validate_container_profile(container, team_id, spec, network.name)
+        retired_image_id = _retired_image_id(container)
         remaining_egress = (
             self._team_has_egress_assistant(team_id, excluding=assistant_id) if spec.allowed_hosts else None
         )
@@ -641,6 +652,8 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
         self._assistant_genesis_cache.discard(container.id)
         self._assistant_allowed_hosts_cache.discard(container.id)
         self._assistant_machine_contract_cache.discard(container.id)
+        if retired_image_id is not None:
+            self._queue_residue(retired_image_id)
         if spec.allowed_hosts:
             self._release_assistant_egress(
                 team_id,
@@ -650,4 +663,5 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
             )
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
+        self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": True}

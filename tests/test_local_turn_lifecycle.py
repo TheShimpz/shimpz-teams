@@ -80,6 +80,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         container = SimpleNamespace(
             id="assistant-container",
             labels={local_app.ASSISTANT_LABEL: "shimpz-cloudflare"},
+            attrs={"Image": "sha256:" + "a" * 64},
             remove=lambda *, force: events.append(("container-remove", force)),
         )
 
@@ -106,6 +107,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
         controller.assistant_lifecycle._validate_container_profile = lambda *_args: events.append("container-validated")
+        controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
 
         result = controller.destroy_team("team_1")
 
@@ -122,6 +125,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 ("thread-delete", expected_thread),
                 ("power-purge", "a" * 64),
                 ("container-remove", True),
+                ("residue-add", "sha256:" + "a" * 64),
+                "residue-sweep",
                 "storage-destroy",
                 "inference-delete",
                 "network-remove",
@@ -177,6 +182,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._disconnect_egress_proxy_if_attached = lambda _network: events.append(
             "disconnect-proxy"
         )
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         result = controller.reset_space()
 
         self.assertEqual(result["assistants_removed"], 0)
@@ -187,8 +193,56 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         self.assertIn(("remove-policy", "team_1", "shimpz-cloudflare"), events)
         self.assertIn(("purge-power", "a" * 64), events)
+        self.assertIn("residue-sweep", events)
         self.assertEqual(controller.registry.identities(), set())
         self.assertLess(events.index("delete-integrations"), events.index("network-remove"))
+
+    def test_reset_queues_removed_assistant_images_before_the_final_sweep(self) -> None:
+        events: list[object] = []
+        controller = object.__new__(local_app.LocalController)
+        controller.space_id = "local-space"
+        controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
+        controller._locks = (threading.RLock(),)
+        spec = SimpleNamespace(
+            assistant_id="shimpz-cloudflare",
+            image=CURRENT_ASSISTANT_IMAGE,
+            allowed_hosts=(),
+        )
+        controller.registry = TestPublicationRegistry({spec.assistant_id: spec})
+        controller.client = SimpleNamespace(
+            containers=SimpleNamespace(list=lambda **_kwargs: []),
+            networks=SimpleNamespace(list=lambda **_kwargs: []),
+        )
+        controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
+        controller.inference_store = SimpleNamespace(delete=lambda _team_id: None)
+        controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
+        controller.power_state = SimpleNamespace(purge=lambda _generation: None)
+        controller._wire_collaborators()
+        labels = controller.assistant_lifecycle._assistant_labels("team_1", spec)
+        container = SimpleNamespace(
+            id="assistant-container",
+            name=controller.assistant_lifecycle._container_name("team_1", spec.assistant_id),
+            attrs={"Image": "sha256:" + "a" * 64, "Config": {"Labels": labels}},
+            reload=lambda: events.append("container-reload"),
+            remove=lambda *, force: events.append(("container-remove", force)),
+        )
+        controller.client.containers.list = lambda **_kwargs: [container]
+        controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
+        controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
+            ("remove-policy", team_id, assistant_id)
+        )
+        controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
+        controller._clear_team_runtime_state = lambda team_id: events.append(("clear-runtime", team_id))
+
+        result = controller.reset_space()
+
+        self.assertEqual((result["assistants_removed"], result["teams_removed"]), (1, 0))
+        self.assertLess(events.index(("container-remove", True)), events.index(("residue-add", "sha256:" + "a" * 64)))
+        self.assertLess(
+            events.index(("remove-policy", "team_1", "shimpz-cloudflare")),
+            events.index("residue-sweep"),
+        )
 
     def test_destroy_brain_failure_is_redacted_and_mutates_nothing(self) -> None:
         events: list[str] = []

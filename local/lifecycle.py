@@ -104,6 +104,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
                 "Team resources failed their ownership contract",
                 code="ownership-conflict",
             )
+        retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         try:
             container.remove(force=True)
         except DockerException as exc:
@@ -112,6 +113,8 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
                 "Docker could not destroy the Team",
                 code="docker-remove-failed",
             ) from exc
+        if retired_image_id is not None:
+            self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
         self.registry.delete(team_id, assistant_id)
@@ -127,6 +130,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             )
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
         self.registry.delete(team_id, assistant_id)
+    self.assistant_lifecycle.sweep_residues()
     return len(containers)
 
 
@@ -295,12 +299,16 @@ def _remove_space_resources(
         self._delete_team_conversation(team_id, network)
     absent.update(("brain_checkpoints", "power_checkpoints"))
     for container in containers:
+        retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         container.remove(force=True)
+        if retired_image_id is not None:
+            self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
     absent.add("assistant_containers")
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
+    self.assistant_lifecycle.sweep_residues()
     absent.update(("egress_policies", "publication_bindings"))
     for network in networks:
         self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)

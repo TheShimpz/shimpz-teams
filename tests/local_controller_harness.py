@@ -166,6 +166,7 @@ class LocalContractCase(unittest.TestCase):
             status="running",
             labels=labels,
             attrs={
+                "Image": "sha256:" + "a" * 64,
                 "Config": {
                     "Labels": labels,
                     "Image": OUTDATED_ASSISTANT_IMAGE,
@@ -209,4 +210,6 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: container
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_kwargs: [container]))
         controller.assistant_lifecycle.client = controller.client
+        controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         return controller, container, events

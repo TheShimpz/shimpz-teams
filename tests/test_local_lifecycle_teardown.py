@@ -153,7 +153,10 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
-        self.assertEqual(events, ["reload", ("remove", True)])
+        self.assertEqual(
+            events,
+            ["reload", ("remove", True), ("residue-add", "sha256:" + "a" * 64), "residue-sweep"],
+        )
         self.assertFalse(controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare"))
 
     def test_uninstall_removes_an_isolated_container_with_an_invalid_manifest(self) -> None:
@@ -165,7 +168,29 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
-        self.assertEqual(events, ["reload", ("remove", True)])
+        self.assertEqual(
+            events,
+            ["reload", ("remove", True), ("residue-add", "sha256:" + "a" * 64), "residue-sweep"],
+        )
+
+    def test_uninstall_does_not_strand_an_owned_container_without_a_cleanup_image_id(self) -> None:
+        controller, container, events = self._lifecycle_controller()
+        container.attrs["Image"] = "not-a-docker-image-id"
+
+        result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
+        self.assertEqual(events, ["reload", ("remove", True), "residue-sweep"])
+
+    def test_uninstall_sweeps_queued_residue_after_retrying_a_partial_teardown(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
+        controller.assistant_lifecycle._egress_token = lambda *_args, **_kwargs: None
+
+        result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
+        self.assertEqual(events, ["residue-sweep"])
 
     def test_team_teardown_does_not_require_a_retiring_egress_policy(self) -> None:
         controller, container, events = self._lifecycle_controller()
@@ -263,7 +288,16 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
-        self.assertEqual(events, ["reload", ("remove", True), "release-egress"])
+        self.assertEqual(
+            events,
+            [
+                "reload",
+                ("remove", True),
+                ("residue-add", "sha256:" + "a" * 64),
+                "release-egress",
+                "residue-sweep",
+            ],
+        )
 
     def test_list_marks_an_invalid_retired_manifest_for_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()

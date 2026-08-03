@@ -176,6 +176,7 @@ class AssistantLifecycle:
     _remove_retired_image = local_assistant_lifecycle._remove_retired_image
     _binding_uses_image = local_assistant_lifecycle._binding_uses_image
     _delete_retired_image = local_assistant_lifecycle._delete_retired_image
+    _retired_image_id = staticmethod(local_assistant_lifecycle._retired_image_id)
     _clear_update = local_assistant_lifecycle._clear_update
     sweep_residues = local_assistant_lifecycle.sweep_residues
     _queue_residue = local_assistant_lifecycle._queue_residue
