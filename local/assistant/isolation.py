@@ -13,9 +13,7 @@ ASSISTANT_NANO_CPUS = 250_000_000
 ASSISTANT_PIDS = 64
 ASSISTANT_TMPFS = {str(PurePosixPath("/") / "tmp"): "size=256m"}
 ASSISTANT_NOFILE_LIMIT = 1024
-ASSISTANT_ULIMITS = [
-    {"Name": "nofile", "Soft": ASSISTANT_NOFILE_LIMIT, "Hard": ASSISTANT_NOFILE_LIMIT}
-]
+ASSISTANT_ULIMITS = [{"Name": "nofile", "Soft": ASSISTANT_NOFILE_LIMIT, "Hard": ASSISTANT_NOFILE_LIMIT}]
 _ENABLED_NO_NEW_PRIVILEGES = frozenset({"no-new-privileges", "no-new-privileges:true"})
 _ALL_PROXY_VARIABLES = frozenset(
     {

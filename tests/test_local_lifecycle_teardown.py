@@ -178,9 +178,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
                 SecurityOpt=["no-new-privileges:true", "apparmor=unconfined"]
             ),
             "added capability": lambda host: host.update(CapAdd=["NET_RAW"]),
-            "raised file limit": lambda host: host.update(
-                Ulimits=[{"Name": "nofile", "Soft": 65536, "Hard": 65536}]
-            ),
+            "raised file limit": lambda host: host.update(Ulimits=[{"Name": "nofile", "Soft": 65536, "Hard": 65536}]),
             "kernel sysctl": lambda host: host.update(Sysctls={"net.ipv4.ip_forward": "1"}),
         }
         for name, drift in drifts.items():
