@@ -105,9 +105,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             events.append("network-read") or network
         )
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_container_profile = lambda *_args: events.append(
-            "container-validated"
-        )
+        controller.assistant_lifecycle._validate_container_profile = lambda *_args: events.append("container-validated")
 
         result = controller.destroy_team("team_1")
 

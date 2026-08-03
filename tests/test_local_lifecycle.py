@@ -337,9 +337,7 @@ class LocalLifecycleTests(LocalContractCase):
     def test_manifest_admission_separates_transport_from_contract_failure(self) -> None:
         controller, container, _events = self._lifecycle_controller()
         spec = controller.registry["shimpz-cloudflare"]
-        admit = local_app.AssistantLifecycle._admit_assistant_allowed_hosts.__get__(
-            controller.assistant_lifecycle
-        )
+        admit = local_app.AssistantLifecycle._admit_assistant_allowed_hosts.__get__(controller.assistant_lifecycle)
         failures = (
             (
                 local_app.assistant_manifest.ManifestUnavailableError("Docker transport failed"),

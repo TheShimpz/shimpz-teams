@@ -266,9 +266,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
 
         self.controller.assistant_lifecycle._reconcile_egress_proxy_attachments()
 
-        self.controller.assistant_lifecycle._disconnect_egress_proxy_if_attached.assert_called_once_with(
-            self.network
-        )
+        self.controller.assistant_lifecycle._disconnect_egress_proxy_if_attached.assert_called_once_with(self.network)
 
     def test_sibling_egress_detection_does_not_admit_a_retiring_manifest(self) -> None:
         assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
