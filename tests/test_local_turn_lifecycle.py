@@ -105,7 +105,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             events.append("network-read") or network
         )
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_container_isolation = lambda *_args: events.append(
+        controller.assistant_lifecycle._validate_container_profile = lambda *_args: events.append(
             "container-validated"
         )
 
@@ -225,7 +225,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_container_isolation = lambda *_args: None
+        controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.destroy_team("team_1")
@@ -270,7 +270,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
-        controller.assistant_lifecycle._validate_container_isolation = lambda *_args: None
+        controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.destroy_team("team_1")

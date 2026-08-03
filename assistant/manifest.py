@@ -70,6 +70,10 @@ class ManifestError(RuntimeError):
     """An immutable Assistant package did not expose its reviewed security intent."""
 
 
+class ManifestUnavailableError(ManifestError):
+    """The immutable Assistant package could not be read from its container."""
+
+
 @dataclass(frozen=True, slots=True, order=True)
 class IntegrationDeclaration:
     """Public provider intent for one controller-owned integration."""
@@ -582,7 +586,7 @@ def _bounded_archive(chunks: Iterable[bytes], maximum: int = MAX_ARCHIVE_BYTES) 
     except ManifestError:
         raise
     except Exception as exc:
-        raise ManifestError("Assistant manifest archive is unavailable") from exc
+        raise ManifestUnavailableError("Assistant manifest archive is unavailable") from exc
     return bytes(archive)
 
 
@@ -591,7 +595,7 @@ def _read_container_file(container, *, path: str, name: str, maximum: int) -> by
     try:
         chunks, metadata = container.get_archive(path)
     except Exception as exc:
-        raise ManifestError("Assistant package file is unavailable") from exc
+        raise ManifestUnavailableError("Assistant package file is unavailable") from exc
     if not isinstance(metadata, dict):
         raise ManifestError("Assistant package metadata is invalid")
     size = metadata.get("size")

@@ -307,6 +307,15 @@ class AssistantManifestTests(unittest.TestCase):
                     )()
                 )
 
+    def test_container_archive_transport_failure_is_unavailable(self) -> None:
+        class UnavailableContainer:
+            @staticmethod
+            def get_archive(_path):
+                raise RuntimeError("Docker transport failed")
+
+        with self.assertRaises(assistant_manifest.ManifestUnavailableError):
+            assistant_manifest.read_container_manifest_contract(UnavailableContainer())
+
     def test_cache_compares_reviewed_hosts_and_integrations_and_rejects_drift(self) -> None:
         content = manifest(
             allowed_hosts=("api.cloudflare.com",),

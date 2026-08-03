@@ -40,20 +40,34 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                     "an installed Assistant is no longer allowlisted",
                     code="assistant-registry-drift",
                 )
-            config = self.assistant_lifecycle._validate_container_isolation(
+            config, environment = self.assistant_lifecycle._validate_container_profile(
                 container,
                 team_id,
                 spec,
                 self.assistant_lifecycle._network_name(team_id),
-                current_egress_proxy,
             )
-            if self.assistant_lifecycle._has_current_assistant_artifact(config, spec):
+            invalid = False
+            try:
+                self.assistant_lifecycle._validate_container_egress(
+                    team_id,
+                    spec,
+                    self.assistant_lifecycle._network_name(team_id),
+                    environment,
+                    current_egress_proxy,
+                )
+            except ApiProblem as exc:
+                if exc.code != "egress-policy-drift":
+                    raise
+                invalid = True
+            if invalid:
+                status = "invalid"
+            elif self.assistant_lifecycle._has_current_assistant_artifact(config, spec):
                 try:
                     self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
                 except ApiProblem as exc:
                     if exc.code != "assistant-manifest-invalid":
                         raise
-                    status = "outdated"
+                    status = "invalid"
                 else:
                     status = container.status
             else:

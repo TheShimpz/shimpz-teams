@@ -309,13 +309,95 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "outdated"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
         )
         self.assertEqual(events, ["reload"])
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_called_once_with(
             container,
             controller.registry["shimpz-cloudflare"],
         )
+
+    def test_listing_propagates_manifest_transport_unavailability(self) -> None:
+        controller, container, _events = self._lifecycle_controller()
+        container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
+        container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
+            side_effect=local_app.ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant manifest is unavailable",
+                code="assistant-manifest-unavailable",
+            )
+        )
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.list_assistants("team_1")
+
+        self.assertEqual(caught.exception.code, "assistant-manifest-unavailable")
+
+    def test_manifest_admission_separates_transport_from_contract_failure(self) -> None:
+        controller, container, _events = self._lifecycle_controller()
+        spec = controller.registry["shimpz-cloudflare"]
+        admit = local_app.AssistantLifecycle._admit_assistant_allowed_hosts.__get__(
+            controller.assistant_lifecycle
+        )
+        failures = (
+            (
+                local_app.assistant_manifest.ManifestUnavailableError("Docker transport failed"),
+                "assistant-manifest-unavailable",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            ),
+            (
+                local_app.assistant_manifest.ManifestError("manifest contract failed"),
+                "assistant-manifest-invalid",
+                HTTPStatus.CONFLICT,
+            ),
+        )
+        for failure, code, status in failures:
+            with self.subTest(code=code):
+                controller.assistant_lifecycle._assistant_allowed_hosts_cache = SimpleNamespace(
+                    get=mock.Mock(side_effect=failure)
+                )
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    admit(container, spec)
+
+                self.assertEqual((caught.exception.code, caught.exception.status), (code, status))
+
+    def test_listing_keeps_egress_policy_drift_in_the_removable_inventory(self) -> None:
+        controller, _container, _events = self._lifecycle_controller()
+        controller.assistant_lifecycle._validate_container_egress = mock.Mock(
+            side_effect=local_app.ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant egress policy drifted",
+                code="egress-policy-drift",
+            )
+        )
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock()
+
+        self.assertEqual(
+            controller.list_assistants("team_1"),
+            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
+        )
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_not_called()
+
+    def test_chat_stays_closed_for_a_manifest_invalid_inventory_entry(self) -> None:
+        controller, container, _events = self._lifecycle_controller()
+        container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
+        container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
+        controller.assistant_lifecycle._admit_assistant_allowed_hosts = mock.Mock(
+            side_effect=local_app.ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant manifest is invalid",
+                code="assistant-manifest-invalid",
+            )
+        )
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.chat_turn_service._active_chat_assistants(
+                "team_1",
+                controller.assistant_lifecycle._network_name("team_1"),
+            )
+
+        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
 
     def test_listing_fetches_the_egress_proxy_once_for_multiple_assistants(self) -> None:
         controller, first, _events = self._lifecycle_controller()

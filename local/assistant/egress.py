@@ -1,5 +1,6 @@
 """Local Team resource naming, network validation, and Assistant egress."""
 
+import logging
 import os
 import re
 from http import HTTPStatus
@@ -38,6 +39,7 @@ ASSISTANT_EGRESS_POLICY_DIR = Path(
 )
 _CONTAINER_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _ENABLED_NO_NEW_PRIVILEGES = frozenset({"no-new-privileges", "no-new-privileges:true"})
+log = logging.getLogger("shimpz.team.local.assistant.egress")
 
 
 def _security_options_valid(options: object) -> bool:
@@ -416,7 +418,19 @@ def _reconcile_egress_proxy_attachments(self) -> None:
             )
         seen.add(team_id)
         self._validate_network(network, team_id)
-        if self._team_requires_egress_proxy(team_id, network):
+        try:
+            requires_proxy = self._team_requires_egress_proxy(team_id, network)
+        except ApiProblem as exc:
+            log.warning("Assistant egress startup admission failed closed: %s", exc.code)
+            try:
+                self._disconnect_egress_proxy_if_attached(network)
+            except ApiProblem as disconnect_exc:
+                log.warning(
+                    "Assistant egress startup isolation could not be reconciled: %s",
+                    disconnect_exc.code,
+                )
+            continue
+        if requires_proxy:
             self._connect_egress_proxy(network)
         else:
             self._disconnect_egress_proxy_if_attached(network)
@@ -442,7 +456,7 @@ def _team_has_egress_assistant(self, team_id: str, *, excluding: str | None = No
                 "an installed Assistant is no longer allowlisted",
                 code="assistant-registry-drift",
             )
-        self._validate_container_security(
+        self._validate_container_profile(
             container,
             team_id,
             spec,

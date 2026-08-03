@@ -131,6 +131,13 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
         )
         declared = self._assistant_allowed_hosts_cache.get(container, reviewed)
         self._assistant_machine_contract_cache.get(container, declared.integrations, spec.machine_contract)
+    except assistant_manifest.ManifestUnavailableError as exc:
+        log.warning("Assistant manifest admission unavailable: %s", exc)
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "installed Assistant manifest could not be verified",
+            code="assistant-manifest-unavailable",
+        ) from exc
     except assistant_manifest.ManifestError as exc:
         log.warning("Assistant manifest admission failed: %s", exc)
         raise ApiProblem(

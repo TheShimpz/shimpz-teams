@@ -218,6 +218,68 @@ class LocalAssistantEgressTests(unittest.TestCase):
             self.network.name,
         )
 
+    def test_startup_detaches_egress_and_serves_after_assistant_admission_drift(self) -> None:
+        team_id = "team_1"
+        self.network.attrs["Labels"] = {
+            local_app.MANAGED_LABEL: "1",
+            local_app.PROFILE_LABEL: local_app.PROFILE,
+            local_app.SPACE_LABEL: self.controller.space_id,
+            local_app.KIND_LABEL: "team",
+            local_app.TEAM_LABEL: team_id,
+            local_app.TEAM_NAME_LABEL: "Team 1",
+        }
+        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
+        self.controller.client.containers.installed = [assistant]
+        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
+        self.controller.assistant_lifecycle._validate_network = mock.Mock()
+        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
+        self.controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
+            side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift")
+        )
+        self.network.connect(self.proxy, aliases=[local_egress.ASSISTANT_EGRESS_ALIAS])
+
+        self.controller.assistant_lifecycle._reconcile_egress_proxy_attachments()
+
+        self.assertNotIn(self.network.name, self.proxy.attrs["NetworkSettings"]["Networks"])
+
+    def test_startup_serves_when_failed_admission_cannot_detach_egress(self) -> None:
+        team_id = "team_1"
+        self.network.attrs["Labels"] = {
+            local_app.MANAGED_LABEL: "1",
+            local_app.PROFILE_LABEL: local_app.PROFILE,
+            local_app.SPACE_LABEL: self.controller.space_id,
+            local_app.KIND_LABEL: "team",
+            local_app.TEAM_LABEL: team_id,
+            local_app.TEAM_NAME_LABEL: "Team 1",
+        }
+        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
+        self.controller.client.containers.installed = [assistant]
+        self.controller.client.networks = types.SimpleNamespace(list=mock.Mock(return_value=[self.network]))
+        self.controller.assistant_lifecycle._validate_network = mock.Mock()
+        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
+        self.controller.assistant_lifecycle._validate_container_egress_environment = mock.Mock(
+            side_effect=local_app.ApiProblem(409, "policy drift", code="egress-policy-drift")
+        )
+        self.controller.assistant_lifecycle._disconnect_egress_proxy_if_attached = mock.Mock(
+            side_effect=local_app.ApiProblem(503, "proxy unavailable", code="egress-proxy-unavailable")
+        )
+
+        self.controller.assistant_lifecycle._reconcile_egress_proxy_attachments()
+
+        self.controller.assistant_lifecycle._disconnect_egress_proxy_if_attached.assert_called_once_with(
+            self.network
+        )
+
+    def test_sibling_egress_detection_does_not_admit_a_retiring_manifest(self) -> None:
+        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
+        self.controller.client.containers.installed = [assistant]
+        self.controller.assistant_lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
+        self.controller.assistant_lifecycle._validate_container_security = lambda *_args: self.fail(
+            "teardown must not admit sibling manifests"
+        )
+
+        self.assertTrue(self.controller.assistant_lifecycle._team_has_egress_assistant("team_1"))
+
     def test_valid_request_reconnects_recreated_proxy_without_restarting_team(self) -> None:
         environment = self.controller.assistant_lifecycle._activate_assistant_egress(
             "team_1",

@@ -5,6 +5,7 @@ import unittest
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -166,10 +167,11 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
         self.assertEqual(events, ["reload", ("remove", True)])
 
-    def test_team_teardown_accepts_an_isolated_container_with_an_invalid_manifest(self) -> None:
+    def test_team_teardown_does_not_require_a_retiring_egress_policy(self) -> None:
         controller, container, events = self._lifecycle_controller()
-        controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda *_args: self.fail(
-            "teardown must not admit a retiring Assistant manifest"
+        controller.registry["shimpz-cloudflare"].allowed_hosts = ("api.example.com",)
+        controller.assistant_lifecycle._validate_container_isolation = lambda *_args: self.fail(
+            "teardown must not admit a retiring egress policy"
         )
         network = controller.assistant_lifecycle._network("team_1")
 
@@ -247,7 +249,23 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "assistant-isolation-drift")
         self.assertEqual(events, ["reload", "reload", "reload"])
 
-    def test_list_marks_an_invalid_retired_manifest_outdated_for_removal(self) -> None:
+    def test_uninstall_does_not_require_a_retiring_egress_policy(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        controller.registry["shimpz-cloudflare"].allowed_hosts = ("api.example.com",)
+        controller.assistant_lifecycle._validate_container_isolation = lambda *_args: self.fail(
+            "teardown must not admit a retiring egress policy"
+        )
+        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
+        controller.assistant_lifecycle._release_assistant_egress = lambda *_args, **_kwargs: events.append(
+            "release-egress"
+        )
+
+        result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
+        self.assertEqual(events, ["reload", ("remove", True), "release-egress"])
+
+    def test_list_marks_an_invalid_retired_manifest_for_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()
         container.labels[local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
         container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
@@ -263,7 +281,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "outdated"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
         )
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
