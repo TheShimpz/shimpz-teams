@@ -223,7 +223,7 @@ class LocalContractTests(LocalContractCase):
             mock.patch.object(
                 local_app.local_automatic_updates,
                 "AutomaticAssistantUpdater",
-                side_effect=lambda *_args: events.append("updates") or updater,
+                side_effect=lambda *_args, **_options: events.append("updates") or updater,
             ),
             mock.patch.object(local_app.local_audit, "record", side_effect=lambda *_args, **_kwargs: "trace"),
         ):
@@ -249,6 +249,24 @@ class LocalContractTests(LocalContractCase):
             ],
         )
 
+    def test_automatic_update_audit_uses_a_redacted_machine_principal(self) -> None:
+        with mock.patch.object(local_app.local_audit, "record") as record:
+            local_app._record_automatic_update(
+                "team_1",
+                "hello-world",
+                "ok",
+                "updated:0.1.0:0.2.0",
+            )
+
+        record.assert_called_once_with(
+            "assistant-update",
+            result="ok",
+            principal=local_app.local_audit.AuditPrincipal("team-local", "machine"),
+            team_id="team_1",
+            assistant="hello-world",
+            detail="updated:0.1.0:0.2.0",
+        )
+
     def test_local_controller_accepts_an_injected_power_journal(self) -> None:
         image = "127.0.0.1:5000/shimpz/shimpz-cloudflare@sha256:" + "a" * 64
         injected = SimpleNamespace()
@@ -270,6 +288,7 @@ class LocalContractTests(LocalContractCase):
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
                 assistant_updates=SimpleNamespace(list=lambda: ()),
+                assistant_residues=SimpleNamespace(list=lambda: ()),
             ),
         )
 

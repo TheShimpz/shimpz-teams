@@ -200,6 +200,13 @@ class _FileLock:
             self._stream = os.fdopen(descriptor, "rb+")
             descriptor = -1
             fcntl.flock(self._stream, self._operation)
+        except OSError as exc:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if self._stream is not None:
+                self._stream.close()
+                self._stream = None
+            raise DynamicAssistantError("the dynamic Assistant registry lock is unavailable") from exc
         except Exception:
             if descriptor >= 0:
                 os.close(descriptor)

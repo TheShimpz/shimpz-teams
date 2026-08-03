@@ -107,6 +107,7 @@ LOCAL_CHAT_CONTINUATIONS_KEY_PATH = Path(
 )
 LOCAL_PUBLICATION_BINDINGS_PATH = Path("/var/lib/shimpz-local/publications/bindings.json")
 LOCAL_ASSISTANT_UPDATES_PATH = Path("/var/lib/shimpz-local/publications/updates")
+LOCAL_ASSISTANT_RESIDUES_PATH = Path("/var/lib/shimpz-local/publications/residues")
 LOCAL_COSIGN_TRUST_ROOT = Path("/var/lib/shimpz-local/cosign")
 
 
@@ -124,6 +125,7 @@ class AssistantLifecycleDependencies:
     developers: object | None = None
     artifact_trust: object | None = None
     updates: object | None = None
+    residues: object | None = None
 
 
 @dataclass(frozen=True)
@@ -159,6 +161,7 @@ class AssistantLifecycle:
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
         self.updates = dependencies.updates
+        self.residues = dependencies.residues
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
@@ -170,6 +173,11 @@ class AssistantLifecycle:
     _replace_outdated_assistant = local_assistant_lifecycle._replace_outdated_assistant
     _restore_previous_assistant = local_assistant_lifecycle._restore_previous_assistant
     _remove_retired_image = local_assistant_lifecycle._remove_retired_image
+    _binding_uses_image = local_assistant_lifecycle._binding_uses_image
+    _delete_retired_image = local_assistant_lifecycle._delete_retired_image
+    _clear_update = local_assistant_lifecycle._clear_update
+    sweep_residues = local_assistant_lifecycle.sweep_residues
+    _queue_residue = local_assistant_lifecycle._queue_residue
     install_assistant = local_assistant_lifecycle.install_assistant
     update_assistant = local_assistant_lifecycle.update_assistant
     _recover_update_target = local_assistant_lifecycle._recover_update_target
@@ -383,6 +391,7 @@ class LocalControllerDependencies:
     developers: local_developers.DevelopersClient | None = None
     artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
+    assistant_residues: assistant_update.AssistantResidueStore | None = None
 
 
 class LocalController:
@@ -448,11 +457,13 @@ class LocalController:
             dependencies.developers is None
             or dependencies.artifact_trust is None
             or dependencies.assistant_updates is None
+            or dependencies.assistant_residues is None
         ):
             raise RuntimeError("Local publication installation dependencies are unavailable")
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
         self.assistant_updates = dependencies.assistant_updates
+        self.assistant_residues = dependencies.assistant_residues
         self._locks = tuple(threading.RLock() for _ in range(64))
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
@@ -474,6 +485,7 @@ class LocalController:
                 developers=getattr(self, "developers", None),
                 artifact_trust=getattr(self, "artifact_trust", None),
                 updates=getattr(self, "assistant_updates", None),
+                residues=getattr(self, "assistant_residues", None),
             )
         )
         chat_turn_service = ChatTurnService(
@@ -938,10 +950,14 @@ def main() -> int:
                     trust_root=LOCAL_COSIGN_TRUST_ROOT,
                 ),
                 assistant_updates=assistant_update.AssistantUpdateStore(LOCAL_ASSISTANT_UPDATES_PATH),
+                assistant_residues=assistant_update.AssistantResidueStore(LOCAL_ASSISTANT_RESIDUES_PATH),
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
-        updater = local_automatic_updates.AutomaticAssistantUpdater(controller)
+        updater = local_automatic_updates.AutomaticAssistantUpdater(
+            controller,
+            record=_record_automatic_update,
+        )
     except (KeyError, RuntimeError, DockerException) as exc:
         print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)
         return 1
@@ -961,6 +977,22 @@ def main() -> int:
         client.close()
         local_audit.close()
     return 0
+
+
+def _record_automatic_update(
+    team_id: str | None,
+    assistant_id: str | None,
+    result: str,
+    detail: str,
+) -> None:
+    local_audit.record(
+        "assistant-update",
+        result=result,
+        principal=local_audit.AuditPrincipal("team-local", "machine"),
+        team_id=team_id,
+        assistant=assistant_id,
+        detail=detail,
+    )
 
 
 if __name__ == "__main__":

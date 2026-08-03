@@ -118,14 +118,15 @@ class LocalLifecycleTests(LocalContractCase):
         controller.assistant_lifecycle._create_assistant_container = (
             lambda _team_id, spec, _network, image, **_options: events.append(("create", spec.image, image))
         )
-        transaction = object()
+        transaction = SimpleNamespace(previous_image_id=previous_image.id)
         controller.assistant_lifecycle.updates = SimpleNamespace(
             begin=lambda *_args: events.append("journal-begin") or transaction,
             clear=lambda update: events.append(("journal-clear", update)),
         )
-        controller.assistant_lifecycle._remove_retired_image = (
-            lambda update: events.append(("image-cleanup", update)) or True
+        controller.assistant_lifecycle.residues = SimpleNamespace(
+            add=lambda image_id: events.append(("residue-add", image_id))
         )
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
         controller.chat_turn_service._retain_declared_assistant_integration_state = (
             lambda _team_id, spec: events.append(("retain", spec.image))
         )
@@ -158,8 +159,9 @@ class LocalLifecycleTests(LocalContractCase):
                 ("create", CURRENT_ASSISTANT_IMAGE, successor_image),
                 "commit",
                 ("retain", CURRENT_ASSISTANT_IMAGE),
-                ("image-cleanup", transaction),
+                ("residue-add", previous_image.id),
                 ("journal-clear", transaction),
+                "residue-sweep",
             ],
         )
 
@@ -208,6 +210,7 @@ class LocalLifecycleTests(LocalContractCase):
             list=lambda: (update,),
             clear=lambda item: events.append(("journal-clear", item)),
         )
+        controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
 
         controller.assistant_lifecycle.recover_updates()
 
@@ -219,24 +222,32 @@ class LocalLifecycleTests(LocalContractCase):
                 ("remove", True),
                 ("create", CURRENT_ASSISTANT_IMAGE),
                 ("journal-clear", update),
+                "residue-sweep",
             ],
         )
+
+    def test_startup_isolates_an_unavailable_update_store_from_the_space(self) -> None:
+        controller, _container, _events = self._lifecycle_controller()
+        controller.assistant_lifecycle.updates = SimpleNamespace(
+            list=lambda: (_ for _ in ()).throw(
+                local_app.bindings.DynamicAssistantError("unavailable")
+            )
+        )
+
+        controller.assistant_lifecycle.recover_updates()
 
     def test_retired_image_cleanup_is_exact_and_skips_shared_references(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         image_id = "sha256:" + "a" * 64
-        update = SimpleNamespace(
-            previous=SimpleNamespace(resolution={"image_reference": OUTDATED_ASSISTANT_IMAGE}),
-            previous_image_id=image_id,
-        )
         controller.client.containers.list = lambda **_kwargs: []
         controller.client.images = SimpleNamespace(
+            get=lambda _reference: SimpleNamespace(id="sha256:" + "b" * 64),
             remove=lambda **options: events.append(("image-remove", options))
         )
         controller.registry = SimpleNamespace(all=lambda: ())
         controller.assistant_lifecycle.registry = controller.registry
 
-        self.assertTrue(controller.assistant_lifecycle._remove_retired_image(update))
+        self.assertTrue(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(
             events,
             [("image-remove", {"image": image_id, "force": False, "noprune": True})],
@@ -246,8 +257,27 @@ class LocalLifecycleTests(LocalContractCase):
             all=lambda: (SimpleNamespace(image=OUTDATED_ASSISTANT_IMAGE),)
         )
         controller.assistant_lifecycle.registry = controller.registry
-        self.assertFalse(controller.assistant_lifecycle._remove_retired_image(update))
+        controller.client.images.get = lambda _reference: SimpleNamespace(id=image_id)
+        self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(len(events), 1)
+
+        controller.registry = SimpleNamespace(all=lambda: ())
+        controller.assistant_lifecycle.registry = controller.registry
+        controller.client.images.get = lambda _reference: SimpleNamespace(id="sha256:" + "b" * 64)
+        controller.client.containers.list = lambda **_kwargs: [SimpleNamespace(attrs={"ImageID": image_id})]
+        self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
+        self.assertEqual(len(events), 1)
+
+    def test_residue_queue_failure_does_not_escape_the_completed_update(self) -> None:
+        controller, _container, _events = self._lifecycle_controller()
+        controller.assistant_lifecycle.residues = SimpleNamespace(
+            add=lambda _image_id: (_ for _ in ()).throw(
+                local_app.bindings.DynamicAssistantError("unavailable")
+            )
+        )
+        controller.assistant_lifecycle._remove_retired_image = lambda _image_id: False
+
+        controller.assistant_lifecycle._queue_residue("sha256:" + "a" * 64)
 
     def test_release_update_is_generic_for_future_assistants(self) -> None:
         controller, container, events = self._lifecycle_controller()

@@ -29,6 +29,11 @@ class AssistantUpdate:
     previous_image_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class AssistantResidue:
+    image_id: str
+
+
 class AssistantUpdateStore:
     """One atomic transaction file per Team-owned Assistant."""
 
@@ -72,6 +77,8 @@ class AssistantUpdateStore:
             with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_SH):
                 update = self._read(path)
             if update is not None:
+                if self._path(update.team_id, update.assistant_id) != path:
+                    raise bindings.DynamicAssistantError("Assistant update transaction filename is invalid")
                 updates.append(update)
         return tuple(sorted(updates, key=lambda item: (item.team_id, item.assistant_id)))
 
@@ -117,6 +124,75 @@ class AssistantUpdateStore:
         return _decode(value)
 
 
+class AssistantResidueStore:
+    """A retryable exact-image cleanup queue independent from update transactions."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    def add(self, image_id: str) -> AssistantResidue:
+        residue = AssistantResidue(_image_id(image_id))
+        path = self._path(residue)
+        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+            current = self._read(path)
+            if current is not None:
+                if current == residue:
+                    return current
+                raise bindings.DynamicAssistantError("Assistant residue changed unexpectedly")
+            _write(path, {"version": _FORMAT_VERSION, "image_id": residue.image_id})
+        return residue
+
+    def list(self) -> tuple[AssistantResidue, ...]:
+        try:
+            paths = tuple(sorted(self._root.glob("*.json")))
+        except OSError as exc:
+            raise bindings.DynamicAssistantError("Assistant residues cannot be listed") from exc
+        residues: list[AssistantResidue] = []
+        for path in paths:
+            with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_SH):
+                residue = self._read(path)
+            if residue is not None:
+                if self._path(residue) != path:
+                    raise bindings.DynamicAssistantError("Assistant residue filename is invalid")
+                residues.append(residue)
+        return tuple(sorted(residues, key=lambda item: item.image_id))
+
+    def clear(self, residue: AssistantResidue) -> None:
+        path = self._path(residue)
+        with _FileLock(path.with_suffix(".lock"), fcntl.LOCK_EX):
+            current = self._read(path)
+            if current is None:
+                return
+            if current != residue:
+                raise bindings.DynamicAssistantError("Assistant residue changed unexpectedly")
+            try:
+                path.unlink()
+                _sync_directory(path.parent)
+            except OSError as exc:
+                raise bindings.DynamicAssistantError("Assistant residue cannot be cleared") from exc
+
+    def _path(self, residue: AssistantResidue) -> Path:
+        return self._root / f"{residue.image_id.removeprefix('sha256:')}.json"
+
+    @staticmethod
+    def _read(path: Path) -> AssistantResidue | None:
+        try:
+            raw = path.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise bindings.DynamicAssistantError("Assistant residue cannot be read") from exc
+        if not raw or len(raw) > 1024:
+            raise bindings.DynamicAssistantError("Assistant residue is malformed")
+        try:
+            value = json.loads(raw)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise bindings.DynamicAssistantError("Assistant residue is malformed") from exc
+        if not isinstance(value, dict) or set(value) != {"version", "image_id"} or value["version"] != _FORMAT_VERSION:
+            raise bindings.DynamicAssistantError("Assistant residue is malformed")
+        return AssistantResidue(_image_id(value["image_id"]))
+
+
 class _FileLock:
     def __init__(self, path: Path, operation: int) -> None:
         self._path = path
@@ -124,15 +200,24 @@ class _FileLock:
         self._stream = None
 
     def __enter__(self) -> None:
-        self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        descriptor = os.open(self._path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        descriptor = -1
         try:
+            self._path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(self._path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
             self._stream = os.fdopen(descriptor, "rb+")
+            descriptor = -1
             fcntl.flock(self._stream, self._operation)
-        except Exception:
-            if self._stream is None:
+        except OSError as exc:
+            if descriptor >= 0:
                 os.close(descriptor)
-            else:
+            if self._stream is not None:
+                self._stream.close()
+                self._stream = None
+            raise bindings.DynamicAssistantError("Assistant update state lock is unavailable") from exc
+        except Exception:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if self._stream is not None:
                 self._stream.close()
                 self._stream = None
             raise
@@ -215,3 +300,9 @@ def _sync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _image_id(value: object) -> str:
+    if not isinstance(value, str) or _DIGEST_RE.fullmatch(value) is None:
+        raise bindings.DynamicAssistantError("Assistant residue image id is invalid")
+    return value

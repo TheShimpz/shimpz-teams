@@ -279,24 +279,77 @@ def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network
         ) from exc
 
 
-def _remove_retired_image(self, update) -> bool:
-    if any(spec.image == update.previous.resolution["image_reference"] for spec in self.registry.all()):
-        return False
+def _binding_uses_image(self, image_id: str) -> bool | None:
     try:
-        containers = self.client.containers.list(all=True)
-    except DockerException:
-        log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
-        return False
-    if any(container.attrs.get("Image") == update.previous_image_id for container in containers):
-        return False
+        for spec in self.registry.all():
+            try:
+                if self.client.images.get(spec.image).id == image_id:
+                    return True
+            except ImageNotFound:
+                continue
+    except (bindings.DynamicAssistantError, DockerException):
+        log.warning("Assistant update residue cleanup deferred: binding images are unavailable")
+        return None
+    return False
+
+
+def _delete_retired_image(self, image_id: str) -> bool:
     try:
-        self.client.images.remove(image=update.previous_image_id, force=False, noprune=True)
+        self.client.images.remove(image=image_id, force=False, noprune=True)
     except ImageNotFound:
         return True
     except DockerException:
         log.warning("Assistant update residue cleanup deferred: retired image is still referenced")
         return False
     return True
+
+
+def _remove_retired_image(self, image_id: str) -> bool:
+    binding_use = self._binding_uses_image(image_id)
+    if binding_use is None or binding_use:
+        return False
+    try:
+        containers = self.client.containers.list(all=True)
+    except DockerException:
+        log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
+        return False
+    if any(
+        image_id in {container.attrs.get("ImageID"), container.attrs.get("Image")}
+        for container in containers
+    ):
+        return False
+    return self._delete_retired_image(image_id)
+
+
+def _clear_update(self, update) -> None:
+    try:
+        self.updates.clear(update)
+    except bindings.DynamicAssistantError:
+        log.warning("Assistant update transaction cleanup deferred")
+
+
+def sweep_residues(self) -> None:
+    try:
+        residues = self.residues.list()
+    except bindings.DynamicAssistantError:
+        log.warning("Assistant update residue queue is unavailable")
+        return
+    for residue in residues:
+        if not self._remove_retired_image(residue.image_id):
+            continue
+        try:
+            self.residues.clear(residue)
+        except bindings.DynamicAssistantError:
+            log.warning("Assistant update residue record cleanup deferred")
+
+
+def _queue_residue(self, image_id: str) -> None:
+    try:
+        self.residues.add(image_id)
+    except (bindings.DynamicAssistantError, OSError):
+        log.exception("Assistant update residue could not be queued")
+        if not self._remove_retired_image(image_id):
+            log.warning("Assistant update left one unqueued image residue")
 
 
 @_serialize_against_local_team_chat
@@ -364,7 +417,8 @@ def update_assistant(
             )
         except (ApiProblem, DockerException) as exc:
             self._restore_previous_assistant(team_id, previous, network, previous_image)
-            self.updates.clear(transaction)
+            self._queue_residue(successor_image.id)
+            self._clear_update(transaction)
             if isinstance(exc, ApiProblem):
                 raise
             raise ApiProblem(
@@ -390,15 +444,17 @@ def update_assistant(
             if cleanup_error is not None:
                 raise cleanup_error from exc
             self._restore_previous_assistant(team_id, previous, network, previous_image)
-            self.updates.clear(transaction)
+            self._queue_residue(successor_image.id)
+            self._clear_update(transaction)
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "Assistant binding changed during update",
                 code="assistant-update-conflict",
             ) from exc
         self.chat_turn_service._retain_declared_assistant_integration_state(team_id, successor)
-        if self._remove_retired_image(transaction):
-            self.updates.clear(transaction)
+        self._queue_residue(transaction.previous_image_id)
+        self._clear_update(transaction)
+        self.sweep_residues()
         return {"assistant": successor.assistant_id, "installed": False, "updated": True}
 
 
@@ -458,22 +514,33 @@ def _recover_update_target(self, update, target: AssistantSpec) -> None:
 
 
 def recover_updates(self) -> None:
-    for update in self.updates.list():
+    try:
+        updates = self.updates.list()
+    except bindings.DynamicAssistantError:
+        log.exception("Assistant update recovery deferred: transaction store is unavailable")
+        return
+    for update in updates:
         with self._lock(update.team_id):
-            binding = self.registry.binding(update.team_id, update.assistant_id)
-            if binding == update.previous:
-                target = self.registry.spec(update.previous)
-            elif binding == update.successor:
-                target = self.registry.spec(update.successor)
-            else:
-                raise RuntimeError("Assistant update transaction does not match its binding")
-            self._recover_update_target(update, target)
-            if binding == update.successor:
-                self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
-                if self._remove_retired_image(update):
-                    self.updates.clear(update)
-            else:
-                self.updates.clear(update)
+            try:
+                binding = self.registry.binding(update.team_id, update.assistant_id)
+                if binding == update.previous:
+                    target = self.registry.spec(update.previous)
+                elif binding == update.successor:
+                    target = self.registry.spec(update.successor)
+                else:
+                    raise RuntimeError("Assistant update transaction does not match its binding")
+                self._recover_update_target(update, target)
+                if binding == update.successor:
+                    self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
+                    self._queue_residue(update.previous_image_id)
+                self._clear_update(update)
+            except (ApiProblem, RuntimeError, DockerException):
+                log.exception(
+                    "Assistant update recovery deferred for %s/%s",
+                    update.team_id,
+                    update.assistant_id,
+                )
+    self.sweep_residues()
 
 
 @_serialize_against_local_team_chat

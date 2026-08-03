@@ -7,10 +7,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from install.bindings import DynamicAssistantConflictError, DynamicAssistantError, DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
-from install.update import AssistantUpdateStore
+from install.update import AssistantResidueStore, AssistantUpdateStore
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
 
@@ -21,6 +22,7 @@ class AssistantUpdateStoreTests(unittest.TestCase):
         root = Path(self.directory.name)
         self.bindings = DynamicAssistantStore(root / "bindings.json")
         self.updates = AssistantUpdateStore(root / "updates")
+        self.residues = AssistantResidueStore(root / "residues")
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -64,3 +66,33 @@ class AssistantUpdateStoreTests(unittest.TestCase):
             self.updates.get("../team", "hello-world")
         with self.assertRaises(DynamicAssistantError):
             self.updates.get("team_1", "../assistant")
+
+    def test_residue_queue_is_idempotent_and_independent_from_transactions(self) -> None:
+        image_id = f"sha256:{'a' * 64}"
+
+        residue = self.residues.add(image_id)
+
+        self.assertEqual(self.residues.add(image_id), residue)
+        self.assertEqual(self.residues.list(), (residue,))
+        self.residues.clear(residue)
+        self.residues.clear(residue)
+        self.assertEqual(self.residues.list(), ())
+
+    def test_lock_os_errors_are_normalized_to_store_errors(self) -> None:
+        previous = self.bindings.put("team_1", copy.deepcopy(RESOLUTION))
+        successor = copy.deepcopy(RESOLUTION)
+        successor["assistant_version"] = "0.2.0"
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        self.updates.begin(previous, successor, f"sha256:{'a' * 64}")
+
+        with (
+            mock.patch("install.update.os.open", side_effect=PermissionError("denied")),
+            self.assertRaises(DynamicAssistantError),
+        ):
+            self.updates.list()
+
+        with (
+            mock.patch("install.bindings.os.open", side_effect=PermissionError("denied")),
+            self.assertRaises(DynamicAssistantError),
+        ):
+            self.bindings.get("team_1", previous.assistant_id)

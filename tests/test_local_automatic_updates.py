@@ -35,6 +35,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             ),
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=lambda *args, **options: calls.append((*args, options)),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
         )
 
         self.assertTrue(AutomaticAssistantUpdater(controller).run_once())
@@ -54,6 +55,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         unavailable = SimpleNamespace(
             developers=SimpleNamespace(catalog=lambda: (_ for _ in ()).throw(DevelopersError("offline"))),
             registry=SimpleNamespace(bindings=lambda: ()),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
         )
         self.assertFalse(AutomaticAssistantUpdater(unavailable).run_once())
 
@@ -67,6 +69,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             for index in (1, 2)
         )
         updated: list[str] = []
+        audits: list[tuple[str, str, str, str]] = []
 
         def install(team_id: str, *_args, **_options) -> None:
             if team_id == "team_1":
@@ -81,7 +84,53 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             ),
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=install,
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
         )
 
-        self.assertTrue(AutomaticAssistantUpdater(controller).run_once())
+        self.assertTrue(AutomaticAssistantUpdater(controller, record=lambda *event: audits.append(event)).run_once())
         self.assertEqual(updated, ["team_2"])
+        self.assertEqual(
+            audits,
+            [
+                ("team_1", "hello-world", "error", "deferred:chat-active"),
+                ("team_2", "hello-world", "ok", "updated:0.1.0:0.2.0"),
+            ],
+        )
+
+    def test_failing_binding_uses_independent_bounded_backoff(self) -> None:
+        binding = SimpleNamespace(
+            team_id="team_1",
+            assistant_id="hello-world",
+            binding_digest=f"sha256:{'1' * 64}",
+            resolution={"assistant_version": "0.1.0"},
+        )
+        attempts: list[str] = []
+        now = [0.0]
+
+        def install(*_args, **_options) -> None:
+            attempts.append("update")
+            raise ApiProblem(409, "Team chat is active", code="chat-active")
+
+        controller = SimpleNamespace(
+            developers=SimpleNamespace(
+                catalog=lambda: (
+                    CatalogPublication("hello-world", "0.2.0", f"sha256:{'9' * 64}"),
+                )
+            ),
+            registry=SimpleNamespace(bindings=lambda: (binding,)),
+            install_publication=install,
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+        )
+        updater = AutomaticAssistantUpdater(
+            controller,
+            interval_seconds=300,
+            clock=lambda: now[0],
+        )
+
+        updater.run_once()
+        updater.run_once()
+        self.assertEqual(attempts, ["update"])
+
+        now[0] = 300
+        updater.run_once()
+        self.assertEqual(attempts, ["update", "update"])
