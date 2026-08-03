@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 
 import payload
+import progress
 import supervisor
 import websocket
 
@@ -65,6 +66,16 @@ for case in vectors.get("frames", []):
     else:
         if not case["valid"] or value != case["value"]:
             fail(f"Team HTTP frame vector differs: {case['name']}")
+
+for case in vectors.get("chat_stream", []):
+    try:
+        value = progress.canonical_record(case["record"])
+    except progress.ProgressContractError:
+        if case["valid"]:
+            fail(f"Team HTTP chat stream vector differs: {case['name']}")
+    else:
+        if not case["valid"] or value != case["record"]:
+            fail(f"Team HTTP chat stream vector differs: {case['name']}")
 
 identifiers = vectors.get("identifiers", {})
 validators = {

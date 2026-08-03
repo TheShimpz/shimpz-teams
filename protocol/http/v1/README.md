@@ -3,6 +3,10 @@
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `websocket.py` validates the bounded `shimpz.chat.v3` frame primitives and redacts unsafe errors.
+`progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
+Local Team chat. Progress is advisory; only the single terminal record determines the operation
+outcome. A missing, repeated, malformed, oversized, or out-of-order record fails closed at the
+consumer without widening Team authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 

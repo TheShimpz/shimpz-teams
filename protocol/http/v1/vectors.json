@@ -150,6 +150,38 @@
       "close_code": 1007
     }
   ],
+  "chat_stream": [
+    {
+      "name": "model_started",
+      "valid": true,
+      "record": {"type": "progress", "seq": 1, "phase": "model", "state": "started"}
+    },
+    {
+      "name": "power_finished",
+      "valid": true,
+      "record": {"type": "progress", "seq": 2, "phase": "power", "state": "finished", "elapsed_ms": 12, "index": 1, "total": 2}
+    },
+    {
+      "name": "terminal",
+      "valid": true,
+      "record": {"type": "terminal", "status": 200, "body": {"team_id": "team_1", "reply": "done"}}
+    },
+    {
+      "name": "free_text_progress",
+      "valid": false,
+      "record": {"type": "progress", "seq": 3, "phase": "model", "state": "started", "detail": "must not cross"}
+    },
+    {
+      "name": "finished_without_duration",
+      "valid": false,
+      "record": {"type": "progress", "seq": 4, "phase": "reply-validation", "state": "finished"}
+    },
+    {
+      "name": "boolean_terminal_status",
+      "valid": false,
+      "record": {"type": "terminal", "status": true, "body": {}}
+    }
+  ],
   "identifiers": {
     "team": {
       "valid": ["a", "team_01"],
