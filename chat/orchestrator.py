@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
+from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 
 MAX_POWER_ROUNDS = 8
@@ -64,6 +65,7 @@ class ChatStrategy:
     pause_before_batch: BatchPause = lambda _batch: False
     cancelled: CancellationCheck = lambda: False
     validate_context: ContextCheck = lambda: None
+    progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 
 def _validate_batch(
@@ -117,45 +119,50 @@ def _drive(
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "completed":
-            strategy.validate_context()
+            with strategy.progress.span("reply-validation"):
+                strategy.validate_context()
             return ChatOutcome(reply=turn.reply, powers=tuple(invoked))
         if _round == MAX_POWER_ROUNDS:
             raise ChatOrchestrationError("Brain exceeded the Power round limit")
 
-        strategy.validate_context()
-        batch = _validate_batch(turn.powers, declared, strategy.validate_power)
-        batch_interrupts = {request.interrupt_id for request in batch}
-        if not seen_interrupts.isdisjoint(batch_interrupts):
-            raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
-        if strategy.pause_before_batch(batch):
-            return ChatSuspension(
-                continuation=ChatContinuation(
-                    turn=turn,
-                    seen_interrupts=tuple(sorted(seen_interrupts)),
-                    invoked=tuple(invoked),
-                    round_index=_round,
-                ),
-                requests=batch,
-            )
-        strategy.prepare_batch(batch)
+        with strategy.progress.span("power-preparation"):
+            strategy.validate_context()
+            batch = _validate_batch(turn.powers, declared, strategy.validate_power)
+            batch_interrupts = {request.interrupt_id for request in batch}
+            if not seen_interrupts.isdisjoint(batch_interrupts):
+                raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
+            if strategy.pause_before_batch(batch):
+                return ChatSuspension(
+                    continuation=ChatContinuation(
+                        turn=turn,
+                        seen_interrupts=tuple(sorted(seen_interrupts)),
+                        invoked=tuple(invoked),
+                        round_index=_round,
+                    ),
+                    requests=batch,
+                )
+            strategy.prepare_batch(batch)
         results: dict[str, object] = {}
         batch_invoked: list[InvokedPower] = []
-        for request in batch:
+        for index, request in enumerate(batch, start=1):
             if strategy.cancelled():
                 raise ChatStoppedError("chat turn stopped")
             strategy.validate_context()
-            result = strategy.invoke_power(request)
+            with strategy.progress.span("power", index=index, total=len(batch)):
+                result = strategy.invoke_power(request)
             results[request.interrupt_id] = result
             batch_invoked.append(InvokedPower(assistant_id=request.assistant_id, power=request.power))
 
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)
-        resumed = runtime.resume(context, results)
+        with strategy.progress.span("model"):
+            resumed = runtime.resume(context, results)
         if resumed.status == "power-required" and not seen_interrupts.isdisjoint(
             request.interrupt_id for request in resumed.powers
         ):
             raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
-        strategy.batch_delivered(batch)
+        with strategy.progress.span("power-result"):
+            strategy.batch_delivered(batch)
         invoked.extend(batch_invoked)
         turn = resumed
 
@@ -172,7 +179,8 @@ def run_until_pause(
     if strategy.cancelled():
         raise ChatStoppedError("chat turn stopped")
     strategy.validate_context()
-    turn = runtime.start(context, message)
+    with strategy.progress.span("model"):
+        turn = runtime.start(context, message)
     return _drive(
         runtime,
         context,

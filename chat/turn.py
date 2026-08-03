@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NoReturn
 
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
+from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -63,6 +64,7 @@ class SegmentStrategy:
     validate_context: Callable[[], None]
     raise_problem: Callable[[str, BaseException | None], None]
     finalize: Callable[[], None] = lambda: None
+    progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,7 +155,8 @@ def run_segment(
     """Apply the same continuation, identity and suspension decisions on both Controllers."""
     if (message is None) == (continuation is None):
         strategy.raise_problem("invalid-continuation", None)
-    segment = strategy.prepare()
+    with strategy.progress.span("team-context"):
+        segment = strategy.prepare()
     if expected_identity is not None and segment.identity != expected_identity:
         strategy.raise_problem("context-changed", None)
     requirements = SegmentRequirements()
@@ -196,6 +199,7 @@ def drive(
         pause_before_batch=pause_before_batch,
         cancelled=strategy.cancelled,
         validate_context=strategy.validate_context,
+        progress=strategy.progress,
     )
     if continuation is None:
         outcome = chat_orchestrator.run_until_pause(

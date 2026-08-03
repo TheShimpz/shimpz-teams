@@ -95,7 +95,7 @@ COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted
      hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
      hosted/validation.py ./hosted/
 COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
-COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
      ./hosted/assistant/
 COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/segment.py ./hosted/chat/

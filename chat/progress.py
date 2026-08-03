@@ -1,0 +1,102 @@
+"""Closed, metadata-only progress for one Team-owned chat execution."""
+
+from __future__ import annotations
+
+import contextlib
+import time
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+
+PHASES = frozenset(
+    {
+        "model",
+        "power",
+        "power-preparation",
+        "power-result",
+        "reply-validation",
+        "team-context",
+    }
+)
+MAX_SEQUENCE = 2_048
+MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
+
+EventSink = Callable[[dict[str, object]], None]
+Clock = Callable[[], int]
+
+
+def _ignore(_event: dict[str, object]) -> None:
+    return
+
+
+@dataclass(slots=True)
+class Reporter:
+    """Measure real controller operations without carrying protected payloads."""
+
+    sink: EventSink = _ignore
+    clock_ns: Clock = time.monotonic_ns
+    sequence: int = 0
+
+    def _emit(
+        self,
+        phase: str,
+        state: str,
+        *,
+        elapsed_ms: int | None = None,
+        index: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        if self.sink is _ignore:
+            return
+        if phase not in PHASES or state not in {"started", "finished"}:
+            raise ValueError("invalid chat progress event")
+        if (index is None) != (total is None):
+            raise ValueError("incomplete chat progress position")
+        if index is not None and (phase != "power" or not 1 <= index <= total <= 512):
+            raise ValueError("invalid chat progress position")
+        if state == "started" and elapsed_ms is not None:
+            raise ValueError("started progress cannot have elapsed time")
+        if state == "finished" and (
+            type(elapsed_ms) is not int or not 0 <= elapsed_ms <= MAX_ELAPSED_MS
+        ):
+            raise ValueError("invalid chat progress duration")
+        if self.sequence >= MAX_SEQUENCE:
+            return
+        self.sequence += 1
+        event: dict[str, object] = {
+            "seq": self.sequence,
+            "phase": phase,
+            "state": state,
+        }
+        if elapsed_ms is not None:
+            event["elapsed_ms"] = elapsed_ms
+        if index is not None:
+            event["index"] = index
+            event["total"] = total
+        with contextlib.suppress(Exception):
+            self.sink(event)
+
+    @contextlib.contextmanager
+    def span(
+        self,
+        phase: str,
+        *,
+        index: int | None = None,
+        total: int | None = None,
+    ) -> Iterator[None]:
+        """Emit one measured operation pair without affecting its outcome."""
+        if self.sink is _ignore:
+            yield
+            return
+        started_ns = self.clock_ns()
+        self._emit(phase, "started", index=index, total=total)
+        try:
+            yield
+        finally:
+            elapsed_ms = max(0, (self.clock_ns() - started_ns) // 1_000_000)
+            self._emit(
+                phase,
+                "finished",
+                elapsed_ms=elapsed_ms,
+                index=index,
+                total=total,
+            )

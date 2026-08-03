@@ -3,6 +3,7 @@
 from http import HTTPStatus
 
 from chat import orchestrator as chat_orchestrator
+from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
@@ -65,6 +66,7 @@ def chat(
     body: object,
     provider: str,
     api_key: str,
+    progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     if not isinstance(body, dict) or set(body) != {"message", "files", "assistant_ids"}:
@@ -98,6 +100,7 @@ def chat(
                 api_key=api_key,
                 token=token,
                 message=message,
+                progress=progress or chat_progress.Reporter(),
             )
         )
         return self._segment_response(
@@ -116,6 +119,7 @@ def resume_chat_integrations(
     body: object,
     provider: str,
     api_key: str,
+    progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     if not isinstance(body, dict) or set(body) != {"challenge_id"}:
@@ -185,6 +189,7 @@ def resume_chat_integrations(
                 token=token,
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
+                progress=progress or chat_progress.Reporter(),
             )
         )
         return self._segment_response(

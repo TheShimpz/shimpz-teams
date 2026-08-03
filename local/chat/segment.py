@@ -1,8 +1,9 @@
 """Local chat segment orchestration operations."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from chat import orchestrator as chat_orchestrator
+from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from local.chat.types import ActiveAssistant as _ActiveAssistant
@@ -22,6 +23,7 @@ class SegmentRequest:
     message: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
+    progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 
 def _run_chat_segment(
@@ -136,6 +138,7 @@ def _run_chat_segment_with_metadata(
             cancelled=lambda: self._chat_cancelled(request.token),
             validate_context=validate_current_context,
             raise_problem=self._raise_chat_problem,
+            progress=request.progress,
         ),
         message=request.message,
         continuation=request.continuation,
