@@ -1,12 +1,15 @@
 """Local Assistant container install, update, and uninstall lifecycle."""
 
+import logging
 from collections.abc import Callable
 from contextlib import suppress
 from http import HTTPStatus
 
-from docker.errors import DockerException, NotFound
+from docker.errors import DockerException, ImageNotFound, NotFound
 from docker.types import LogConfig, Ulimit
 
+from assistant import manifest as assistant_manifest
+from install import bindings
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
@@ -19,6 +22,7 @@ ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
 ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
 ASSISTANT_ULIMITS = local_container_policy.ASSISTANT_ULIMITS
+log = logging.getLogger("shimpz.team.local.assistant.lifecycle")
 
 
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
@@ -262,6 +266,214 @@ def _replace_outdated_assistant(
         self._create_assistant_container(team_id, spec, network, image)
     else:
         self._create_assistant_container(team_id, spec, network, image, authorize_start=authorize_start)
+
+
+def _restore_previous_assistant(self, team_id: str, spec: AssistantSpec, network, image) -> None:
+    try:
+        self._create_assistant_container(team_id, spec, network, image)
+    except ApiProblem as exc:
+        raise ApiProblem(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            "Assistant update rollback is incomplete",
+            code="assistant-update-rollback-incomplete",
+        ) from exc
+
+
+def _remove_retired_image(self, update) -> bool:
+    if any(spec.image == update.previous.resolution["image_reference"] for spec in self.registry.all()):
+        return False
+    try:
+        containers = self.client.containers.list(all=True)
+    except DockerException:
+        log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
+        return False
+    if any(container.attrs.get("Image") == update.previous_image_id for container in containers):
+        return False
+    try:
+        self.client.images.remove(image=update.previous_image_id, force=False, noprune=True)
+    except ImageNotFound:
+        return True
+    except DockerException:
+        log.warning("Assistant update residue cleanup deferred: retired image is still referenced")
+        return False
+    return True
+
+
+@_serialize_against_local_team_chat
+def update_assistant(
+    self,
+    team_id: str,
+    previous: AssistantSpec,
+    successor: AssistantSpec,
+    *,
+    previous_binding: bindings.DynamicAssistantBinding,
+    resolution: dict[str, object],
+    authorize_start: Callable[[], None],
+) -> dict[str, object]:
+    previous_contract = assistant_manifest.reviewed_manifest_contract(
+        allowed_hosts=previous.allowed_hosts,
+        integrations=previous.integrations,
+    )
+    successor_contract = assistant_manifest.reviewed_manifest_contract(
+        allowed_hosts=successor.allowed_hosts,
+        integrations=successor.integrations,
+    )
+    if not assistant_manifest.update_preserves_authority(previous_contract, successor_contract):
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant update requires approval for expanded authority",
+            code="assistant-update-approval-required",
+        )
+    with self._lock(team_id):
+        network = self._network(team_id)
+        existing = self._assistant_container(team_id, previous.assistant_id, required=True)
+        self._validate_container_security(existing, team_id, previous, network.name)
+        successor_image = self._trusted_image(successor)
+        try:
+            previous_image = self.client.images.get(existing.attrs["Image"])
+        except (KeyError, DockerException) as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Docker could not preserve the current Assistant image",
+                code="docker-image-unavailable",
+            ) from exc
+        transaction = self.updates.begin(previous_binding, resolution, previous_image.id)
+        remaining_egress = (
+            self._team_has_egress_assistant(team_id, excluding=previous.assistant_id)
+            if previous.allowed_hosts
+            else None
+        )
+        try:
+            self._assistant_genesis_cache.discard(existing.id)
+            self._assistant_allowed_hosts_cache.discard(existing.id)
+            self._assistant_machine_contract_cache.discard(existing.id)
+            existing.remove(force=True)
+            if previous.allowed_hosts:
+                self._release_assistant_egress(
+                    team_id,
+                    previous.assistant_id,
+                    network,
+                    remaining_egress=remaining_egress,
+                )
+            self._create_assistant_container(
+                team_id,
+                successor,
+                network,
+                successor_image,
+                authorize_start=authorize_start,
+            )
+        except (ApiProblem, DockerException) as exc:
+            self._restore_previous_assistant(team_id, previous, network, previous_image)
+            self.updates.clear(transaction)
+            if isinstance(exc, ApiProblem):
+                raise
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Docker could not replace the Assistant",
+                code="docker-remove-failed",
+            ) from exc
+        try:
+            self.registry.commit_replacement(
+                team_id,
+                previous_binding.binding_digest,
+                resolution,
+            )
+        except bindings.DynamicAssistantError as exc:
+            replacement = self._assistant_container(team_id, successor.assistant_id, required=False)
+            cleanup_error = self._rollback_assistant_install(
+                team_id,
+                successor,
+                network,
+                replacement,
+                egress_prepared=bool(successor.allowed_hosts),
+            )
+            if cleanup_error is not None:
+                raise cleanup_error from exc
+            self._restore_previous_assistant(team_id, previous, network, previous_image)
+            self.updates.clear(transaction)
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant binding changed during update",
+                code="assistant-update-conflict",
+            ) from exc
+        self.chat_turn_service._retain_declared_assistant_integration_state(team_id, successor)
+        if self._remove_retired_image(transaction):
+            self.updates.clear(transaction)
+        return {"assistant": successor.assistant_id, "installed": False, "updated": True}
+
+
+def _recover_update_target(self, update, target: AssistantSpec) -> None:
+    team_id = update.team_id
+    network = self._network(team_id)
+    existing = self._assistant_container(team_id, target.assistant_id, required=False)
+    if existing is None:
+        self._create_assistant_container(team_id, target, network, self._trusted_image(target))
+        return
+    previous = self.registry.spec(update.previous)
+    successor = self.registry.spec(update.successor)
+    config, _environment = self._validate_container_profile(existing, team_id, target, network.name)
+    if self._has_current_assistant_artifact(config, target):
+        self._validate_container_security(existing, team_id, target, network.name, refresh=False)
+        existing.reload()
+        if existing.status != "running":
+            try:
+                existing.start()
+            except DockerException as exc:
+                raise ApiProblem(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    "Docker could not recover the Assistant",
+                    code="docker-start-failed",
+                ) from exc
+        self._wait_ready(existing, target)
+        self._active_assistant_genesis(_ActiveAssistant(target, existing.id, existing))
+        return
+    actual = previous if self._has_current_assistant_artifact(config, previous) else successor
+    if not self._has_current_assistant_artifact(config, actual):
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant update recovery found an unknown generation",
+            code="assistant-update-conflict",
+        )
+    self._validate_container_security(existing, team_id, actual, network.name, refresh=False)
+    target_image = self._trusted_image(target)
+    remaining_egress = (
+        self._team_has_egress_assistant(team_id, excluding=target.assistant_id) if actual.allowed_hosts else None
+    )
+    try:
+        existing.remove(force=True)
+    except DockerException as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Docker could not recover the Assistant",
+            code="docker-remove-failed",
+        ) from exc
+    if actual.allowed_hosts:
+        self._release_assistant_egress(
+            team_id,
+            target.assistant_id,
+            network,
+            remaining_egress=remaining_egress,
+        )
+    self._create_assistant_container(team_id, target, network, target_image)
+
+
+def recover_updates(self) -> None:
+    for update in self.updates.list():
+        with self._lock(update.team_id):
+            binding = self.registry.binding(update.team_id, update.assistant_id)
+            if binding == update.previous:
+                target = self.registry.spec(update.previous)
+            elif binding == update.successor:
+                target = self.registry.spec(update.successor)
+            else:
+                raise RuntimeError("Assistant update transaction does not match its binding")
+            self._recover_update_target(update, target)
+            if binding == update.successor:
+                self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
+                if self._remove_retired_image(update):
+                    self.updates.clear(update)
+            else:
+                self.updates.clear(update)
 
 
 @_serialize_against_local_team_chat

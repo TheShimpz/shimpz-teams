@@ -125,6 +125,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
+                assistant_updates=SimpleNamespace(list=lambda: ()),
             ),
         )
 
@@ -260,6 +261,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     oauth_pkce=pkce,
                     developers=SimpleNamespace(),
                     artifact_trust=SimpleNamespace(),
+                    assistant_updates=SimpleNamespace(list=lambda: ()),
                 ),
             )
 

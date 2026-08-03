@@ -101,6 +101,154 @@ class LocalLifecycleTests(LocalContractCase):
         self.assertEqual(container.attrs["Config"]["Image"], OUTDATED_ASSISTANT_IMAGE)
         self.assertFalse(controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare"))
 
+    def test_update_commits_only_after_the_successor_is_running(self) -> None:
+        controller, container, events = self._lifecycle_controller()
+        successor = controller.registry["shimpz-cloudflare"]
+        previous = copy.copy(successor)
+        previous.image = OUTDATED_ASSISTANT_IMAGE
+        container.attrs["Image"] = "sha256:" + "a" * 64
+        previous_image = SimpleNamespace(id="sha256:" + "a" * 64)
+        successor_image = object()
+        controller.client.images = SimpleNamespace(
+            get=lambda image_id: events.append(("preserve", image_id)) or previous_image
+        )
+        controller.assistant_lifecycle._trusted_image = lambda spec: events.append(("trust", spec.image)) or (
+            successor_image
+        )
+        controller.assistant_lifecycle._create_assistant_container = (
+            lambda _team_id, spec, _network, image, **_options: events.append(("create", spec.image, image))
+        )
+        transaction = object()
+        controller.assistant_lifecycle.updates = SimpleNamespace(
+            begin=lambda *_args: events.append("journal-begin") or transaction,
+            clear=lambda update: events.append(("journal-clear", update)),
+        )
+        controller.assistant_lifecycle._remove_retired_image = (
+            lambda update: events.append(("image-cleanup", update)) or True
+        )
+        controller.chat_turn_service._retain_declared_assistant_integration_state = (
+            lambda _team_id, spec: events.append(("retain", spec.image))
+        )
+        controller.registry = SimpleNamespace(
+            commit_replacement=lambda *_args: events.append("commit")
+        )
+        controller.assistant_lifecycle.registry = controller.registry
+
+        result = controller.assistant_lifecycle.update_assistant(
+            "team_1",
+            previous,
+            successor,
+            previous_binding=SimpleNamespace(binding_digest=f"sha256:{'1' * 64}"),
+            resolution={},
+            authorize_start=lambda: None,
+        )
+
+        self.assertEqual(
+            result,
+            {"assistant": "shimpz-cloudflare", "installed": False, "updated": True},
+        )
+        self.assertEqual(
+            events,
+            [
+                "reload",
+                ("trust", CURRENT_ASSISTANT_IMAGE),
+                ("preserve", "sha256:" + "a" * 64),
+                "journal-begin",
+                ("remove", True),
+                ("create", CURRENT_ASSISTANT_IMAGE, successor_image),
+                "commit",
+                ("retain", CURRENT_ASSISTANT_IMAGE),
+                ("image-cleanup", transaction),
+                ("journal-clear", transaction),
+            ],
+        )
+
+    def test_update_rejects_authority_expansion_before_docker_mutation(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        previous = copy.copy(controller.registry["shimpz-cloudflare"])
+        successor = copy.copy(previous)
+        successor.allowed_hosts = ("api.cloudflare.com",)
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.assistant_lifecycle.update_assistant(
+                "team_1",
+                previous,
+                successor,
+                previous_binding=SimpleNamespace(binding_digest=f"sha256:{'1' * 64}"),
+                resolution={},
+                authorize_start=lambda: None,
+            )
+
+        self.assertEqual(caught.exception.code, "assistant-update-approval-required")
+        self.assertEqual(events, [])
+
+    def test_startup_recovers_the_binding_generation_and_clears_its_journal(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        previous_spec = copy.copy(controller.registry["shimpz-cloudflare"])
+        successor_spec = copy.copy(previous_spec)
+        successor_spec.image = OUTDATED_ASSISTANT_IMAGE
+        previous_binding = object()
+        successor_binding = object()
+        update = SimpleNamespace(
+            team_id="team_1",
+            assistant_id="shimpz-cloudflare",
+            previous=previous_binding,
+            successor=successor_binding,
+        )
+        controller.registry = SimpleNamespace(
+            binding=lambda *_args: previous_binding,
+            spec=lambda binding: previous_spec if binding is previous_binding else successor_spec,
+        )
+        controller.assistant_lifecycle.registry = controller.registry
+        controller.assistant_lifecycle._trusted_image = lambda spec: events.append(("trust", spec.image)) or object()
+        controller.assistant_lifecycle._create_assistant_container = (
+            lambda _team_id, spec, _network, _image: events.append(("create", spec.image))
+        )
+        controller.assistant_lifecycle.updates = SimpleNamespace(
+            list=lambda: (update,),
+            clear=lambda item: events.append(("journal-clear", item)),
+        )
+
+        controller.assistant_lifecycle.recover_updates()
+
+        self.assertEqual(
+            events,
+            [
+                "reload",
+                ("trust", CURRENT_ASSISTANT_IMAGE),
+                ("remove", True),
+                ("create", CURRENT_ASSISTANT_IMAGE),
+                ("journal-clear", update),
+            ],
+        )
+
+    def test_retired_image_cleanup_is_exact_and_skips_shared_references(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        image_id = "sha256:" + "a" * 64
+        update = SimpleNamespace(
+            previous=SimpleNamespace(resolution={"image_reference": OUTDATED_ASSISTANT_IMAGE}),
+            previous_image_id=image_id,
+        )
+        controller.client.containers.list = lambda **_kwargs: []
+        controller.client.images = SimpleNamespace(
+            remove=lambda **options: events.append(("image-remove", options))
+        )
+        controller.registry = SimpleNamespace(all=lambda: ())
+        controller.assistant_lifecycle.registry = controller.registry
+
+        self.assertTrue(controller.assistant_lifecycle._remove_retired_image(update))
+        self.assertEqual(
+            events,
+            [("image-remove", {"image": image_id, "force": False, "noprune": True})],
+        )
+
+        controller.registry = SimpleNamespace(
+            all=lambda: (SimpleNamespace(image=OUTDATED_ASSISTANT_IMAGE),)
+        )
+        controller.assistant_lifecycle.registry = controller.registry
+        self.assertFalse(controller.assistant_lifecycle._remove_retired_image(update))
+        self.assertEqual(len(events), 1)
+
     def test_release_update_is_generic_for_future_assistants(self) -> None:
         controller, container, events = self._lifecycle_controller()
         spec = controller.registry.pop("shimpz-cloudflare")

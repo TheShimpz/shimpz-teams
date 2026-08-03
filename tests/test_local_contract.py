@@ -257,6 +257,7 @@ class LocalContractTests(LocalContractCase):
                 oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
                 artifact_trust=SimpleNamespace(),
+                assistant_updates=SimpleNamespace(list=lambda: ()),
             ),
         )
 

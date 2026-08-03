@@ -135,6 +135,44 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},
             )
 
+    def test_controller_routes_a_newer_bound_publication_through_update(self) -> None:
+        current = _runtime_resolution()
+        successor = copy.deepcopy(current)
+        successor["assistant_version"] = "0.2.0"
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        events: list[str] = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller = object.__new__(local_app.LocalController)
+            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry.put("team_1", current)
+            controller.developers = mock.Mock()
+            controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or successor
+            controller.artifact_trust = mock.Mock()
+            controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
+
+            def update(team_id, previous, candidate, **options):
+                events.append("update")
+                options["authorize_start"]()
+                controller.registry.commit_replacement(
+                    team_id,
+                    options["previous_binding"].binding_digest,
+                    options["resolution"],
+                )
+                return {"assistant": candidate.assistant_id, "installed": False, "updated": True}
+
+            controller.assistant_lifecycle = SimpleNamespace(update_assistant=update)
+            result = controller.install_publication(
+                "team_1",
+                successor["assistant_id"],
+                successor["source_digest"],
+            )
+            committed = controller.registry.binding("team_1", successor["assistant_id"])
+
+        self.assertEqual(result, {"assistant": successor["assistant_id"], "installed": False, "updated": True})
+        self.assertEqual(events, ["resolve", "verify", "update", "resolve"])
+        self.assertIsNotNone(committed)
+        self.assertEqual(committed.resolution["source_digest"], successor["source_digest"])
+
     def test_trusted_image_requires_the_bound_publication_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))

@@ -8,6 +8,15 @@ from install import bindings
 from local.install.runtime import AssistantSpec
 
 
+def is_successor(
+    current: bindings.DynamicAssistantBinding,
+    candidate: bindings.DynamicAssistantBinding,
+) -> bool:
+    if current.assistant_id != candidate.assistant_id:
+        return False
+    return _version(candidate.resolution) > _version(current.resolution)
+
+
 class PublicationRegistry:
     def __init__(self, store: bindings.DynamicAssistantStore) -> None:
         self._store = store
@@ -18,6 +27,33 @@ class PublicationRegistry:
     def get(self, team_id: str, assistant_id: str) -> AssistantSpec | None:
         binding = self._store.get(team_id, assistant_id)
         return None if binding is None else _spec(binding)
+
+    def binding(self, team_id: str, assistant_id: str) -> bindings.DynamicAssistantBinding | None:
+        return self._store.get(team_id, assistant_id)
+
+    def replacement(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        resolution: dict[str, object],
+    ) -> tuple[bindings.DynamicAssistantBinding, AssistantSpec]:
+        binding = bindings.binding_from_resolution(team_id, resolution)
+        current = self._store.get(team_id, binding.assistant_id)
+        if current is None or current.binding_digest != expected_binding_digest:
+            raise bindings.DynamicAssistantConflictError("the Assistant binding changed before replacement")
+        return binding, _spec(binding)
+
+    def commit_replacement(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        resolution: dict[str, object],
+    ) -> AssistantSpec:
+        return _spec(self._store.replace(team_id, expected_binding_digest, resolution))
+
+    @staticmethod
+    def spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
+        return _spec(binding)
 
     def list(self, team_id: str) -> tuple[AssistantSpec, ...]:
         return tuple(_spec(binding) for binding in self._store.list(team_id))
@@ -88,3 +124,14 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("publication has no valid Assistant runtime contract") from exc
+
+
+def _version(resolution: dict[str, object]) -> tuple[int, int, int]:
+    value = resolution.get("assistant_version")
+    if not isinstance(value, str):
+        raise bindings.DynamicAssistantError("publication has no valid Assistant version")
+    try:
+        major, minor, patch = value.split(".")
+        return int(major), int(minor), int(patch)
+    except (ValueError, TypeError) as exc:
+        raise bindings.DynamicAssistantError("publication has no valid Assistant version") from exc

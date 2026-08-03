@@ -29,6 +29,7 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
 from install import artifact_trust, bindings, registry_auth
+from install import update as assistant_update
 from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
@@ -55,7 +56,7 @@ from local.chat import state as local_chat_state
 from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import developers as local_developers
-from local.install.registry import PublicationRegistry
+from local.install.registry import PublicationRegistry, is_successor
 from local.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
 from local.labels import (
     KIND_LABEL,
@@ -104,6 +105,7 @@ LOCAL_CHAT_CONTINUATIONS_KEY_PATH = Path(
     )
 )
 LOCAL_PUBLICATION_BINDINGS_PATH = Path("/var/lib/shimpz-local/publications/bindings.json")
+LOCAL_ASSISTANT_UPDATES_PATH = Path("/var/lib/shimpz-local/publications/updates")
 LOCAL_COSIGN_TRUST_ROOT = Path("/var/lib/shimpz-local/cosign")
 
 
@@ -120,6 +122,7 @@ class AssistantLifecycleDependencies:
     list_assistants: object | None = None
     developers: object | None = None
     artifact_trust: object | None = None
+    updates: object | None = None
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,7 @@ class AssistantLifecycle:
         self.list_assistants = dependencies.list_assistants
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
+        self.updates = dependencies.updates
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
@@ -163,7 +167,12 @@ class AssistantLifecycle:
     _create_assistant_container = local_assistant_lifecycle._create_assistant_container
     _replace_unready_assistant = local_assistant_lifecycle._replace_unready_assistant
     _replace_outdated_assistant = local_assistant_lifecycle._replace_outdated_assistant
+    _restore_previous_assistant = local_assistant_lifecycle._restore_previous_assistant
+    _remove_retired_image = local_assistant_lifecycle._remove_retired_image
     install_assistant = local_assistant_lifecycle.install_assistant
+    update_assistant = local_assistant_lifecycle.update_assistant
+    _recover_update_target = local_assistant_lifecycle._recover_update_target
+    recover_updates = local_assistant_lifecycle.recover_updates
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
 
     _assistant_filters = local_assistant_resources._assistant_filters
@@ -372,6 +381,7 @@ class LocalControllerDependencies:
     chat_continuations: local_chat_continuation_store.EncryptedContinuationStore | None = None
     developers: local_developers.DevelopersClient | None = None
     artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
+    assistant_updates: assistant_update.AssistantUpdateStore | None = None
 
 
 class LocalController:
@@ -433,15 +443,21 @@ class LocalController:
                 LOCAL_CHAT_CONTINUATIONS_KEY_PATH,
             )
         )
-        if dependencies.developers is None or dependencies.artifact_trust is None:
+        if (
+            dependencies.developers is None
+            or dependencies.artifact_trust is None
+            or dependencies.assistant_updates is None
+        ):
             raise RuntimeError("Local publication installation dependencies are unavailable")
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
+        self.assistant_updates = dependencies.assistant_updates
         self._locks = tuple(threading.RLock() for _ in range(64))
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
         self._wire_collaborators()
         self.assistant_lifecycle._reconcile_egress_proxy_attachments()
+        self.assistant_lifecycle.recover_updates()
         self.chat_turn_service._restore_all_chat_continuations()
 
     def _wire_collaborators(self) -> None:
@@ -456,6 +472,7 @@ class LocalController:
                 list_assistants=self.list_assistants,
                 developers=getattr(self, "developers", None),
                 artifact_trust=getattr(self, "artifact_trust", None),
+                updates=getattr(self, "assistant_updates", None),
             )
         )
         chat_turn_service = ChatTurnService(
@@ -695,7 +712,7 @@ class LocalController:
         source_digest: str,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
-        existing = self.registry.get(team_id, assistant_id)
+        existing = self.registry.binding(team_id, assistant_id)
         try:
             resolution = self.developers.resolve(source_digest)
             if resolution["assistant_id"] != assistant_id:
@@ -703,16 +720,37 @@ class LocalController:
                     "publication does not match the requested Assistant"
                 )
             self.artifact_trust.verify(resolution)
-            spec = self.registry.put(team_id, resolution)
 
             def authorize_start() -> None:
                 current = self.developers.resolve(source_digest)
                 if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
                     raise local_developers.PublicationNotInstallableError("publication changed before installation")
 
-            return self.assistant_lifecycle.install_assistant(
+            if existing is None:
+                spec = self.registry.put(team_id, resolution)
+                return self.assistant_lifecycle.install_assistant(
+                    team_id,
+                    spec.assistant_id,
+                    authorize_start=authorize_start,
+                )
+            candidate, successor = self.registry.replacement(
                 team_id,
-                spec.assistant_id,
+                existing.binding_digest,
+                resolution,
+            )
+            if not is_successor(existing, candidate):
+                raise local_developers.PublicationNotInstallableError(
+                    "publication is not a newer Assistant version"
+                )
+            previous = self.registry.get(team_id, assistant_id)
+            if previous is None:
+                raise bindings.DynamicAssistantConflictError("the Assistant binding changed before update")
+            return self.assistant_lifecycle.update_assistant(
+                team_id,
+                previous,
+                successor,
+                previous_binding=existing,
+                resolution=resolution,
                 authorize_start=authorize_start,
             )
         except ApiProblem as exc:
@@ -888,6 +926,7 @@ def main() -> int:
                     credentials=registry_auth.AnonymousRegistryAccess(),
                     trust_root=LOCAL_COSIGN_TRUST_ROOT,
                 ),
+                assistant_updates=assistant_update.AssistantUpdateStore(LOCAL_ASSISTANT_UPDATES_PATH),
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
