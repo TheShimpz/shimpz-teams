@@ -391,7 +391,9 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
         raise ManifestError("Assistant reviewed catalog is invalid")
     reviewed: dict[str, ReviewedAssistant] = {}
     for raw_id, metadata in assistants.items():
-        assistant_id = _identifier(raw_id, kind="id")
+        assistant_id = _identifier(raw_id, kind="id", maximum=40)
+        if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
+            raise ManifestError("Assistant id is reserved")
         if not isinstance(metadata, dict) or set(metadata) != {
             "name",
             "summary",
@@ -501,8 +503,8 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
         raise ManifestError("Assistant manifest contains an invalid section")
     if metadata["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
-    assistant_id = _identifier(metadata["id"], kind="id")
-    if assistant_id in {"postgres", "shimpz-assistant-egress"}:
+    assistant_id = _identifier(metadata["id"], kind="id", maximum=40)
+    if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
         raise ManifestError("Assistant id is reserved")
     version = metadata["version"]
     if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:

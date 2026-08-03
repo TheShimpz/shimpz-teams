@@ -250,6 +250,7 @@ class LocalChatScopeTests(LocalContractCase):
             invalid = (
                 ["shimpz-cloudflare", "shimpz-cloudflare"],
                 ["bad_assistant"],
+                ["a" * 41],
                 [f"helper-{index}" for index in range(MAX_CHAT_ASSISTANTS + 1)],
             )
             for assistant_ids in invalid:

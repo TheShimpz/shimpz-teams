@@ -49,7 +49,7 @@ SHARED_ROLE_LABEL = "shimpz.team.shared.role"
 POSTGRES_ROLE = "postgres"
 ASSISTANT_EGRESS_ROLE = "assistant-egress"
 SHARED_ROLES = frozenset({POSTGRES_ROLE, ASSISTANT_EGRESS_ROLE})
-RESERVED_SERVICE_ALIASES = frozenset({"postgres", "shimpz-assistant-egress"})
+RESERVED_SERVICE_ALIASES = frozenset({"postgres", "assistant-egress", "shimpz-assistant-egress"})
 
 
 def _normalized_capabilities(values: object) -> set[str]:

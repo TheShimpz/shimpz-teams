@@ -13,11 +13,11 @@ from assistant import manifest as assistant_manifest
 FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.toml"
 
 
-def _reviewed_catalog():
+def _reviewed_catalog(assistant_id: str = "shimpz-cloudflare"):
     catalog = {
         "version": 1,
         "assistants": {
-            "shimpz-cloudflare": {
+            assistant_id: {
                 "name": "Shimpz Cloudflare",
                 "summary": "Cloudflare contract test fixture",
                 "allowed_hosts": ["api.cloudflare.com"],
@@ -126,6 +126,17 @@ class AssistantManifestTests(unittest.TestCase):
         )
 
         self.assertEqual(declared, reviewed)
+
+    def test_reviewed_catalog_rejects_reserved_and_oversized_assistant_ids(self) -> None:
+        invalid = (
+            "postgres",
+            "assistant-egress",
+            "shimpz-assistant-egress",
+            "a" * 41,
+        )
+        for assistant_id in invalid:
+            with self.subTest(assistant_id=assistant_id), self.assertRaises(assistant_manifest.ManifestError):
+                _reviewed_catalog(assistant_id)
 
     def test_reads_reduced_manifest_and_derives_provider_from_integration_id(self) -> None:
         content = manifest(

@@ -523,6 +523,19 @@
       }
     },
     {
+      "name": "resolve_reserved_runtime_assistant_id",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "assistant_id"
+        ],
+        "value": "shimpz-assistant-egress"
+      }
+    },
+    {
       "name": "resolve_machine_contract_unknown_field",
       "fixture": "resolve_response",
       "valid": false,

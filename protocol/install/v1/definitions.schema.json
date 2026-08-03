@@ -19,7 +19,8 @@
       "not": {
         "enum": [
           "postgres",
-          "assistant-egress"
+          "assistant-egress",
+          "shimpz-assistant-egress"
         ]
       }
     },

@@ -316,6 +316,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         for invalid in (
             ["weather", "weather"],
             ["bad_assistant"],
+            ["a" * 41],
             [f"helper-{index}" for index in range(hosted_assistants.MAX_CHAT_ASSISTANTS + 1)],
         ):
             with self.subTest(invalid=invalid), self.assertRaises(runtime_state.ApiError) as caught:

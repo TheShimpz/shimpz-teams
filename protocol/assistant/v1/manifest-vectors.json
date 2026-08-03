@@ -42,6 +42,11 @@
       "manifest": "[shimpz]\nspec = 1\nid = \"postgres\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
+      "name": "reserved_runtime_assistant_id",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"shimpz-assistant-egress\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
       "name": "uppercase_assistant_id",
       "valid": false,
       "manifest": "[shimpz]\nspec = 1\nid = \"Hello-World\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
