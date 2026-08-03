@@ -116,6 +116,21 @@ class LocalPublicationInstallTests(unittest.TestCase):
         )
         self.assertEqual(_Connection.requests[0][1], "/api/v1/assistants")
 
+    def test_resolves_visibility_bounded_latest_publication_from_installed_digest(self) -> None:
+        successor = copy.deepcopy(RESOLUTION)
+        successor["assistant_version"] = "0.2.0"
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        _Connection.response = _Response(200, successor)
+
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+            resolved = DevelopersClient().latest(RESOLUTION["source_digest"])
+
+        self.assertEqual(resolved, successor)
+        self.assertEqual(
+            _Connection.requests[0][1],
+            f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/latest",
+        )
+
     def test_resolution_fails_closed_for_missing_or_malformed_publication(self) -> None:
         for status, error in ((404, PublicationNotInstallableError), (503, DevelopersError)):
             _Connection.response = _Response(status, {})

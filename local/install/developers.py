@@ -63,18 +63,17 @@ class DevelopersClient:
         if _SOURCE_DIGEST.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}")
-        if status == 404:
-            raise PublicationNotInstallableError("publication is not installable")
-        if status != 200:
-            raise DevelopersError("Developers resolution is unavailable")
-        try:
-            value = json.loads(raw)
-            _CONTRACTS.validate("resolve-response.schema.json", value)
-        except (UnicodeError, json.JSONDecodeError, ContractValidationError) as exc:
-            raise DevelopersError("Developers response violates its contract") from exc
-        if not isinstance(value, dict) or value.get("source_digest") != source_digest:
+        value = _resolution(status, raw)
+        if value["source_digest"] != source_digest:
             raise DevelopersError("Developers response does not match the requested digest")
         return value
+
+    def latest(self, source_digest: str) -> dict[str, Any]:
+        """Resolve the newest visibility-bounded candidate for one installed digest."""
+        if _SOURCE_DIGEST.fullmatch(source_digest) is None:
+            raise PublicationNotInstallableError("publication digest is invalid")
+        status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}/latest")
+        return _resolution(status, raw)
 
     @staticmethod
     def _request(path: str) -> tuple[int, bytes]:
@@ -100,6 +99,21 @@ class DevelopersClient:
         if len(raw) > _MAX_RESPONSE_BYTES:
             raise DevelopersError("Developers response is too large")
         return response.status, raw
+
+
+def _resolution(status: int, raw: bytes) -> dict[str, Any]:
+    if status == 404:
+        raise PublicationNotInstallableError("publication is not installable")
+    if status != 200:
+        raise DevelopersError("Developers resolution is unavailable")
+    try:
+        value = json.loads(raw)
+        _CONTRACTS.validate("resolve-response.schema.json", value)
+    except (UnicodeError, json.JSONDecodeError, ContractValidationError) as exc:
+        raise DevelopersError("Developers response violates its contract") from exc
+    if not isinstance(value, dict):
+        raise DevelopersError("Developers response violates its contract")
+    return value
 
 
 def _catalog_publication(value: object) -> CatalogPublication:

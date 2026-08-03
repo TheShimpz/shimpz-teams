@@ -29,6 +29,9 @@ class _Developers:
     def catalog() -> tuple[developers.CatalogPublication, ...]:
         return ()
 
+    def latest(self, source_digest: str) -> dict[str, object]:
+        return self.resolve(source_digest)
+
 
 class _ArtifactTrust:
     def __init__(self, resolution: dict[str, object]) -> None:

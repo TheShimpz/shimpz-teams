@@ -56,35 +56,53 @@ class AutomaticAssistantUpdater:
     def run_once(self) -> bool:
         self._controller.assistant_lifecycle.sweep_residues()
         try:
-            targets = {item.assistant_id: item for item in self._controller.developers.catalog()}
             installed = self._controller.registry.bindings()
-        except developers.DevelopersError, bindings.DynamicAssistantError:
-            log.warning("Automatic Assistant update check deferred: Developers is unavailable")
-            self._record_result(None, None, "error", "cycle:unavailable")
+        except bindings.DynamicAssistantError:
+            log.warning("Automatic Assistant update check deferred: bindings are unavailable")
+            self._record_result(None, None, "error", "cycle:bindings-unavailable")
             return False
         active_keys = {(binding.team_id, binding.assistant_id, binding.binding_digest) for binding in installed}
         self._failures = {key: value for key, value in self._failures.items() if key in active_keys}
         self._retry_after = {key: value for key, value in self._retry_after.items() if key in active_keys}
         now = self._clock()
+        candidates: dict[str, dict[str, object] | None] = {}
         for binding in installed:
             key = binding.team_id, binding.assistant_id, binding.binding_digest
             if now < self._retry_after.get(key, 0):
                 continue
-            target = targets.get(binding.assistant_id)
             try:
                 current_version = _binding_version(binding)
+                source_digest = binding.resolution["source_digest"]
+                if not isinstance(source_digest, str):
+                    raise TypeError
             except KeyError, TypeError, ValueError:
                 log.exception("Automatic Assistant update check found an invalid installed binding")
                 self._record_result(binding.team_id, binding.assistant_id, "error", "binding:invalid")
                 continue
-            if target is None or _version(target.assistant_version) <= current_version:
+            try:
+                target = _candidate(self._controller.developers, source_digest, candidates)
+            except developers.DevelopersError:
+                log.warning(
+                    "Automatic Assistant update deferred for %s/%s: Developers is unavailable",
+                    binding.team_id,
+                    binding.assistant_id,
+                )
+                self._record_result(binding.team_id, binding.assistant_id, "error", "deferred:developers-unavailable")
+                self._defer(key, now)
+                continue
+            if target["assistant_id"] != binding.assistant_id:
+                self._record_result(binding.team_id, binding.assistant_id, "error", "candidate:identity-mismatch")
+                self._defer(key, now)
+                continue
+            target_version = str(target["assistant_version"])
+            if _version(target_version) <= current_version:
                 self._clear_failure(key)
                 continue
             try:
                 self._controller.install_publication(
                     binding.team_id,
                     binding.assistant_id,
-                    target.source_digest,
+                    str(target["source_digest"]),
                     expected_binding_digest=binding.binding_digest,
                 )
             except (ApiProblem, DockerException, bindings.DynamicAssistantError) as exc:
@@ -103,7 +121,7 @@ class AutomaticAssistantUpdater:
                     binding.team_id,
                     binding.assistant_id,
                     "ok",
-                    f"updated:{binding.resolution['assistant_version']}:{target.assistant_version}",
+                    f"updated:{binding.resolution['assistant_version']}:{target_version}",
                 )
         return True
 
@@ -154,3 +172,15 @@ def _binding_version(binding) -> tuple[int, int, int]:
 def _version(value: str) -> tuple[int, int, int]:
     major, minor, patch = value.split(".")
     return int(major), int(minor), int(patch)
+
+
+def _candidate(client, source_digest: str, cache: dict[str, dict[str, object] | None]) -> dict[str, object]:
+    if source_digest not in cache:
+        try:
+            cache[source_digest] = client.latest(source_digest)
+        except developers.DevelopersError:
+            cache[source_digest] = None
+    candidate = cache[source_digest]
+    if candidate is None:
+        raise developers.DevelopersError("Developers is unavailable")
+    return candidate
