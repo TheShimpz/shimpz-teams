@@ -6,7 +6,6 @@ import http.client
 import json
 import re
 import ssl
-from dataclasses import dataclass
 from typing import Any
 
 from install.contract import ContractValidationError, ContractValidator
@@ -18,8 +17,6 @@ _RELEASE_PROXY_PORT = 8888
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1024 * 1024
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_ASSISTANT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
-_SEMANTIC_VERSION = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
 _TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
 _CONTRACTS = ContractValidator()
 
@@ -32,33 +29,7 @@ class PublicationNotInstallableError(DevelopersError):
     """The exact publication is not currently installable."""
 
 
-@dataclass(frozen=True, slots=True)
-class CatalogPublication:
-    assistant_id: str
-    assistant_version: str
-    source_digest: str
-
-
 class DevelopersClient:
-    def catalog(self) -> tuple[CatalogPublication, ...]:
-        status, raw = self._request("/api/v1/assistants")
-        if status != 200:
-            raise DevelopersError("Developers catalog is unavailable")
-        try:
-            value = json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise DevelopersError("Developers catalog violates its contract") from exc
-        if not isinstance(value, dict) or set(value) != {"version", "assistants"} or value["version"] != 1:
-            raise DevelopersError("Developers catalog violates its contract")
-        assistants = value["assistants"]
-        if not isinstance(assistants, list) or len(assistants) > 1000:
-            raise DevelopersError("Developers catalog violates its contract")
-        publications = tuple(_catalog_publication(item) for item in assistants)
-        identities = tuple(publication.assistant_id for publication in publications)
-        if len(identities) != len(set(identities)):
-            raise DevelopersError("Developers catalog violates its contract")
-        return tuple(sorted(publications, key=lambda publication: publication.assistant_id))
-
     def resolve(self, source_digest: str) -> dict[str, Any]:
         if _SOURCE_DIGEST.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
@@ -114,22 +85,3 @@ def _resolution(status: int, raw: bytes) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise DevelopersError("Developers response violates its contract")
     return value
-
-
-def _catalog_publication(value: object) -> CatalogPublication:
-    if not isinstance(value, dict):
-        raise DevelopersError("Developers catalog violates its contract")
-    assistant_id = value.get("assistant_id")
-    assistant_version = value.get("assistant_version")
-    source_digest = value.get("source_digest")
-    if (
-        not isinstance(assistant_id, str)
-        or len(assistant_id) > 40
-        or _ASSISTANT_ID.fullmatch(assistant_id) is None
-        or not isinstance(assistant_version, str)
-        or _SEMANTIC_VERSION.fullmatch(assistant_version) is None
-        or not isinstance(source_digest, str)
-        or _SOURCE_DIGEST.fullmatch(source_digest) is None
-    ):
-        raise DevelopersError("Developers catalog violates its contract")
-    return CatalogPublication(assistant_id, assistant_version, source_digest)

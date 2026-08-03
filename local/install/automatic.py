@@ -65,7 +65,7 @@ class AutomaticAssistantUpdater:
         self._failures = {key: value for key, value in self._failures.items() if key in active_keys}
         self._retry_after = {key: value for key, value in self._retry_after.items() if key in active_keys}
         now = self._clock()
-        candidates: dict[str, dict[str, object] | None] = {}
+        candidates: dict[str, dict[str, object] | developers.DevelopersError] = {}
         for binding in installed:
             key = binding.team_id, binding.assistant_id, binding.binding_digest
             if now < self._retry_after.get(key, 0):
@@ -79,16 +79,8 @@ class AutomaticAssistantUpdater:
                 log.exception("Automatic Assistant update check found an invalid installed binding")
                 self._record_result(binding.team_id, binding.assistant_id, "error", "binding:invalid")
                 continue
-            try:
-                target = _candidate(self._controller.developers, source_digest, candidates)
-            except developers.DevelopersError:
-                log.warning(
-                    "Automatic Assistant update deferred for %s/%s: Developers is unavailable",
-                    binding.team_id,
-                    binding.assistant_id,
-                )
-                self._record_result(binding.team_id, binding.assistant_id, "error", "deferred:developers-unavailable")
-                self._defer(key, now)
+            target = self._resolved_candidate(binding, source_digest, candidates, key, now)
+            if target is None:
                 continue
             if target["assistant_id"] != binding.assistant_id:
                 self._record_result(binding.team_id, binding.assistant_id, "error", "candidate:identity-mismatch")
@@ -124,6 +116,26 @@ class AutomaticAssistantUpdater:
                     f"updated:{binding.resolution['assistant_version']}:{target_version}",
                 )
         return True
+
+    def _resolved_candidate(self, binding, source_digest, candidates, key, now):
+        try:
+            return _candidate(self._controller.developers, source_digest, candidates)
+        except developers.PublicationNotInstallableError:
+            log.info(
+                "Automatic Assistant update deferred for %s/%s: no installable candidate",
+                binding.team_id,
+                binding.assistant_id,
+            )
+            self._record_result(binding.team_id, binding.assistant_id, "ok", "deferred:no-candidate")
+        except developers.DevelopersError:
+            log.warning(
+                "Automatic Assistant update deferred for %s/%s: Developers is unavailable",
+                binding.team_id,
+                binding.assistant_id,
+            )
+            self._record_result(binding.team_id, binding.assistant_id, "error", "deferred:developers-unavailable")
+        self._defer(key, now)
+        return None
 
     def _defer(self, key: tuple[str, str, str], now: float) -> None:
         failures = self._failures.get(key, 0) + 1
@@ -174,13 +186,17 @@ def _version(value: str) -> tuple[int, int, int]:
     return int(major), int(minor), int(patch)
 
 
-def _candidate(client, source_digest: str, cache: dict[str, dict[str, object] | None]) -> dict[str, object]:
+def _candidate(
+    client,
+    source_digest: str,
+    cache: dict[str, dict[str, object] | developers.DevelopersError],
+) -> dict[str, object]:
     if source_digest not in cache:
         try:
             cache[source_digest] = client.latest(source_digest)
-        except developers.DevelopersError:
-            cache[source_digest] = None
+        except developers.DevelopersError as exc:
+            cache[source_digest] = exc
     candidate = cache[source_digest]
-    if candidate is None:
-        raise developers.DevelopersError("Developers is unavailable")
+    if isinstance(candidate, developers.DevelopersError):
+        raise candidate
     return candidate

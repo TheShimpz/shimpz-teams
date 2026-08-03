@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 from local.errors import ApiProblemError as ApiProblem
 from local.install.automatic import AutomaticAssistantUpdater
-from local.install.developers import DevelopersError
+from local.install.developers import DevelopersError, PublicationNotInstallableError
 
 
 def _candidate(version: str = "0.2.0") -> dict[str, str]:
@@ -108,6 +108,37 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             [
                 ("team_1", "hello-world", "error", "deferred:chat-active"),
                 ("team_2", "hello-world", "ok", "updated:0.1.0:0.2.0"),
+            ],
+        )
+
+    def test_no_candidate_is_distinct_from_developers_unavailability(self) -> None:
+        binding = SimpleNamespace(
+            team_id="team_1",
+            assistant_id="hello-world",
+            binding_digest=f"sha256:{'1' * 64}",
+            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
+        )
+        audits: list[tuple[str, str, str, str]] = []
+        errors = iter((PublicationNotInstallableError("absent"), DevelopersError("offline")))
+        controller = SimpleNamespace(
+            developers=SimpleNamespace(latest=lambda _digest: (_ for _ in ()).throw(next(errors))),
+            registry=SimpleNamespace(bindings=lambda: (binding,)),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+        )
+        updater = AutomaticAssistantUpdater(
+            controller,
+            interval_seconds=1,
+            clock=lambda: float(len(audits)),
+            record=lambda *event: audits.append(event),
+        )
+
+        self.assertTrue(updater.run_once())
+        self.assertTrue(updater.run_once())
+        self.assertEqual(
+            audits,
+            [
+                ("team_1", "hello-world", "ok", "deferred:no-candidate"),
+                ("team_1", "hello-world", "error", "deferred:developers-unavailable"),
             ],
         )
 

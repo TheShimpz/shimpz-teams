@@ -91,31 +91,6 @@ class LocalPublicationInstallTests(unittest.TestCase):
         self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}")
         self.assertEqual(request, {"headers": {"Accept": "application/json"}})
 
-    def test_catalog_returns_only_bounded_update_coordinates(self) -> None:
-        _Connection.response = _Response(
-            200,
-            {
-                "version": 1,
-                "assistants": [
-                    {
-                        "assistant_id": "hello-world",
-                        "assistant_version": "0.2.0",
-                        "source_digest": f"sha256:{'9' * 64}",
-                        "name": "Hello World",
-                    }
-                ],
-            },
-        )
-
-        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
-            catalog = DevelopersClient().catalog()
-
-        self.assertEqual(
-            tuple((item.assistant_id, item.assistant_version, item.source_digest) for item in catalog),
-            (("hello-world", "0.2.0", f"sha256:{'9' * 64}"),),
-        )
-        self.assertEqual(_Connection.requests[0][1], "/api/v1/assistants")
-
     def test_resolves_visibility_bounded_latest_publication_from_installed_digest(self) -> None:
         successor = copy.deepcopy(RESOLUTION)
         successor["assistant_version"] = "0.2.0"

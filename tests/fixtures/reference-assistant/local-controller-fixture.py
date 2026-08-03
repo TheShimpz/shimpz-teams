@@ -25,10 +25,6 @@ class _Developers:
             raise developers.PublicationNotInstallableError("publication is not available")
         return copy.deepcopy(self._resolution)
 
-    @staticmethod
-    def catalog() -> tuple[developers.CatalogPublication, ...]:
-        return ()
-
     def latest(self, source_digest: str) -> dict[str, object]:
         return self.resolve(source_digest)
 
