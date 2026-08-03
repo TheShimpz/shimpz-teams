@@ -247,7 +247,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "assistant-isolation-drift")
         self.assertEqual(events, ["reload", "reload", "reload"])
 
-    def test_list_keeps_the_new_manifest_contract_strict(self) -> None:
+    def test_list_marks_an_invalid_retired_manifest_outdated_for_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()
         container.labels[local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
         container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
@@ -260,10 +260,11 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             )
 
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = reject
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.list_assistants("team_1")
 
-        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
+        self.assertEqual(
+            controller.list_assistants("team_1"),
+            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "outdated"}]},
+        )
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:
         self.assertTrue(local_runtime.is_digest_ref(OUTDATED_ASSISTANT_IMAGE))

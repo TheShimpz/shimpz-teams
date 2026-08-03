@@ -295,7 +295,7 @@ class LocalLifecycleTests(LocalContractCase):
         )
         self.assertEqual(events, ["reload", "reload", "trusted", "reload", ("remove", True), "create"])
 
-    def test_listing_keeps_the_current_manifest_contract_strict(self) -> None:
+    def test_listing_keeps_an_invalid_manifest_in_the_removable_inventory(self) -> None:
         controller, container, events = self._lifecycle_controller()
         container.attrs["Config"]["Image"] = CURRENT_ASSISTANT_IMAGE
         container.attrs["Config"]["Labels"][local_app.IMAGE_LABEL] = CURRENT_ASSISTANT_IMAGE
@@ -307,10 +307,10 @@ class LocalLifecycleTests(LocalContractCase):
             )
         )
 
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.list_assistants("team_1")
-
-        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
+        self.assertEqual(
+            controller.list_assistants("team_1"),
+            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "outdated"}]},
+        )
         self.assertEqual(events, ["reload"])
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_called_once_with(
             container,

@@ -48,8 +48,14 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                 current_egress_proxy,
             )
             if self.assistant_lifecycle._has_current_assistant_artifact(config, spec):
-                self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
-                status = container.status
+                try:
+                    self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
+                except ApiProblem as exc:
+                    if exc.code != "assistant-manifest-invalid":
+                        raise
+                    status = "outdated"
+                else:
+                    status = container.status
             else:
                 status = "outdated"
             output.append({"assistant": assistant_id, "status": status})
