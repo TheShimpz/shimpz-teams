@@ -1,5 +1,6 @@
 """Bounded HTTP adapter for the local Team controller."""
 
+import contextlib
 import hashlib
 import json
 import threading
@@ -9,7 +10,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from docker.errors import DockerException
 
+from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
+from core.http import stdlib
 from core.http import strict as strict_http
 from integrations import broker as integration_broker
 from local import audit as local_audit
@@ -21,6 +24,7 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
+from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
@@ -388,10 +392,17 @@ class Handler(BaseHTTPRequestHandler):
     def _chat_start(
         self,
         team_id: str,
+        progress: chat_progress.Reporter | None = None,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
         provider, api_key = self._model_credential_headers()
         body = self._body(max_bytes=MAX_CHAT_BODY_BYTES)
-        payload = self.server.controller.chat_turn_service.chat(team_id, body, provider, api_key)
+        payload = self.server.controller.chat_turn_service.chat(
+            team_id,
+            body,
+            provider,
+            api_key,
+            progress,
+        )
         return self._chat_status(payload), payload, "chat", team_id, None
 
     def _chat_pending(
@@ -412,6 +423,7 @@ class Handler(BaseHTTPRequestHandler):
         self,
         team_id: str,
         segment: str,
+        progress: chat_progress.Reporter | None = None,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         submission = {
             "integrations": ("resume_chat_integrations", "chat-integration-submit", MAX_BODY_BYTES),
@@ -421,7 +433,13 @@ class Handler(BaseHTTPRequestHandler):
         method_name, operation_name, max_bytes = submission
         operation = getattr(self.server.controller.chat_turn_service, method_name)
         provider, api_key = self._model_credential_headers()
-        payload = operation(team_id, self._body(max_bytes=max_bytes), provider, api_key)
+        payload = operation(
+            team_id,
+            self._body(max_bytes=max_bytes),
+            provider,
+            api_key,
+            progress,
+        )
         return self._chat_status(payload), payload, operation_name, team_id, None
 
     def _chat_stop(
@@ -457,6 +475,81 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "POST" and segment == "stop":
             return self._chat_stop(team_id)
         return self._chat_submit(team_id, segment) if self.command == "POST" else None
+
+    def _write_stream_record(self, record: dict[str, object]) -> None:
+        encoded = progress_contract.encode_record(record)
+        self.wfile.write(f"{len(encoded):X}\r\n".encode("ascii"))
+        self.wfile.write(encoded)
+        self.wfile.write(b"\r\n")
+        self.wfile.flush()
+
+    def _stream_chat_route(
+        self,
+        parts: list[str],
+        route: strict_http.ControllerRouteMatch,
+        request_audit: _RequestAudit,
+    ) -> None:
+        """Push advisory progress followed by one authoritative terminal record."""
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "application/x-ndjson")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        writable = True
+        def emit_progress(event: dict[str, object]) -> None:
+            nonlocal writable
+            if not writable:
+                return
+            try:
+                self._write_stream_record({"type": "progress", **event})
+            except (OSError, progress_contract.ProgressContractError):
+                writable = False
+
+        reporter = chat_progress.Reporter(emit_progress)
+        operation = route.operation
+        team_id = validate_team_id(route.params["team_id"])
+        terminal: dict[str, object] = {}
+
+        def execute() -> None:
+            if operation == "chat":
+                status, payload, *_audit = self._chat_start(team_id, reporter)
+            elif operation == "chat-integration-submit":
+                status, payload, *_audit = self._chat_submit(team_id, parts[4], reporter)
+            else:
+                raise AssertionError("non-streaming route reached chat stream")
+            trace_id = request_audit.record(operation, result="ok", team_id=team_id)
+            payload["trace_id"] = trace_id
+            terminal.update(type="terminal", status=int(status), body=payload)
+
+        def emit_failure(failure: stdlib.HttpFailure) -> None:
+            trace_id = request_audit.record(
+                operation,
+                result=failure.result,
+                team_id=team_id,
+                detail=failure.audit_reason,
+            )
+            payload = {"error": failure.public_message, "trace_id": trace_id}
+            if failure.public_code is not None:
+                payload["code"] = failure.public_code
+            terminal.update(type="terminal", status=int(failure.status), body=payload)
+
+        stdlib.dispatch(
+            execute,
+            classify=lambda exc: local.classify_failure(exc, ApiProblem, DockerException),
+            emit=emit_failure,
+            unexpected_message="internal error",
+        )
+        if writable:
+            try:
+                self._write_stream_record(terminal)
+            except (OSError, progress_contract.ProgressContractError):
+                writable = False
+        if writable:
+            with contextlib.suppress(OSError):
+                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.flush()
 
     def _assistant_integration_route(
         self,
@@ -607,7 +700,7 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized_route(
         self,
         request_audit: _RequestAudit,
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
         if route.operation in _MACHINE_ONLY_OPERATIONS:
@@ -648,6 +741,9 @@ class Handler(BaseHTTPRequestHandler):
         request_audit.human(evidence)
         request_audit.record("human-authority", result="ok")
         with local_audit.bind_request_principal(request_audit.principal()):
+            if route.operation in {"chat", "chat-integration-submit"}:
+                self._stream_chat_route(parts, route, request_audit)
+                return None
             return self._route(parts, route)
 
     def _handle(self) -> None:

@@ -13,6 +13,7 @@ from unittest import mock
 from local import authority
 from local.errors import ApiProblemError
 from local.http import server
+from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as contract
 
 
@@ -34,7 +35,21 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         for name, value in headers:
             handler.headers.add_header(name, value)
         handler.rfile = BytesIO(body)
+        handler.wfile = BytesIO()
+        handler.requestline = f"{method} {path} HTTP/1.1"
+        handler.request_version = "HTTP/1.1"
         return handler
+
+    @staticmethod
+    def _stream_records(handler: server.Handler) -> tuple[bytes, list[dict[str, object]]]:
+        headers, body = handler.wfile.getvalue().split(b"\r\n\r\n", 1)
+        records: list[dict[str, object]] = []
+        while body != b"0\r\n\r\n":
+            size_raw, body = body.split(b"\r\n", 1)
+            size = int(size_raw, 16)
+            record_raw, body = body[:size], body[size + 2 :]
+            records.append(progress_contract.decode_line(record_raw))
+        return headers, records
 
     @staticmethod
     def _evidence() -> authority.Evidence:
@@ -149,7 +164,14 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
     def test_chat_assertion_binds_raw_json_and_model_credential_digest(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'
-        chat = mock.Mock(return_value={"team_id": "team_1", "reply": "done"})
+        def execute_chat(_team_id, _body, _provider, _api_key, progress):
+            with progress.span("team-context"):
+                pass
+            with progress.span("model"):
+                pass
+            return {"team_id": "team_1", "reply": "done"}
+
+        chat = mock.Mock(side_effect=execute_chat)
         controller = SimpleNamespace(chat_turn_service=SimpleNamespace(chat=chat))
         api_key = "sk-test-0123456789"
         handler = self._handler(
@@ -188,6 +210,23 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             },
         )
         chat.assert_called_once()
+        response_headers, records = self._stream_records(handler)
+        self.assertIn(b"Content-Type: application/x-ndjson", response_headers)
+        self.assertIn(b"Transfer-Encoding: chunked", response_headers)
+        self.assertEqual(
+            [(record.get("phase"), record.get("state")) for record in records[:-1]],
+            [
+                ("team-context", "started"),
+                ("team-context", "finished"),
+                ("model", "started"),
+                ("model", "finished"),
+            ],
+        )
+        self.assertEqual([record["seq"] for record in records[:-1]], [1, 2, 3, 4])
+        self.assertEqual(records[-1]["type"], "terminal")
+        self.assertEqual(records[-1]["status"], HTTPStatus.OK)
+        self.assertEqual(records[-1]["body"]["reply"], "done")
+        self.assertNotIn(api_key.encode(), handler.wfile.getvalue())
 
     def test_file_content_is_not_read_before_supervisor_verification(self) -> None:
         body = b"protected file"

@@ -483,7 +483,7 @@ class LocalContractTests(LocalContractCase):
 
         class Controller:
             chat_turn_service = SimpleNamespace(
-                chat=lambda team_id, payload, provider, api_key: (
+                chat=lambda team_id, payload, provider, api_key, _progress=None: (
                     captured.update(
                         team_id=team_id,
                         payload=payload,

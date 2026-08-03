@@ -7,6 +7,35 @@ from http import HTTPStatus
 from core.http import stdlib
 
 
+def classify_failure(
+    exc: Exception,
+    problem_type: type[Exception],
+    docker_error_type: type[Exception],
+) -> stdlib.HttpFailure:
+    """Project one controller exception without exposing its payload."""
+    if isinstance(exc, problem_type):
+        return stdlib.HttpFailure(
+            exc.status,
+            exc.message,
+            exc.code,
+            "denied" if exc.status < 500 else "error",
+            exc.code,
+        )
+    if isinstance(exc, docker_error_type):
+        return stdlib.HttpFailure(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Docker is unavailable",
+            "docker-error",
+            "error",
+        )
+    return stdlib.HttpFailure(
+        HTTPStatus.INTERNAL_SERVER_ERROR,
+        "internal error",
+        "internal-error",
+        "error",
+    )
+
+
 def dispatch_route(route, record, send, problem_type: type[Exception], docker_error_type: type[Exception]) -> None:
     operation = "request"
     team_id = None
@@ -14,33 +43,16 @@ def dispatch_route(route, record, send, problem_type: type[Exception], docker_er
 
     def action() -> None:
         nonlocal operation, team_id, assistant_id
-        status, payload, operation, team_id, assistant_id = route()
+        result = route()
+        if result is None:
+            return
+        status, payload, operation, team_id, assistant_id = result
         trace_id = record(operation, result="ok", team_id=team_id, assistant=assistant_id)
         payload["trace_id"] = trace_id
         send(status, payload)
 
     def classify(exc: Exception) -> stdlib.HttpFailure:
-        if isinstance(exc, problem_type):
-            return stdlib.HttpFailure(
-                exc.status,
-                exc.message,
-                exc.code,
-                "denied" if exc.status < 500 else "error",
-                exc.code,
-            )
-        if isinstance(exc, docker_error_type):
-            return stdlib.HttpFailure(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker is unavailable",
-                "docker-error",
-                "error",
-            )
-        return stdlib.HttpFailure(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            "internal error",
-            "internal-error",
-            "error",
-        )
+        return classify_failure(exc, problem_type, docker_error_type)
 
     def emit(failure: stdlib.HttpFailure) -> None:
         trace_id = record(
