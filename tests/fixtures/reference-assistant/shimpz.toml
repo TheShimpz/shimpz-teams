@@ -1,3 +1,4 @@
+[shimpz]
 spec = 1
 id = "shimpz-cloudflare"
 version = "0.1.0"
@@ -5,7 +6,6 @@ name = "Shimpz Cloudflare"
 summary = "List Cloudflare zones and inspect their DNS records through OAuth."
 creators = ["@roxygens"]
 github = "https://github.com/TheShimpz/shimpz-cloudflare"
-allowed_hosts = ["api.cloudflare.com"]
 genesis = """
 Use this Assistant only to inspect Cloudflare zones and DNS records.
 
@@ -13,6 +13,9 @@ Call list-zones to discover available zones. Call list-dns-records only with a z
 list-zones. Start with page 1 and a small per_page. These Powers are read-only: never claim that a DNS
 record or zone was changed, and never ask the user to paste OAuth credentials.
 """
+
+[network]
+allowed_hosts = ["api.cloudflare.com"]
 
 [integrations.cloudflare]
 scopes = ["zone.read", "dns.read", "offline_access"]

@@ -469,7 +469,14 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
         raise ManifestError("Assistant manifest is invalid TOML") from exc
     if not isinstance(manifest, dict):
         raise ManifestError("Assistant manifest is invalid")
-    required = {
+    required_root = {"shimpz", "network"}
+    if not required_root <= set(manifest) or set(manifest) - (required_root | {"integrations"}):
+        raise ManifestError("Assistant manifest contains an unsupported top-level field")
+    metadata = manifest["shimpz"]
+    network = manifest["network"]
+    if not isinstance(metadata, dict) or not isinstance(network, dict):
+        raise ManifestError("Assistant manifest contains an invalid section")
+    required_metadata = {
         "spec",
         "id",
         "version",
@@ -477,11 +484,10 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
         "summary",
         "creators",
         "github",
-        "allowed_hosts",
         "genesis",
     }
-    if not required <= set(manifest) or set(manifest) - (required | {"integrations"}):
-        raise ManifestError("Assistant manifest contains an unsupported top-level field")
+    if set(metadata) != required_metadata or set(network) != {"allowed_hosts"}:
+        raise ManifestError("Assistant manifest contains an unsupported section field")
     _reject_credential_material(manifest)
     return manifest
 
@@ -489,18 +495,22 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
 def parse_manifest_contract(raw: bytes) -> ManifestContract:
     """Parse the bounded public security contract from one UTF-8 TOML manifest."""
     manifest = _manifest_table(raw)
-    if manifest["spec"] != 1:
+    metadata = manifest["shimpz"]
+    network = manifest["network"]
+    if not isinstance(metadata, dict) or not isinstance(network, dict):
+        raise ManifestError("Assistant manifest contains an invalid section")
+    if metadata["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
-    assistant_id = _identifier(manifest["id"], kind="id")
+    assistant_id = _identifier(metadata["id"], kind="id")
     if assistant_id in {"postgres", "shimpz-assistant-egress"}:
         raise ManifestError("Assistant id is reserved")
-    version = manifest["version"]
+    version = metadata["version"]
     if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")
-    _public_text(manifest["name"], kind="name", maximum=80)
-    _public_text(manifest["summary"], kind="summary", maximum=160)
-    _genesis(manifest["genesis"])
-    creators = manifest["creators"]
+    _public_text(metadata["name"], kind="name", maximum=80)
+    _public_text(metadata["summary"], kind="summary", maximum=160)
+    _genesis(metadata["genesis"])
+    creators = metadata["creators"]
     if (
         not isinstance(creators, list)
         or not 1 <= len(creators) <= 16
@@ -508,7 +518,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
         or len(creators) != len(set(creators))
     ):
         raise ManifestError("Assistant creators are invalid")
-    github = manifest["github"]
+    github = metadata["github"]
     if not isinstance(github, str) or _GITHUB_RE.fullmatch(github) is None:
         raise ManifestError("Assistant github repository is invalid")
 
@@ -522,7 +532,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
         integration_declarations[integration_id] = metadata["scopes"]
 
     return canonical_manifest_contract(
-        allowed_hosts=manifest["allowed_hosts"],
+        allowed_hosts=network["allowed_hosts"],
         integration_declarations=integration_declarations,
     )
 
@@ -530,7 +540,10 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
 def parse_manifest_genesis(raw: bytes) -> str:
     """Read the canonical model guidance from one complete Spec v1 manifest."""
     manifest = _manifest_table(raw)
-    return _genesis(manifest["genesis"]).strip()
+    metadata = manifest["shimpz"]
+    if not isinstance(metadata, dict):
+        raise ManifestError("Assistant manifest contains an invalid section")
+    return _genesis(metadata["genesis"]).strip()
 
 
 def _bounded_archive(chunks: Iterable[bytes], maximum: int = MAX_ARCHIVE_BYTES) -> bytes:

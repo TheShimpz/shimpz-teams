@@ -9,6 +9,7 @@ from assistant import genesis as assistant_genesis
 
 def manifest(genesis: str = "Use only the declared Powers.") -> bytes:
     return f"""
+[shimpz]
 spec = 1
 id = "fixture"
 version = "0.1.0"
@@ -16,10 +17,12 @@ name = "Fixture"
 summary = "Exercise Genesis admission."
 creators = ["@fixture"]
 github = "https://github.com/TheShimpz/fixture"
-allowed_hosts = []
 genesis = \"\"\"
 {genesis}
 \"\"\"
+
+[network]
+allowed_hosts = []
 """.encode()
 
 

@@ -47,6 +47,7 @@ def manifest(
 ) -> bytes:
     hosts = ", ".join(f'"{host}"' for host in allowed_hosts)
     return (
+        "[shimpz]\n"
         "spec = 1\n"
         'id = "fixture-assistant"\n'
         'version = "0.1.0"\n'
@@ -54,9 +55,9 @@ def manifest(
         f'summary = "{summary}"\n'
         f"creators = {creators}\n"
         f'github = "{github}"\n'
-        f"allowed_hosts = [{hosts}]\n"
         'genesis = "Use the available Powers."\n'
-        f"{integrations}"
+        "\n[network]\n"
+        f"allowed_hosts = [{hosts}]\n\n{integrations}"
     ).encode()
 
 
@@ -163,6 +164,14 @@ class AssistantManifestTests(unittest.TestCase):
         for addition in unsupported:
             with self.subTest(addition=addition), self.assertRaises(assistant_manifest.ManifestError):
                 assistant_manifest.parse_manifest_contract(manifest() + addition)
+
+    def test_retired_root_fields_and_network_inside_shimpz_fail_closed(self) -> None:
+        retired_root = manifest().replace(b"[shimpz]\n", b"").replace(b"\n[network]\n", b"\n")
+        network_inside_shimpz = manifest().replace(b"\n[network]\n", b"\n")
+
+        for content in (retired_root, network_inside_shimpz):
+            with self.subTest(content=content), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest.parse_manifest_contract(content)
 
     def test_unknown_provider_and_unreviewed_scopes_fail_closed(self) -> None:
         invalid = (

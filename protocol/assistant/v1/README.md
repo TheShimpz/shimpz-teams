@@ -9,8 +9,12 @@ An Assistant repository contains `shimpz.toml`, `pyproject.toml`, and a required
 Each direct `powers/*.py` file defines exactly one `@power async def run`. The filename is the Power
 id after replacing underscores with hyphens. `lib/` and `tests/` are optional author-owned code.
 
-The manifest is represented by `manifest.schema.json`. Its required `id` is the stable public
-Assistant identity: 1–40 lowercase dash-separated characters, excluding Team infrastructure aliases.
+The manifest is represented by `manifest.schema.json`. Identity, version, disclosure, and Genesis
+live under the required `[shimpz]` table. Exact outbound hosts live under the required `[network]`
+table. Optional provider requests remain peer `[integrations.<id>]` tables. Root-level metadata and
+unknown fields are rejected rather than accepted as compatibility syntax. The required `[shimpz].id`
+is the stable public Assistant identity: 1–40
+lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
 lowercase username using only letters, digits, and internal dashes.
 `manifest-vectors.json` freezes complete positive and negative manifests across schema, publication,

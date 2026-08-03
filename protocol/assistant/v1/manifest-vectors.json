@@ -4,67 +4,82 @@
     {
       "name": "minimal",
       "valid": true,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "public_hosts_and_multiple_creators",
       "valid": true,
-      "manifest": "spec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@the-shimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@the-shimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n\n[network]\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\n"
+    },
+    {
+      "name": "legacy_root_fields",
+      "valid": false,
+      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "missing_network",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n"
+    },
+    {
+      "name": "allowed_hosts_in_shimpz",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\nallowed_hosts = []\n"
     },
     {
       "name": "missing_id",
       "valid": false,
-      "manifest": "spec = 1\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
-      "name": "unknown_top_level_field",
+      "name": "unknown_shimpz_field",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\nundeclared = true\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\nundeclared = true\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "reserved_assistant_id",
       "valid": false,
-      "manifest": "spec = 1\nid = \"postgres\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"postgres\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "uppercase_assistant_id",
       "valid": false,
-      "manifest": "spec = 1\nid = \"Hello-World\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"Hello-World\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "prerelease_version",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0-beta.1\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0-beta.1\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "duplicate_creators",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\", \"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\", \"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "noncanonical_creator",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@TheShimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@TheShimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "duplicate_allowed_hosts",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = [\"api.example.org\", \"api.example.org\"]\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = [\"api.example.org\", \"api.example.org\"]\n"
     },
     {
       "name": "empty_genesis",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "invalid_github_repository",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world-\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world-\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
       "name": "unknown_integration_field",
       "valid": false,
-      "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n\n[integrations.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n\n[integrations.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
     }
   ]
 }
