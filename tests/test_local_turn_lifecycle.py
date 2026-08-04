@@ -46,6 +46,43 @@ LOCAL_TEAM_RESIDUES = [
 
 
 class LocalTurnLifecycleTests(LocalContractCase):
+    def test_chat_stop_does_not_hold_the_global_guard_during_power_termination(self) -> None:
+        token = "turn-token"
+        container = object()
+        stop_started = threading.Event()
+        release_stop = threading.Event()
+        result: list[dict[str, object]] = []
+        service = local_app.ChatTurnService(
+            local_app.ChatTurnDependencies(
+                integration_challenges=SimpleNamespace(cancel_team=lambda _team_id: False),
+                oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
+            )
+        )
+        service._delete_chat_continuation = lambda _team_id: False
+        service._active_chat_tokens["team_1"] = token
+        service._active_power_containers["team_1"] = (token, container)
+
+        def fail_stop_power(actual_container: object) -> None:
+            self.assertIs(actual_container, container)
+            self.assertIn(token, service._cancelled_chat_tokens)
+            stop_started.set()
+            release_stop.wait(timeout=2)
+
+        service.assistant_lifecycle = SimpleNamespace(
+            _network=lambda _team_id: None,
+            _fail_stop_power=fail_stop_power,
+        )
+        worker = threading.Thread(target=lambda: result.append(service.stop_chat("team_1")), daemon=True)
+        worker.start()
+        self.assertTrue(stop_started.wait(timeout=1))
+        self.assertTrue(service._active_chat_guard.acquire(timeout=0.1))
+        service._active_chat_guard.release()
+        release_stop.set()
+        worker.join(timeout=1)
+
+        self.assertFalse(worker.is_alive())
+        self.assertIs(result[0]["confirmed"], True)
+
     def test_destroy_drains_chat_and_deletes_generation_before_teardown(self) -> None:
         events: list[object] = []
         controller = object.__new__(local_app.LocalController)
