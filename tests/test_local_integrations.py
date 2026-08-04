@@ -619,7 +619,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         completed = {"team_id": "team_1", "team_name": "Team One", "reply": "Done"}
         chat_turn_service = SimpleNamespace(
             pending_chat_integrations=lambda team_id: pending,
-            resume_chat_integrations=lambda team_id, body, provider, api_key: completed,
+            resume_chat_integrations=lambda team_id, body, provider, api_key, progress: completed,
         )
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
