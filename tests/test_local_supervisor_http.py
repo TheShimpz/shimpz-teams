@@ -228,6 +228,43 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(records[-1]["body"]["reply"], "done")
         self.assertNotIn(api_key.encode(), handler.wfile.getvalue())
 
+    def test_chat_stream_audit_failure_cannot_start_a_second_http_response(self) -> None:
+        raw = b'{"message":"hello","files":[],"assistant_ids":[]}'
+        controller = SimpleNamespace(
+            chat_turn_service=SimpleNamespace(
+                chat=lambda *_args, **_kwargs: {"team_id": "team_1", "reply": "done"}
+            )
+        )
+        handler = self._handler(
+            "POST",
+            "/v1/teams/team_1/chat",
+            controller,
+            body=raw,
+            headers=(
+                (contract.ASSERTION_HEADER, "Bearer assertion"),
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(raw))),
+                ("X-Shimpz-Model-Provider", "openai"),
+                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
+            ),
+        )
+
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()),
+            mock.patch.object(
+                server.local_audit,
+                "record",
+                side_effect=("d" * 32, RuntimeError("disk full"), RuntimeError("disk full")),
+            ),
+        ):
+            result = handler._authorized_route(server._RequestAudit())
+
+        response = handler.wfile.getvalue()
+        self.assertIsNone(result)
+        self.assertEqual(response.count(b" 200 OK\r\n"), 1)
+        self.assertNotIn(b" 500 Internal Server Error\r\n", response)
+        self.assertTrue(handler.close_connection)
+
     def test_file_content_is_not_read_before_supervisor_verification(self) -> None:
         body = b"protected file"
         put_file = mock.Mock()

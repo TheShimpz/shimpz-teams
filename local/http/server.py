@@ -489,6 +489,20 @@ class Handler(BaseHTTPRequestHandler):
         route: strict_http.ControllerRouteMatch,
         request_audit: _RequestAudit,
     ) -> None:
+        """Contain stream failures after the first response byte and never re-enter HTTP dispatch."""
+        completed = False
+        with contextlib.suppress(Exception):
+            self._write_chat_stream(parts, route, request_audit)
+            completed = True
+        if not completed:
+            self.close_connection = True
+
+    def _write_chat_stream(
+        self,
+        parts: list[str],
+        route: strict_http.ControllerRouteMatch,
+        request_audit: _RequestAudit,
+    ) -> None:
         """Push advisory progress followed by one authoritative terminal record."""
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/x-ndjson")
