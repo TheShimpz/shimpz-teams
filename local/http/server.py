@@ -512,13 +512,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         writable = True
+
         def emit_progress(event: dict[str, object]) -> None:
             nonlocal writable
             if not writable:
                 return
             try:
                 self._write_stream_record({"type": "progress", **event})
-            except (OSError, progress_contract.ProgressContractError):
+            except OSError, progress_contract.ProgressContractError:
                 writable = False
 
         reporter = chat_progress.Reporter(emit_progress)
@@ -558,7 +559,7 @@ class Handler(BaseHTTPRequestHandler):
         if writable:
             try:
                 self._write_stream_record(terminal)
-            except (OSError, progress_contract.ProgressContractError):
+            except OSError, progress_contract.ProgressContractError:
                 writable = False
         if writable:
             with contextlib.suppress(OSError):

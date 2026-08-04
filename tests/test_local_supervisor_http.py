@@ -164,6 +164,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
     def test_chat_assertion_binds_raw_json_and_model_credential_digest(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'
+
         def execute_chat(_team_id, _body, _provider, _api_key, progress):
             with progress.span("team-context"):
                 pass
@@ -231,9 +232,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def test_chat_stream_audit_failure_cannot_start_a_second_http_response(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'
         controller = SimpleNamespace(
-            chat_turn_service=SimpleNamespace(
-                chat=lambda *_args, **_kwargs: {"team_id": "team_1", "reply": "done"}
-            )
+            chat_turn_service=SimpleNamespace(chat=lambda *_args, **_kwargs: {"team_id": "team_1", "reply": "done"})
         )
         handler = self._handler(
             "POST",

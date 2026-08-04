@@ -90,7 +90,7 @@ def decode_bounded_json_frame(
             object_pairs_hook=unique_json_object,
             parse_constant=_reject_json_constant,
         )
-    except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError):
+    except json.JSONDecodeError, UnicodeError, ValueError, RecursionError:
         raise FrameError(400, invalid_json_detail) from None
     if not isinstance(value, dict):
         raise FrameError(400, "WebSocket JSON must be an object")

@@ -101,13 +101,16 @@ def encode_record(value: object) -> bytes:
     """Encode one canonical NDJSON record within its independent line bound."""
     try:
         canonical = canonical_record(value)
-        encoded = json.dumps(
-            canonical,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-            allow_nan=False,
-        ).encode("utf-8") + b"\n"
+        encoded = (
+            json.dumps(
+                canonical,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+                allow_nan=False,
+            ).encode("utf-8")
+            + b"\n"
+        )
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise ProgressContractError("chat stream record is not JSON") from exc
     maximum = MAX_PROGRESS_LINE_BYTES if canonical["type"] == "progress" else MAX_LINE_BYTES

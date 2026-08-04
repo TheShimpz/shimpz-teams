@@ -54,9 +54,7 @@ class Reporter:
             raise ValueError("invalid chat progress position")
         if state == "started" and elapsed_ms is not None:
             raise ValueError("started progress cannot have elapsed time")
-        if state == "finished" and (
-            type(elapsed_ms) is not int or not 0 <= elapsed_ms <= MAX_ELAPSED_MS
-        ):
+        if state == "finished" and (type(elapsed_ms) is not int or not 0 <= elapsed_ms <= MAX_ELAPSED_MS):
             raise ValueError("invalid chat progress duration")
         if self.sequence >= MAX_SEQUENCE:
             return
