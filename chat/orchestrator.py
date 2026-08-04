@@ -148,7 +148,13 @@ def _drive(
             if strategy.cancelled():
                 raise ChatStoppedError("chat turn stopped")
             strategy.validate_context()
-            with strategy.progress.span("power", index=index, total=len(batch)):
+            with strategy.progress.span(
+                "power",
+                index=index,
+                total=len(batch),
+                assistant_id=request.assistant_id,
+                power=request.power,
+            ):
                 result = strategy.invoke_power(request)
             results[request.interrupt_id] = result
             batch_invoked.append(InvokedPower(assistant_id=request.assistant_id, power=request.power))

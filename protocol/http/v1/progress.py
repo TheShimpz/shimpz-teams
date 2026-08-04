@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 PHASES = frozenset(
     {
@@ -16,7 +17,11 @@ PHASES = frozenset(
 STATES = frozenset({"started", "finished"})
 MAX_EVENTS = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
-MAX_PROGRESS_LINE_BYTES = 128
+MAX_ASSISTANT_ID_CHARS = 40
+MAX_POWER_ID_CHARS = 80
+IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
+# Exact compact JSON size of the largest valid finished Power progress record, including newline.
+MAX_PROGRESS_LINE_BYTES = 261
 MAX_LINE_BYTES = 256 * 1024
 MAX_STREAM_BYTES = MAX_EVENTS * MAX_PROGRESS_LINE_BYTES + MAX_LINE_BYTES
 
@@ -44,6 +49,12 @@ def _integer(value: object, *, minimum: int, maximum: int, label: str) -> int:
     return value
 
 
+def _identifier(value: object, *, maximum: int, label: str) -> str:
+    if not isinstance(value, str) or len(value) > maximum or IDENTIFIER_RE.fullmatch(value) is None:
+        raise ProgressContractError(f"invalid {label}")
+    return value
+
+
 def canonical_event(value: object) -> dict[str, object]:
     """Return one metadata-only progress occurrence."""
     if not isinstance(value, dict):
@@ -56,7 +67,7 @@ def canonical_event(value: object) -> dict[str, object]:
     if state == "finished":
         expected.add("elapsed_ms")
     if phase == "power":
-        expected.update({"index", "total"})
+        expected.update({"assistant_id", "index", "power", "total"})
     if set(value) != expected:
         raise ProgressContractError("invalid progress event fields")
     event: dict[str, object] = {
@@ -73,7 +84,13 @@ def canonical_event(value: object) -> dict[str, object]:
         )
     if phase == "power":
         total = _integer(value["total"], minimum=1, maximum=512, label="Power count")
+        event["assistant_id"] = _identifier(
+            value["assistant_id"],
+            maximum=MAX_ASSISTANT_ID_CHARS,
+            label="Assistant id",
+        )
         event["index"] = _integer(value["index"], minimum=1, maximum=total, label="Power index")
+        event["power"] = _identifier(value["power"], maximum=MAX_POWER_ID_CHARS, label="Power id")
         event["total"] = total
     return event
 

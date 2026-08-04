@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
@@ -18,6 +19,9 @@ PHASES = frozenset(
 )
 MAX_SEQUENCE = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
+MAX_ASSISTANT_ID_CHARS = 40
+MAX_POWER_ID_CHARS = 80
+_IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 
 EventSink = Callable[[dict[str, object]], None]
 Clock = Callable[[], int]
@@ -25,6 +29,22 @@ Clock = Callable[[], int]
 
 def _ignore(_event: dict[str, object]) -> None:
     return
+
+
+def _validate_identity(phase: str, assistant_id: str | None, power: str | None) -> None:
+    if phase != "power":
+        if assistant_id is not None or power is not None:
+            raise ValueError("invalid chat progress identity")
+        return
+    if (
+        assistant_id is None
+        or power is None
+        or len(assistant_id) > MAX_ASSISTANT_ID_CHARS
+        or len(power) > MAX_POWER_ID_CHARS
+        or _IDENTIFIER_RE.fullmatch(assistant_id) is None
+        or _IDENTIFIER_RE.fullmatch(power) is None
+    ):
+        raise ValueError("invalid chat progress identity")
 
 
 @dataclass(slots=True)
@@ -43,6 +63,8 @@ class Reporter:
         elapsed_ms: int | None = None,
         index: int | None = None,
         total: int | None = None,
+        assistant_id: str | None = None,
+        power: str | None = None,
     ) -> None:
         if self.sink is _ignore:
             return
@@ -52,6 +74,7 @@ class Reporter:
             raise ValueError("incomplete chat progress position")
         if index is not None and (phase != "power" or not 1 <= index <= total <= 512):
             raise ValueError("invalid chat progress position")
+        _validate_identity(phase, assistant_id, power)
         if state == "started" and elapsed_ms is not None:
             raise ValueError("started progress cannot have elapsed time")
         if state == "finished" and (type(elapsed_ms) is not int or not 0 <= elapsed_ms <= MAX_ELAPSED_MS):
@@ -69,6 +92,8 @@ class Reporter:
         if index is not None:
             event["index"] = index
             event["total"] = total
+            event["assistant_id"] = assistant_id
+            event["power"] = power
         with contextlib.suppress(Exception):
             self.sink(event)
 
@@ -79,6 +104,8 @@ class Reporter:
         *,
         index: int | None = None,
         total: int | None = None,
+        assistant_id: str | None = None,
+        power: str | None = None,
     ) -> Iterator[None]:
         """Emit one measured operation pair without affecting its outcome."""
         if self.sink is _ignore:
@@ -88,7 +115,14 @@ class Reporter:
             yield
             return
         started_ns = self.clock_ns()
-        self._emit(phase, "started", index=index, total=total)
+        self._emit(
+            phase,
+            "started",
+            index=index,
+            total=total,
+            assistant_id=assistant_id,
+            power=power,
+        )
         try:
             yield
         finally:
@@ -99,4 +133,6 @@ class Reporter:
                 elapsed_ms=elapsed_ms,
                 index=index,
                 total=total,
+                assistant_id=assistant_id,
+                power=power,
             )

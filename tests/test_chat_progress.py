@@ -15,13 +15,27 @@ class ChatProgressTests(unittest.TestCase):
         ticks = iter((1_000_000_000, 1_012_000_000))
         reporter = chat_progress.Reporter(events.append, lambda: next(ticks))
 
-        with reporter.span("power", index=1, total=2):
+        with reporter.span(
+            "power",
+            index=1,
+            total=2,
+            assistant_id="cloudflare-helper",
+            power="list-zones",
+        ):
             pass
 
         self.assertEqual(
             events,
             [
-                {"seq": 1, "phase": "power", "state": "started", "index": 1, "total": 2},
+                {
+                    "seq": 1,
+                    "phase": "power",
+                    "state": "started",
+                    "index": 1,
+                    "total": 2,
+                    "assistant_id": "cloudflare-helper",
+                    "power": "list-zones",
+                },
                 {
                     "seq": 2,
                     "phase": "power",
@@ -29,6 +43,8 @@ class ChatProgressTests(unittest.TestCase):
                     "elapsed_ms": 12,
                     "index": 1,
                     "total": 2,
+                    "assistant_id": "cloudflare-helper",
+                    "power": "list-zones",
                 },
             ],
         )
@@ -106,6 +122,80 @@ class ChatProgressTests(unittest.TestCase):
         )
         power_events = [event for event in events if event["phase"] == "power"]
         self.assertTrue(all(event["index"] == event["total"] == 1 for event in power_events))
+        self.assertTrue(
+            all(
+                (event["assistant_id"], event["power"]) == ("hello-pulse", "hello")
+                for event in power_events
+            )
+        )
+
+    def test_reporter_rejects_identity_outside_power_and_invalid_identifiers(self) -> None:
+        reporter = chat_progress.Reporter([].append)
+
+        with self.assertRaisesRegex(ValueError, "progress identity"), reporter.span(
+            "model", assistant_id="helper", power="lookup"
+        ):
+            pass
+        with self.assertRaisesRegex(ValueError, "progress identity"), reporter.span(
+            "power", index=1, total=1, assistant_id="Helper", power="lookup"
+        ):
+            pass
+
+    def test_largest_power_progress_record_matches_the_derived_line_bound(self) -> None:
+        encoded = progress_contract.encode_record(
+            {
+                "type": "progress",
+                "seq": progress_contract.MAX_EVENTS,
+                "phase": "power",
+                "state": "finished",
+                "elapsed_ms": progress_contract.MAX_ELAPSED_MS,
+                "assistant_id": "a" * progress_contract.MAX_ASSISTANT_ID_CHARS,
+                "power": "p" * progress_contract.MAX_POWER_ID_CHARS,
+                "index": 512,
+                "total": 512,
+            }
+        )
+
+        self.assertEqual(len(encoded), progress_contract.MAX_PROGRESS_LINE_BYTES)
+
+    def test_resumed_batch_repeats_preparation_then_reports_power_identity(self) -> None:
+        events: list[dict[str, object]] = []
+        reporter = chat_progress.Reporter(events.append)
+        runtime = FakeRuntime([suspended(), completed("Finished")])
+        pause_once = iter((True, False))
+        current_strategy = strategy(
+            lambda _assistant, _power, payload: payload,
+            lambda _request: {"ok": True},
+            pause_before_batch=lambda _batch: next(pause_once),
+            progress=reporter,
+        )
+
+        paused = chat_orchestrator.run_until_pause(
+            runtime,
+            context(),
+            "Run the Power",
+            current_strategy,
+        )
+        self.assertIsInstance(paused, chat_orchestrator.ChatSuspension)
+        self.assertFalse(any(event["phase"] == "power" for event in events))
+
+        chat_orchestrator.continue_after_pause(
+            runtime,
+            context(),
+            paused.continuation,
+            current_strategy,
+        )
+
+        phases = [event["phase"] for event in events if event["state"] == "started"]
+        self.assertEqual(phases.count("power-preparation"), 2)
+        power_events = [event for event in events if event["phase"] == "power"]
+        self.assertEqual(len(power_events), 2)
+        self.assertTrue(
+            all(
+                (event["assistant_id"], event["power"]) == ("hello-pulse", "hello")
+                for event in power_events
+            )
+        )
 
 
 if __name__ == "__main__":
