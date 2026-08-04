@@ -123,21 +123,20 @@ class ChatProgressTests(unittest.TestCase):
         power_events = [event for event in events if event["phase"] == "power"]
         self.assertTrue(all(event["index"] == event["total"] == 1 for event in power_events))
         self.assertTrue(
-            all(
-                (event["assistant_id"], event["power"]) == ("hello-pulse", "hello")
-                for event in power_events
-            )
+            all((event["assistant_id"], event["power"]) == ("hello-pulse", "hello") for event in power_events)
         )
 
     def test_reporter_rejects_identity_outside_power_and_invalid_identifiers(self) -> None:
         reporter = chat_progress.Reporter([].append)
 
-        with self.assertRaisesRegex(ValueError, "progress identity"), reporter.span(
-            "model", assistant_id="helper", power="lookup"
+        with (
+            self.assertRaisesRegex(ValueError, "progress identity"),
+            reporter.span("model", assistant_id="helper", power="lookup"),
         ):
             pass
-        with self.assertRaisesRegex(ValueError, "progress identity"), reporter.span(
-            "power", index=1, total=1, assistant_id="Helper", power="lookup"
+        with (
+            self.assertRaisesRegex(ValueError, "progress identity"),
+            reporter.span("power", index=1, total=1, assistant_id="Helper", power="lookup"),
         ):
             pass
 
@@ -191,10 +190,7 @@ class ChatProgressTests(unittest.TestCase):
         power_events = [event for event in events if event["phase"] == "power"]
         self.assertEqual(len(power_events), 2)
         self.assertTrue(
-            all(
-                (event["assistant_id"], event["power"]) == ("hello-pulse", "hello")
-                for event in power_events
-            )
+            all((event["assistant_id"], event["power"]) == ("hello-pulse", "hello") for event in power_events)
         )
 
 
