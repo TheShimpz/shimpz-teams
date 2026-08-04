@@ -55,7 +55,16 @@ class ChatProgressTests(unittest.TestCase):
         reply = "\U0001f642" * 60_000
 
         encoded = progress_contract.encode_record(
-            {"type": "terminal", "status": 200, "body": {"team_id": "team_1", "reply": reply}}
+            {
+                "type": "terminal",
+                "status": 200,
+                "body": {
+                    "team_id": "a" * 40,
+                    "team_name": "T" * 80,
+                    "reply": reply,
+                    "trace_id": "f" * 32,
+                },
+            }
         )
 
         self.assertLessEqual(len(encoded), progress_contract.MAX_LINE_BYTES)
