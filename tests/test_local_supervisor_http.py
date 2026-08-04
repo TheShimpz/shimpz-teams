@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unittest
 from email.message import Message
 from http import HTTPStatus
@@ -228,6 +229,39 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(records[-1]["status"], HTTPStatus.OK)
         self.assertEqual(records[-1]["body"]["reply"], "done")
         self.assertNotIn(api_key.encode(), handler.wfile.getvalue())
+
+    def test_chat_accepts_the_public_multibyte_message_boundary(self) -> None:
+        message = "界" * 16_000
+        raw = json.dumps(
+            {"message": message, "files": [], "assistant_ids": []},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.assertGreater(len(raw), 24 * 1024)
+        self.assertLessEqual(len(raw), server.MAX_CHAT_BODY_BYTES)
+        chat = mock.Mock(return_value={"team_id": "team_1", "reply": "done"})
+        handler = self._handler(
+            "POST",
+            "/v1/teams/team_1/chat",
+            SimpleNamespace(chat_turn_service=SimpleNamespace(chat=chat)),
+            body=raw,
+            headers=(
+                (contract.ASSERTION_HEADER, "Bearer assertion"),
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(raw))),
+                ("X-Shimpz-Model-Provider", "openai"),
+                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
+            ),
+        )
+
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
+            mock.patch.object(server.local_audit, "record", return_value="c" * 32),
+        ):
+            handler._authorized_route(server._RequestAudit())
+
+        self.assertEqual(verify.call_args.kwargs["body"]["length"], len(raw))
+        self.assertEqual(chat.call_args.args[1]["message"], message)
 
     def test_chat_stream_audit_failure_cannot_start_a_second_http_response(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'

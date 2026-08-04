@@ -12,6 +12,7 @@ ASSERTION_KEY_ID = "local-supervisor-v1"
 ASSERTION_MAX_TTL_SECONDS = 15
 ASSERTION_CLOCK_SKEW_SECONDS = 5
 ASSERTION_MAX_BYTES = 4096
+MAX_JSON_BODY_BYTES = 128 * 1024
 JWT_HEADER = {"alg": "EdDSA", "kid": ASSERTION_KEY_ID, "typ": "JWT"}
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
@@ -56,7 +57,11 @@ def _body(value: object) -> dict[str, object]:
         }
     if kind == "json":
         length = value.get("length")
-        if set(value) != {"kind", "length", "sha256"} or type(length) is not int or not 2 <= length <= 24 * 1024:
+        if (
+            set(value) != {"kind", "length", "sha256"}
+            or type(length) is not int
+            or not 2 <= length <= MAX_JSON_BODY_BYTES
+        ):
             raise SupervisorAssertionError("invalid JSON assertion body")
         return {
             "kind": "json",

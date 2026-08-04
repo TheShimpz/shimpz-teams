@@ -111,6 +111,16 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 now=NOW,
             )
 
+    def test_json_body_binding_accepts_the_chat_transport_boundary_only(self) -> None:
+        body = {
+            "kind": "json",
+            "length": contract.MAX_JSON_BODY_BYTES,
+            "sha256": "d" * 64,
+        }
+        self.assertEqual(contract.canonical_claims(_claims(body=body))["body"], body)
+        with self.assertRaisesRegex(contract.SupervisorAssertionError, "invalid JSON assertion body"):
+            contract.canonical_claims(_claims(body={**body, "length": contract.MAX_JSON_BODY_BYTES + 1}))
+
     def test_mismatch_and_invalid_signature_do_not_consume_nonce(self) -> None:
         guard = authority.ReplayGuard(capacity=1)
         claims = _claims()
