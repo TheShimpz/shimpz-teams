@@ -182,6 +182,34 @@
       "record": {"type": "terminal", "status": true, "body": {}}
     }
   ],
+  "chat_stream_lines": [
+    {
+      "name": "canonical_terminal_line",
+      "valid": true,
+      "line": "{\"body\":{\"reply\":\"done\",\"team_id\":\"team_1\"},\"status\":200,\"type\":\"terminal\"}\n",
+      "record": {"type": "terminal", "status": 200, "body": {"reply": "done", "team_id": "team_1"}}
+    },
+    {
+      "name": "duplicate_field_line",
+      "valid": false,
+      "line": "{\"type\":\"terminal\",\"type\":\"terminal\",\"status\":200,\"body\":{}}\n"
+    },
+    {
+      "name": "non_finite_line",
+      "valid": false,
+      "line": "{\"type\":\"terminal\",\"status\":NaN,\"body\":{}}\n"
+    },
+    {
+      "name": "missing_newline",
+      "valid": false,
+      "line": "{\"type\":\"terminal\",\"status\":200,\"body\":{}}"
+    },
+    {
+      "name": "over_max_line",
+      "valid": false,
+      "generated": "over-max-line"
+    }
+  ],
   "identifiers": {
     "team": {
       "valid": ["a", "team_01"],

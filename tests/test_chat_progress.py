@@ -6,6 +6,7 @@ from test_chat_orchestrator import FakeRuntime, completed, context, strategy, su
 
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
+from protocol.http.v1 import progress as progress_contract
 
 
 class ChatProgressTests(unittest.TestCase):
@@ -49,6 +50,16 @@ class ChatProgressTests(unittest.TestCase):
 
         self.assertEqual(events, [])
         self.assertEqual(reporter.sequence, chat_progress.MAX_SEQUENCE - 1)
+
+    def test_terminal_framing_accepts_the_largest_multibyte_public_reply(self) -> None:
+        reply = "\U0001f642" * 60_000
+
+        encoded = progress_contract.encode_record(
+            {"type": "terminal", "status": 200, "body": {"team_id": "team_1", "reply": reply}}
+        )
+
+        self.assertLessEqual(len(encoded), progress_contract.MAX_LINE_BYTES)
+        self.assertEqual(progress_contract.decode_line(encoded)["body"]["reply"], reply)
 
     def test_orchestrator_reports_real_model_power_and_validation_operations(self) -> None:
         events: list[dict[str, object]] = []

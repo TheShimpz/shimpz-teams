@@ -16,8 +16,9 @@ PHASES = frozenset(
 STATES = frozenset({"started", "finished"})
 MAX_EVENTS = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
-MAX_LINE_BYTES = 128 * 1024
-MAX_STREAM_BYTES = 512 * 1024
+MAX_PROGRESS_LINE_BYTES = 128
+MAX_LINE_BYTES = 256 * 1024
+MAX_STREAM_BYTES = MAX_EVENTS * MAX_PROGRESS_LINE_BYTES + MAX_LINE_BYTES
 
 
 class ProgressContractError(ValueError):
@@ -99,8 +100,9 @@ def canonical_record(value: object) -> dict[str, object]:
 def encode_record(value: object) -> bytes:
     """Encode one canonical NDJSON record within its independent line bound."""
     try:
+        canonical = canonical_record(value)
         encoded = json.dumps(
-            canonical_record(value),
+            canonical,
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -108,7 +110,8 @@ def encode_record(value: object) -> bytes:
         ).encode("utf-8") + b"\n"
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise ProgressContractError("chat stream record is not JSON") from exc
-    if len(encoded) > MAX_LINE_BYTES:
+    maximum = MAX_PROGRESS_LINE_BYTES if canonical["type"] == "progress" else MAX_LINE_BYTES
+    if len(encoded) > maximum:
         raise ProgressContractError("chat stream record exceeds its limit")
     return encoded
 
@@ -125,4 +128,7 @@ def decode_line(raw: object) -> dict[str, object]:
         )
     except (json.JSONDecodeError, UnicodeError, ValueError, RecursionError) as exc:
         raise ProgressContractError("invalid chat stream JSON") from exc
-    return canonical_record(value)
+    record = canonical_record(value)
+    if record["type"] == "progress" and len(raw) > MAX_PROGRESS_LINE_BYTES:
+        raise ProgressContractError("chat progress line exceeds its limit")
+    return record

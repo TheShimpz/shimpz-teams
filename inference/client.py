@@ -15,10 +15,11 @@ from urllib.parse import urlparse
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
 MAX_RESPONSE_BYTES = 256 * 1024
-MAX_REPLY_CHARS = 64 * 1024
+MAX_REPLY_CHARS = 60_000
 MAX_POWER_REQUESTS = 64
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 POWER_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
+REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class BrainRuntimeError(RuntimeError):
@@ -173,7 +174,11 @@ class BrainRuntimeClient:
             or not isinstance(raw_powers, list)
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        if len(reply) > MAX_REPLY_CHARS or len(raw_powers) > MAX_POWER_REQUESTS:
+        if (
+            len(reply) > MAX_REPLY_CHARS
+            or REPLY_CONTROL_RE.search(reply) is not None
+            or len(raw_powers) > MAX_POWER_REQUESTS
+        ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         powers: list[PowerRequest] = []
         for raw in raw_powers:

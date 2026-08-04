@@ -172,6 +172,8 @@ class BrainRuntimeClientTests(unittest.TestCase):
     def test_malformed_runtime_responses_fail_closed(self):
         invalid = (
             {"status": "completed", "reply": "", "powers": []},
+            {"status": "completed", "reply": "x" * 60_001, "powers": []},
+            {"status": "completed", "reply": "unsafe\u0000reply", "powers": []},
             {"status": "completed", "reply": "ok", "powers": [{"power": "hello"}]},
             {"status": "power-required", "reply": "unexpected", "powers": []},
             {"status": "unknown", "reply": "ok", "powers": []},

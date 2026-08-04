@@ -77,6 +77,20 @@ for case in vectors.get("chat_stream", []):
         if not case["valid"] or value != case["record"]:
             fail(f"Team HTTP chat stream vector differs: {case['name']}")
 
+for case in vectors.get("chat_stream_lines", []):
+    if case.get("generated") == "over-max-line":
+        raw = b"{}" + (b" " * progress.MAX_LINE_BYTES) + b"\n"
+    else:
+        raw = case["line"].encode("utf-8")
+    try:
+        value = progress.decode_line(raw)
+    except progress.ProgressContractError:
+        if case["valid"]:
+            fail(f"Team HTTP chat stream line vector differs: {case['name']}")
+    else:
+        if not case["valid"] or value != case["record"]:
+            fail(f"Team HTTP chat stream line vector differs: {case['name']}")
+
 identifiers = vectors.get("identifiers", {})
 validators = {
     "team": payload.canonical_team_id,
