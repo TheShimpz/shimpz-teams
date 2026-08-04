@@ -90,8 +90,10 @@ Power, resume, and completion. Only a missing OAuth Integration can pause a turn
 executes Powers and resumes the checkpoint.
 
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
-`started`/`finished` records surround actual Team context, model, Power preparation, individual Power,
-Power-result, and reply-validation operations. Finished records carry monotonic elapsed milliseconds;
+`started`/`finished` records surround actual Team context, model, Power preparation, individual Power, and
+Power-delivery operations. `power-delivery` is the durable acknowledgement and journal retirement after the
+model accepted a Power result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
+records carry monotonic elapsed milliseconds;
 Power records also carry their bounded position. One terminal record contains the existing HTTP status and
 response object and remains the only operation result. Progress carries no messages, schemas, arguments,
 results, Assistant identities, provider data, traces, or credentials. A disconnected progress consumer cannot

@@ -11,9 +11,8 @@ PHASES = frozenset(
     {
         "model",
         "power",
+        "power-delivery",
         "power-preparation",
-        "power-result",
-        "reply-validation",
         "team-context",
     }
 )
@@ -85,6 +84,9 @@ class Reporter:
     ) -> Iterator[None]:
         """Emit one measured operation pair without affecting its outcome."""
         if self.sink is _ignore:
+            yield
+            return
+        if self.sequence > MAX_SEQUENCE - 2:
             yield
             return
         started_ns = self.clock_ns()

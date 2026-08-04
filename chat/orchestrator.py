@@ -119,7 +119,7 @@ def _drive(
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "completed":
-            with strategy.progress.span("reply-validation"):
+            with strategy.progress.span("team-context"):
                 strategy.validate_context()
             return ChatOutcome(reply=turn.reply, powers=tuple(invoked))
         if _round == MAX_POWER_ROUNDS:
@@ -161,7 +161,7 @@ def _drive(
             request.interrupt_id for request in resumed.powers
         ):
             raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
-        with strategy.progress.span("power-result"):
+        with strategy.progress.span("power-delivery"):
             strategy.batch_delivered(batch)
         invoked.extend(batch_invoked)
         turn = resumed

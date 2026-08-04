@@ -40,6 +40,16 @@ class ChatProgressTests(unittest.TestCase):
 
         self.assertEqual(reporter.sequence, 2)
 
+    def test_reporter_never_emits_an_unpaired_span_at_its_sequence_cap(self) -> None:
+        events: list[dict[str, object]] = []
+        reporter = chat_progress.Reporter(events.append, sequence=chat_progress.MAX_SEQUENCE - 1)
+
+        with reporter.span("model"):
+            pass
+
+        self.assertEqual(events, [])
+        self.assertEqual(reporter.sequence, chat_progress.MAX_SEQUENCE - 1)
+
     def test_orchestrator_reports_real_model_power_and_validation_operations(self) -> None:
         events: list[dict[str, object]] = []
         reporter = chat_progress.Reporter(events.append)
@@ -68,10 +78,10 @@ class ChatProgressTests(unittest.TestCase):
                 ("power", "finished"),
                 ("model", "started"),
                 ("model", "finished"),
-                ("power-result", "started"),
-                ("power-result", "finished"),
-                ("reply-validation", "started"),
-                ("reply-validation", "finished"),
+                ("power-delivery", "started"),
+                ("power-delivery", "finished"),
+                ("team-context", "started"),
+                ("team-context", "finished"),
             ],
         )
         power_events = [event for event in events if event["phase"] == "power"]

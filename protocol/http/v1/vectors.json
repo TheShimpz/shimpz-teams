@@ -174,7 +174,7 @@
     {
       "name": "finished_without_duration",
       "valid": false,
-      "record": {"type": "progress", "seq": 4, "phase": "reply-validation", "state": "finished"}
+      "record": {"type": "progress", "seq": 4, "phase": "power-delivery", "state": "finished"}
     },
     {
       "name": "boolean_terminal_status",

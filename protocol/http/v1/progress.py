@@ -8,9 +8,8 @@ PHASES = frozenset(
     {
         "model",
         "power",
+        "power-delivery",
         "power-preparation",
-        "power-result",
-        "reply-validation",
         "team-context",
     }
 )
