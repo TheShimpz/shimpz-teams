@@ -23,6 +23,7 @@ from protocol.http.v1 import supervisor as supervisor_contract
 
 TEAM = Path(__file__).resolve().parents[1]
 FIXTURE = TEAM / "tests" / "fixtures" / "reference-assistant"
+FIXTURE_ICON = b"canonical icon"
 
 
 def fixture_source_digest() -> str:
@@ -297,6 +298,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
             "oci_digest": flow.trusted_ref.rsplit("@", 1)[1],
             "manifest_digest": f"sha256:{hashlib.sha256(manifest).hexdigest()}",
             "machine_contract_digest": f"sha256:{hashlib.sha256(machine_contract).hexdigest()}",
+            "icon_digest": f"sha256:{hashlib.sha256(FIXTURE_ICON).hexdigest()}",
             "machine_contract": json.loads(machine_contract),
             "allowed_hosts": ["api.cloudflare.com"],
             "integrations": [

@@ -14,6 +14,7 @@ from local import app
 from local.install import developers
 
 RESOLUTION_PATH = Path("/var/lib/shimpz-local/publications/test-resolution.json")
+FIXTURE_ICON = b"canonical icon"
 
 
 class _Developers:
@@ -27,6 +28,12 @@ class _Developers:
 
     def latest(self, source_digest: str) -> dict[str, object]:
         return self.resolve(source_digest)
+
+    def icon(self, source_digest: str, icon_digest: str) -> bytes:
+        resolution = self.resolve(source_digest)
+        if icon_digest != resolution["icon_digest"]:
+            raise developers.DevelopersError("publication icon digest mismatch")
+        return FIXTURE_ICON
 
 
 class _ArtifactTrust:
