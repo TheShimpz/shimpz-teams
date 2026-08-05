@@ -402,6 +402,7 @@ class LocalControllerDependencies:
 
 class LocalController:
     list_assistants = local_assistant_api.list_assistants
+    assistant_icon = local_assistant_api.assistant_icon
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
 

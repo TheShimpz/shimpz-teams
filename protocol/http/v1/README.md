@@ -12,6 +12,11 @@ authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
+An authenticated Supervisor may read the canonical PNG for one installed Assistant from
+`GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
+verifies the icon digest again at read time, returns exactly `image/png`, and marks the response
+`no-store`. Missing bindings fail as absent; missing or tampered custody fails closed.
+
 In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-Account`
 header containing the current opaque Account session. Team binds the canonical route, parameters,
 query, and exact request-body evidence before synchronously asking Account to evaluate that session.

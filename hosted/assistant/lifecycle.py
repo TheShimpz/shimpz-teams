@@ -735,3 +735,30 @@ def _list_assistants(
             for _resolved_id, spec in [_resolve_team_assistant(team_id, assistant_id, bindings)]
         ]
         return {"team_id": team_id, "assistants": assistants}
+
+
+def _assistant_icon(
+    team_id: str,
+    assistant_id: str,
+    lease: hosted_resources._AuthorizationLease,
+) -> bytes:
+    """Return the verified icon bound to one installed Team Assistant."""
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(
+            team_id,
+            lease,
+            require_isolation=False,
+        )
+        binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+        if binding is None:
+            raise runtime_state.ApiError(
+                HTTPStatus.NOT_FOUND,
+                "Assistant is not installed in this Team",
+            )
+        try:
+            return runtime_state._assistant_icons.read(binding.resolution)
+        except assistant_icons.AssistantIconError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant icon is unavailable",
+            ) from exc

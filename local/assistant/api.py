@@ -4,9 +4,31 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
+from install import icons
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import ASSISTANT_LABEL
 from local.validation import validate_team_id
+
+
+def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
+    """Return the verified icon bound to one installed Team Assistant."""
+    team_id = validate_team_id(team_id)
+    with self._lock(team_id):
+        binding = self.registry.binding(team_id, assistant_id)
+        if binding is None:
+            raise ApiProblem(
+                HTTPStatus.NOT_FOUND,
+                "Assistant is not installed in this Team",
+                code="assistant-not-installed",
+            )
+        try:
+            return self.assistant_icons.read(binding.resolution)
+        except icons.AssistantIconError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant icon is unavailable",
+                code="assistant-icon-unavailable",
+            ) from exc
 
 
 def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:

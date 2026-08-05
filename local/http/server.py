@@ -160,6 +160,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(encoded)
 
+    def _send_icon(self, contents: bytes) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(contents)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(contents)
+
     def _body(self, *, max_bytes: int = MAX_BODY_BYTES) -> dict[str, object]:
         raw = getattr(self, "_captured_json_raw", None)
         body = getattr(self, "_captured_json_body", None)
@@ -758,6 +769,13 @@ class Handler(BaseHTTPRequestHandler):
         with local_audit.bind_request_principal(request_audit.principal()):
             if route.operation in {"chat", "chat-integration-submit"}:
                 self._stream_chat_route(parts, route, request_audit)
+                return None
+            if route.operation == "assistant-icon":
+                team_id = validate_team_id(route.params["team_id"])
+                assistant_id = route.params["assistant_id"]
+                contents = self.server.controller.assistant_icon(team_id, assistant_id)
+                request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
+                self._send_icon(contents)
                 return None
             return self._route(parts, route)
 

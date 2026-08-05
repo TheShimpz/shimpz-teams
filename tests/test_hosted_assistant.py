@@ -276,6 +276,26 @@ class HostedHttpBoundaryTests(unittest.TestCase):
             no_store=True,
         )
 
+    def test_serves_only_the_icon_resolved_by_the_team_binding(self) -> None:
+        request = hosted_controller._AuthorizedRequest(
+            {"assistant_id": "example-assistant"},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._send_icon = mock.Mock()
+
+        with (
+            mock.patch.object(assistant_lifecycle, "_assistant_icon", return_value=b"bound icon") as read_icon,
+            mock.patch.object(hosted_controller.audit, "log", return_value="trace"),
+        ):
+            handler._route_assistant_icon(request)
+
+        read_icon.assert_called_once_with("team_1", "example-assistant", mock.sentinel.lease)
+        handler._send_icon.assert_called_once_with(b"bound icon")
+
     def test_uninstalls_only_a_bound_dynamic_assistant(self) -> None:
         request = hosted_controller._AuthorizedRequest(
             {"assistant_id": "example-assistant"},

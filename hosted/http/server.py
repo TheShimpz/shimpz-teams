@@ -109,6 +109,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_icon(self, contents: bytes) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(contents)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(contents)
+
     def _stream_chat(
         self,
         team_id: str,
@@ -844,6 +853,21 @@ class Handler(BaseHTTPRequestHandler):
             no_store=True,
         )
 
+    def _route_assistant_icon(self, request: _AuthorizedRequest) -> None:
+        assistant_id = request.params["assistant_id"]
+        contents = assistant_lifecycle._assistant_icon(
+            request.team_id,
+            assistant_id,
+            request.lease,
+        )
+        self._audit_security(
+            "assistant_icon",
+            request.team_id,
+            result="ok",
+            assistant=assistant_id,
+        )
+        self._send_icon(contents)
+
     def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
         assistant_id = assistant_registry.validate_assistant_id(request.params["assistant_id"])
         try:
@@ -899,6 +923,7 @@ _AUTHORIZED_ROUTES = {
     "assistant-integration-authorize": Handler._route_assistant_integration_authorize,
     "assistant-integration-disconnect": Handler._route_assistant_integration_disconnect,
     "assistant-install": Handler._route_assistant_install,
+    "assistant-icon": Handler._route_assistant_icon,
     "assistant-list": Handler._route_assistant_list,
     "assistant-uninstall": Handler._route_assistant_uninstall,
     "team-status": Handler._route_team_status,
