@@ -107,7 +107,7 @@ COPY hosted/http/__init__.py hosted/http/routes.py hosted/http/server.py ./hoste
 COPY hosted/team/__init__.py hosted/team/lifecycle.py hosted/team/postgresql.py \
      hosted/team/resources.py ./hosted/team/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \
-     install/contract.py install/registry_auth.py ./install/
+     install/contract.py install/icons.py install/registry_auth.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/
 COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
      protocol/install/v1/install-request.schema.json \

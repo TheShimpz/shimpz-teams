@@ -33,6 +33,7 @@ from hosted.team import resources as hosted_resources
 from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants
+from install import icons as assistant_icons
 from protocol.http.v1 import payload as team_http_contract
 
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -780,6 +781,7 @@ class Handler(BaseHTTPRequestHandler):
             trust.verify(resolution)
             binding = dynamic_assistants.binding_from_resolution(request.team_id, resolution)
             hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
+            publication.retain_icon(client, runtime_state._assistant_icons, resolution)
 
             def authorize_start() -> None:
                 current = client.resolve(source_digest)
@@ -788,13 +790,20 @@ class Handler(BaseHTTPRequestHandler):
                         "Assistant publication changed before installation"
                     )
 
-            installed = assistant_lifecycle._install_assistant(
-                request.team_id,
-                binding,
-                request.lease.owner,
-                request.lease,
-                authorize_start=authorize_start,
-            )
+            try:
+                installed = assistant_lifecycle._install_assistant(
+                    request.team_id,
+                    binding,
+                    request.lease.owner,
+                    request.lease,
+                    authorize_start=authorize_start,
+                )
+            finally:
+                publication.discard_icon(
+                    runtime_state._assistant_icons,
+                    runtime_state._dynamic_assistants,
+                    source_digest,
+                )
         except developers_client.AssistantNotInstallableError as exc:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installable") from exc
         except developers_client.InstallAuthorizationDeniedError as exc:
@@ -806,6 +815,11 @@ class Handler(BaseHTTPRequestHandler):
             raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Developers is unavailable") from exc
         except artifact_trust.ArtifactTrustError as exc:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant artifact trust failed") from exc
+        except assistant_icons.AssistantIconError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant icon storage is unavailable",
+            ) from exc
         response = {
             "assistant": assistant_id,
             "installed": True,

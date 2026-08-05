@@ -28,7 +28,7 @@ from assistant.spec import validate_power_payload
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
-from install import artifact_trust, bindings, registry_auth
+from install import artifact_trust, bindings, icons, registry_auth
 from install import update as assistant_update
 from integrations import broker as integration_broker
 from integrations import challenges as integration_challenges
@@ -107,6 +107,7 @@ LOCAL_CHAT_CONTINUATIONS_KEY_PATH = Path(
     )
 )
 LOCAL_PUBLICATION_BINDINGS_PATH = Path("/var/lib/shimpz-local/publications/bindings.json")
+LOCAL_PUBLICATION_ICONS_PATH = Path("/var/lib/shimpz-local/publications/icons")
 LOCAL_ASSISTANT_UPDATES_PATH = Path("/var/lib/shimpz-local/publications/updates")
 LOCAL_ASSISTANT_RESIDUES_PATH = Path("/var/lib/shimpz-local/publications/residues")
 LOCAL_COSIGN_TRUST_ROOT = Path("/var/lib/shimpz-local/cosign")
@@ -127,6 +128,7 @@ class AssistantLifecycleDependencies:
     artifact_trust: object | None = None
     updates: object | None = None
     residues: object | None = None
+    icons: object | None = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,7 @@ class AssistantLifecycle:
         self.artifact_trust = dependencies.artifact_trust
         self.updates = dependencies.updates
         self.residues = dependencies.residues
+        self.icons = dependencies.icons
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
@@ -394,6 +397,7 @@ class LocalControllerDependencies:
     artifact_trust: artifact_trust.ArtifactTrustVerifier | None = None
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
     assistant_residues: assistant_update.AssistantResidueStore | None = None
+    assistant_icons: icons.AssistantIconStore | None = None
 
 
 class LocalController:
@@ -462,12 +466,14 @@ class LocalController:
             or dependencies.artifact_trust is None
             or dependencies.assistant_updates is None
             or dependencies.assistant_residues is None
+            or dependencies.assistant_icons is None
         ):
             raise RuntimeError("Local publication installation dependencies are unavailable")
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
         self.assistant_updates = dependencies.assistant_updates
         self.assistant_residues = dependencies.assistant_residues
+        self.assistant_icons = dependencies.assistant_icons
         self._locks = tuple(threading.RLock() for _ in range(64))
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
@@ -490,6 +496,7 @@ class LocalController:
                 artifact_trust=getattr(self, "artifact_trust", None),
                 updates=getattr(self, "assistant_updates", None),
                 residues=getattr(self, "assistant_residues", None),
+                icons=getattr(self, "assistant_icons", None),
             )
         )
         chat_turn_service = ChatTurnService(
@@ -866,6 +873,7 @@ def main() -> int:
                 ),
                 assistant_updates=assistant_update.AssistantUpdateStore(LOCAL_ASSISTANT_UPDATES_PATH),
                 assistant_residues=assistant_update.AssistantResidueStore(LOCAL_ASSISTANT_RESIDUES_PATH),
+                assistant_icons=icons.AssistantIconStore(LOCAL_PUBLICATION_ICONS_PATH),
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)

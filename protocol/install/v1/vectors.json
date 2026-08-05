@@ -58,6 +58,7 @@
           "@creator"
         ],
         "source_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "icon_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
         "image_reference": "ghcr.io/theshimpz/shimpz-assistant@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "oci_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "platforms": [
@@ -336,6 +337,18 @@
           "review_state"
         ],
         "value": "catalog_rejected"
+      }
+    },
+    {
+      "name": "resolve_without_icon_digest",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "icon_digest"
+        ]
       }
     },
     {

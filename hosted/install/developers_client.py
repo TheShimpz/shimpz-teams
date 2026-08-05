@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 from pathlib import Path
@@ -63,12 +64,43 @@ class DevelopersClient:
             raise DevelopersClientError("installation authorization is unavailable")
         return _validated("install-authorization-receipt.schema.json", value)
 
+    def icon(self, source_digest: str, icon_digest: str) -> bytes:
+        """Fetch one immutable publication icon and verify its exact digest."""
+        status, raw = self._raw_request(
+            "GET",
+            f"/api/v1/assistant-publications/{source_digest}/icon.png",
+            None,
+            accept="image/png",
+        )
+        if status == 404:
+            raise AssistantNotInstallableError("Assistant icon is not installable")
+        if status != 200 or f"sha256:{hashlib.sha256(raw).hexdigest()}" != icon_digest:
+            raise DevelopersClientError("Developers icon violates its publication digest")
+        return raw
+
     def _request(
         self,
         method: str,
         path: str,
         body: dict[str, object] | None,
     ) -> tuple[int, object]:
+        status, raw = self._raw_request(method, path, body, accept="application/json")
+        if status == 204:
+            return status, None
+        try:
+            value = json.loads(raw)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise DevelopersClientError("Developers response is invalid") from exc
+        return status, value
+
+    def _raw_request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, object] | None,
+        *,
+        accept: str,
+    ) -> tuple[int, bytes]:
         encoded = (
             b""
             if body is None
@@ -81,7 +113,7 @@ class DevelopersClient:
         )
         headers = {
             "Authorization": f"Bearer {self._service_token}",
-            "Accept": "application/json",
+            "Accept": accept,
             "Content-Length": str(len(encoded)),
             **({"Content-Type": "application/json"} if body is not None else {}),
         }
@@ -96,13 +128,7 @@ class DevelopersClient:
             connection.close()
         if len(raw) > _MAX_RESPONSE_BYTES:
             raise DevelopersClientError("Developers response is too large")
-        if response.status == 204:
-            return response.status, None
-        try:
-            value = json.loads(raw)
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise DevelopersClientError("Developers response is invalid") from exc
-        return response.status, value
+        return response.status, raw
 
 
 def _read_service_token(path: Path) -> str:

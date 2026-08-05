@@ -127,6 +127,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 artifact_trust=SimpleNamespace(),
                 assistant_updates=SimpleNamespace(list=lambda: ()),
                 assistant_residues=SimpleNamespace(list=lambda: ()),
+                assistant_icons=SimpleNamespace(),
             ),
         )
 
@@ -264,6 +265,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     artifact_trust=SimpleNamespace(),
                     assistant_updates=SimpleNamespace(list=lambda: ()),
                     assistant_residues=SimpleNamespace(list=lambda: ()),
+                    assistant_icons=SimpleNamespace(),
                 ),
             )
 

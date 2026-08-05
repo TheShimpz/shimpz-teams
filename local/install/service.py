@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from http import HTTPStatus
 
-from install import artifact_trust, bindings
+from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
 from local.install import developers
 from local.install.registry import is_successor
@@ -29,30 +29,8 @@ def install_publication(
             code="assistant-update-conflict",
         )
     try:
-        resolution = self.developers.resolve(source_digest)
-        if resolution["assistant_id"] != assistant_id:
-            raise developers.PublicationNotInstallableError("publication does not match the requested Assistant")
-        self.artifact_trust.verify(resolution)
-
-        def authorize_start() -> None:
-            current = self.developers.resolve(source_digest)
-            if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
-                raise developers.PublicationNotInstallableError("publication changed before installation")
-
-        if existing is None:
-            spec = self.registry.put(team_id, resolution)
-            return self.assistant_lifecycle.install_assistant(
-                team_id,
-                spec.assistant_id,
-                authorize_start=authorize_start,
-            )
-        return self._install_bound_publication(
-            team_id,
-            assistant_id,
-            existing,
-            resolution=resolution,
-            authorize_start=authorize_start,
-        )
+        resolution = _resolved_publication(self, assistant_id, source_digest)
+        result = _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution)
     except ApiProblem as exc:
         if existing is None and exc.code != "assistant-install-rollback-incomplete":
             self.registry.delete(team_id, assistant_id)
@@ -82,6 +60,61 @@ def install_publication(
             HTTPStatus.CONFLICT,
             "Assistant publication binding failed",
             code="assistant-binding-conflict",
+        ) from exc
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
+        ) from exc
+    else:
+        if existing is not None:
+            _discard_icon(self, str(existing.resolution["source_digest"]))
+        return result
+    finally:
+        _discard_icon(self, source_digest)
+
+
+def _resolved_publication(self, assistant_id: str, source_digest: str) -> dict[str, object]:
+    resolution = self.developers.resolve(source_digest)
+    if resolution["assistant_id"] != assistant_id:
+        raise developers.PublicationNotInstallableError("publication does not match the requested Assistant")
+    icon = self.developers.icon(source_digest, resolution["icon_digest"])
+    self.assistant_icons.put(resolution, icon)
+    self.artifact_trust.verify(resolution)
+    return resolution
+
+
+def _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution):
+    def authorize_start() -> None:
+        current = self.developers.resolve(source_digest)
+        if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
+            raise developers.PublicationNotInstallableError("publication changed before installation")
+
+    if existing is None:
+        spec = self.registry.put(team_id, resolution)
+        return self.assistant_lifecycle.install_assistant(
+            team_id,
+            spec.assistant_id,
+            authorize_start=authorize_start,
+        )
+    return self._install_bound_publication(
+        team_id,
+        assistant_id,
+        existing,
+        resolution=resolution,
+        authorize_start=authorize_start,
+    )
+
+
+def _discard_icon(self, source_digest: str) -> None:
+    try:
+        self.assistant_icons.discard_unreferenced(source_digest, self.registry.bindings())
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
         ) from exc
 
 

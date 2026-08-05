@@ -449,6 +449,7 @@
         "assistant_version",
         "creators",
         "source_digest",
+        "icon_digest",
         "image_reference",
         "oci_digest",
         "platforms",
@@ -490,6 +491,9 @@
           }
         },
         "source_digest": {
+          "$ref": "#/$defs/sha256Digest"
+        },
+        "icon_digest": {
           "$ref": "#/$defs/sha256Digest"
         },
         "image_reference": {

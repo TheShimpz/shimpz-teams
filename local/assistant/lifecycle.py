@@ -618,6 +618,8 @@ def install_assistant(
 @_serialize_against_local_team_chat
 def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
     spec = self._resolve(team_id, assistant_id)
+    binding = self.registry.binding(team_id, assistant_id)
+    source_digest = None if binding is None else str(binding.resolution["source_digest"])
     self.chat_turn_service._delete_chat_continuation(team_id)
     with self._lock(team_id):
         network = self._network(team_id)
@@ -633,6 +635,8 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 )
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
+            if source_digest is not None:
+                self.icons.discard_unreferenced(source_digest, self.registry.bindings())
             self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": False}
         self._validate_container_profile(container, team_id, spec, network.name)
@@ -663,5 +667,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
             )
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
+        if source_digest is not None:
+            self.icons.discard_unreferenced(source_digest, self.registry.bindings())
         self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": True}

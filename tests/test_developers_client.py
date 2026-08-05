@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import tempfile
 import unittest
@@ -25,9 +26,9 @@ AUTHORIZATION_RECEIPT = VECTORS["fixtures"]["install_authorization_receipt"]["va
 
 
 class _Response:
-    def __init__(self, status: int, value: object) -> None:
+    def __init__(self, status: int, value: object, *, raw: bytes | None = None) -> None:
         self.status = status
-        self._body = json.dumps(value, separators=(",", ":")).encode()
+        self._body = raw if raw is not None else json.dumps(value, separators=(",", ":")).encode()
 
     def read(self, amount: int) -> bytes:
         return self._body[:amount]
@@ -79,6 +80,19 @@ class DevelopersClientTests(unittest.TestCase):
         self.assertEqual(value, AUTHORIZATION_RECEIPT)
         body = _Connection.requests[0][2]["body"]
         self.assertEqual(json.loads(body), AUTHORIZATION_REQUEST)
+
+    def test_fetches_the_exact_digest_bound_icon(self) -> None:
+        icon = b"icon bytes"
+        digest = f"sha256:{hashlib.sha256(icon).hexdigest()}"
+        _Connection.response = _Response(200, None, raw=icon)
+        with mock.patch("hosted.install.developers_client.http.client.HTTPConnection", _Connection):
+            value = self.client.icon(RESOLUTION["source_digest"], digest)
+
+        self.assertEqual(value, icon)
+        method, path, request = _Connection.requests[0]
+        self.assertEqual(method, "GET")
+        self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/icon.png")
+        self.assertEqual(request["headers"]["Accept"], "image/png")
 
     def test_safe_statuses_and_malformed_success_fail_closed(self) -> None:
         cases = (

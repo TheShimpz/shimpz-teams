@@ -131,6 +131,16 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
                 return_value=materialized_spec,
             ) as assistant_spec,
             mock.patch.object(hosted_resources, "_prepare_assistant_image", side_effect=prepare_image),
+            mock.patch.object(
+                hosted_controller.publication,
+                "retain_icon",
+                side_effect=lambda *_args: events.append("retain-icon"),
+            ),
+            mock.patch.object(
+                hosted_controller.publication,
+                "discard_icon",
+                side_effect=lambda *_args: events.append("discard-icon"),
+            ),
             mock.patch.object(assistant_lifecycle, "_install_assistant", side_effect=install),
         ):
             developers_http._install(self._request(handler))
@@ -141,7 +151,10 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
         )
         trust.verify.assert_called_once_with(RESOLUTION)
         assistant_spec.assert_called_once()
-        self.assertEqual(events, ["resolve", "trust", "prepare-image", "install", "authorize-start"])
+        self.assertEqual(
+            events,
+            ["resolve", "trust", "prepare-image", "retain-icon", "install", "authorize-start", "discard-icon"],
+        )
         self.assertEqual(client.authorization["delegation_jti"], CLAIMS["jti"])
         status, response = handler._send_json.call_args.args
         self.assertEqual(status, HTTPStatus.OK)

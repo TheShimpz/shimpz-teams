@@ -17,7 +17,7 @@ from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.install import developers_client, developers_delegation, publication
 from hosted.team import lifecycle as hosted_lifecycle
 from hosted.team import resources as hosted_resources
-from install import artifact_trust
+from install import artifact_trust, icons
 from install import bindings as dynamic_assistants
 from install import contract as install_contract
 
@@ -109,6 +109,7 @@ def _install(request: RequestIO) -> None:
     # Pull outside the Team lifecycle lock; the install path resolves this same digest
     # again immediately before create.
     hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
+    publication.retain_icon(client, runtime_state._assistant_icons, resolution)
 
     def authorize_start() -> None:
         authorization = {
@@ -126,13 +127,20 @@ def _install(request: RequestIO) -> None:
         if not _install_authorization_matches(receipt, expected, int(time.time())):
             raise developers_client.InstallAuthorizationDeniedError("installation authorization does not match")
 
-    installed = assistant_lifecycle._install_assistant(
-        body["team_id"],
-        binding,
-        request.account_id,
-        lease,
-        authorize_start=authorize_start,
-    )
+    try:
+        installed = assistant_lifecycle._install_assistant(
+            body["team_id"],
+            binding,
+            request.account_id,
+            lease,
+            authorize_start=authorize_start,
+        )
+    finally:
+        publication.discard_icon(
+            runtime_state._assistant_icons,
+            runtime_state._dynamic_assistants,
+            body["source_digest"],
+        )
     response = {
         "version": 1,
         "status": "installed",
@@ -179,6 +187,17 @@ def _publication_failure(exc: Exception) -> stdlib.HttpFailure | None:
             type(exc).__name__,
             "denied",
         )
+    if isinstance(exc, artifact_trust.ArtifactTrustError):
+        return stdlib.HttpFailure(
+            HTTPStatus.CONFLICT,
+            "Assistant artifact trust failed",
+            type(exc).__name__,
+            "denied",
+        )
+    return _publication_dependency_failure(exc)
+
+
+def _publication_dependency_failure(exc: Exception) -> stdlib.HttpFailure | None:
     if isinstance(exc, developers_client.DevelopersClientError):
         return stdlib.HttpFailure(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -186,12 +205,12 @@ def _publication_failure(exc: Exception) -> stdlib.HttpFailure | None:
             type(exc).__name__,
             "error",
         )
-    if isinstance(exc, artifact_trust.ArtifactTrustError):
+    if isinstance(exc, icons.AssistantIconError):
         return stdlib.HttpFailure(
-            HTTPStatus.CONFLICT,
-            "Assistant artifact trust failed",
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
             type(exc).__name__,
-            "denied",
+            "error",
         )
     return None
 

@@ -9,7 +9,22 @@ from typing import Any
 
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
-from install import bindings
+from install import bindings, icons
+
+
+def retain_icon(client, store: icons.AssistantIconStore, resolution: dict[str, Any]) -> None:
+    """Fetch and retain the exact canonical icon declared by resolution."""
+    contents = client.icon(resolution["source_digest"], resolution["icon_digest"])
+    store.put(resolution, contents)
+
+
+def discard_icon(
+    store: icons.AssistantIconStore,
+    bindings_store: bindings.DynamicAssistantStore,
+    source_digest: str,
+) -> None:
+    """Remove an icon once no installed binding references its publication."""
+    store.discard_unreferenced(source_digest, bindings_store.snapshot())
 
 
 def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assistant_registry.AssistantSpec:

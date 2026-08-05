@@ -188,6 +188,8 @@ class HostedHttpBoundaryTests(unittest.TestCase):
                 return_value=mock.sentinel.spec,
             ),
             mock.patch.object(hosted_resources, "_prepare_assistant_image"),
+            mock.patch.object(hosted_controller.publication, "retain_icon") as retain_icon,
+            mock.patch.object(hosted_controller.publication, "discard_icon") as discard_icon,
             mock.patch.object(
                 assistant_lifecycle,
                 "_install_assistant",
@@ -199,6 +201,8 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         self.assertEqual(client.resolve.call_count, 2)
         client.resolve.assert_called_with(source_digest)
         trust.verify.assert_called_once_with(resolution)
+        retain_icon.assert_called_once_with(client, runtime_state._assistant_icons, resolution)
+        discard_icon.assert_called_once()
         install_assistant.assert_called_once_with(
             "team_1",
             binding,

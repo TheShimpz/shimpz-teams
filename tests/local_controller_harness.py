@@ -53,6 +53,9 @@ class TestPublicationRegistry(dict):
     def delete(self, _team_id, assistant_id):
         return self.pop(assistant_id, None) is not None
 
+    def binding(self, _team_id, _assistant_id):
+        return None
+
 
 class LocalContractCase(unittest.TestCase):
     def _registry(self, image: str) -> dict[str, AssistantSpec]:

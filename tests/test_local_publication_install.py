@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import ssl
 import tempfile
@@ -14,16 +15,19 @@ from unittest import mock
 
 from install.bindings import DynamicAssistantStore
 from install.contract import CONTRACT_ROOT
+from install.icons import AssistantIconStore
 from local import app as local_app
 from local.assistant import resources as local_resources
 from local.install.developers import DevelopersClient, DevelopersError, PublicationNotInstallableError
 from local.install.registry import PublicationRegistry
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
+ICON = b"canonical icon"
 
 
 def _runtime_resolution() -> dict[str, object]:
     resolution = copy.deepcopy(RESOLUTION)
+    resolution["icon_digest"] = f"sha256:{hashlib.sha256(ICON).hexdigest()}"
     power = resolution["machine_contract"]["powers"][0]
     power["input_schema"]["additionalProperties"] = False
     power["output_schema"]["additionalProperties"] = False
@@ -31,9 +35,9 @@ def _runtime_resolution() -> dict[str, object]:
 
 
 class _Response:
-    def __init__(self, status: int, value: object) -> None:
+    def __init__(self, status: int, value: object, *, raw: bytes | None = None) -> None:
         self.status = status
-        self._body = json.dumps(value, separators=(",", ":")).encode()
+        self._body = raw if raw is not None else json.dumps(value, separators=(",", ":")).encode()
 
     def read(self, amount: int) -> bytes:
         return self._body[:amount]
@@ -106,6 +110,19 @@ class LocalPublicationInstallTests(unittest.TestCase):
             f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/latest",
         )
 
+    def test_fetches_the_exact_digest_bound_icon(self) -> None:
+        digest = f"sha256:{hashlib.sha256(ICON).hexdigest()}"
+        _Connection.response = _Response(200, None, raw=ICON)
+        with mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection):
+            value = DevelopersClient().icon(RESOLUTION["source_digest"], digest)
+
+        self.assertEqual(value, ICON)
+        self.assertEqual(
+            _Connection.requests[0][1],
+            f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/icon.png",
+        )
+        self.assertEqual(_Connection.requests[0][2], {"headers": {"Accept": "image/png"}})
+
     def test_resolution_fails_closed_for_missing_or_malformed_publication(self) -> None:
         for status, error in ((404, PublicationNotInstallableError), (503, DevelopersError)):
             _Connection.response = _Response(status, {})
@@ -161,6 +178,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.registry.put("team_1", current)
             controller.developers = mock.Mock()
+            controller.developers.icon.return_value = ICON
+            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or successor
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -196,6 +215,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.registry.put("team_1", resolution)
             controller.developers = mock.Mock()
+            controller.developers.icon.return_value = ICON
+            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -220,6 +241,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
+            controller.developers.icon.return_value = ICON
+            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
 
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.install_publication(
@@ -262,6 +285,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
+            controller.developers.icon.return_value = ICON
+            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = lambda _digest: events.append("resolve") or resolution
             controller.artifact_trust = mock.Mock()
             controller.artifact_trust.verify.side_effect = lambda _resolution: events.append("verify")
@@ -295,6 +320,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
+            controller.developers.icon.return_value = ICON
+            controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
             controller.developers.resolve.side_effect = (resolution, changed)
             controller.artifact_trust = mock.Mock()
 

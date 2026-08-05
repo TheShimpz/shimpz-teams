@@ -20,6 +20,7 @@ from hosted import state as runtime_state
 from hosted.install import publication
 from hosted.team import resources as hosted_resources
 from install import bindings as dynamic_assistants
+from install import icons as assistant_icons
 from integrations import store as integration_store
 
 
@@ -656,6 +657,8 @@ def _uninstall_assistant(
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
     with runtime_state._lock_for(team_id):
+        binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+        source_digest = None if binding is None else str(binding.resolution["source_digest"])
         hosted_resources._require_current_authorization(
             team_id,
             lease,
@@ -674,12 +677,18 @@ def _uninstall_assistant(
                 assistant_id,
             )
             runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+            if source_digest is not None:
+                publication.discard_icon(
+                    runtime_state._assistant_icons,
+                    runtime_state._dynamic_assistants,
+                    source_digest,
+                )
         except integration_store.OAuthIntegrationStoreError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant integration state is unavailable",
             ) from exc
-        except dynamic_assistants.DynamicAssistantError as exc:
+        except (dynamic_assistants.DynamicAssistantError, assistant_icons.AssistantIconError) as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant metadata could not be removed",

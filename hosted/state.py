@@ -24,6 +24,7 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import artifact_trust, registry_auth
 from install import bindings as dynamic_assistants
+from install import icons as assistant_icons
 from integrations import challenges as integration_challenges
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
@@ -148,6 +149,7 @@ _assistant_integrations = integration_store.OAuthIntegrationStore(
 )
 _integration_challenges = integration_challenges.IntegrationChallengeStore()
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
+_assistant_icons = assistant_icons.AssistantIconStore(DYNAMIC_ASSISTANT_PATH.parent / "icons")
 _integration_pkce = integration_pkce.OAuthPKCEChallengeStore()
 _oauth_http = integration_http.OAuthHTTPClient()
 _cloudflare_oauth_client_id = os.environ.get("SHIMPZ_CLOUDFLARE_OAUTH_CLIENT_ID")

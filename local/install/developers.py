@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import http.client
 import json
 import re
@@ -46,8 +47,22 @@ class DevelopersClient:
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}/latest")
         return _resolution(status, raw)
 
+    def icon(self, source_digest: str, icon_digest: str) -> bytes:
+        """Fetch one canonical publication icon and verify its exact digest."""
+        if _SOURCE_DIGEST.fullmatch(source_digest) is None or _SOURCE_DIGEST.fullmatch(icon_digest) is None:
+            raise PublicationNotInstallableError("publication icon digest is invalid")
+        status, raw = self._request(
+            f"/api/v1/assistant-publications/{source_digest}/icon.png",
+            accept="image/png",
+        )
+        if status == 404:
+            raise PublicationNotInstallableError("publication icon is not installable")
+        if status != 200 or f"sha256:{hashlib.sha256(raw).hexdigest()}" != icon_digest:
+            raise DevelopersError("Developers icon violates its publication digest")
+        return raw
+
     @staticmethod
-    def _request(path: str) -> tuple[int, bytes]:
+    def _request(path: str, *, accept: str = "application/json") -> tuple[int, bytes]:
         connection = http.client.HTTPSConnection(
             _RELEASE_PROXY_HOST,
             _RELEASE_PROXY_PORT,
@@ -59,7 +74,7 @@ class DevelopersClient:
             connection.request(
                 "GET",
                 path,
-                headers={"Accept": "application/json"},
+                headers={"Accept": accept},
             )
             response = connection.getresponse()
             raw = response.read(_MAX_RESPONSE_BYTES + 1)
