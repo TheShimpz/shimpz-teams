@@ -98,7 +98,8 @@ COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
      ./hosted/assistant/
-COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/segment.py ./hosted/chat/
+COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/human.py hosted/chat/lifecycle.py \
+     hosted/chat/segment.py ./hosted/chat/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/http.py hosted/install/publication.py \
@@ -135,7 +136,7 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
      integrations/challenges.py integrations/flow.py integrations/http.py \
      integrations/pkce.py integrations/private_state.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
-COPY power/__init__.py power/execution.py power/human.py power/journal.py ./power/
+COPY power/__init__.py power/challenges.py power/execution.py power/human.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the

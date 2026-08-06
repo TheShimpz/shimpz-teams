@@ -369,7 +369,7 @@ def _run_hosted_chat_segment_with_metadata(
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
         batch = power_execution.PowerBatch(
-            runtime_state._power_execution_journal(),
+            runtime_state._power_execution_journal,
             container.id,
             context.thread_id,
             bindings,

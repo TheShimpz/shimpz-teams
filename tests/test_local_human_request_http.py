@@ -48,7 +48,7 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         )
         self.assertEqual(handler._chat_status(pending), HTTPStatus.PRECONDITION_REQUIRED)
 
-    def test_human_routes_are_local_supervisor_authority_in_this_delivery(self) -> None:
+    def test_human_routes_are_shared_with_profile_specific_authority(self) -> None:
         local_get = strict_http.resolve_controller_route(
             strict_http.LOCAL_CONTROLLER,
             "GET",
@@ -67,7 +67,7 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
 
         self.assertEqual(local_get.operation, "chat-human-pending")
         self.assertEqual(local_post.operation, "chat-human-submit")
-        self.assertIsNone(hosted)
+        self.assertEqual(hosted.operation, "chat-human-submit")
 
     def test_human_response_body_accepts_the_maximum_unicode_textarea(self) -> None:
         value = "\U0001f9e0" * 16_000
