@@ -80,6 +80,25 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(human.HumanRequestError):
             human.PowerTranscript("interrupt-1").append(request("approval", 1), True)
 
+    def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
+        transcripts: tuple[human.PowerTranscript, ...] = ()
+        for index in range(human.MAX_REQUESTS_PER_TURN):
+            interrupt = f"interrupt-{index // human.MAX_REQUESTS_PER_POWER}"
+            ordinal = index % human.MAX_REQUESTS_PER_POWER
+            transcripts = human.append_response(
+                transcripts,
+                interrupt,
+                request("approval", ordinal),
+                True,
+            )
+
+        self.assertEqual(len(transcripts), 2)
+        self.assertEqual(len(human.transcript_for(transcripts, "interrupt-1").responses), 8)
+        with self.assertRaises(human.HumanRequestError):
+            human.append_response(transcripts, "interrupt-2", request("approval"), True)
+        with self.assertRaises(human.HumanRequestError):
+            human.transcript_for((*transcripts, transcripts[0]), "interrupt-0")
+
 
 if __name__ == "__main__":
     unittest.main()

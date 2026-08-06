@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 MAX_REQUESTS_PER_POWER = 8
+MAX_REQUESTS_PER_TURN = 16
 LENGTH_KINDS = {
     "input:text": 4096,
     "input:textarea": 16_000,
@@ -108,6 +109,33 @@ class PowerTranscript:
             for response in self.responses
             if response.secret and isinstance(response.value, str)
         }
+
+
+def transcript_for(
+    transcripts: tuple[PowerTranscript, ...],
+    interrupt_id: str,
+) -> PowerTranscript:
+    """Resolve one interrupt transcript while rejecting ambiguous duplicate state."""
+    matching = tuple(item for item in transcripts if item.interrupt_id == interrupt_id)
+    if len(matching) > 1:
+        raise HumanRequestError("Power human transcript is ambiguous")
+    return matching[0] if matching else PowerTranscript(interrupt_id)
+
+
+def append_response(
+    transcripts: tuple[PowerTranscript, ...],
+    interrupt_id: str,
+    request: HumanRequest,
+    value: object,
+) -> tuple[PowerTranscript, ...]:
+    """Append one response while enforcing the Team-wide turn budget."""
+    if sum(len(item.responses) for item in transcripts) >= MAX_REQUESTS_PER_TURN:
+        raise HumanRequestError("Team turn exceeded its human request limit")
+    current = transcript_for(transcripts, interrupt_id)
+    updated = current.append(request, value)
+    if current.responses:
+        return tuple(updated if item is current else item for item in transcripts)
+    return (*transcripts, updated)
 
 
 def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanRequest:
