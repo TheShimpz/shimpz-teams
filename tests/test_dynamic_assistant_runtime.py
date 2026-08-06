@@ -23,6 +23,7 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
         power = resolution["machine_contract"]["powers"][0]
         power["input_schema"]["additionalProperties"] = False
         power["output_schema"]["additionalProperties"] = False
+        power["human_requests"] = []
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
             spec = assistant_spec(store.put("team_1", resolution))
