@@ -19,10 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hosted_assistant_fixture import app, hosted_controller, hosted_resources, runtime_state
 
 from hosted import container as container_spec
+from power import challenges as power_challenges
+from power import human as power_human
 
 network_policy = hosted_resources.network_policy
-power_challenges = hosted_controller.power_challenges
-power_human = hosted_controller.power_human
 
 TEAM_ID = "team_1"
 CONTAINER_ID = "a" * 64
@@ -212,7 +212,7 @@ class HostedAuthorizationTests(unittest.TestCase):
         ) as evaluate:
             result = account._human_authority(
                 "account-session",
-                hosted_controller._AuthorityRequest(
+                hosted_controller.admission.AuthorityRequest(
                     "GET",
                     route,
                     {},
@@ -287,10 +287,14 @@ class HostedAuthorizationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_human_challenges", challenges),
             mock.patch.object(hosted_controller.account_authority, "evaluate", return_value=evidence) as evaluate,
         ):
-            derived, derived_handle = handler._power_assurance("chat-human-submit", {"team_id": TEAM_ID})
+            derived, derived_handle = hosted_controller.admission.power_assurance(
+                "chat-human-submit",
+                {"team_id": TEAM_ID},
+                handler._captured_json_body,
+            )
             result = handler._human_authority(
                 "account-session",
-                hosted_controller._AuthorityRequest(
+                hosted_controller.admission.AuthorityRequest(
                     "POST",
                     route,
                     {"team_id": TEAM_ID},

@@ -104,7 +104,7 @@ COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/human.py hosted/chat
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/http.py hosted/install/publication.py \
      ./hosted/install/
-COPY hosted/http/__init__.py hosted/http/routes.py hosted/http/server.py ./hosted/http/
+COPY hosted/http/__init__.py hosted/http/admission.py hosted/http/routes.py hosted/http/server.py ./hosted/http/
 COPY hosted/team/__init__.py hosted/team/lifecycle.py hosted/team/postgresql.py \
      hosted/team/resources.py ./hosted/team/
 COPY install/__init__.py install/artifact.py install/artifact_trust.py install/bindings.py \

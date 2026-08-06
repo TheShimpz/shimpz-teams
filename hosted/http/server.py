@@ -26,6 +26,7 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import api as hosted_chat_api
 from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
+from hosted.http import admission
 from hosted.http import routes as hosted
 from hosted.install import developers_client, publication
 from hosted.install import http as developers_http
@@ -35,15 +36,12 @@ from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
-from power import challenges as power_challenges
-from power import human as power_human
 from protocol.http.v1 import payload as team_http_contract
 
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _CHALLENGE_ID = re.compile(r"^[0-9a-f]{32}$")
 _FILE_ID = re.compile(r"^[0-9a-f]{32}$")
-_ASSURANCE_HANDLE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _JSON_BODY_LIMITS = {
     "assistant-install": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
     "assistant-integration-authorize": runtime_state.MAX_JSON_BODY_BYTES,
@@ -65,17 +63,6 @@ class _AuthorizedRequest:
     lease: hosted_resources._AuthorizationLease
     query: dict[str, str]
     assurance: dict[str, str] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _AuthorityRequest:
-    method: str
-    route: strict_http.ControllerRouteMatch
-    params: dict[str, str]
-    query: dict[str, str]
-    body: dict[str, object]
-    assurance: dict[str, str] | None = None
-    assurance_handle: object | None = None
 
 
 class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
@@ -368,7 +355,7 @@ class Handler(BaseHTTPRequestHandler):
     def _human_authority(
         self,
         session_token: str,
-        request: _AuthorityRequest,
+        request: admission.AuthorityRequest,
     ) -> account_authority.Evaluation:
         binding: dict[str, object] = {
             "method": request.method,
@@ -426,34 +413,6 @@ class Handler(BaseHTTPRequestHandler):
         )
         return evaluation
 
-    def _power_assurance(
-        self,
-        operation: str,
-        params: dict[str, str],
-    ) -> tuple[dict[str, str] | None, object | None]:
-        if operation != "chat-human-submit":
-            return None, None
-        body = self._read_body()
-        if not isinstance(body, dict) or body.get("decision") != "submit":
-            return None, None
-        try:
-            challenge = runtime_state._human_challenges.get(
-                params["team_id"],
-                body.get("challenge_id"),
-            )
-        except KeyError, power_challenges.HumanChallengeNotFoundError:
-            hosted_chat_human._expire_challenges()
-            return None, None
-        kind = challenge.requirement.request.kind
-        if kind not in power_human.AUTH_KINDS:
-            return None, None
-        handle = body.get("value")
-        if set(body) != {"challenge_id", "decision", "value"} or not isinstance(handle, str):
-            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
-        if _ASSURANCE_HANDLE.fullmatch(handle) is None:
-            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
-        return {"kind": kind, "challenge_id": challenge.id}, handle
-
     def _dispatch_resolved(self, method: str) -> None:
         _target, route = hosted.route_target(self.headers, self.path, method, runtime_state.ApiError)
         params = self._validated_params(route)
@@ -467,10 +426,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         session_token = self._account_session()
         body_binding = self._capture_body(route.operation)
-        assurance, assurance_handle = self._power_assurance(route.operation, params)
+        captured_body = self._read_body() if route.operation == "chat-human-submit" else None
+        assurance, assurance_handle = admission.power_assurance(route.operation, params, captured_body)
         evaluation = self._human_authority(
             session_token,
-            _AuthorityRequest(
+            admission.AuthorityRequest(
                 method,
                 route,
                 params,
