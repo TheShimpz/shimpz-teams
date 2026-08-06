@@ -20,6 +20,7 @@ from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 from local.labels import ASSISTANT_LABEL
+from power import challenges as power_challenges
 from storage import files as team_storage
 
 log = logging.getLogger("shimpz-team-local")
@@ -289,12 +290,23 @@ def _restore_chat_continuation(
                 decoded.requirements,
                 decoded.pending,
             )
+        elif decoded.kind == "human":
+            if len(decoded.requirements) != 1:
+                raise local_chat_continuations.ContinuationCodecError("human continuation is malformed")
+            self.human_challenges.restore(
+                stored.team_id,
+                stored.challenge_id,
+                remaining_seconds,
+                decoded.requirements[0],
+                decoded.pending,
+            )
         else:
             raise local_chat_continuations.ContinuationCodecError("continuation kind is malformed")
     except (
         local_chat_continuation_store.ContinuationStoreError,
         local_chat_continuations.ContinuationCodecError,
         integration_challenges.IntegrationChallengeError,
+        power_challenges.HumanChallengeError,
     ) as exc:
         self._raise_chat_continuation_problem(exc)
 

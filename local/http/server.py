@@ -29,6 +29,7 @@ from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_CHAT_BODY_BYTES = supervisor_contract.MAX_JSON_BODY_BYTES
+MAX_HUMAN_RESPONSE_BODY_BYTES = 32 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
@@ -44,6 +45,7 @@ _JSON_BODY_LIMITS = {
     "assistant-invoke": MAX_BODY_BYTES,
     "chat": MAX_CHAT_BODY_BYTES,
     "chat-integration-submit": MAX_BODY_BYTES,
+    "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
@@ -297,7 +299,7 @@ class Handler(BaseHTTPRequestHandler):
         return parts, route
 
     def _model_binding(self, operation: str) -> dict[str, str] | None:
-        if operation not in {"chat", "chat-integration-submit"}:
+        if operation not in {"chat", "chat-human-submit", "chat-integration-submit"}:
             return None
         provider, api_key = self._model_credential_headers()
         return {
@@ -422,6 +424,7 @@ class Handler(BaseHTTPRequestHandler):
         segment: str,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         pending = {
+            "human": ("pending_chat_human", "chat-human-pending"),
             "integrations": ("pending_chat_integrations", "chat-integration-pending"),
         }.get(segment)
         if pending is None:
@@ -437,6 +440,7 @@ class Handler(BaseHTTPRequestHandler):
         progress: chat_progress.Reporter | None = None,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         submission = {
+            "human": ("resume_chat_human", "chat-human-submit", MAX_HUMAN_RESPONSE_BODY_BYTES),
             "integrations": ("resume_chat_integrations", "chat-integration-submit", MAX_BODY_BYTES),
         }.get(segment)
         if submission is None:
@@ -541,7 +545,7 @@ class Handler(BaseHTTPRequestHandler):
         def execute() -> None:
             if operation == "chat":
                 status, payload, *_audit = self._chat_start(team_id, reporter)
-            elif operation == "chat-integration-submit":
+            elif operation in {"chat-human-submit", "chat-integration-submit"}:
                 status, payload, *_audit = self._chat_submit(team_id, parts[4], reporter)
             else:
                 raise AssertionError("non-streaming route reached chat stream")
@@ -767,7 +771,7 @@ class Handler(BaseHTTPRequestHandler):
         request_audit.human(evidence)
         request_audit.record("human-authority", result="ok")
         with local_audit.bind_request_principal(request_audit.principal()):
-            if route.operation in {"chat", "chat-integration-submit"}:
+            if route.operation in {"chat", "chat-human-submit", "chat-integration-submit"}:
                 self._stream_chat_route(parts, route, request_audit)
                 return None
             if route.operation == "assistant-icon":

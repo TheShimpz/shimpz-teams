@@ -47,14 +47,22 @@ def _invoke_chat_power(
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped")
             self._active_power_containers[team_id] = (token, container)
     try:
-        invocation = self.assistant_lifecycle.invoke(
-            team_id,
-            assistant_id,
-            power_request.power,
-            power_request.input,
-            responses,
-            protected_values,
-        )
+        if responses:
+            invocation = self.assistant_lifecycle.invoke(
+                team_id,
+                assistant_id,
+                power_request.power,
+                power_request.input,
+                responses,
+                protected_values,
+            )
+        else:
+            invocation = self.assistant_lifecycle.invoke(
+                team_id,
+                assistant_id,
+                power_request.power,
+                power_request.input,
+            )
     except ApiProblem:
         if self._chat_cancelled(token):
             raise chat_orchestrator.ChatStoppedError("chat turn stopped") from None

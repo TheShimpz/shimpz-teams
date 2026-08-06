@@ -49,6 +49,7 @@ from local.assistant.egress import PROFILE
 from local.chat import api as local_chat_api
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
+from local.chat import human as local_chat_human
 from local.chat import pause as local_chat_pause
 from local.chat import private as local_chat_private
 from local.chat import resume as local_chat_resume
@@ -76,6 +77,7 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
+from power import challenges as power_challenges
 from power import execution as power_execution
 from power import journal as power_journal
 from storage import files as team_storage
@@ -144,6 +146,7 @@ class ChatTurnDependencies:
     power_state: object | None = None
     assistant_integrations: object | None = None
     integration_challenges: object | None = None
+    human_challenges: object | None = None
     oauth_pkce: object | None = None
     oauth_service: object | None = None
     chat_continuations: object | None = None
@@ -254,6 +257,7 @@ class ChatTurnService:
         self.power_state = dependencies.power_state
         self.assistant_integrations = dependencies.assistant_integrations
         self.integration_challenges = dependencies.integration_challenges
+        self.human_challenges = dependencies.human_challenges or power_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
@@ -320,6 +324,9 @@ class ChatTurnService:
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
     resume_chat_integrations = local_chat_api.resume_chat_integrations
+    resume_chat_human = local_chat_human.resume_chat_human
+    pending_chat_human = local_chat_human.pending_chat_human
+    _expire_human_challenges = local_chat_human._expire_human_challenges
 
     _invoke_chat_power = local_chat_execution._invoke_chat_power
     _chat_identity = staticmethod(local_chat_execution._chat_identity)
@@ -330,7 +337,12 @@ class ChatTurnService:
 
     _commit_suspension = local_chat_pause._commit_suspension
     _integration_response = local_chat_pause._integration_response
+    _human_response = local_chat_pause._human_response
+    _purge_human_generation = local_chat_pause._purge_human_generation
+    _purge_human_pending = local_chat_pause._purge_human_pending
+    _terminal_human_failure = local_chat_pause._terminal_human_failure
     _pause_integration = local_chat_pause._pause_integration
+    _pause_human = local_chat_pause._pause_human
 
     _power_integration_generations = local_chat_private._power_integration_generations
     _refresh_oauth_integration = local_chat_private._refresh_oauth_integration
@@ -390,6 +402,7 @@ class LocalControllerDependencies:
     power_state: power_journal.PowerJournal | None = None
     assistant_integrations: integration_store.OAuthIntegrationStore | None = None
     integration_challenges: integration_challenges.IntegrationChallengeStore | None = None
+    human_challenges: power_challenges.HumanChallengeStore | None = None
     oauth_pkce: integration_pkce.OAuthPKCEChallengeStore | None = None
     oauth_broker: integration_broker.OAuthBrokerClient | None = None
     oauth_service: integration_service.BrokeredOAuthIntegrationService | None = None
@@ -447,6 +460,7 @@ class LocalController:
         self.integration_challenges = (
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
+        self.human_challenges = dependencies.human_challenges or power_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -511,6 +525,7 @@ class LocalController:
                 power_state=getattr(self, "power_state", None),
                 assistant_integrations=getattr(self, "assistant_integrations", None),
                 integration_challenges=getattr(self, "integration_challenges", None),
+                human_challenges=getattr(self, "human_challenges", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
                 chat_continuations=getattr(self, "chat_continuations", None),

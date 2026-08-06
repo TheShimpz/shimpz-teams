@@ -7,6 +7,7 @@ from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
+from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_chat_assistant_ids, validate_team_id
 
@@ -14,6 +15,10 @@ MAX_CHAT_MESSAGE_CHARS = 16_000
 
 
 def _pending_chat_continuation(self, team_id: str) -> dict[str, object] | None:
+    self._expire_human_challenges()
+    existing_human = self.human_challenges.current(team_id)
+    if existing_human is not None:
+        return self._human_response(existing_human)
     existing_integration = self.integration_challenges.current(team_id)
     if existing_integration is not None:
         return self._integration_response(existing_integration)
@@ -22,22 +27,21 @@ def _pending_chat_continuation(self, team_id: str) -> dict[str, object] | None:
 
 def _segment_response(
     self,
-    team_id: str,
-    token: str,
-    segment: chat_turn_engine.SegmentResult,
-    assistant_ids: tuple[str, ...],
-    file_ids: tuple[str, ...],
-    provider: str,
+    response: _ResponseRequest,
 ) -> dict[str, object]:
+    team_id = response.team_id
+    token = response.token
+    segment = response.segment
     def pending(suspension: object) -> _PendingLocalChat:
         if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
             raise AssertionError("invalid local chat suspension")
         return _PendingLocalChat(
             continuation=suspension.continuation,
-            assistant_ids=assistant_ids,
-            file_ids=file_ids,
-            provider=provider,
+            assistant_ids=response.assistant_ids,
+            file_ids=response.file_ids,
+            provider=response.provider,
             identity=segment.identity,
+            transcripts=response.transcripts,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
@@ -55,12 +59,12 @@ def _segment_response(
                 lambda suspension, requirements, state: self._pause_integration(
                     team_id, token, suspension, requirements, state
                 ),
-                lambda _suspension, _requirements, _state: (_ for _ in ()).throw(
-                    ApiProblem(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "Power human requests are unavailable",
-                        code="human-request-unavailable",
-                    )
+                lambda suspension, requirements, state: self._pause_human(
+                    team_id,
+                    token,
+                    suspension,
+                    requirements,
+                    state,
                 ),
             ),
             complete,
@@ -113,12 +117,7 @@ def chat(
             )
         )
         return self._segment_response(
-            team_id,
-            token,
-            segment,
-            assistant_ids,
-            tuple(file_ids),
-            provider,
+            _ResponseRequest(team_id, token, segment, assistant_ids, tuple(file_ids), provider)
         )
 
 
@@ -202,10 +201,13 @@ def resume_chat_integrations(
             )
         )
         return self._segment_response(
-            team_id,
-            token,
-            segment,
-            pending.assistant_ids,
-            pending.file_ids,
-            provider,
+            _ResponseRequest(
+                team_id,
+                token,
+                segment,
+                pending.assistant_ids,
+                pending.file_ids,
+                provider,
+                pending.transcripts,
+            )
         )

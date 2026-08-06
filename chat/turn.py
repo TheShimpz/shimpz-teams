@@ -16,7 +16,7 @@ from integrations import store as integration_store
 from power import human as power_human
 from power import journal as power_journal
 
-CHAT_PAUSED_STATUSES = frozenset({"integrations-required"})
+CHAT_PAUSED_STATUSES = frozenset({"human-required", "integrations-required"})
 
 
 @dataclass(slots=True)

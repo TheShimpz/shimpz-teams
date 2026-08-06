@@ -56,6 +56,7 @@ class ChallengeStore[PendingT]:
         self._clock = clock
         self._pending: dict[str, PendingT] = {}
         self._by_team: dict[str, str] = {}
+        self._expired: list[PendingT] = []
         self._lock = threading.Lock()
 
     def create(self, team_id: object, challenge_payload: object, payload: Any) -> PendingT:
@@ -166,7 +167,16 @@ class ChallengeStore[PendingT]:
             removed = len(self._pending)
             self._pending.clear()
             self._by_team.clear()
+            self._expired.clear()
             return removed
+
+    def drain_expired(self) -> tuple[PendingT, ...]:
+        """Return expired payloads once so their owning domain can clean dependent state."""
+        with self._lock:
+            self._expire(self._clock())
+            expired = tuple(self._expired)
+            self._expired.clear()
+            return expired
 
     def _available(self, team_id: str, challenge_id: str) -> PendingT:
         challenge = self._pending.get(challenge_id)
@@ -178,6 +188,7 @@ class ChallengeStore[PendingT]:
         expired = [identifier for identifier, item in self._pending.items() if item.expires_at <= now]
         for identifier in expired:
             challenge = self._pending.pop(identifier)
+            self._expired.append(challenge)
             if self._by_team.get(challenge.team_id) == identifier:
                 self._by_team.pop(challenge.team_id, None)
 

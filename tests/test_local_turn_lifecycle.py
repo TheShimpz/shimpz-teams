@@ -15,6 +15,7 @@ from local_controller_harness import LocalContractCase, TestPublicationRegistry
 
 from inference import client as brain_runtime_client
 from local import app as local_app
+from power import human as power_human
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -46,6 +47,142 @@ LOCAL_TEAM_RESIDUES = [
 
 
 class LocalTurnLifecycleTests(LocalContractCase):
+    @staticmethod
+    def _approval_request() -> power_human.HumanRequest:
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "List zones",
+            "description": "Allow this Power to list the reviewed Cloudflare zones.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        return power_human.validate_request(descriptor, ("approval",))
+
+    def test_local_human_approval_replays_the_same_power_before_brain_resume(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+
+        class Runtime:
+            resumes = 0
+
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, results):
+                self.resumes += 1
+                if results != {"power-1": LOOKUP_RESULT}:
+                    raise AssertionError("approved result changed")
+                return brain_runtime_client.RuntimeTurn("completed", "Approved", ())
+
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Runtime()
+            controller = self._chat_controller(directory, runtime)
+            admitted = self._approval_request()
+            invocations: list[tuple[object, ...]] = []
+
+            def invoke(*args):
+                invocations.append(args)
+                if len(invocations) == 1:
+                    raise power_human.HumanRequestSuspensionError(admitted)
+                self.assertEqual(args[4], (power_human.admit_response(admitted, True).payload(),))
+                return {"result": LOOKUP_RESULT}
+
+            controller.assistant_lifecycle.invoke = invoke
+            paused = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            self.assertEqual(paused["status"], "human-required")
+            self.assertEqual(runtime.resumes, 0)
+
+            completed = controller.chat_turn_service.resume_chat_human(
+                "team_1",
+                {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True},
+                "openai",
+                "sk-test-0123456789",
+            )
+
+        self.assertEqual(completed["reply"], "Approved")
+        self.assertEqual(runtime.resumes, 1)
+        self.assertEqual(len(invocations), 2)
+
+    def test_denied_human_request_purges_the_power_batch_without_brain_resume(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("a denied Power must not resume the Brain")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                power_human.HumanRequestSuspensionError(self._approval_request())
+            )
+            paused = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            denied = controller.chat_turn_service.resume_chat_human(
+                "team_1",
+                {"challenge_id": paused["challenge_id"], "decision": "deny"},
+                "openai",
+                "sk-test-0123456789",
+            )
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+
+        self.assertEqual(denied["status"], "human-denied")
+        self.assertEqual(batches, (0,))
+
+    def test_unavailable_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+        descriptor = {
+            "kind": "auth:second-factor",
+            "ordinal": 0,
+            "title": "Confirm second factor",
+            "description": "Confirm a current second factor before continuing.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        admitted = power_human.validate_request(descriptor, ("auth:second-factor",))
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("unavailable authentication must stop the turn")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                power_human.HumanRequestSuspensionError(admitted)
+            )
+
+            response = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+
+        self.assertEqual(response["status"], "human-denied")
+        self.assertEqual(response["reason"], "authentication-unavailable")
+        self.assertEqual(batches, (0,))
+
     def test_chat_stop_does_not_hold_the_global_guard_during_power_termination(self) -> None:
         token = "turn-token"
         container = object()

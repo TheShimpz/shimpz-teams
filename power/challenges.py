@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -63,12 +64,13 @@ class HumanChallengeStore(challenge_store.ChallengeStore[PendingHumanChallenge])
         *,
         capacity: int = challenge_store.MAX_PENDING_CHALLENGES,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__(
             _CONTRACT,
             capacity=capacity,
             ttl_seconds=ttl_seconds,
-            clock=time.monotonic,
+            clock=clock,
         )
 
 

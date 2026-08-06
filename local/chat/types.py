@@ -3,9 +3,11 @@
 from dataclasses import dataclass
 from http import HTTPStatus
 
+from chat import turn as chat_turn_engine
 from local.chat import continuation as local_chat_continuations
 from local.errors import ApiProblemError
 from local.install.runtime import AssistantSpec
+from power import human as power_human
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,6 +18,17 @@ class ActiveAssistant:
 
 
 PendingLocalChat = local_chat_continuations.PendingLocalChat
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseRequest:
+    team_id: str
+    token: str
+    segment: chat_turn_engine.SegmentResult
+    assistant_ids: tuple[str, ...]
+    file_ids: tuple[str, ...]
+    provider: str
+    transcripts: tuple[power_human.PowerTranscript, ...] = ()
 
 
 def required_active_assistant(

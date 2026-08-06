@@ -175,6 +175,7 @@ def _clear_team_runtime_state(self, team_id: str) -> None:
 
 def destroy_team(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
+    self.chat_turn_service.human_challenges.cancel_team(team_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
     residue_absent = {"chat_continuations"}
     self.chat_turn_service._cancel_chat_for_destroy(team_id)
@@ -332,6 +333,7 @@ def _remove_space_resources(
 def reset_space(self) -> dict[str, object]:
     """Remove every exactly owned workload/network without accepting resource ids."""
     self.chat_turn_service._clear_chat_continuations()
+    self.chat_turn_service.human_challenges.cancel_all()
     with ExitStack() as locks:
         for lock in self._locks:
             locks.enter_context(lock)
