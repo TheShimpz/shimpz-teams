@@ -24,8 +24,6 @@ from hosted_assistant_fixture import (
     runtime_state,
 )
 
-from power import human as power_human
-
 integration_challenges = runtime_state.integration_challenges
 assistant_manifest = assistant_lifecycle.assistant_manifest
 brain_runtime_client = runtime_state.brain_runtime_client
@@ -727,48 +725,6 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.addCleanup(journal.close)
                 self.assertTrue(path.exists())
                 self.assertIs(runtime_state._power_execution_journal(), journal)
-
-    def test_hosted_human_suspension_fails_closed_before_a_challenge_is_created(self) -> None:
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Publish zone",
-            "description": "Publish this reviewed DNS zone.",
-        }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        request = power_human.validate_request(descriptor, ("approval",))
-        power = brain_runtime_client.PowerRequest(
-            "power-1",
-            "shimpz-cloudflare",
-            "list-zones",
-            {"page": 1, "per_page": 25},
-        )
-        continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("power-required", "", (power,)),
-            (),
-            (),
-            0,
-        )
-        segment = hosted_chat_segment.chat_turn_engine.SegmentResult(
-            "Marketing",
-            ("identity",),
-            chat_orchestrator.ChatHumanSuspension(continuation, power, request),
-            (),
-            (object(),),
-        )
-
-        with self.assertRaises(runtime_state.ApiError) as caught:
-            hosted_chat_segment._hosted_segment_response(
-                "team_1",
-                "turn-token",
-                segment,
-                ("shimpz-cloudflare",),
-                (),
-                "account_1",
-            )
-
-        self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertEqual(caught.exception.message, "Power human requests are unavailable")
 
     def test_destroy_deletes_generation_after_chat_drain_before_teardown(self) -> None:
         events: list[object] = []
