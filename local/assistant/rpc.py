@@ -63,7 +63,11 @@ def _rpc(
     payload: dict,
 ) -> object:
     try:
-        encoded = power_execution.encode_rpc_invocation(payload["input"], payload["integrations"])
+        encoded = power_execution.encode_rpc_invocation(
+            payload["input"],
+            payload["integrations"],
+            payload.get("responses", ()),
+        )
     except (KeyError, ValueError) as exc:
         raise ApiProblem(
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,

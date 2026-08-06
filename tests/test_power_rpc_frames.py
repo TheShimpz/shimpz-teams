@@ -488,6 +488,33 @@ class PowerRpcFrameTests(unittest.TestCase):
         self.assertEqual(create.call_args.args[1], [power_execution.POWER_COMMAND, "test"])
         self.assertEqual(create.call_args.kwargs["workdir"], local_assistant_rpc.ASSISTANT_WORKDIR)
 
+    def test_local_exchange_carries_replay_responses_only_when_present(self) -> None:
+        fake = SimpleNamespace(
+            client=SimpleNamespace(api=object()),
+            _close_exec_stream=lambda _stream: None,
+            _fail_stop_power=lambda _container: None,
+        )
+        response = {
+            "kind": "approval",
+            "ordinal": 0,
+            "fingerprint": "a" * 64,
+            "value": True,
+        }
+        with mock.patch.object(local_assistant_rpc.power_execution, "rpc_exchange", return_value={"ok": True}), \
+             mock.patch.object(
+                 local_assistant_rpc.power_execution,
+                 "encode_rpc_invocation",
+                 return_value=b"request",
+             ) as encode:
+            local_assistant_rpc._rpc(
+                fake,
+                SimpleNamespace(id="assistant-container"),
+                "test",
+                {"input": {}, "integrations": {}, "responses": (response,)},
+            )
+
+        encode.assert_called_once_with({}, {}, (response,))
+
 
 class RpcMessageParity(unittest.TestCase):
     def _hosted(self, kind):

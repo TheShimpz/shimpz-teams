@@ -13,6 +13,7 @@ import os
 import secrets
 import sys
 import threading
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -748,6 +749,8 @@ class LocalController:
         assistant_id: str,
         power: str,
         payload: object,
+        responses: tuple[Mapping[str, object], ...] = (),
+        protected_values: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
         spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
@@ -793,6 +796,7 @@ class LocalController:
             rpc_payload = {
                 "input": safe_payload,
                 "integrations": power_execution.integration_access_tokens(integration_values),
+                "responses": responses,
             }
         try:
             raw_result = self.assistant_lifecycle._rpc(
@@ -815,6 +819,7 @@ class LocalController:
                 integration_values,
                 lambda value: validate_power_payload(power_spec, "output", value),
                 power_spec.human_requests,
+                protected_values,
             )
         except power_execution.RpcSecretExposureError:
             local_audit.record_request(

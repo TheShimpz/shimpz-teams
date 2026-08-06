@@ -1,5 +1,6 @@
 """Local chat Power execution and context validation operations."""
 
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import NoReturn
 
@@ -22,6 +23,8 @@ def _invoke_chat_power(
     token: str,
     power_request: brain_runtime_client.PowerRequest,
     frozen_container_id: str,
+    responses: tuple[Mapping[str, object], ...] = (),
+    protected_values: Mapping[str, str] | None = None,
 ) -> object:
     assistant_id = power_request.assistant_id
     with self._lock(team_id):
@@ -49,6 +52,8 @@ def _invoke_chat_power(
             assistant_id,
             power_request.power,
             power_request.input,
+            responses,
+            protected_values,
         )
     except ApiProblem:
         if self._chat_cancelled(token):
