@@ -20,6 +20,10 @@
           "kind": "json",
           "length": 2,
           "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "assurance": {
+          "kind": "auth:reauth",
+          "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
       }
     ],
@@ -54,6 +58,26 @@
           "kind": "none",
           "length": 0,
           "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      {
+        "v": 1,
+        "aud": "team-local",
+        "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "session_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "jti": "cccccccccccccccccccccccccccccccc",
+        "iat": 2200000000,
+        "exp": 2200000015,
+        "method": "POST",
+        "path": "/v1/teams/team_1/chat/human",
+        "body": {
+          "kind": "json",
+          "length": 2,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "assurance": {
+          "kind": "reauth",
+          "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
       }
     ]

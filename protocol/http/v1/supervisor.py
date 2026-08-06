@@ -22,6 +22,13 @@ _PATH = re.compile(r"^/[a-z0-9_/-]+$")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$")
 _METHODS = frozenset({"DELETE", "GET", "POST", "PUT"})
+ASSURANCE_KINDS = frozenset(
+    {
+        "auth:reauth",
+        "auth:second-factor",
+        "auth:phishing-resistant",
+    }
+)
 
 
 class SupervisorAssertionError(ValueError):
@@ -113,6 +120,21 @@ def _model(value: object) -> dict[str, str]:
     }
 
 
+def _assurance(value: object) -> dict[str, str]:
+    if not isinstance(value, dict) or set(value) != {"kind", "challenge_id"}:
+        raise SupervisorAssertionError("invalid human assurance binding")
+    kind = value["kind"]
+    challenge_id = value["challenge_id"]
+    if (
+        not isinstance(kind, str)
+        or kind not in ASSURANCE_KINDS
+        or not isinstance(challenge_id, str)
+        or _HEX_32.fullmatch(challenge_id) is None
+    ):
+        raise SupervisorAssertionError("invalid human assurance binding")
+    return {"kind": kind, "challenge_id": challenge_id}
+
+
 def canonical_claims(value: object) -> dict[str, object]:
     """Return one closed canonical assertion claim set."""
     if not isinstance(value, dict):
@@ -129,7 +151,7 @@ def canonical_claims(value: object) -> dict[str, object]:
         "path",
         "body",
     }
-    if not required <= set(value) or set(value) - required - {"model"}:
+    if not required <= set(value) or set(value) - required - {"model", "assurance"}:
         raise SupervisorAssertionError("invalid Supervisor assertion claims")
     if type(value["v"]) is not int or value["v"] != 1 or value["aud"] != ASSERTION_AUDIENCE:
         raise SupervisorAssertionError("unsupported Supervisor assertion")
@@ -170,6 +192,8 @@ def canonical_claims(value: object) -> dict[str, object]:
     }
     if "model" in value:
         result["model"] = _model(value["model"])
+    if "assurance" in value:
+        result["assurance"] = _assurance(value["assurance"])
     return result
 
 

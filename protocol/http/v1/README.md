@@ -24,6 +24,10 @@ The internal Team bearer is machine authority only for the one-use OAuth callbac
 never substitutes for human Account or Supervisor evidence. In Local, Admin emits one short-lived
 Ed25519 assertion in `X-Shimpz-Supervisor` after validating its current browser session; Team binds
 it to the canonical request and consumes it once while retaining an independent machine bearer.
+For an authentication-gated Power response, that same signed, one-use assertion may carry one
+`assurance` binding containing only the exact reviewed `auth:*` kind and pending challenge ID.
+Team requires that binding for the matching authentication challenge and rejects it on every
+non-authentication request. Credential and factor material never cross this protocol.
 
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
