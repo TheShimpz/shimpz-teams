@@ -311,11 +311,31 @@ def _restore_chat_continuation(
         self._raise_chat_continuation_problem(exc)
 
 
+def _purge_expired_human_continuation(
+    self,
+    stored: local_chat_continuation_store.StoredContinuation,
+) -> None:
+    if stored.kind != "human":
+        return
+    try:
+        decoded = local_chat_continuations.decode(stored)
+        if decoded.kind != "human":
+            raise local_chat_continuations.ContinuationCodecError(
+                "expired human continuation kind changed"
+            )
+    except local_chat_continuations.ContinuationCodecError as exc:
+        self._raise_chat_continuation_problem(exc)
+    self._purge_human_pending(decoded.pending)
+
+
 def _restore_all_chat_continuations(self) -> None:
     try:
+        expired = self.chat_continuations.drain_expired()
         stored = self.chat_continuations.active()
     except local_chat_continuation_store.ContinuationStoreError as exc:
         self._raise_chat_continuation_problem(exc)
+    for continuation in expired:
+        self._purge_expired_human_continuation(continuation)
     for continuation in stored:
         self._restore_chat_continuation(continuation)
 

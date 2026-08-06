@@ -144,6 +144,105 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(denied["status"], "human-denied")
         self.assertEqual(batches, (0,))
 
+    def test_restart_purges_an_expired_human_continuation_and_unblocks_the_generation(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("an expired Power must not resume the Brain")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            admitted = self._approval_request()
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                power_human.HumanRequestSuspensionError(admitted)
+            )
+            paused = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                before = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+
+            reopened = local_app.local_chat_continuation_store.EncryptedContinuationStore(
+                controller.chat_continuations.state_path,
+                controller.chat_continuations.key_path,
+                now=lambda: 2_200_000_000,
+            )
+            restarted = local_app.ChatTurnService(
+                local_app.ChatTurnDependencies(
+                    power_state=controller.power_state,
+                    integration_challenges=local_app.integration_challenges.IntegrationChallengeStore(),
+                    human_challenges=local_app.power_challenges.HumanChallengeStore(),
+                    chat_continuations=reopened,
+                )
+            )
+
+            restarted._restore_all_chat_continuations()
+
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                after = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            next_batch = controller.power_state.prepare_batch(
+                "a" * 64,
+                "next-thread",
+                (local_app.power_journal.Operation("power-2", "b" * 64),),
+            )
+
+        self.assertEqual(paused["status"], "human-required")
+        self.assertEqual(before, (1,))
+        self.assertEqual(after, (0,))
+        self.assertIsNone(reopened.current("team_1"))
+        self.assertEqual(next_batch.generation, "a" * 64)
+
+    def test_running_controller_purges_an_expired_human_challenge(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("an expired Power must not resume the Brain")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            admitted = self._approval_request()
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                power_human.HumanRequestSuspensionError(admitted)
+            )
+            controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            challenge = controller.chat_turn_service.human_challenges.current("team_1")
+            self.assertIsNotNone(challenge)
+
+            controller.chat_turn_service.human_challenges._clock = lambda: challenge.expires_at
+            controller.chat_turn_service._expire_human_challenges()
+
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+            next_batch = controller.power_state.prepare_batch(
+                "a" * 64,
+                "next-thread",
+                (local_app.power_journal.Operation("power-2", "b" * 64),),
+            )
+
+        self.assertEqual(batches, (0,))
+        self.assertIsNone(controller.chat_continuations.current("team_1"))
+        self.assertEqual(next_batch.generation, "a" * 64)
+
     def test_unavailable_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
         request = brain_runtime_client.PowerRequest(
             "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
