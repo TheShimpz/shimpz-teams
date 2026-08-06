@@ -652,6 +652,29 @@ class PowerJournal:
                 self._rollback()
                 raise PowerJournalError("Power generation could not be purged") from exc
 
+    def purge_replayable(self, generation: str) -> bool:
+        """Abandon stale paused work only when no operation has an uncertain outcome."""
+        safe_generation = _safe_id(generation, "generation")
+        with self._guard:
+            self._ensure_open()
+            self._transaction()
+            try:
+                states = self._connection.execute(
+                    "SELECT state FROM operations WHERE generation = ?",
+                    (safe_generation,),
+                ).fetchall()
+                if any(row == ("executing",) for row in states):
+                    self._commit()
+                    return False
+                self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
+                self._commit()
+                self._forget_generation(safe_generation)
+            except sqlite3.Error as exc:
+                self._rollback()
+                raise PowerJournalError("replayable Power generation could not be purged") from exc
+            else:
+                return bool(states)
+
     def close(self) -> None:
         with self._guard:
             if not self._closed:
