@@ -24,6 +24,7 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
+from power import human as power_human
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -744,13 +745,17 @@ class Handler(BaseHTTPRequestHandler):
         request_audit.absent(assertion_state)
         body = self._capture_body(route.operation)
         model = self._model_binding(route.operation)
+        assurance = self._expected_human_assurance(route.operation, route.params)
         try:
             evidence = local_authority.verify(
                 self.headers,
-                method=self.command,
-                path="/" + "/".join(parts),
-                body=body,
-                model=model,
+                request=local_authority.RequestBinding(
+                    method=self.command,
+                    path="/" + "/".join(parts),
+                    body=body,
+                    model=model,
+                    assurance=assurance,
+                ),
             )
         except local_authority.SupervisorDeniedError as exc:
             if assertion_state == "assertion_present":
@@ -782,6 +787,36 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_icon(contents)
                 return None
             return self._route(parts, route)
+
+    def _expected_human_assurance(
+        self,
+        operation: str,
+        params: dict[str, str],
+    ) -> dict[str, str] | None:
+        if operation != "chat-human-submit":
+            return None
+        body = self._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES)
+        if (
+            set(body) != {"challenge_id", "decision", "value"}
+            or body.get("decision") != "submit"
+            or body.get("value") is not True
+        ):
+            return None
+        team_id = validate_team_id(params.get("team_id"))
+        service = self.server.controller.chat_turn_service
+        service._expire_human_challenges()
+        challenge = service.human_challenges.current(team_id)
+        challenge_id = body.get("challenge_id")
+        if (
+            challenge is None
+            or challenge.id != challenge_id
+            or challenge.requirement.request.kind not in power_human.AUTH_KINDS
+        ):
+            return None
+        return {
+            "kind": challenge.requirement.request.kind,
+            "challenge_id": challenge.id,
+        }
 
     def _handle(self) -> None:
         self.close_connection = True

@@ -51,6 +51,17 @@ class Evidence:
     expires_at: int
 
 
+@dataclass(frozen=True, slots=True)
+class RequestBinding:
+    """Exact HTTP request and optional credential bindings expected by Team."""
+
+    method: str
+    path: str
+    body: dict[str, object]
+    model: dict[str, str] | None
+    assurance: dict[str, str] | None
+
+
 class ReplayGuard:
     """Bounded one-use assertion guard; restart exposure is limited by the 15-second TTL."""
 
@@ -190,10 +201,7 @@ def _verified_claims(encoded: str, key: Ed25519PublicKey) -> dict[str, object]:
 def verify(
     headers: Message,
     *,
-    method: str,
-    path: str,
-    body: dict[str, object],
-    model: dict[str, str] | None,
+    request: RequestBinding,
     replay_guard: ReplayGuard | None = None,
     now: int | None = None,
 ) -> Evidence:
@@ -212,12 +220,16 @@ def verify(
     ):
         raise SupervisorDeniedError("Local Supervisor assertion is outside its valid time")
     expected: dict[str, object] = {
-        "method": method,
-        "path": path,
-        "body": body,
+        "method": request.method,
+        "path": request.path,
+        "body": request.body,
     }
     actual = {field: claims[field] for field in expected}
-    if actual != expected or claims.get("model") != model:
+    if (
+        actual != expected
+        or claims.get("model") != request.model
+        or claims.get("assurance") != request.assurance
+    ):
         raise SupervisorDeniedError("Local Supervisor assertion does not match the request")
     guard = _REPLAY_GUARD if replay_guard is None else replay_guard
     assertion_id = claims["jti"]

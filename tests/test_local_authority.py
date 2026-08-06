@@ -54,6 +54,18 @@ def _assertion(private_key: Ed25519PrivateKey, claims: dict[str, object]) -> str
     return f"{header}.{payload}.{_segment(private_key.sign(signing_input))}"
 
 
+def _binding(**overrides: object) -> authority.RequestBinding:
+    value: dict[str, object] = {
+        "method": "GET",
+        "path": "/v1/teams",
+        "body": BODY,
+        "model": None,
+        "assurance": None,
+    }
+    value.update(overrides)
+    return authority.RequestBinding(**value)
+
+
 class LocalSupervisorAuthorityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -90,10 +102,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
 
         evidence = authority.verify(
             headers,
-            method="GET",
-            path="/v1/teams",
-            body=BODY,
-            model=None,
+            request=_binding(),
             replay_guard=guard,
             now=NOW,
         )
@@ -103,10 +112,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "replayed"):
             authority.verify(
                 headers,
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=None,
+                request=_binding(),
                 replay_guard=guard,
                 now=NOW,
             )
@@ -128,10 +134,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "does not match"):
             authority.verify(
                 headers,
-                method="GET",
-                path="/v1/assistants",
-                body=BODY,
-                model=None,
+                request=_binding(path="/v1/assistants"),
                 replay_guard=guard,
                 now=NOW,
             )
@@ -141,20 +144,14 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         with self.assertRaises(authority.SupervisorDeniedError):
             authority.verify(
                 forged,
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=None,
+                request=_binding(),
                 replay_guard=guard,
                 now=NOW,
             )
 
         evidence = authority.verify(
             headers,
-            method="GET",
-            path="/v1/teams",
-            body=BODY,
-            model=None,
+            request=_binding(),
             replay_guard=guard,
             now=NOW,
         )
@@ -166,20 +163,14 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "does not match"):
             authority.verify(
                 self._headers(claims),
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=None,
+                request=_binding(),
                 replay_guard=authority.ReplayGuard(),
                 now=NOW,
             )
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "valid time"):
             authority.verify(
                 self._headers({**claims, "jti": "e" * 32}),
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=model,
+                request=_binding(model=model),
                 replay_guard=authority.ReplayGuard(),
                 now=NOW + contract.ASSERTION_MAX_TTL_SECONDS + 1,
             )
@@ -188,20 +179,14 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         guard = authority.ReplayGuard(capacity=1)
         authority.verify(
             self._headers(_claims()),
-            method="GET",
-            path="/v1/teams",
-            body=BODY,
-            model=None,
+            request=_binding(),
             replay_guard=guard,
             now=NOW,
         )
         with self.assertRaisesRegex(authority.SupervisorUnavailableError, "saturated"):
             authority.verify(
                 self._headers(_claims(jti="f" * 32)),
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=None,
+                request=_binding(),
                 replay_guard=guard,
                 now=NOW,
             )
@@ -209,13 +194,35 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         with self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"):
             authority.verify(
                 self._headers(_claims(jti="1" * 32)),
-                method="GET",
-                path="/v1/teams",
-                body=BODY,
-                model=None,
+                request=_binding(),
                 replay_guard=authority.ReplayGuard(),
                 now=NOW,
             )
+
+    def test_human_assurance_is_required_exactly_when_signed(self) -> None:
+        assurance = {
+            "kind": "auth:reauth",
+            "challenge_id": "2" * 32,
+        }
+        claims = _claims(assurance=assurance)
+        headers = self._headers(claims)
+        guard = authority.ReplayGuard()
+
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "does not match"):
+            authority.verify(
+                headers,
+                request=_binding(),
+                replay_guard=guard,
+                now=NOW,
+            )
+
+        evidence = authority.verify(
+            headers,
+            request=_binding(assurance=assurance),
+            replay_guard=guard,
+            now=NOW,
+        )
+        self.assertEqual(evidence.assertion_id, "b" * 32)
 
 
 if __name__ == "__main__":

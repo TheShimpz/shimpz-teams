@@ -243,7 +243,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertIsNone(controller.chat_continuations.current("team_1"))
         self.assertEqual(next_batch.generation, "a" * 64)
 
-    def test_unavailable_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
+    def test_unavailable_strong_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
         request = brain_runtime_client.PowerRequest(
             "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
         )
@@ -255,7 +255,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             def resume(self, _context, _results):
                 raise AssertionError("unavailable authentication must stop the turn")
 
-        for kind in sorted(power_human.AUTH_KINDS):
+        for kind in sorted(power_human.AUTH_KINDS - {"auth:reauth"}):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
                 descriptor = {
                     "kind": kind,
@@ -290,6 +290,48 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 self.assertEqual(batches, (0,))
                 self.assertIsNone(controller.chat_turn_service.human_challenges.current("team_1"))
                 self.assertIsNone(controller.chat_turn_service.chat_continuations.current("team_1"))
+
+    def test_local_reauthentication_pauses_for_supervisor_assurance(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+        )
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("reauthentication must pause before Power replay")
+
+        descriptor = {
+            "kind": "auth:reauth",
+            "ordinal": 0,
+            "title": "Confirm identity",
+            "description": "Confirm current identity before continuing.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        admitted = power_human.validate_request(descriptor, ("auth:reauth",))
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                power_human.HumanRequestSuspensionError(admitted)
+            )
+            response = controller.chat_turn_service.chat(
+                "team_1",
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                },
+                "openai",
+                "sk-test-0123456789",
+            )
+
+            self.assertEqual(response["status"], "human-required")
+            self.assertEqual(response["request"]["kind"], "auth:reauth")
+            self.assertIsNotNone(controller.chat_turn_service.human_challenges.current("team_1"))
+            self.assertIsNotNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
     def test_chat_stop_does_not_hold_the_global_guard_during_power_termination(self) -> None:
         token = "turn-token"

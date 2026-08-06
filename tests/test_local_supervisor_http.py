@@ -116,10 +116,13 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(result[:3], (HTTPStatus.OK, {"teams": []}, "team-list"))
         verify.assert_called_once_with(
             handler.headers,
-            method="GET",
-            path="/v1/teams",
-            body={"kind": "none", "length": 0, "sha256": contract.EMPTY_SHA256},
-            model=None,
+            request=authority.RequestBinding(
+                method="GET",
+                path="/v1/teams",
+                body={"kind": "none", "length": 0, "sha256": contract.EMPTY_SHA256},
+                model=None,
+                assurance=None,
+            ),
         )
         self.assertEqual(request_audit.principal_id, "a" * 32)
         self.assertEqual(request_audit.principal_class, "human")
@@ -197,7 +200,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             handler._authorized_route(server._RequestAudit())
 
         self.assertEqual(
-            verify.call_args.kwargs["body"],
+            verify.call_args.kwargs["request"].body,
             {
                 "kind": "json",
                 "length": len(raw),
@@ -205,7 +208,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             },
         )
         self.assertEqual(
-            verify.call_args.kwargs["model"],
+            verify.call_args.kwargs["request"].model,
             {
                 "provider": "openai",
                 "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
@@ -229,6 +232,79 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual(records[-1]["status"], HTTPStatus.OK)
         self.assertEqual(records[-1]["body"]["reply"], "done")
         self.assertNotIn(api_key.encode(), handler.wfile.getvalue())
+
+    def test_auth_resume_requires_the_exact_pending_challenge_assurance(self) -> None:
+        challenge_id = "d" * 32
+        raw = json.dumps(
+            {"challenge_id": challenge_id, "decision": "submit", "value": True},
+            separators=(",", ":"),
+        ).encode()
+        challenge = SimpleNamespace(
+            id=challenge_id,
+            requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:reauth")),
+        )
+        service = SimpleNamespace(
+            _expire_human_challenges=mock.Mock(),
+            human_challenges=SimpleNamespace(current=mock.Mock(return_value=challenge)),
+        )
+        handler = self._handler(
+            "POST",
+            "/v1/teams/team_1/chat/human",
+            SimpleNamespace(chat_turn_service=service),
+            body=raw,
+            headers=(
+                (contract.ASSERTION_HEADER, "Bearer assertion"),
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(raw))),
+                ("X-Shimpz-Model-Provider", "openai"),
+                ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
+            ),
+        )
+
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
+            mock.patch.object(server.local_audit, "record", return_value="c" * 32),
+            mock.patch.object(handler, "_stream_chat_route"),
+        ):
+            handler._authorized_route(server._RequestAudit())
+
+        self.assertEqual(
+            verify.call_args.kwargs["request"].assurance,
+            {"kind": "auth:reauth", "challenge_id": challenge_id},
+        )
+        service._expire_human_challenges.assert_called_once_with()
+
+    def test_non_auth_human_resume_has_no_assurance_binding(self) -> None:
+        challenge_id = "e" * 32
+        handler = self._handler(
+            "POST",
+            "/v1/teams/team_1/chat/human",
+            SimpleNamespace(
+                chat_turn_service=SimpleNamespace(
+                    _expire_human_challenges=mock.Mock(),
+                    human_challenges=SimpleNamespace(
+                        current=mock.Mock(
+                            return_value=SimpleNamespace(
+                                id=challenge_id,
+                                requirement=SimpleNamespace(
+                                    request=SimpleNamespace(kind="approval")
+                                ),
+                            )
+                        )
+                    ),
+                )
+            ),
+            body=b'{"challenge_id":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","decision":"submit","value":true}',
+            headers=(
+                ("Content-Type", "application/json"),
+                ("Content-Length", "84"),
+            ),
+        )
+        handler._capture_body("chat-human-submit")
+
+        self.assertIsNone(
+            handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"})
+        )
 
     def test_chat_accepts_the_public_multibyte_message_boundary(self) -> None:
         message = "界" * 16_000
@@ -260,7 +336,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         ):
             handler._authorized_route(server._RequestAudit())
 
-        self.assertEqual(verify.call_args.kwargs["body"]["length"], len(raw))
+        self.assertEqual(verify.call_args.kwargs["request"].body["length"], len(raw))
         self.assertEqual(chat.call_args.args[1]["message"], message)
 
     def test_chat_stream_audit_failure_cannot_start_a_second_http_response(self) -> None:
