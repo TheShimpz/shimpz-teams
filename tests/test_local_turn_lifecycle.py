@@ -148,14 +148,6 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.PowerRequest(
             "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
         )
-        descriptor = {
-            "kind": "auth:second-factor",
-            "ordinal": 0,
-            "title": "Confirm second factor",
-            "description": "Confirm a current second factor before continuing.",
-        }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        admitted = power_human.validate_request(descriptor, ("auth:second-factor",))
 
         class Runtime:
             def start(self, _context, _message):
@@ -164,24 +156,41 @@ class LocalTurnLifecycleTests(LocalContractCase):
             def resume(self, _context, _results):
                 raise AssertionError("unavailable authentication must stop the turn")
 
-        with tempfile.TemporaryDirectory() as directory:
-            controller = self._chat_controller(directory, Runtime())
-            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
-                power_human.HumanRequestSuspensionError(admitted)
-            )
+        for kind in sorted(power_human.AUTH_KINDS):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                descriptor = {
+                    "kind": kind,
+                    "ordinal": 0,
+                    "title": "Confirm identity",
+                    "description": "Confirm current identity before continuing.",
+                }
+                descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+                admitted = power_human.validate_request(descriptor, (kind,))
+                controller = self._chat_controller(directory, Runtime())
+                controller.assistant_lifecycle.invoke = lambda *_args, request=admitted: (
+                    _ for _ in ()
+                ).throw(
+                    power_human.HumanRequestSuspensionError(request)
+                )
 
-            response = controller.chat_turn_service.chat(
-                "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
-                "openai",
-                "sk-test-0123456789",
-            )
-            with closing(sqlite3.connect(controller.power_state.path)) as connection:
-                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+                response = controller.chat_turn_service.chat(
+                    "team_1",
+                    {
+                        "message": "List zones",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                    },
+                    "openai",
+                    "sk-test-0123456789",
+                )
+                with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                    batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
 
-        self.assertEqual(response["status"], "human-denied")
-        self.assertEqual(response["reason"], "authentication-unavailable")
-        self.assertEqual(batches, (0,))
+                self.assertEqual(response["status"], "human-denied")
+                self.assertEqual(response["reason"], "authentication-unavailable")
+                self.assertEqual(batches, (0,))
+                self.assertIsNone(controller.chat_turn_service.human_challenges.current("team_1"))
+                self.assertIsNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
     def test_chat_stop_does_not_hold_the_global_guard_during_power_termination(self) -> None:
         token = "turn-token"
