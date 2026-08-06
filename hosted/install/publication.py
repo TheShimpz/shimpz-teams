@@ -43,10 +43,6 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
         )
         if machine_contract != resolution["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
-        if any(power["human_requests"] for power in machine_contract["powers"]):
-            raise bindings.DynamicAssistantError(
-                "Power human requests are unavailable for Hosted Teams"
-            )
         integrations = {
             integration.id: assistant_registry.IntegrationSpec(
                 provider=integration.provider,
@@ -64,7 +60,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
                 input_schema=power["input_schema"],
                 output_schema=power["output_schema"],
                 integrations=tuple(power["integrations"]),
-                human_requests=(),
+                human_requests=tuple(power["human_requests"]),
             )
             for power in machine_contract["powers"]
         }

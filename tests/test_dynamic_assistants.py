@@ -148,13 +148,14 @@ class DynamicAssistantStoreTests(unittest.TestCase):
             ),
         )
 
-    def test_hosted_resolution_rejects_declared_human_requests(self) -> None:
+    def test_hosted_resolution_preserves_reviewed_human_requests(self) -> None:
         resolution = runtime_resolution()
         resolution["machine_contract"]["powers"][0]["human_requests"] = ["approval"]
         binding = self.store.put("team_1", resolution)
 
-        with self.assertRaisesRegex(DynamicAssistantError, "unavailable for Hosted Teams"):
-            assistant_spec(binding)
+        spec = assistant_spec(binding)
+
+        self.assertEqual(spec.contract.powers["hello"].human_requests, ("approval",))
 
     def test_unchanged_digest_reuses_validation_without_aliasing_results(self) -> None:
         binding = self.store.put("team_1", runtime_resolution())
