@@ -221,7 +221,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
         self.assertEqual(rpc.call_args.args[-1]["integrations"], {"cloudflare": ACCESS_TOKEN})
 
-    def test_hosted_rpc_rejects_a_human_request_frame_as_an_invalid_result(self) -> None:
+    def test_hosted_rpc_admits_a_declared_human_request_frame(self) -> None:
         turn_token = "-".join(("turn", "token"))
         request = {
             "kind": "approval",
@@ -250,7 +250,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 "_assistant_rpc",
                 return_value={"type": "request", "request": request},
             ),
-            self.assertRaises(runtime_state.ApiError) as caught,
+            self.assertRaises(power_human.HumanRequestSuspensionError) as caught,
         ):
             hosted_assistants._invoke_assistant_power(
                 hosted_assistants.PowerInvocationRequest(
@@ -266,8 +266,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 )
             )
 
-        self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
-        self.assertEqual(caught.exception.message, "Assistant Power returned an invalid result")
+        self.assertEqual(caught.exception.request.kind, "approval")
+        self.assertEqual(caught.exception.request.ordinal, 0)
 
     def test_integration_token_exposure_is_rejected_without_echoing_it(self) -> None:
         self._connect()

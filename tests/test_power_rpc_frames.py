@@ -515,6 +515,33 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         encode.assert_called_once_with({}, {}, (response,))
 
+    def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
+        response = {
+            "kind": "approval",
+            "ordinal": 0,
+            "fingerprint": "a" * 64,
+            "value": True,
+        }
+        request = hosted_assistants.AssistantRpcRequest(
+            team_id="team_1",
+            container=SimpleNamespace(id="assistant-container"),
+            power_id="test",
+            payload={"input": {}, "integrations": {}, "responses": (response,)},
+            token=None,
+        )
+        with (
+            mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
+            mock.patch.object(hosted_assistants.power_execution, "rpc_exchange", return_value={"ok": True}),
+            mock.patch.object(
+                hosted_assistants.power_execution,
+                "encode_rpc_invocation",
+                return_value=b"request",
+            ) as encode,
+        ):
+            hosted_assistants._assistant_rpc_exchange(request)
+
+        encode.assert_called_once_with({}, {}, (response,))
+
 
 class RpcMessageParity(unittest.TestCase):
     def _hosted(self, kind):

@@ -29,6 +29,7 @@ from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import store as integration_store
 from power import execution as power_execution
+from power import human as power_human
 from power import journal as power_journal
 from storage import files as team_storage
 
@@ -295,6 +296,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
         encoded = power_execution.encode_rpc_invocation(
             request.payload["input"],
             request.payload["integrations"],
+            request.payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Power input is too large") from exc
@@ -482,6 +484,7 @@ class PowerInvocationRequest:
     inspect_memo: dict[str, object] | None = None
     validated_assistant: _ActiveAssistant | None = None
     integration_values: Mapping[str, Mapping[str, object]] | None = None
+    transcript: power_human.PowerTranscript | None = None
 
 
 def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object]:
@@ -514,6 +517,7 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
     if _current_id != assistant_id or current_contract != contract or current_container.id != container.id:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant changed during the chat turn")
     active = _ActiveAssistant(assistant_id, contract, container)
+    transcript = request.transcript or power_human.PowerTranscript("")
     integration_values = (
         _resolve_power_integrations(team_id, active, power)
         if request.integration_values is None
@@ -527,16 +531,19 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
         assistant=assistant_id,
         power=power,
     )
+    rpc_payload = {
+        "input": safe_input,
+        "integrations": power_execution.integration_access_tokens(integration_values),
+    }
+    if transcript.responses:
+        rpc_payload["responses"] = transcript.payloads()
     try:
         raw_result = _assistant_rpc(
             team_id,
             request.token,
             container,
             power,
-            {
-                "input": safe_input,
-                "integrations": power_execution.integration_access_tokens(integration_values),
-            },
+            rpc_payload,
         )
     except runtime_state.ApiError as exc:
         audit.log(
@@ -553,7 +560,8 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
             raw_result,
             integration_values,
             lambda value: _validate_power_payload(contract, power, value, output=True),
-            (),
+            tuple(contract.powers[power].human_requests),
+            transcript.protected_values(),
         )
     except power_execution.RpcSecretExposureError:
         audit.log(
