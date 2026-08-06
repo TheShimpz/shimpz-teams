@@ -13,6 +13,7 @@ from chat import turn as chat_turn_engine
 from hosted import audit
 from hosted import state as runtime_state
 from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 from integrations import challenges as integration_challenges
@@ -69,6 +70,13 @@ def _chat(
         pending = _pending_hosted_chat(team_id)
         if pending is not None:
             return pending
+        try:
+            runtime_state._power_execution_journal().purge_replayable(container.id)
+        except hosted_chat_segment.power_journal.PowerJournalError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Team Power execution state is unavailable",
+            ) from exc
         return hosted_chat_segment._chat_in_turn(
             team_id,
             message,
@@ -81,6 +89,9 @@ def _chat(
 
 
 def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
+    human = hosted_chat_human.pending_chat_human(team_id)
+    if human["status"] != "none":
+        return human
     integration = runtime_state._integration_challenges.current(team_id)
     if integration is not None:
         return hosted_chat_segment._hosted_integration_challenge_payload(integration)
@@ -331,6 +342,7 @@ def _resume_chat_integrations(
                 owner=lease.owner,
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
+                transcripts=pending.transcripts,
             )
         )
         return hosted_chat_segment._hosted_segment_response(
@@ -340,7 +352,23 @@ def _resume_chat_integrations(
             pending.assistant_ids,
             pending.file_ids,
             pending.owner,
+            pending.transcripts,
         )
+
+
+def _resume_chat_human(
+    team_id: str,
+    body: object,
+    assurance: dict[str, str] | None,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    return hosted_chat_human.resume_chat_human(
+        team_id,
+        body,
+        assurance,
+        lease,
+        _exclusive_chat_turn,
+    )
 
 
 def _stop_active_power(team_id: str, token: str | None) -> bool:
@@ -365,6 +393,7 @@ def _stop_active_power(team_id: str, token: str | None) -> bool:
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     """Cancel one Controller-owned turn and fail-stop a Power already executing."""
     integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
+    human_cancelled = hosted_chat_human.cancel_pending(team_id)
     with runtime_state._lock_for(team_id):
         container = hosted_resources._require_current_authorization(team_id, lease)
         container.reload()
@@ -379,7 +408,7 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
             if token is not None:
                 runtime_state._cancelled_chat_tokens.add(token)
         power_stopped = _stop_active_power(team_id, token)
-    accepted = token is not None or integration_cancelled
+    accepted = token is not None or integration_cancelled or human_cancelled
     return {
         "team_id": team_id,
         "requested": accepted,
