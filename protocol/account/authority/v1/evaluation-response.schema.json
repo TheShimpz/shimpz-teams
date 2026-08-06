@@ -10,6 +10,17 @@
     "account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
     "supervisor": {"type": "boolean"},
     "binding_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "owner_account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+    "owner_account_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "challenge_id"],
+      "properties": {
+        "kind": {
+          "enum": ["auth:reauth", "auth:second-factor", "auth:phishing-resistant"]
+        },
+        "challenge_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+      }
+    }
   }
 }

@@ -13,7 +13,11 @@
       "maxLength": 2048,
       "pattern": "^[ -~]+$"
     },
-    "binding": {"$ref": "#/$defs/binding"}
+    "binding": {"$ref": "#/$defs/binding"},
+    "assurance_handle": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
   },
   "$defs": {
     "parameterMap": {
@@ -86,6 +90,20 @@
         }
       }
     },
+    "assurance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "challenge_id"],
+      "properties": {
+        "kind": {
+          "enum": ["auth:reauth", "auth:second-factor", "auth:phishing-resistant"]
+        },
+        "challenge_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$"
+        }
+      }
+    },
     "binding": {
       "type": "object",
       "additionalProperties": false,
@@ -110,8 +128,32 @@
         "owner_account_id": {
           "type": "string",
           "pattern": "^[0-9a-f]{32}$"
+        },
+        "assurance": {"$ref": "#/$defs/assurance"}
+      },
+      "allOf": [
+        {
+          "if": {"required": ["assurance"]},
+          "then": {
+            "properties": {
+              "operation": {"const": "chat-human-submit"},
+              "params": {"required": ["team_id"]}
+            }
+          }
         }
-      }
+      ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {"required": ["assurance_handle"]},
+      "then": {
+        "properties": {"binding": {"required": ["assurance"]}}
+      }
+    },
+    {
+      "if": {"properties": {"binding": {"required": ["assurance"]}}},
+      "then": {"required": ["assurance_handle"]}
+    }
+  ]
 }

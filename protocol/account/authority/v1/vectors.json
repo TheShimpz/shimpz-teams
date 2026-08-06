@@ -63,6 +63,25 @@
         }
       },
       "binding_digest": "8a598b06c5326f6a1d520bdf2bda0228ea65b216b5895a8e6a6645f465736b12"
+    },
+    {
+      "name": "request-bound Power phishing-resistant assurance",
+      "binding": {
+        "method": "POST",
+        "operation": "chat-human-submit",
+        "params": {"team_id": "0123456789abcdef01234567_team"},
+        "query": {},
+        "body": {
+          "kind": "json",
+          "length": 128,
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "assurance": {
+          "kind": "auth:phishing-resistant",
+          "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        }
+      },
+      "binding_digest": "0f0cef4a67d661bec12b15541e517980a59c3d1933001a7d7819efde774b4acf"
     }
   ]
 }

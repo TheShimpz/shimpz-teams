@@ -45,6 +45,17 @@ def _binding(operation: str = "team-list", *, owner: str | None = None) -> dict[
     return value
 
 
+def _assurance_binding() -> dict[str, object]:
+    return {
+        "method": "POST",
+        "operation": "chat-human-submit",
+        "params": {"team_id": "team_1"},
+        "query": {},
+        "body": {"kind": "json", "length": 128, "sha256": "d" * 64},
+        "assurance": {"kind": "auth:second-factor", "challenge_id": "e" * 32},
+    }
+
+
 class _AccountHandler(BaseHTTPRequestHandler):
     requests: ClassVar[list[dict[str, object]]] = []
 
@@ -71,6 +82,8 @@ class _AccountHandler(BaseHTTPRequestHandler):
         }
         if request["binding"]["operation"] == "team-create":
             response["owner_account_id"] = request["binding"].get("owner_account_id", ACCOUNT_ID)
+        if "assurance" in request["binding"]:
+            response["assurance"] = request["binding"]["assurance"]
         status = HTTPStatus.OK
         if session == "denied":
             status = HTTPStatus.FORBIDDEN
@@ -88,6 +101,8 @@ class _AccountHandler(BaseHTTPRequestHandler):
             response["binding_digest"] = "d" * 64
         elif session == "extra":
             response["token"] = "protected"
+        elif session == "assurance-mismatch":
+            response["assurance"] = {"kind": "auth:reauth", "challenge_id": "f" * 32}
         body = json.dumps(response, separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -184,6 +199,36 @@ class AccountAuthorityTests(unittest.TestCase):
         ):
             evaluation = account_authority.evaluate("ordinary", self_owned)
         self.assertEqual(evaluation.owner_account_id, ACCOUNT_ID)
+
+    def test_assurance_handle_and_evidence_are_bound_to_the_exact_operation(self) -> None:
+        binding = _assurance_binding()
+        handle = "H" * 43
+        with (
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+        ):
+            evaluation = account_authority.evaluate("ordinary", binding, handle)
+
+        self.assertEqual(evaluation.assurance, binding["assurance"])
+        self.assertEqual(
+            _AccountHandler.requests[0]["request"],
+            {
+                "version": 1,
+                "session_token": "ordinary",
+                "binding": binding,
+                "assurance_handle": handle,
+            },
+        )
+
+        with (
+            _server(ThreadingHTTPServer, _AccountHandler) as port,
+            mock.patch.object(account_authority, "ACCOUNT_URL", f"http://127.0.0.1:{port}"),
+            self.assertRaisesRegex(
+                account_authority.AuthorityUnavailableError,
+                "assurance evidence",
+            ),
+        ):
+            account_authority.evaluate("assurance-mismatch", binding, handle)
 
     def test_denial_mismatch_extra_fields_and_bad_session_fail_closed(self) -> None:
         with (

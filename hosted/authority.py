@@ -52,6 +52,7 @@ class Evaluation:
     supervisor: bool
     binding_digest: str
     owner_account_id: str | None
+    assurance: dict[str, str] | None = None
 
     @property
     def principal(self) -> tuple[str, str]:
@@ -60,7 +61,10 @@ class Evaluation:
 
 def binding_digest(binding: object) -> str:
     """Validate and digest one exact request binding independently of Account."""
-    errors = tuple(_REQUEST_VALIDATOR.iter_errors({"version": 1, "session_token": "x", "binding": binding}))
+    request = {"version": 1, "session_token": "x", "binding": binding}
+    if isinstance(binding, dict) and "assurance" in binding:
+        request["assurance_handle"] = "A" * 43
+    errors = tuple(_REQUEST_VALIDATOR.iter_errors(request))
     if errors:
         raise AuthorityUnavailableError("Account authority binding is invalid")
     try:
@@ -129,8 +133,14 @@ def session_token(value: object) -> str:
     return value
 
 
-def _payload(session_token: str, binding: dict[str, object]) -> bytes:
+def _payload(
+    session_token: str,
+    binding: dict[str, object],
+    assurance_handle: object | None,
+) -> bytes:
     request = {"version": 1, "session_token": session_token, "binding": binding}
+    if assurance_handle is not None:
+        request["assurance_handle"] = assurance_handle
     if tuple(_REQUEST_VALIDATOR.iter_errors(request)):
         raise AuthorityUnavailableError("Account authority request is invalid")
     try:
@@ -190,14 +200,27 @@ def _evaluation(response: dict[str, object], binding: dict[str, object], expecte
             raise AuthorityUnavailableError("Account authority Owner evidence is invalid")
     elif owner is not None:
         raise AuthorityUnavailableError("Account authority Owner evidence is invalid")
-    return Evaluation(account_id, supervisor, response_digest, owner if isinstance(owner, str) else None)
+    assurance = response.get("assurance")
+    if assurance != binding.get("assurance"):
+        raise AuthorityUnavailableError("Account authority assurance evidence is invalid")
+    return Evaluation(
+        account_id,
+        supervisor,
+        response_digest,
+        owner if isinstance(owner, str) else None,
+        assurance if isinstance(assurance, dict) else None,
+    )
 
 
-def evaluate(presented_session: object, binding: dict[str, object]) -> Evaluation:
+def evaluate(
+    presented_session: object,
+    binding: dict[str, object],
+    assurance_handle: object | None = None,
+) -> Evaluation:
     """Evaluate one exact request without caching revocable Account evidence."""
     token = session_token(presented_session)
     digest = binding_digest(binding)
-    body = _payload(token, binding)
+    body = _payload(token, binding, assurance_handle)
     connection = None
     started = time.monotonic()
     try:
