@@ -773,6 +773,34 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(response["reply"], "Done")
         self.assertEqual(pending, (0,))
 
+    def test_chat_purges_an_orphaned_paused_batch_by_network_generation(self) -> None:
+        class Runtime:
+            @staticmethod
+            def start(_context, _message):
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Recovered", powers=())
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            first = local_app.power_journal.Operation("power-1", "b" * 64)
+            second = local_app.power_journal.Operation("power-2", "c" * 64)
+            orphan = controller.power_state.prepare_batch("a" * 64, "orphan-thread", (first, second))
+            controller.power_state.begin(orphan, first)
+            controller.power_state.complete(orphan, first, {"ok": True})
+            controller.power_state.begin(orphan, second)
+            controller.power_state.suspend(orphan, second)
+
+            response = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "Start a fresh turn", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            with closing(sqlite3.connect(controller.power_state.path)) as connection:
+                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+
+        self.assertEqual(response["reply"], "Recovered")
+        self.assertEqual(batches, (0,))
+
     def test_chat_refuses_to_repeat_an_uncertain_power_execution(self) -> None:
         request = brain_runtime_client.PowerRequest(
             interrupt_id="power-1",

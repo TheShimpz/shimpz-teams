@@ -12,6 +12,7 @@ from local.validation import brain_thread_id as _brain_thread_id
 from power import challenges as power_challenges
 from power import execution as power_execution
 from power import human as power_human
+from power import journal as power_journal
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +86,11 @@ def _run_chat_segment_with_metadata(
             metadata_connection,
         )
         identity = self._chat_identity(team_name, network_id, assistants, files, config)
+        if request.continuation is None:
+            try:
+                self.power_state.purge_replayable(network_id)
+            except power_journal.PowerJournalError as exc:
+                self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
         context = brain_runtime_client.RuntimeContext(
             thread_id=_brain_thread_id(self.space_id, request.team_id, network_id),
