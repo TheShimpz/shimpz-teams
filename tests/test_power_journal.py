@@ -325,6 +325,11 @@ class PowerJournalTests(unittest.TestCase):
 
     def test_replayable_purge_abandons_paused_work_but_keeps_uncertain_work(self) -> None:
         journal = self.journal()
+        prepared = journal.prepare_batch("generation-0", "thread-0", [self.first])
+        self.assertTrue(journal.purge_replayable("generation-0"))
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            journal.begin(prepared, self.first)
+
         paused = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
         journal.begin(paused, self.first)
         journal.complete(paused, self.first, {"answer": 1})
@@ -339,6 +344,14 @@ class PowerJournalTests(unittest.TestCase):
         self.assertFalse(journal.purge_replayable("generation-2"))
         with self.assertRaises(power_journal.PowerJournalUncertainError):
             journal.begin(uncertain, self.second)
+
+        completed = journal.prepare_batch("generation-3", "thread-3", [self.first])
+        journal.begin(completed, self.first)
+        journal.complete(completed, self.first, {"answer": 3})
+        self.assertFalse(journal.purge_replayable("generation-3"))
+        replay = journal.begin(completed, self.first)
+        self.assertFalse(replay.execute)
+        self.assertEqual(replay.result, {"answer": 3})
 
     def test_unsafe_file_and_symlink_paths_are_rejected(self) -> None:
         self.path.parent.mkdir(mode=0o700)

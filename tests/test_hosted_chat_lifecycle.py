@@ -625,29 +625,35 @@ class HostedChatLifecycleTests(unittest.TestCase):
             journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             anchor, environment = self._journal_chat_environment(journal, runtime, rpc)
-            with mock.patch.object(journal, "delivered", wraps=journal.delivered) as delivered, environment:
+            lease = types.SimpleNamespace(owner="account_1")
+
+            @contextlib.contextmanager
+            def exclusive_turn(_team_id, _lease):
+                yield "turn-token", anchor
+
+            with (
+                mock.patch.object(journal, "delivered", wraps=journal.delivered) as delivered,
+                mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", side_effect=exclusive_turn),
+                environment,
+            ):
                 with self.assertRaises(runtime_state.ApiError) as failed:
-                    hosted_chat_segment._chat_in_turn(
+                    hosted_chat_api._chat(
                         "team_1",
                         "Greet me",
                         [],
                         ("shimpz-cloudflare",),
-                        "first-turn",
-                        anchor,
-                        "account_1",
+                        lease,
                     )
                 self.assertEqual(failed.exception.status, HTTPStatus.BAD_GATEWAY)
                 self.assertNotIn("private-provider-response", str(failed.exception))
                 delivered.assert_not_called()
 
-                result = hosted_chat_segment._chat_in_turn(
+                result = hosted_chat_api._chat(
                     "team_1",
                     "Greet me",
                     [],
                     ("shimpz-cloudflare",),
-                    "retry-turn",
-                    anchor,
-                    "account_1",
+                    lease,
                 )
 
         self.assertEqual(rpc.call_count, 1)

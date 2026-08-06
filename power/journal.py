@@ -663,7 +663,7 @@ class PowerJournal:
                     "SELECT state FROM operations WHERE generation = ?",
                     (safe_generation,),
                 ).fetchall()
-                if any(row == ("executing",) for row in states):
+                if any(row == ("executing",) for row in states) or not any(row == ("prepared",) for row in states):
                     self._commit()
                     return False
                 self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
