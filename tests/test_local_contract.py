@@ -527,7 +527,7 @@ class LocalContractTests(LocalContractCase):
 
             def rpc(_container, power_id, payload):
                 captured.append((power_id, payload))
-                return LOOKUP_RESULT
+                return {"type": "result", "result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle._rpc = rpc
             audit = mock.patch.object(local_app.local_audit, "record_request", return_value="trace")
@@ -555,9 +555,12 @@ class LocalContractTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
             controller.assistant_lifecycle._rpc = lambda *_args: {
-                "id": "123456789",
-                "name": f"unsafe {raw_secret}",
-                "username": "OpenAI",
+                "type": "result",
+                "result": {
+                    "id": "123456789",
+                    "name": f"unsafe {raw_secret}",
+                    "username": "OpenAI",
+                },
             }
             with (
                 mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),

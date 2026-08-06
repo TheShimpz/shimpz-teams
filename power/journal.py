@@ -578,6 +578,33 @@ class PowerJournal:
                     raise
                 raise PowerJournalError("Power result could not be committed") from exc
 
+    def suspend(self, batch: Batch, operation: Operation) -> None:
+        """Return only one proven human-request suspension to deterministic replay."""
+        batch = self._validate_handle(batch)
+        operation = _operation(operation)
+        if operation not in batch.operations:
+            raise PowerJournalConflictError("operation does not belong to this Power batch")
+        with self._guard:
+            self._ensure_open()
+            self._transaction()
+            try:
+                persisted = self._load_operation(batch, operation)
+                if persisted[3:] != ("executing", None):
+                    raise PowerJournalConflictError("Power operation was not executing")
+                self._connection.execute(
+                    """UPDATE operations SET state = 'prepared'
+                       WHERE generation = ? AND interrupt_id = ? AND state = 'executing' AND result IS NULL""",
+                    (batch.generation, operation.interrupt_id),
+                )
+                if self._connection.execute("SELECT changes()").fetchone() != (1,):
+                    raise PowerJournalConflictError("Power operation changed before suspension")
+                self._commit()
+            except (sqlite3.Error, PowerJournalError) as exc:
+                self._rollback()
+                if isinstance(exc, PowerJournalError):
+                    raise
+                raise PowerJournalError("Power suspension could not be committed") from exc
+
     def delivered(self, batch: Batch) -> None:
         batch = self._validate_handle(batch)
         with self._guard:

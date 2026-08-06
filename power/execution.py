@@ -14,6 +14,7 @@ from http import HTTPStatus
 from typing import NoReturn
 
 from core import strict_json
+from power import human as power_human
 from power import journal as power_journal
 
 # A missing manifest Power is a missing resource; an unavailable connected integration is an unmet
@@ -74,11 +75,21 @@ def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) 
     return tokens
 
 
-def encode_rpc_invocation(power_input: object, integrations: Mapping[str, str]) -> bytes:
-    """Encode one bounded `{input, integrations}` Spec v1 invocation."""
+def encode_rpc_invocation(
+    power_input: object,
+    integrations: Mapping[str, str],
+    responses: tuple[Mapping[str, object], ...] = (),
+) -> bytes:
+    """Encode one bounded Spec v1 invocation, adding responses only for replay."""
+    invocation: dict[str, object] = {
+        "input": power_input,
+        "integrations": dict(integrations),
+    }
+    if responses:
+        invocation["responses"] = [dict(response) for response in responses]
     try:
         encoded = json.dumps(
-            {"input": power_input, "integrations": dict(integrations)},
+            invocation,
             allow_nan=False,
             ensure_ascii=True,
             separators=(",", ":"),
@@ -189,7 +200,11 @@ class PowerBatch:
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
             return decision.result
-        result = self._strategy.execute(request, evidence)
+        try:
+            result = self._strategy.execute(request, evidence)
+        except power_human.HumanRequestSuspensionError:
+            self._journal.suspend(self._batch, operation)
+            raise
         self._journal.complete(self._batch, operation, result)
         return result
 
@@ -226,12 +241,28 @@ def project_rpc_result(
     raw_result: object,
     integrations_by_id: Mapping[str, Mapping[str, object]],
     validate: Callable[[object], object],
+    human_requests: tuple[str, ...] = (),
+    protected_values: Mapping[str, str] | None = None,
 ) -> object:
-    """Reject private echoes and validate one terminal Spec v1 Power result."""
-    if contains_secret(raw_result, protected_rpc_values(integrations_by_id)):
+    """Reject private echoes, validate one tagged result, or raise one admitted suspension."""
+    secrets = protected_rpc_values(integrations_by_id)
+    if protected_values is not None:
+        secrets.update(protected_values)
+    if contains_secret(raw_result, secrets):
         raise RpcSecretExposureError
+    if not isinstance(raw_result, dict) or set(raw_result) not in ({"type", "result"}, {"type", "request"}):
+        raise RpcInvalidResultError
+    response_type = raw_result.get("type")
+    if response_type == "request" and "request" in raw_result:
+        try:
+            request = power_human.validate_request(raw_result["request"], human_requests)
+        except power_human.HumanRequestError as exc:
+            raise RpcInvalidResultError from exc
+        raise power_human.HumanRequestSuspensionError(request)
+    if response_type != "result" or "result" not in raw_result:
+        raise RpcInvalidResultError
     try:
-        return validate(raw_result)
+        return validate(raw_result["result"])
     except ValueError as exc:
         raise RpcInvalidResultError from exc
 

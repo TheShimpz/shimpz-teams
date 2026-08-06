@@ -814,6 +814,7 @@ class LocalController:
                 raw_result,
                 integration_values,
                 lambda value: validate_power_payload(power_spec, "output", value),
+                power_spec.human_requests,
             )
         except power_execution.RpcSecretExposureError:
             local_audit.record_request(

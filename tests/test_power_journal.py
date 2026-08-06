@@ -73,6 +73,20 @@ class PowerJournalTests(unittest.TestCase):
         with self.assertRaises(power_journal.PowerJournalUncertainError):
             reopened.begin(same, self.first)
 
+    def test_proven_suspension_returns_only_the_executing_operation_to_prepared(self) -> None:
+        journal = self.journal()
+        batch = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
+        journal.begin(batch, self.first)
+        journal.complete(batch, self.first, {"answer": 1})
+        journal.begin(batch, self.second)
+
+        journal.suspend(batch, self.second)
+
+        self.assertEqual(journal.begin(batch, self.first).result, {"answer": 1})
+        self.assertTrue(journal.begin(batch, self.second).execute)
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            journal.suspend(batch, self.first)
+
     def test_process_crash_loses_no_acknowledged_transition(self) -> None:
         expected = {
             "prepared": ("prepared", None),

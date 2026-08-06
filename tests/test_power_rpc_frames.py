@@ -27,6 +27,7 @@ from local import app as local_app
 from local.assistant import isolation as local_container_policy
 from local.assistant import rpc as local_assistant_rpc
 from power import execution as power_execution
+from power import human as power_human
 from power import journal as power_journal
 
 
@@ -142,7 +143,7 @@ class PowerRpcFrameTests(unittest.TestCase):
 
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
         projected = power_execution.project_rpc_result(
-            {"ok": True},
+            {"type": "result", "result": {"ok": True}},
             {"cloud": {"access_token": "private"}},
             lambda value: value,
         )
@@ -150,16 +151,60 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         with self.assertRaises(power_execution.RpcSecretExposureError):
             power_execution.project_rpc_result(
-                {"echo": "private"},
+                {"type": "result", "result": {"echo": "private"}},
                 {"cloud": {"access_token": "private"}},
                 lambda value: value,
             )
         with self.assertRaises(power_execution.RpcInvalidResultError):
             power_execution.project_rpc_result(
-                {"invalid": True},
+                {"type": "result", "result": {"invalid": True}},
                 {},
                 lambda _value: (_ for _ in ()).throw(ValueError("invalid")),
             )
+
+    def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
+        request = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Publish zone",
+            "description": "Publish this reviewed DNS zone.",
+        }
+        request["fingerprint"] = power_human._fingerprint(request)
+
+        with self.assertRaises(power_human.HumanRequestSuspensionError) as suspended:
+            power_execution.project_rpc_result(
+                {"type": "request", "request": request},
+                {},
+                lambda value: value,
+                ("approval",),
+            )
+        self.assertEqual(suspended.exception.request.payload(), request)
+
+        with self.assertRaises(power_execution.RpcInvalidResultError):
+            power_execution.project_rpc_result(
+                {"type": "request", "request": request},
+                {},
+                lambda value: value,
+                (),
+            )
+
+    def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
+        initial = power_execution.encode_rpc_invocation({}, {})
+        response = {
+            "kind": "approval",
+            "ordinal": 0,
+            "fingerprint": "a" * 64,
+            "value": True,
+        }
+        replay = power_execution.encode_rpc_invocation({}, {}, (response,))
+
+        self.assertEqual(initial, b'{"input":{},"integrations":{}}')
+        self.assertEqual(
+            replay,
+            b'{"input":{},"integrations":{},"responses":[{"kind":"approval","ordinal":0,'
+            b'"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
+            b'"value":true}]}',
+        )
 
     def test_malformed_frames_fail_closed_in_both_readers(self) -> None:
         oversized = struct.pack(
@@ -323,6 +368,41 @@ class PowerRpcFrameTests(unittest.TestCase):
         self.assertEqual(result, {"ok": True})
         self.assertEqual(evidence, [{"sequence": 1}, {"sequence": 2}])
         execute.assert_called_once_with(request, evidence[1])
+
+    def test_valid_human_suspension_is_the_only_retryable_execution(self) -> None:
+        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue",
+            "description": "Continue the reviewed operation.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        suspension = power_human.HumanRequestSuspensionError(
+            power_human.validate_request(descriptor, ("approval",)),
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            execute = mock.Mock(side_effect=[suspension, {"ok": True}])
+            batch = power_execution.PowerBatch(
+                journal,
+                "generation-1",
+                "thread-1",
+                {"assistant": binding},
+                power_execution.PowerBatchStrategy(
+                    lambda item: (item.container_id, item.spec.image),
+                    execute,
+                    lambda _request: None,
+                ),
+            )
+            batch.prepare((request,))
+
+            with self.assertRaises(power_human.HumanRequestSuspensionError):
+                batch.invoke(request)
+            self.assertEqual(batch.invoke(request), {"ok": True})
 
     def test_power_resolution_failures_have_identical_statuses(self) -> None:
         local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", powers={}, integrations={})
