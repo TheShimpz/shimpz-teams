@@ -412,6 +412,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _inference_store=store,
                 _brain_runtime=object(),
                 _commit_chat_terminal=commit,
+                _power_execution_journal=lambda: mock.Mock(),
             ),
             mock.patch.object(hosted_chat_segment, "_current_team_anchor", return_value=anchor),
             mock.patch.object(

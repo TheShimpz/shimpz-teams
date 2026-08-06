@@ -11,6 +11,7 @@ import hosted_assistant_fixture as harness
 
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_chat_human = harness.hosted_chat_human
+hosted_chat_lifecycle = harness.hosted_chat_lifecycle
 runtime_state = harness.runtime_state
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
@@ -196,6 +197,31 @@ class HostedHumanRequestTests(unittest.TestCase):
         self.assertNotEqual(transcripts[0].responses[0].value, "opaque-account-handle")
         self.assertEqual(respond.call_args.args[-1], transcripts)
         self.assertEqual(result, {"reply": "done"})
+
+    def test_lifecycle_change_cancels_challenge_and_purges_replayable_state(self) -> None:
+        request = self._request("approval")
+        pending = self._pending(SimpleNamespace())
+        requirement = power_challenges.HumanRequirement(
+            "shimpz-cloudflare",
+            "Shimpz Cloudflare",
+            "publish-zone",
+            "Publish zone",
+            "power-1",
+            request,
+        )
+        challenges = power_challenges.HumanChallengeStore()
+        challenges.create("team_1", requirement, pending)
+        journal = mock.Mock()
+
+        with (
+            mock.patch.object(runtime_state, "_human_challenges", challenges),
+            mock.patch.object(runtime_state, "_power_execution_journal", return_value=journal),
+        ):
+            cancelled = hosted_chat_lifecycle.cancel_replayable_human("team_1", "container-1")
+
+        self.assertTrue(cancelled)
+        self.assertIsNone(challenges.current("team_1"))
+        journal.purge_replayable.assert_called_once_with("container-1")
 
 
 if __name__ == "__main__":

@@ -522,7 +522,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     "team_1",
                     HOSTED_BINDING,
                     "account_1",
-                    types.SimpleNamespace(owner="account_1"),
+                    types.SimpleNamespace(owner="account_1", container_id="team-container"),
                     authorize_start=lambda: None,
                 )
             self.assertEqual(list(Path(directory).rglob("*")), [Path(directory) / ".tokens"])

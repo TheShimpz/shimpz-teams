@@ -17,6 +17,7 @@ from core.container import network as network_policy
 from egress import policy as egress_policy
 from hosted import container as container_spec
 from hosted import state as runtime_state
+from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.install import publication
 from hosted.team import resources as hosted_resources
 from install import bindings as dynamic_assistants
@@ -444,6 +445,7 @@ def _install_assistant_locked(
             HTTPStatus.NOT_FOUND,
             f"team {team_id!r} not found",
         )
+    hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
     hosted_resources._prepare_assistant_image(spec)
     existing = hosted_resources._get_container(
         container_spec.team_assistant_container_name(team_id, binding.assistant_id)
@@ -664,6 +666,7 @@ def _uninstall_assistant(
             lease,
             require_isolation=False,
         )
+        hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
         runtime_state._integration_challenges.cancel_team(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:

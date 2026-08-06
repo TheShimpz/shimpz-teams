@@ -14,6 +14,7 @@ from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.team import postgresql as postgresql_service_client
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
@@ -292,6 +293,7 @@ def _teardown(team_id: str, *, owner: str, runtime_id: str) -> hosted_resources.
     runtime_valid, runtime = _owned_teardown_runtime(team_id, owner, runtime_id)
     if not runtime_valid:
         return hosted_resources._CleanupResult(False, False)
+    hosted_chat_lifecycle.cancel_replayable_human(team_id, runtime_id)
 
     # Persist the immutable tenant/runtime identity before the first mutation. Once Docker releases the
     # runtime's volume references this record—not a runnable workload—authorizes only a retrying DELETE.
@@ -538,6 +540,7 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease)
+        hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
         try:
             runtime_state._inference_store.save(team_id, config)
         except inference_config.InferenceConfigError as exc:
@@ -559,6 +562,7 @@ def _lifecycle(team_id: str, op: str, lease: hosted_resources._AuthorizationLeas
         # Stop is always available as remediation. Start/restart require both an exact per-container
         # runtime and a currently registered daemon runtime; Docker may never fall back to runc.
         container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=op != "stop")
+        hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
         if op in {"start", "restart"}:
             hosted_resources._require_team_runtime()
         container.reload()

@@ -265,6 +265,7 @@ def _disconnect_oauth_integration(
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         _current_integration_declaration(team_id, assistant_id, integration_id)
+        hosted_chat_human.cancel_pending(team_id)
         runtime_state._integration_challenges.cancel_team(team_id)
         try:
             disconnected = runtime_state._oauth_integrations.disconnect(team_id, assistant_id, integration_id)

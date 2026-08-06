@@ -19,7 +19,6 @@ from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
-from power import human as power_human
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
@@ -29,6 +28,7 @@ import hosted_assistant_fixture as harness
 app = harness.app
 hosted_chat_api = harness.hosted_chat_api
 hosted_assistants = harness.hosted_assistants
+power_human = hosted_assistants.power_human
 assistant_lifecycle = harness.assistant_lifecycle
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_lifecycle = harness.hosted_lifecycle
