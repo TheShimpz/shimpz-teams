@@ -1,6 +1,256 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.shimpz.com/assistant/v1/result.schema.json",
-  "title": "Shimpz Power result v1",
-  "type": "object"
+  "title": "Shimpz Power response v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "result"],
+      "properties": {
+        "type": { "const": "result" },
+        "result": { "type": "object" }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "request"],
+      "properties": {
+        "type": { "const": "request" },
+        "request": { "$ref": "#/$defs/humanRequest" }
+      }
+    }
+  ],
+  "$defs": {
+    "publicText": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requestBase": {
+      "type": "object",
+      "required": ["kind", "ordinal", "fingerprint", "title", "description"],
+      "properties": {
+        "ordinal": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7
+        },
+        "fingerprint": { "$ref": "#/$defs/fingerprint" },
+        "title": {
+          "allOf": [{ "$ref": "#/$defs/publicText" }],
+          "maxLength": 80
+        },
+        "description": {
+          "allOf": [{ "$ref": "#/$defs/publicText" }],
+          "maxLength": 500
+        }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "label", "description"],
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        },
+        "label": {
+          "allOf": [{ "$ref": "#/$defs/publicText" }],
+          "maxLength": 80
+        },
+        "description": {
+          "type": ["string", "null"],
+          "maxLength": 160,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        }
+      }
+    },
+    "inputBase": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBase" },
+        {
+          "required": ["label", "required"],
+          "properties": {
+            "label": {
+              "allOf": [{ "$ref": "#/$defs/publicText" }],
+              "maxLength": 80
+            },
+            "required": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "lengthInputBase": {
+      "allOf": [
+        { "$ref": "#/$defs/inputBase" },
+        {
+          "required": ["placeholder", "min_length", "max_length"],
+          "properties": {
+            "placeholder": {
+              "type": ["string", "null"],
+              "maxLength": 120,
+              "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+            },
+            "min_length": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_length": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      ]
+    },
+    "humanRequest": {
+      "oneOf": [
+        {
+          "allOf": [
+            { "$ref": "#/$defs/requestBase" },
+            {
+              "type": "object",
+              "properties": { "kind": { "const": "approval" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/requestBase" },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "auth:reauth",
+                    "auth:second-factor",
+                    "auth:phishing-resistant"
+                  ]
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/lengthInputBase" },
+            {
+              "type": "object",
+              "properties": {
+                "kind": { "const": "input:text" },
+                "min_length": {
+                  "maximum": 4096
+                },
+                "max_length": {
+                  "maximum": 4096
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/lengthInputBase" },
+            {
+              "type": "object",
+              "properties": {
+                "kind": { "const": "input:textarea" },
+                "min_length": { "maximum": 16000 },
+                "max_length": { "maximum": 16000 }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/lengthInputBase" },
+            {
+              "type": "object",
+              "properties": {
+                "kind": { "const": "input:password" },
+                "min_length": { "maximum": 1024 },
+                "max_length": { "maximum": 1024 }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/lengthInputBase" },
+            {
+              "type": "object",
+              "properties": {
+                "kind": { "const": "input:phone" },
+                "min_length": { "maximum": 64 },
+                "max_length": { "maximum": 64 }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/inputBase" },
+            {
+              "type": "object",
+              "required": ["options"],
+              "properties": {
+                "kind": { "enum": ["input:select", "input:choice"] },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 32,
+                  "items": { "$ref": "#/$defs/option" }
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        },
+        {
+          "allOf": [
+            { "$ref": "#/$defs/inputBase" },
+            {
+              "type": "object",
+              "required": ["options", "min_selections", "max_selections"],
+              "properties": {
+                "kind": { "const": "input:choices" },
+                "options": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 32,
+                  "items": { "$ref": "#/$defs/option" }
+                },
+                "min_selections": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 32
+                },
+                "max_selections": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 32
+                }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      ]
+    }
+  }
 }

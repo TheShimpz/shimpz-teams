@@ -37,7 +37,7 @@
     "power": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "input_schema", "output_schema", "integrations"],
+      "required": ["id", "input_schema", "output_schema", "integrations", "human_requests"],
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
@@ -55,8 +55,31 @@
           "items": {
             "$ref": "#/$defs/identifier"
           }
+        },
+        "human_requests": {
+          "type": "array",
+          "maxItems": 11,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/humanRequestCapability"
+          }
         }
       }
+    },
+    "humanRequestCapability": {
+      "enum": [
+        "approval",
+        "input:text",
+        "input:textarea",
+        "input:password",
+        "input:phone",
+        "input:select",
+        "input:choice",
+        "input:choices",
+        "auth:reauth",
+        "auth:second-factor",
+        "auth:phishing-resistant"
+      ]
     }
   }
 }

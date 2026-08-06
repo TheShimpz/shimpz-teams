@@ -8,6 +8,8 @@ import json
 import re
 from pathlib import Path
 
+from human_request_validator import verify_vectors as verify_human_vectors
+
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
@@ -67,5 +69,15 @@ for case in cases:
     outcomes.add(case["valid"])
 if outcomes != {False, True}:
     fail("Assistant manifest vectors require positive and negative cases")
+
+human = json.loads((HERE / "human-request-vectors.json").read_bytes())
+machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())
+declared_capabilities = machine["$defs"]["humanRequestCapability"].get("enum")
+if not isinstance(declared_capabilities, list):
+    fail("Assistant human-request vectors are invalid")
+try:
+    verify_human_vectors(human, declared_capabilities)
+except KeyError, TypeError, ValueError:
+    fail("Assistant human-request vectors are invalid")
 
 print("Assistant protocol artifacts and conformance vectors are valid")

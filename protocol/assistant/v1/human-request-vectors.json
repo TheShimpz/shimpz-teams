@@ -1,0 +1,282 @@
+{
+  "version": 1,
+  "capabilities": [
+    "approval",
+    "input:text",
+    "input:textarea",
+    "input:password",
+    "input:phone",
+    "input:select",
+    "input:choice",
+    "input:choices",
+    "auth:reauth",
+    "auth:second-factor",
+    "auth:phishing-resistant"
+  ],
+  "limits": {
+    "requests_per_power": 8,
+    "options": 32,
+    "title_characters": 80,
+    "description_characters": 500
+  },
+  "fingerprint": {
+    "algorithm": "sha256",
+    "serialization": "utf8-json-sort-keys-compact-no-ascii-escaping",
+    "cases": [
+      {
+        "name": "approval_unicode",
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": "Publish DNS",
+          "description": "Create café.example before token access."
+        },
+        "sha256": "8c14efa10b833b4e5bb20b9aae146983c416066fc5043d9b54efd174d845d023"
+      },
+      {
+        "name": "choice_with_options",
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": "Choose mode",
+          "description": "Select how the record should be published.",
+          "label": "Mode",
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": "Proxied",
+              "description": "Route traffic through Cloudflare."
+            },
+            {
+              "value": "dns-only",
+              "label": "DNS only",
+              "description": null
+            }
+          ]
+        },
+        "sha256": "7ec1cb29f5dc36de7e9cd9909fbcc114f1f4e308a39b0ab0df7b688096622e17"
+      }
+    ]
+  },
+  "request_cases": [
+    {
+      "name": "valid_approval",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": "Publish DNS",
+        "description": "Create the reviewed DNS record."
+      }
+    },
+    {
+      "name": "reject_bidi_title",
+      "valid": false,
+      "error": "public_text",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": "Approve ‮safe.example",
+        "description": "Create the reviewed DNS record."
+      }
+    },
+    {
+      "name": "reject_password_transport_mismatch",
+      "valid": false,
+      "error": "length_bounds",
+      "request": {
+        "kind": "input:password",
+        "ordinal": 0,
+        "title": "Provider secret",
+        "description": "Enter the third-party provider secret.",
+        "label": "Secret",
+        "required": true,
+        "placeholder": null,
+        "min_length": 0,
+        "max_length": 1025
+      }
+    },
+    {
+      "name": "reject_phone_transport_mismatch",
+      "valid": false,
+      "error": "length_bounds",
+      "request": {
+        "kind": "input:phone",
+        "ordinal": 0,
+        "title": "Contact number",
+        "description": "Enter the number used by the provider.",
+        "label": "Phone",
+        "required": true,
+        "placeholder": null,
+        "min_length": 0,
+        "max_length": 65
+      }
+    },
+    {
+      "name": "reject_inverted_lengths",
+      "valid": false,
+      "error": "length_bounds",
+      "request": {
+        "kind": "input:text",
+        "ordinal": 0,
+        "title": "Zone",
+        "description": "Enter the DNS zone.",
+        "label": "Zone",
+        "required": true,
+        "placeholder": "example.com",
+        "min_length": 20,
+        "max_length": 10
+      }
+    },
+    {
+      "name": "reject_duplicate_option_values",
+      "valid": false,
+      "error": "options",
+      "request": {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": "Choose mode",
+        "description": "Choose one execution mode.",
+        "label": "Mode",
+        "required": true,
+        "options": [
+          {"value": "safe", "label": "Safe", "description": null},
+          {"value": "safe", "label": "Safer", "description": null}
+        ]
+      }
+    },
+    {
+      "name": "reject_selection_bounds",
+      "valid": false,
+      "error": "selection_bounds",
+      "request": {
+        "kind": "input:choices",
+        "ordinal": 0,
+        "title": "Choose zones",
+        "description": "Choose the zones to inspect.",
+        "label": "Zones",
+        "required": true,
+        "options": [
+          {"value": "one", "label": "One", "description": null},
+          {"value": "two", "label": "Two", "description": null}
+        ],
+        "min_selections": 2,
+        "max_selections": 3
+      }
+    }
+  ],
+  "transcript_cases": [
+    {
+      "name": "valid_two_response_replay",
+      "valid": true,
+      "requests": [
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": "Publish DNS",
+          "description": "Create café.example before token access."
+        },
+        {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": "Choose mode",
+          "description": "Select how the record should be published.",
+          "label": "Mode",
+          "required": true,
+          "options": [
+            {"value": "proxied", "label": "Proxied", "description": "Route traffic through Cloudflare."},
+            {"value": "dns-only", "label": "DNS only", "description": null}
+          ]
+        }
+      ],
+      "responses": [
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "fingerprint": "8c14efa10b833b4e5bb20b9aae146983c416066fc5043d9b54efd174d845d023",
+          "value": true
+        },
+        {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "fingerprint": "7ec1cb29f5dc36de7e9cd9909fbcc114f1f4e308a39b0ab0df7b688096622e17",
+          "value": "proxied"
+        }
+      ]
+    },
+    {
+      "name": "reject_duplicate_ordinals",
+      "valid": false,
+      "error": "ordinal_sequence",
+      "requests": [
+        {"kind": "approval", "ordinal": 0, "title": "First", "description": "Approve the first action."},
+        {"kind": "approval", "ordinal": 0, "title": "Second", "description": "Approve the second action."}
+      ],
+      "responses": []
+    },
+    {
+      "name": "reject_gapped_ordinals",
+      "valid": false,
+      "error": "ordinal_sequence",
+      "requests": [
+        {"kind": "approval", "ordinal": 0, "title": "First", "description": "Approve the first action."},
+        {"kind": "approval", "ordinal": 2, "title": "Third", "description": "Approve the third action."}
+      ],
+      "responses": []
+    },
+    {
+      "name": "reject_kind_mismatch",
+      "valid": false,
+      "error": "response_match",
+      "requests": [
+        {"kind": "approval", "ordinal": 0, "title": "Publish", "description": "Publish the reviewed record."}
+      ],
+      "responses": [
+        {"kind": "auth:reauth", "ordinal": 0, "fingerprint": "6a533263d5d930dc0afe867a44b85c3a757d0a9f1b58e19fe2fb04e61f779779", "value": true}
+      ]
+    },
+    {
+      "name": "reject_unreviewed_option",
+      "valid": false,
+      "error": "response_value",
+      "requests": [
+        {
+          "kind": "input:choice",
+          "ordinal": 0,
+          "title": "Choose mode",
+          "description": "Choose one execution mode.",
+          "label": "Mode",
+          "required": true,
+          "options": [
+            {"value": "safe", "label": "Safe", "description": null},
+            {"value": "fast", "label": "Fast", "description": null}
+          ]
+        }
+      ],
+      "responses": [
+        {"kind": "input:choice", "ordinal": 0, "fingerprint": "ed725e178790c4bd249a04c8df467ca14b8de3941005a3b1ef19a7c18c9e3488", "value": "unsafe"}
+      ]
+    },
+    {
+      "name": "reject_password_before_another_request",
+      "valid": false,
+      "error": "secret_last",
+      "requests": [
+        {
+          "kind": "input:password",
+          "ordinal": 0,
+          "title": "Provider secret",
+          "description": "Enter the third-party provider secret.",
+          "label": "Secret",
+          "required": true,
+          "placeholder": null,
+          "min_length": 1,
+          "max_length": 128
+        },
+        {"kind": "approval", "ordinal": 1, "title": "Continue", "description": "Approve the next action."}
+      ],
+      "responses": []
+    }
+  ]
+}
