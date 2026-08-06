@@ -74,13 +74,14 @@ class _HostedAssistantBinding:
 
 @dataclass(frozen=True, slots=True)
 class _PendingHostedChat:
-    """Process-local state for one integration-gated hosted Team turn."""
+    """Process-local state for one private-input-gated Hosted Team turn."""
 
     continuation: chat_orchestrator.ChatContinuation
     assistant_ids: tuple[str, ...]
     file_ids: tuple[str, ...]
     owner: str
     identity: tuple[object, ...]
+    transcripts: tuple[power_human.PowerTranscript, ...] = ()
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:

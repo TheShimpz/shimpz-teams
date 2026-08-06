@@ -30,6 +30,7 @@ from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
+from power import challenges as power_challenges
 from power import journal as power_journal
 from storage import files as team_storage
 
@@ -148,6 +149,7 @@ _assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_KEY_PATH,
 )
 _integration_challenges = integration_challenges.IntegrationChallengeStore()
+_human_challenges = power_challenges.HumanChallengeStore()
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
 _assistant_icons = assistant_icons.AssistantIconStore(DYNAMIC_ASSISTANT_PATH.parent / "icons")
 _integration_pkce = integration_pkce.OAuthPKCEChallengeStore()
