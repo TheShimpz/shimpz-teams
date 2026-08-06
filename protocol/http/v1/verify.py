@@ -67,6 +67,16 @@ for case in vectors.get("frames", []):
         if not case["valid"] or value != case["value"]:
             fail(f"Team HTTP frame vector differs: {case['name']}")
 
+for case in vectors.get("human_response_frames", []):
+    try:
+        value = websocket.canonical_human_response(case["frame"])
+    except websocket.FrameError:
+        if case["valid"]:
+            fail(f"Team HTTP human response vector differs: {case['name']}")
+    else:
+        if not case["valid"] or value != case["frame"]:
+            fail(f"Team HTTP human response vector differs: {case['name']}")
+
 for case in vectors.get("chat_stream", []):
     try:
         value = progress.canonical_record(case["record"])

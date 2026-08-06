@@ -2,7 +2,7 @@
 
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
-`websocket.py` validates the bounded `shimpz.chat.v3` frame primitives and redacts unsafe errors.
+`websocket.py` validates the bounded `shimpz.chat.v4` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. A Power occurrence carries only its canonical reviewed Assistant and Power
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
@@ -11,6 +11,14 @@ malformed, oversized, or out-of-order record fails closed at the consumer withou
 authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
+
+`shimpz.chat.v4` adds the Local Admin's exact `human-response` client frame. It binds a `submit` or
+`deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
+bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
+actual request kind and tighter bounds; the Team revalidates it authoritatively. For `auth:reauth`,
+the browser submits the password only to Admin, Admin replaces it with `true` after verification,
+and the signed Local assertion binds the successful assurance to the same challenge. Authentication
+factor material never crosses to Team, Brain, an Assistant, or a progress event.
 
 An authenticated Supervisor may read the canonical PNG for one installed Assistant from
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,

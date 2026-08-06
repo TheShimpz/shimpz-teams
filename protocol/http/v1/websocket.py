@@ -1,4 +1,4 @@
-"""Vendored, dependency-free primitives shared by both shimpz.chat.v3 surfaces."""
+"""Vendored, dependency-free primitives shared by both shimpz.chat.v4 surfaces."""
 
 from __future__ import annotations
 
@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 HEX_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 CHALLENGE_ID_RE = HEX_ID_RE
+MAX_HUMAN_TEXT_CHARS = 16_000
+MAX_HUMAN_CHOICES = 32
+MAX_HUMAN_CHOICE_CHARS = 128
 
 
 class FrameError(ValueError):
@@ -127,3 +130,36 @@ def challenge_identity(value: object, expected_team_id: str) -> tuple[str, str] 
     if value.get("team_id") != expected_team_id or not valid_challenge_id(challenge_id) or turn_id != challenge_id:
         return None
     return challenge_id, turn_id
+
+
+def canonical_human_response(value: object) -> dict[str, object]:
+    """Validate one exact Local Admin response to a pending Power human challenge."""
+    if (
+        not isinstance(value, dict)
+        or value.get("type") != "human-response"
+        or value.get("decision") not in {"submit", "deny"}
+        or not valid_challenge_id(value.get("challenge_id"))
+    ):
+        raise FrameError(400, "invalid human response frame")
+    decision = value["decision"]
+    expected = {"type", "challenge_id", "decision", "value"} if decision == "submit" else {
+        "type",
+        "challenge_id",
+        "decision",
+    }
+    if set(value) != expected or (decision == "submit" and not _human_value(value["value"])):
+        raise FrameError(400, "invalid human response frame")
+    return dict(value)
+
+
+def _human_value(value: object) -> bool:
+    if value is True:
+        return True
+    if isinstance(value, str):
+        return len(value) <= MAX_HUMAN_TEXT_CHARS
+    return (
+        isinstance(value, list)
+        and len(value) <= MAX_HUMAN_CHOICES
+        and len(value) == len(set(value))
+        and all(isinstance(item, str) and len(item) <= MAX_HUMAN_CHOICE_CHARS for item in value)
+    )

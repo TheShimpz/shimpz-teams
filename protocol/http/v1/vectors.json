@@ -174,6 +174,53 @@
       "close_code": 1007
     }
   ],
+  "human_response_frames": [
+    {
+      "name": "submit_boolean",
+      "valid": true,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": true}
+    },
+    {
+      "name": "submit_text",
+      "valid": true,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": "private value"}
+    },
+    {
+      "name": "submit_choices",
+      "valid": true,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": ["one", "two"]}
+    },
+    {
+      "name": "deny",
+      "valid": true,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "deny"}
+    },
+    {
+      "name": "false_is_not_approval",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": false}
+    },
+    {
+      "name": "duplicate_choices",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": ["one", "one"]}
+    },
+    {
+      "name": "deny_with_value",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "deny", "value": true}
+    },
+    {
+      "name": "cross_challenge_shape",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "short", "decision": "submit", "value": true}
+    },
+    {
+      "name": "augmented",
+      "valid": false,
+      "frame": {"type": "human-response", "challenge_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "decision": "submit", "value": true, "token": "must-not-cross"}
+    }
+  ],
   "chat_stream": [
     {
       "name": "model_started",
