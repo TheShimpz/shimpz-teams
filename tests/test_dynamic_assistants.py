@@ -32,6 +32,7 @@ def runtime_resolution() -> dict[str, object]:
     power = resolution["machine_contract"]["powers"][0]
     power["input_schema"]["additionalProperties"] = False
     power["output_schema"]["additionalProperties"] = False
+    power["human_requests"] = []
     return resolution
 
 
@@ -138,10 +139,7 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(spec.archs, ("amd64", "arm64"))
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
         self.assertEqual(tuple(spec.contract.powers), ("hello",))
-        self.assertEqual(
-            spec.contract.powers["hello"].human_requests,
-            ("approval", "input:choice"),
-        )
+        self.assertEqual(spec.contract.powers["hello"].human_requests, ())
         self.assertEqual(
             spec.required_image_labels,
             (
@@ -149,6 +147,14 @@ class DynamicAssistantStoreTests(unittest.TestCase):
                 ("org.shimpz.source.digest", RESOLUTION["source_digest"]),
             ),
         )
+
+    def test_hosted_resolution_rejects_declared_human_requests(self) -> None:
+        resolution = runtime_resolution()
+        resolution["machine_contract"]["powers"][0]["human_requests"] = ["approval"]
+        binding = self.store.put("team_1", resolution)
+
+        with self.assertRaisesRegex(DynamicAssistantError, "unavailable for Hosted Teams"):
+            assistant_spec(binding)
 
     def test_unchanged_digest_reuses_validation_without_aliasing_results(self) -> None:
         binding = self.store.put("team_1", runtime_resolution())

@@ -553,7 +553,7 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
             raw_result,
             integration_values,
             lambda value: _validate_power_payload(contract, power, value, output=True),
-            tuple(getattr(contract.powers[power], "human_requests", ())),
+            (),
         )
     except power_execution.RpcSecretExposureError:
         audit.log(

@@ -659,6 +659,7 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         power = resolution["machine_contract"]["powers"][0]
         power["input_schema"]["additionalProperties"] = False
         power["output_schema"]["additionalProperties"] = False
+        power["human_requests"] = []
         return resolution
 
     def test_dynamic_resolution_is_team_scoped_and_digest_bound(self) -> None:

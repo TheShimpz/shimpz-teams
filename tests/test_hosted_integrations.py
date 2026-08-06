@@ -19,6 +19,7 @@ from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
+from power import human as power_human
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
@@ -219,6 +220,54 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
         self.assertEqual(rpc.call_args.args[-1]["integrations"], {"cloudflare": ACCESS_TOKEN})
+
+    def test_hosted_rpc_rejects_a_human_request_frame_as_an_invalid_result(self) -> None:
+        turn_token = "-".join(("turn", "token"))
+        request = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Publish zone",
+            "description": "Publish this reviewed DNS zone.",
+        }
+        request["fingerprint"] = power_human._fingerprint(request)
+        contract = replace(
+            self.contract,
+            powers={
+                power_id: replace(power, human_requests=("approval",))
+                for power_id, power in self.contract.powers.items()
+            },
+        )
+        active = hosted_assistants._ActiveAssistant(
+            ASSISTANT_ID,
+            contract,
+            self.container,
+            harness.HOSTED_SPEC.image,
+        )
+
+        with (
+            mock.patch.object(
+                hosted_assistants,
+                "_assistant_rpc",
+                return_value={"type": "request", "request": request},
+            ),
+            self.assertRaises(runtime_state.ApiError) as caught,
+        ):
+            hosted_assistants._invoke_assistant_power(
+                hosted_assistants.PowerInvocationRequest(
+                    team_id=TEAM_ID,
+                    token=turn_token,
+                    assistant_id=ASSISTANT_ID,
+                    contract=contract,
+                    container=self.container,
+                    power="list-zones",
+                    payload=ZONE_INPUT,
+                    validated_assistant=active,
+                    integration_values={},
+                )
+            )
+
+        self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
+        self.assertEqual(caught.exception.message, "Assistant Power returned an invalid result")
 
     def test_integration_token_exposure_is_rejected_without_echoing_it(self) -> None:
         self._connect()
