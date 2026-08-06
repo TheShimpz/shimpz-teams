@@ -55,6 +55,61 @@ class HumanRequestSuspensionError(RuntimeError):
         self.request = request
 
 
+@dataclass(frozen=True, slots=True)
+class HumanResponse:
+    """One Team-admitted response bound to the exact request that produced it."""
+
+    kind: str
+    ordinal: int
+    fingerprint: str
+    value: object
+
+    @property
+    def secret(self) -> bool:
+        """Return whether this response must remain in process memory only."""
+        return self.kind == "input:password"
+
+    def payload(self) -> dict[str, object]:
+        """Project the closed replay frame consumed by the Assistant SDK."""
+        return {
+            "kind": self.kind,
+            "ordinal": self.ordinal,
+            "fingerprint": self.fingerprint,
+            "value": self.value,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PowerTranscript:
+    """Bounded replay responses for one immutable Brain Power interrupt."""
+
+    interrupt_id: str
+    responses: tuple[HumanResponse, ...] = ()
+
+    def append(self, request: HumanRequest, value: object) -> PowerTranscript:
+        """Admit the next exact response and return an immutable transcript."""
+        if len(self.responses) >= MAX_REQUESTS_PER_POWER or request.ordinal != len(self.responses):
+            raise HumanRequestError("Assistant Power human request sequence is invalid")
+        if any(response.secret for response in self.responses):
+            raise HumanRequestError("Assistant Power requested input after a secret response")
+        return PowerTranscript(
+            interrupt_id=self.interrupt_id,
+            responses=(*self.responses, admit_response(request, value)),
+        )
+
+    def payloads(self) -> tuple[Mapping[str, object], ...]:
+        """Return independent replay frames in their admitted order."""
+        return tuple(response.payload() for response in self.responses)
+
+    def protected_values(self) -> dict[str, str]:
+        """Return ephemeral arbitrary secrets that a final result must not expose."""
+        return {
+            f"human-response-{response.ordinal}": response.value
+            for response in self.responses
+            if response.secret and isinstance(response.value, str)
+        }
+
+
 def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanRequest:
     """Validate one request and bind its advertised fingerprint to canonical bytes."""
     if not isinstance(value, dict) or "fingerprint" not in value:
@@ -80,6 +135,65 @@ def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanReque
         ordinal=int(request["ordinal"]),
         fingerprint=fingerprint,
         canonical=_canonical(framed),
+    )
+
+
+def admit_response(request: HumanRequest, value: object) -> HumanResponse:
+    """Validate one user decision against its canonical reviewed request."""
+    descriptor = request.payload()
+    kind = request.kind
+    if kind == "approval" or kind in AUTH_KINDS:
+        valid = value is True
+    elif kind in CHOICE_KINDS:
+        valid = _single_choice_response(descriptor, value)
+    elif kind == "input:choices":
+        valid = _multiple_choice_response(descriptor, value)
+    else:
+        valid = _text_response(descriptor, value)
+    if not valid:
+        raise HumanRequestError("human response does not match its reviewed request")
+    return HumanResponse(kind, request.ordinal, request.fingerprint, value)
+
+
+def _single_choice_response(request: Mapping[str, object], value: object) -> bool:
+    options = request.get("options")
+    if not isinstance(options, list):
+        return False
+    allowed = {option["value"] for option in options if isinstance(option, dict)}
+    return isinstance(value, str) and (
+        value in allowed or (value == "" and request.get("required") is False)
+    )
+
+
+def _multiple_choice_response(request: Mapping[str, object], value: object) -> bool:
+    options = request.get("options")
+    if (
+        not isinstance(options, list)
+        or not isinstance(value, list)
+        or not all(isinstance(item, str) for item in value)
+        or len(value) != len(set(value))
+    ):
+        return False
+    allowed = {option["value"] for option in options if isinstance(option, dict)}
+    minimum = request.get("min_selections")
+    maximum = request.get("max_selections")
+    return (
+        type(minimum) is int
+        and type(maximum) is int
+        and minimum <= len(value) <= maximum
+        and set(value) <= allowed
+    )
+
+
+def _text_response(request: Mapping[str, object], value: object) -> bool:
+    minimum = request.get("min_length")
+    maximum = request.get("max_length")
+    return (
+        isinstance(value, str)
+        and type(minimum) is int
+        and type(maximum) is int
+        and (request.get("required") is False or bool(value))
+        and minimum <= len(value) <= maximum
     )
 
 
