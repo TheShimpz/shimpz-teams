@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from http import HTTPStatus
 
@@ -11,8 +10,7 @@ from hosted import state as runtime_state
 from hosted.chat import human as hosted_chat_human
 from power import challenges as power_challenges
 from power import human as power_human
-
-_ASSURANCE_HANDLE = re.compile(r"^[A-Za-z0-9_-]{43}$")
+from protocol.http.v1 import payload as team_http_contract
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,9 +43,7 @@ def power_assurance(
     kind = challenge.requirement.request.kind
     if kind not in power_human.AUTH_KINDS:
         return None, None
-    handle = body.get("value")
-    if set(body) != {"challenge_id", "decision", "value"} or not isinstance(handle, str):
-        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
-    if _ASSURANCE_HANDLE.fullmatch(handle) is None:
+    handle = team_http_contract.canonical_assurance_handle(body.get("value"))
+    if set(body) != {"challenge_id", "decision", "value"} or handle is None:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
     return {"kind": kind, "challenge_id": challenge.id}, handle

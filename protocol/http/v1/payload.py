@@ -9,6 +9,7 @@ ASSISTANT_ID_PATTERN = r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
+ASSURANCE_HANDLE_PATTERN = r"^[A-Za-z0-9_-]{43}$"
 MEDIA_TYPE_PATTERN = r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$"
 ACCOUNT_SESSION_HEADER = "X-Shimpz-Account"
 
@@ -17,6 +18,7 @@ ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
 FILE_ID_RE = re.compile(FILE_ID_PATTERN)
 SHA256_RE = re.compile(SHA256_PATTERN)
 SOURCE_DIGEST_RE = re.compile(SOURCE_DIGEST_PATTERN)
+ASSURANCE_HANDLE_RE = re.compile(ASSURANCE_HANDLE_PATTERN)
 MEDIA_TYPE_RE = re.compile(MEDIA_TYPE_PATTERN)
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
@@ -41,6 +43,10 @@ def canonical_assistant_id(value: object) -> str | None:
 
 def canonical_source_digest(value: object) -> str | None:
     return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) is not None else None
+
+
+def canonical_assurance_handle(value: object) -> str | None:
+    return value if isinstance(value, str) and ASSURANCE_HANDLE_RE.fullmatch(value) is not None else None
 
 
 def canonical_team_name(value: object) -> str | None:

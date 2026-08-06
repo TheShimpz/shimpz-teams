@@ -15,10 +15,15 @@ not part of this wire protocol.
 `shimpz.chat.v4` adds the Local Admin's exact `human-response` client frame. It binds a `submit` or
 `deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
 bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
-actual request kind and tighter bounds; the Team revalidates it authoritatively. For `auth:reauth`,
-the browser submits the password only to Admin, Admin replaces it with `true` after verification,
-and the signed Local assertion binds the successful assurance to the same challenge. Authentication
-factor material never crosses to Team, Brain, an Assistant, or a progress event.
+actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
+`auth:reauth`, the browser submits the password only to Admin, Admin replaces it with `true` after
+verification, and the signed Local assertion binds the successful assurance to the same challenge.
+In Hosted, the browser completes the requested Account ceremony, receives one opaque Account-issued
+handle, and submits it as `value` over the chat surface; Store relays it unmodified. Team only
+pattern-admits and forwards that credential to Account, then replaces it with `true` before Power
+resumption after Account consumes it successfully. Handle issuance, freshness, binding, one-use
+semantics, and factor custody remain Account authority. Authentication factor material never crosses
+to Team, Brain, an Assistant, or a progress event.
 
 An authenticated Supervisor may read the canonical PNG for one installed Assistant from
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
