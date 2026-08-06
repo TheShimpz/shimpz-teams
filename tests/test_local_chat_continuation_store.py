@@ -114,6 +114,30 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
             self.assertIsNone(store.current("team_1"))
             self.assertFalse(store.delete("team_1"))
 
+    def test_expired_continuation_is_drained_once_with_its_decrypted_payload(self) -> None:
+        clock = [3_000]
+        with tempfile.TemporaryDirectory() as directory:
+            state_path, key_path = self._paths(directory)
+            store = local_chat_continuation_store.EncryptedContinuationStore(
+                state_path,
+                key_path,
+                now=lambda: clock[0],
+            )
+            saved = store.put(
+                "team_1",
+                "human",
+                "e" * 32,
+                3_001,
+                ("assistant/power/release/0",),
+                b'{"pending":"encrypted"}',
+            )
+
+            clock[0] = 3_001
+
+            self.assertEqual(store.drain_expired(), (saved,))
+            self.assertEqual(store.drain_expired(), ())
+            self.assertEqual(store.active(), ())
+
     def test_rejects_unsafe_paths_capacity_and_oversized_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             state_path, key_path = self._paths(directory)

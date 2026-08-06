@@ -457,6 +457,24 @@ class EncryptedContinuationStore:
                 self._write_state(state)
             return tuple(self._resolved(team, records[team]) for team in sorted(records))
 
+    def drain_expired(self) -> tuple[StoredContinuation, ...]:
+        """Atomically remove and return expired continuations for dependent cleanup."""
+        with self._lock:
+            state = self._read_state()
+            records = state["records"]
+            if not isinstance(records, dict):
+                raise ContinuationStoreError("continuation state is malformed")
+            now = int(self._now())
+            teams = tuple(
+                sorted(team for team, item in records.items() if int(item["expires_at"]) <= now)
+            )
+            expired = tuple(self._resolved(team, records[team]) for team in teams)
+            for team in teams:
+                records.pop(team)
+            if teams:
+                self._write_state(state)
+            return expired
+
     def current(self, team_id: object) -> StoredContinuation | None:
         team = _team_id(team_id)
         return next((item for item in self.active() if item.team_id == team), None)
