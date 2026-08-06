@@ -188,9 +188,7 @@ def _single_choice_response(request: Mapping[str, object], value: object) -> boo
     if not isinstance(options, list):
         return False
     allowed = {option["value"] for option in options if isinstance(option, dict)}
-    return isinstance(value, str) and (
-        value in allowed or (value == "" and request.get("required") is False)
-    )
+    return isinstance(value, str) and (value in allowed or (value == "" and request.get("required") is False))
 
 
 def _multiple_choice_response(request: Mapping[str, object], value: object) -> bool:
@@ -205,12 +203,7 @@ def _multiple_choice_response(request: Mapping[str, object], value: object) -> b
     allowed = {option["value"] for option in options if isinstance(option, dict)}
     minimum = request.get("min_selections")
     maximum = request.get("max_selections")
-    return (
-        type(minimum) is int
-        and type(maximum) is int
-        and minimum <= len(value) <= maximum
-        and set(value) <= allowed
-    )
+    return type(minimum) is int and type(maximum) is int and minimum <= len(value) <= maximum and set(value) <= allowed
 
 
 def _text_response(request: Mapping[str, object], value: object) -> bool:

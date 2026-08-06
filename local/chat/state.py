@@ -320,9 +320,7 @@ def _purge_expired_human_continuation(
     try:
         decoded = local_chat_continuations.decode(stored)
         if decoded.kind != "human":
-            raise local_chat_continuations.ContinuationCodecError(
-                "expired human continuation kind changed"
-            )
+            raise local_chat_continuations.ContinuationCodecError("expired human continuation kind changed")
     except local_chat_continuations.ContinuationCodecError as exc:
         self._raise_chat_continuation_problem(exc)
     self._purge_human_pending(decoded.pending)

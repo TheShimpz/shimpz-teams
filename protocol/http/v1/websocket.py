@@ -142,11 +142,15 @@ def canonical_human_response(value: object) -> dict[str, object]:
     ):
         raise FrameError(400, "invalid human response frame")
     decision = value["decision"]
-    expected = {"type", "challenge_id", "decision", "value"} if decision == "submit" else {
-        "type",
-        "challenge_id",
-        "decision",
-    }
+    expected = (
+        {"type", "challenge_id", "decision", "value"}
+        if decision == "submit"
+        else {
+            "type",
+            "challenge_id",
+            "decision",
+        }
+    )
     if set(value) != expected or (decision == "submit" and not _human_value(value["value"])):
         raise FrameError(400, "invalid human response frame")
     return dict(value)

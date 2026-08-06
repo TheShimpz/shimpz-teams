@@ -205,9 +205,7 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
         isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements
     ):
         return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
-    if kind == "human" and len(requirements) == 1 and isinstance(
-        requirements[0], power_challenges.HumanRequirement
-    ):
+    if kind == "human" and len(requirements) == 1 and isinstance(requirements[0], power_challenges.HumanRequirement):
         requirement = requirements[0]
         return [
             {
@@ -552,6 +550,8 @@ def _human_requirement(value: object) -> power_challenges.HumanRequirement:
         _interrupt_id(raw["interrupt_id"]),
         request,
     )
+
+
 def decode(
     stored: local_chat_continuation_store.StoredContinuation,
 ) -> DecodedContinuation:

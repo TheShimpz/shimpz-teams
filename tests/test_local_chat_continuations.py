@@ -134,9 +134,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
         decoded = local_chat_continuations.decode(
-            local_chat_continuation_store.StoredContinuation(
-                "team_1", "human", "c" * 32, 1_300, 1, bindings, payload
-            )
+            local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
         )
 
         self.assertEqual(decoded.requirements, requirement)

@@ -59,9 +59,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         return power_human.validate_request(descriptor, ("approval",))
 
     def test_local_human_approval_replays_the_same_power_before_brain_resume(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             resumes = 0
@@ -110,9 +108,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(len(invocations), 2)
 
     def test_denied_human_request_purges_the_power_batch_without_brain_resume(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             def start(self, _context, _message):
@@ -145,9 +141,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(batches, (0,))
 
     def test_restart_purges_an_expired_human_continuation_and_unblocks_the_generation(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             def start(self, _context, _message):
@@ -202,9 +196,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(next_batch.generation, "a" * 64)
 
     def test_running_controller_purges_an_expired_human_challenge(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             def start(self, _context, _message):
@@ -244,9 +236,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(next_batch.generation, "a" * 64)
 
     def test_unavailable_strong_local_auth_assurance_auto_blocks_without_a_fake_prompt(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             def start(self, _context, _message):
@@ -266,9 +256,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 descriptor["fingerprint"] = power_human._fingerprint(descriptor)
                 admitted = power_human.validate_request(descriptor, (kind,))
                 controller = self._chat_controller(directory, Runtime())
-                controller.assistant_lifecycle.invoke = lambda *_args, request=admitted: (
-                    _ for _ in ()
-                ).throw(
+                controller.assistant_lifecycle.invoke = lambda *_args, request=admitted: (_ for _ in ()).throw(
                     power_human.HumanRequestSuspensionError(request)
                 )
 
@@ -292,9 +280,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 self.assertIsNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
     def test_local_reauthentication_pauses_for_supervisor_assurance(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
-        )
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
             def start(self, _context, _message):

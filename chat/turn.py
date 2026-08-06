@@ -47,11 +47,7 @@ class SegmentResult:
 
     team_name: str
     identity: tuple[object, ...]
-    outcome: (
-        chat_orchestrator.ChatOutcome
-        | chat_orchestrator.ChatSuspension
-        | chat_orchestrator.ChatHumanSuspension
-    )
+    outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension
     integrations: tuple[object, ...]
     human: tuple[object, ...] = ()
 
@@ -70,11 +66,9 @@ class SegmentStrategy:
     cancelled: Callable[[], bool]
     validate_context: Callable[[], None]
     raise_problem: Callable[[str, BaseException | None], None]
-    human_requirement: Callable[[object, power_human.HumanRequest], object] = (
-        lambda _power, _request: (_ for _ in ()).throw(
-            chat_orchestrator.ChatOrchestrationError("Power human requests are unavailable")
-        )
-    )
+    human_requirement: Callable[[object, power_human.HumanRequest], object] = lambda _power, _request: (
+        _ for _ in ()
+    ).throw(chat_orchestrator.ChatOrchestrationError("Power human requests are unavailable"))
     finalize: Callable[[], None] = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 

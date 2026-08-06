@@ -465,9 +465,7 @@ class EncryptedContinuationStore:
             if not isinstance(records, dict):
                 raise ContinuationStoreError("continuation state is malformed")
             now = int(self._now())
-            teams = tuple(
-                sorted(team for team, item in records.items() if int(item["expires_at"]) <= now)
-            )
+            teams = tuple(sorted(team for team, item in records.items() if int(item["expires_at"]) <= now))
             expired = tuple(self._resolved(team, records[team]) for team in teams)
             for team in teams:
                 records.pop(team)

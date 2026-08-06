@@ -32,6 +32,7 @@ def _segment_response(
     team_id = response.team_id
     token = response.token
     segment = response.segment
+
     def pending(suspension: object) -> _PendingLocalChat:
         if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
             raise AssertionError("invalid local chat suspension")

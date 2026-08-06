@@ -500,12 +500,14 @@ class PowerRpcFrameTests(unittest.TestCase):
             "fingerprint": "a" * 64,
             "value": True,
         }
-        with mock.patch.object(local_assistant_rpc.power_execution, "rpc_exchange", return_value={"ok": True}), \
-             mock.patch.object(
-                 local_assistant_rpc.power_execution,
-                 "encode_rpc_invocation",
-                 return_value=b"request",
-             ) as encode:
+        with (
+            mock.patch.object(local_assistant_rpc.power_execution, "rpc_exchange", return_value={"ok": True}),
+            mock.patch.object(
+                local_assistant_rpc.power_execution,
+                "encode_rpc_invocation",
+                return_value=b"request",
+            ) as encode,
+        ):
             local_assistant_rpc._rpc(
                 fake,
                 SimpleNamespace(id="assistant-container"),

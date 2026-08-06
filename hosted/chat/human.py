@@ -36,10 +36,14 @@ def _resume_body(body: object) -> tuple[object, str, object | None]:
     if not isinstance(body, dict) or body.get("decision") not in {"submit", "deny"}:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power human response is invalid")
     decision = body["decision"]
-    expected = {"challenge_id", "decision", "value"} if decision == "submit" else {
-        "challenge_id",
-        "decision",
-    }
+    expected = (
+        {"challenge_id", "decision", "value"}
+        if decision == "submit"
+        else {
+            "challenge_id",
+            "decision",
+        }
+    )
     if set(body) != expected:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power human response is invalid")
     return body["challenge_id"], decision, body.get("value")

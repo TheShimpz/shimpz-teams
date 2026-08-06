@@ -225,11 +225,7 @@ def verify(
         "body": request.body,
     }
     actual = {field: claims[field] for field in expected}
-    if (
-        actual != expected
-        or claims.get("model") != request.model
-        or claims.get("assurance") != request.assurance
-    ):
+    if actual != expected or claims.get("model") != request.model or claims.get("assurance") != request.assurance:
         raise SupervisorDeniedError("Local Supervisor assertion does not match the request")
     guard = _REPLAY_GUARD if replay_guard is None else replay_guard
     assertion_id = claims["jti"]

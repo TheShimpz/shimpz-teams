@@ -286,9 +286,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
                         current=mock.Mock(
                             return_value=SimpleNamespace(
                                 id=challenge_id,
-                                requirement=SimpleNamespace(
-                                    request=SimpleNamespace(kind="approval")
-                                ),
+                                requirement=SimpleNamespace(request=SimpleNamespace(kind="approval")),
                             )
                         )
                     ),
@@ -302,9 +300,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         )
         handler._capture_body("chat-human-submit")
 
-        self.assertIsNone(
-            handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"})
-        )
+        self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
 
     def test_chat_accepts_the_public_multibyte_message_boundary(self) -> None:
         message = "界" * 16_000
