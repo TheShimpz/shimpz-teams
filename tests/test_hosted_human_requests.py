@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import importlib
 import unittest
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import mock
 
-from power import challenges as power_challenges
-from power import human as power_human
+import hosted_assistant_fixture as harness
 
-harness = importlib.import_module("hosted_assistant_fixture")
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_chat_human = harness.hosted_chat_human
 runtime_state = harness.runtime_state
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 chat_turn_engine = hosted_chat_segment.chat_turn_engine
+power_challenges = hosted_chat_segment.power_challenges
+power_human = hosted_chat_segment.power_human
 
 
 class HostedHumanRequestTests(unittest.TestCase):

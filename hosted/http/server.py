@@ -24,6 +24,7 @@ from hosted import validation as validate
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import api as hosted_chat_api
+from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
 from hosted.http import routes as hosted
 from hosted.install import developers_client, publication
@@ -34,18 +35,22 @@ from inference import token as brain_runtime_token_store
 from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
+from power import challenges as power_challenges
+from power import human as power_human
 from protocol.http.v1 import payload as team_http_contract
 
 _SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
 _CHALLENGE_ID = re.compile(r"^[0-9a-f]{32}$")
 _FILE_ID = re.compile(r"^[0-9a-f]{32}$")
+_ASSURANCE_HANDLE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _JSON_BODY_LIMITS = {
     "assistant-install": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
     "assistant-integration-authorize": runtime_state.MAX_JSON_BODY_BYTES,
     "assistant-integration-complete": runtime_state.MAX_JSON_BODY_BYTES,
     "chat": runtime_state.MAX_JSON_BODY_BYTES,
     "chat-integration-submit": runtime_state.MAX_JSON_BODY_BYTES,
+    "chat-human-submit": runtime_state.MAX_JSON_BODY_BYTES,
     "chat-stream": runtime_state.MAX_JSON_BODY_BYTES,
     "inference-configure": runtime_state.MAX_JSON_BODY_BYTES,
     "team-create": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
@@ -59,6 +64,18 @@ class _AuthorizedRequest:
     principal: tuple[str, str | None]
     lease: hosted_resources._AuthorizationLease
     query: dict[str, str]
+    assurance: dict[str, str] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _AuthorityRequest:
+    method: str
+    route: strict_http.ControllerRouteMatch
+    params: dict[str, str]
+    query: dict[str, str]
+    body: dict[str, object]
+    assurance: dict[str, str] | None = None
+    assurance_handle: object | None = None
 
 
 class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
@@ -351,27 +368,25 @@ class Handler(BaseHTTPRequestHandler):
     def _human_authority(
         self,
         session_token: str,
-        method: str,
-        route: strict_http.ControllerRouteMatch,
-        params: dict[str, str],
-        query: dict[str, str],
-        body_binding: dict[str, object],
+        request: _AuthorityRequest,
     ) -> account_authority.Evaluation:
         binding: dict[str, object] = {
-            "method": method,
-            "operation": route.operation,
-            "params": params,
-            "query": query,
-            "body": body_binding,
+            "method": request.method,
+            "operation": request.route.operation,
+            "params": request.params,
+            "query": request.query,
+            "body": request.body,
         }
-        owner = self._owner_target(route.operation)
+        owner = self._owner_target(request.route.operation)
         if owner is not None:
             binding["owner_account_id"] = owner
-        target = params.get("team_id", route.operation)
+        if request.assurance is not None:
+            binding["assurance"] = request.assurance
+        target = request.params.get("team_id", request.route.operation)
         binding_digest: str | None = None
         try:
             binding_digest = account_authority.binding_digest(binding)
-            evaluation = account_authority.evaluate(session_token, binding)
+            evaluation = account_authority.evaluate(session_token, binding, request.assurance_handle)
         except account_authority.AuthorityDeniedError as exc:
             self._audit_credential_state = "credential_rejected"
             self._audit_trace_id = audit.log(
@@ -381,7 +396,7 @@ class Handler(BaseHTTPRequestHandler):
                 principal_id=None,
                 principal_class="absent",
                 credential_state=self._audit_credential_state,
-                operation=route.operation,
+                operation=request.route.operation,
                 **({"binding_digest": binding_digest} if binding_digest is not None else {}),
             )
             raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "invalid or missing credentials") from exc
@@ -393,7 +408,7 @@ class Handler(BaseHTTPRequestHandler):
                 principal_id=None,
                 principal_class="absent",
                 credential_state=self._audit_credential_state,
-                operation=route.operation,
+                operation=request.route.operation,
                 **({"binding_digest": binding_digest} if binding_digest is not None else {}),
             )
             raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Account authority is unavailable") from exc
@@ -406,10 +421,38 @@ class Handler(BaseHTTPRequestHandler):
             principal_id=evaluation.account_id,
             principal_class="human",
             supervisor=evaluation.supervisor,
-            operation=route.operation,
+            operation=request.route.operation,
             binding_digest=evaluation.binding_digest,
         )
         return evaluation
+
+    def _power_assurance(
+        self,
+        operation: str,
+        params: dict[str, str],
+    ) -> tuple[dict[str, str] | None, object | None]:
+        if operation != "chat-human-submit":
+            return None, None
+        body = self._read_body()
+        if not isinstance(body, dict) or body.get("decision") != "submit":
+            return None, None
+        try:
+            challenge = runtime_state._human_challenges.get(
+                params["team_id"],
+                body.get("challenge_id"),
+            )
+        except KeyError, power_challenges.HumanChallengeNotFoundError:
+            hosted_chat_human._expire_challenges()
+            return None, None
+        kind = challenge.requirement.request.kind
+        if kind not in power_human.AUTH_KINDS:
+            return None, None
+        handle = body.get("value")
+        if set(body) != {"challenge_id", "decision", "value"} or not isinstance(handle, str):
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
+        if _ASSURANCE_HANDLE.fullmatch(handle) is None:
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power authentication is invalid")
+        return {"kind": kind, "challenge_id": challenge.id}, handle
 
     def _dispatch_resolved(self, method: str) -> None:
         _target, route = hosted.route_target(self.headers, self.path, method, runtime_state.ApiError)
@@ -424,7 +467,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         session_token = self._account_session()
         body_binding = self._capture_body(route.operation)
-        evaluation = self._human_authority(session_token, method, route, params, query, body_binding)
+        assurance, assurance_handle = self._power_assurance(route.operation, params)
+        evaluation = self._human_authority(
+            session_token,
+            _AuthorityRequest(
+                method,
+                route,
+                params,
+                query,
+                body_binding,
+                assurance,
+                assurance_handle,
+            ),
+        )
         self._route(route, params, query, evaluation)
 
     def _publication_dependencies(self):
@@ -501,7 +556,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         lease = hosted_resources._authorize(team_id, principal)
-        request = _AuthorizedRequest(params, team_id, principal, lease, query)
+        if route.operation in {"chat-human-pending", "chat-human-submit"} and evaluation.account_id != lease.owner:
+            raise runtime_state.ApiError(HTTPStatus.FORBIDDEN, "Team Owner authority is required")
+        request = _AuthorizedRequest(params, team_id, principal, lease, query, evaluation.assurance)
         _AUTHORIZED_ROUTES[route.operation](self, request)
 
     def _route_team_list(self, principal: tuple[str, str | None]) -> None:
@@ -763,6 +820,33 @@ class Handler(BaseHTTPRequestHandler):
             no_store=True,
         )
 
+    def _route_chat_human(
+        self,
+        request: _AuthorizedRequest,
+        *,
+        submit: bool,
+    ) -> None:
+        if not submit:
+            self._send_json(
+                HTTPStatus.OK,
+                hosted_chat_human.pending_chat_human(request.team_id),
+                no_store=True,
+            )
+            return
+        runtime_state._enforce_rate("chat", request.principal)
+        result = hosted_chat_api._resume_chat_human(
+            request.team_id,
+            self._read_body(),
+            request.assurance,
+            request.lease,
+        )
+        paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
+        self._send_json(
+            HTTPStatus.PRECONDITION_REQUIRED if paused else HTTPStatus.OK,
+            result,
+            no_store=True,
+        )
+
     def _route_chat_stop(self, request: _AuthorizedRequest) -> None:
         runtime_state._enforce_rate("stop", request.principal)
         result = hosted_chat_api._stop_chat(request.team_id, request.lease)
@@ -918,6 +1002,8 @@ _AUTHORIZED_ROUTES = {
     "chat-stream": functools.partial(Handler._route_chat_turn, stream=True),
     "chat-integration-pending": functools.partial(Handler._route_chat_integrations, submit=False),
     "chat-integration-submit": functools.partial(Handler._route_chat_integrations, submit=True),
+    "chat-human-pending": functools.partial(Handler._route_chat_human, submit=False),
+    "chat-human-submit": functools.partial(Handler._route_chat_human, submit=True),
     "chat-stop": Handler._route_chat_stop,
     "assistant-integration-list": Handler._route_assistant_integration_list,
     "assistant-integration-authorize": Handler._route_assistant_integration_authorize,

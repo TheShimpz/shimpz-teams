@@ -21,6 +21,8 @@ from hosted_assistant_fixture import app, hosted_controller, hosted_resources, r
 from hosted import container as container_spec
 
 network_policy = hosted_resources.network_policy
+power_challenges = hosted_controller.power_challenges
+power_human = hosted_controller.power_human
 
 TEAM_ID = "team_1"
 CONTAINER_ID = "a" * 64
@@ -210,11 +212,17 @@ class HostedAuthorizationTests(unittest.TestCase):
         ) as evaluate:
             result = account._human_authority(
                 "account-session",
-                "GET",
-                route,
-                {},
-                {},
-                {"kind": "none", "length": 0, "sha256": hosted_controller.account_authority.EMPTY_SHA256},
+                hosted_controller._AuthorityRequest(
+                    "GET",
+                    route,
+                    {},
+                    {},
+                    {
+                        "kind": "none",
+                        "length": 0,
+                        "sha256": hosted_controller.account_authority.EMPTY_SHA256,
+                    },
+                ),
             )
         self.assertEqual(result, evidence)
         evaluate.assert_called_once()
@@ -234,6 +242,68 @@ class HostedAuthorizationTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.status, HTTPStatus.FORBIDDEN)
         self.assertEqual(handler.rfile.tell(), 0)
+
+    def test_power_auth_handle_is_bound_to_the_exact_account_evaluation(self) -> None:
+        descriptor = {
+            "kind": "auth:second-factor",
+            "ordinal": 0,
+            "title": "Confirm protected action",
+            "description": "Use an enrolled second factor.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        human_request = power_human.validate_request(descriptor, ("auth:second-factor",))
+        requirement = power_challenges.HumanRequirement(
+            "assistant-1",
+            "Assistant One",
+            "protected-power",
+            "Protected power",
+            "interrupt-1",
+            human_request,
+        )
+        challenges = power_challenges.HumanChallengeStore()
+        challenge = challenges.create(TEAM_ID, requirement, object())
+        handle = "A" * 43
+        handler = self._handler(("X-Shimpz-Account", "account-session"))
+        handler._captured_json_raw = b"{}"
+        handler._captured_json_body = {
+            "challenge_id": challenge.id,
+            "decision": "submit",
+            "value": handle,
+        }
+        route = hosted_controller.strict_http.ControllerRouteMatch(
+            "chat-human-submit",
+            {"team_id": TEAM_ID},
+        )
+        assurance = {"kind": "auth:second-factor", "challenge_id": challenge.id}
+        evidence = hosted_controller.account_authority.Evaluation(
+            "a" * 32,
+            False,
+            "b" * 64,
+            None,
+            assurance,
+        )
+
+        with (
+            mock.patch.object(runtime_state, "_human_challenges", challenges),
+            mock.patch.object(hosted_controller.account_authority, "evaluate", return_value=evidence) as evaluate,
+        ):
+            derived, derived_handle = handler._power_assurance("chat-human-submit", {"team_id": TEAM_ID})
+            result = handler._human_authority(
+                "account-session",
+                hosted_controller._AuthorityRequest(
+                    "POST",
+                    route,
+                    {"team_id": TEAM_ID},
+                    {},
+                    {"kind": "json", "length": 2, "sha256": hashlib.sha256(b"{}").hexdigest()},
+                    derived,
+                    derived_handle,
+                ),
+            )
+
+        self.assertEqual(result.assurance, assurance)
+        self.assertEqual(evaluate.call_args.args[1]["assurance"], assurance)
+        self.assertEqual(evaluate.call_args.args[2], handle)
 
     def test_account_denial_and_unavailability_project_with_distinct_audit_outcomes(self) -> None:
         cases = (

@@ -23,6 +23,12 @@ class ControllerRoutingTests(unittest.TestCase):
             ("POST", "/v1/teams/team_1/chat", "chat", {"team_id": "team_1"}),
             (
                 "POST",
+                "/v1/teams/team_1/chat/human",
+                "chat-human-submit",
+                {"team_id": "team_1"},
+            ),
+            (
+                "POST",
                 "/v1/teams/team_1/assistant-integrations/challenges/challenge-1/authorize",
                 "assistant-integration-authorize",
                 {"team_id": "team_1", "challenge_id": "challenge-1"},

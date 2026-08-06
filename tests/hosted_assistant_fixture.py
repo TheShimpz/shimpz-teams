@@ -132,11 +132,12 @@ def _authority_session_token(value):
 
 
 class _AuthorityEvaluation:
-    def __init__(self, account_id, supervisor, binding_digest, owner_account_id) -> None:
+    def __init__(self, account_id, supervisor, binding_digest, owner_account_id, assurance=None) -> None:
         self.account_id = account_id
         self.supervisor = supervisor
         self.binding_digest = binding_digest
         self.owner_account_id = owner_account_id
+        self.assurance = assurance
 
     @property
     def principal(self):
