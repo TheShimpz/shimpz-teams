@@ -89,7 +89,7 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller = object.__new__(local_app.LocalController)
     controller.space_id = "local-space"
     controller.brain_runtime = SimpleNamespace()
-    controller.power_state = SimpleNamespace()
+    controller.power_state = SimpleNamespace(purge_replayable=lambda _generation: False)
     controller._lock = lambda _team_id: contextlib.nullcontext()
     controller.storage = SimpleNamespace(
         metadata=lambda _team_id, _files, _connection=None: [],
