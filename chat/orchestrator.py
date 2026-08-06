@@ -8,6 +8,7 @@ from typing import Any
 
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
+from power import human as power_human
 
 MAX_POWER_ROUNDS = 8
 
@@ -46,6 +47,15 @@ class ChatContinuation:
 class ChatSuspension:
     continuation: ChatContinuation
     requests: tuple[brain_runtime_client.PowerRequest, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ChatHumanSuspension:
+    """A validated Power request paused without returning anything to the Brain."""
+
+    continuation: ChatContinuation
+    power: brain_runtime_client.PowerRequest
+    request: power_human.HumanRequest
 
 
 PowerInvoker = Callable[[brain_runtime_client.PowerRequest], object]
@@ -109,7 +119,7 @@ def _drive(
     context: brain_runtime_client.RuntimeContext,
     continuation: ChatContinuation,
     strategy: ChatStrategy,
-) -> ChatOutcome | ChatSuspension:
+) -> ChatOutcome | ChatSuspension | ChatHumanSuspension:
     turn = continuation.turn
     invoked = list(continuation.invoked)
     seen_interrupts = set(continuation.seen_interrupts)
@@ -144,6 +154,12 @@ def _drive(
             strategy.prepare_batch(batch)
         results: dict[str, object] = {}
         batch_invoked: list[InvokedPower] = []
+        checkpoint = ChatContinuation(
+            turn=turn,
+            seen_interrupts=tuple(sorted(seen_interrupts)),
+            invoked=tuple(invoked),
+            round_index=_round,
+        )
         for index, request in enumerate(batch, start=1):
             if strategy.cancelled():
                 raise ChatStoppedError("chat turn stopped")
@@ -155,7 +171,10 @@ def _drive(
                 assistant_id=request.assistant_id,
                 power=request.power,
             ):
-                result = strategy.invoke_power(request)
+                try:
+                    result = strategy.invoke_power(request)
+                except power_human.HumanRequestSuspensionError as exc:
+                    return ChatHumanSuspension(checkpoint, request, exc.request)
             results[request.interrupt_id] = result
             batch_invoked.append(InvokedPower(assistant_id=request.assistant_id, power=request.power))
 
@@ -180,7 +199,7 @@ def run_until_pause(
     context: brain_runtime_client.RuntimeContext,
     message: str,
     strategy: ChatStrategy,
-) -> ChatOutcome | ChatSuspension:
+) -> ChatOutcome | ChatSuspension | ChatHumanSuspension:
     """Start a turn and optionally pause before an all-or-nothing Power batch."""
     if strategy.cancelled():
         raise ChatStoppedError("chat turn stopped")
@@ -200,7 +219,7 @@ def continue_after_pause(
     context: brain_runtime_client.RuntimeContext,
     continuation: ChatContinuation,
     strategy: ChatStrategy,
-) -> ChatOutcome | ChatSuspension:
+) -> ChatOutcome | ChatSuspension | ChatHumanSuspension:
     """Continue an admitted in-memory suspension without re-running the user turn."""
     return _drive(
         runtime,
@@ -223,6 +242,6 @@ def run(
         message,
         strategy,
     )
-    if isinstance(outcome, ChatSuspension):
+    if isinstance(outcome, ChatSuspension | ChatHumanSuspension):
         raise ChatOrchestrationError("chat turn paused without a Controller continuation")
     return outcome

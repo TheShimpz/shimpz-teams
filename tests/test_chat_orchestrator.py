@@ -4,6 +4,7 @@ import unittest
 
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
+from power import human as power_human
 
 
 def context(*powers: brain_runtime_client.RuntimePower) -> brain_runtime_client.RuntimeContext:
@@ -94,6 +95,40 @@ class FakeRuntime:
 
 
 class ChatOrchestratorTests(unittest.TestCase):
+    def test_human_request_pauses_without_resuming_the_brain_or_running_later_powers(self):
+        first = suspended(interrupt_id="first").powers[0]
+        second = suspended(interrupt_id="second").powers[0]
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue",
+            "description": "Continue the reviewed operation.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        admitted = power_human.validate_request(descriptor, ("approval",))
+        invoked = []
+
+        def invoke(request):
+            invoked.append(request.interrupt_id)
+            if request.interrupt_id == "first":
+                raise power_human.HumanRequestSuspensionError(admitted)
+            return {"ok": True}
+
+        runtime = FakeRuntime([suspension(first, second), completed()])
+        outcome = chat_orchestrator.run_until_pause(
+            runtime,
+            context(),
+            "Use both Powers",
+            strategy(accept_input, invoke),
+        )
+
+        self.assertIsInstance(outcome, chat_orchestrator.ChatHumanSuspension)
+        self.assertEqual(outcome.power.interrupt_id, "first")
+        self.assertEqual(outcome.request, admitted)
+        self.assertEqual(outcome.continuation.round_index, 0)
+        self.assertEqual(invoked, ["first"])
+        self.assertEqual(runtime.resumes, [])
+
     def test_direct_reply_never_invokes_a_power(self):
         invoked = []
 
