@@ -13,6 +13,8 @@ from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
+from power import challenges as power_challenges
+from power import human as power_human
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 TURN = brain_runtime_client.RuntimeTurn(
@@ -84,6 +86,109 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ),
         )
         self._round_trip("integrations", requirements)
+
+    def test_round_trips_human_suspension_and_nonsecret_transcript(self) -> None:
+        first = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Prepare",
+            "description": "Prepare the reviewed action.",
+        }
+        first["fingerprint"] = power_human._fingerprint(first)
+        current = {
+            "kind": "input:text",
+            "ordinal": 1,
+            "title": "Zone",
+            "description": "Enter the reviewed zone.",
+            "label": "Zone",
+            "required": True,
+            "placeholder": "example.com",
+            "min_length": 1,
+            "max_length": 255,
+        }
+        current["fingerprint"] = power_human._fingerprint(current)
+        state = pending()
+        state = local_chat_continuations.PendingLocalChat(
+            state.continuation,
+            state.assistant_ids,
+            state.file_ids,
+            state.provider,
+            state.identity,
+            (
+                power_human.PowerTranscript(
+                    "power-1",
+                    (power_human.admit_response(power_human.validate_request(first, ("approval",)), True),),
+                ),
+            ),
+        )
+        requirement = (
+            power_challenges.HumanRequirement(
+                "demo-assistant",
+                "Demo Assistant",
+                "publish",
+                "Publish a DNS record.",
+                "power-1",
+                power_human.validate_request(current, ("input:text",)),
+            ),
+        )
+
+        bindings, payload = local_chat_continuations.encode("human", requirement, state)
+        decoded = local_chat_continuations.decode(
+            local_chat_continuation_store.StoredContinuation(
+                "team_1", "human", "c" * 32, 1_300, 1, bindings, payload
+            )
+        )
+
+        self.assertEqual(decoded.requirements, requirement)
+        self.assertEqual(decoded.pending, state)
+
+    def test_refuses_to_persist_password_response_material(self) -> None:
+        secret_request = {
+            "kind": "input:password",
+            "ordinal": 0,
+            "title": "Provider secret",
+            "description": "Enter the third-party provider secret.",
+            "label": "Secret",
+            "required": True,
+            "placeholder": None,
+            "min_length": 1,
+            "max_length": 64,
+        }
+        secret_request["fingerprint"] = power_human._fingerprint(secret_request)
+        state = pending()
+        state = local_chat_continuations.PendingLocalChat(
+            state.continuation,
+            state.assistant_ids,
+            state.file_ids,
+            state.provider,
+            state.identity,
+            (
+                power_human.PowerTranscript(
+                    "power-1",
+                    (
+                        power_human.admit_response(
+                            power_human.validate_request(secret_request, ("input:password",)), "secret"
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "secret"):
+            local_chat_continuations.encode(
+                "human",
+                (
+                    power_challenges.HumanRequirement(
+                        "demo-assistant",
+                        "Demo Assistant",
+                        "publish",
+                        "Publish a DNS record.",
+                        "power-1",
+                        power_human.validate_request(secret_request, ("input:password",)),
+                    ),
+                ),
+                state,
+            )
 
     def test_rejects_release_binding_and_decrypted_shape_drift(self) -> None:
         requirement = (

@@ -13,6 +13,8 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
+from power import challenges as power_challenges
+from power import human as power_human
 
 SCHEMA_VERSION = 1
 MAX_JSON_DEPTH = 16
@@ -39,6 +41,7 @@ class PendingLocalChat:
     file_ids: tuple[str, ...]
     provider: str
     identity: tuple[object, ...]
+    transcripts: tuple[power_human.PowerTranscript, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,7 +155,30 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "file_ids": list(pending.file_ids),
         "provider": pending.provider,
         "identity": identity,
+        "transcripts": _transcripts_payload(pending.transcripts),
     }
+
+
+def _transcripts_payload(transcripts: tuple[power_human.PowerTranscript, ...]) -> list[dict[str, object]]:
+    if (
+        not isinstance(transcripts, tuple)
+        or len({item.interrupt_id for item in transcripts}) != len(transcripts)
+        or sum(len(item.responses) for item in transcripts) > power_human.MAX_REQUESTS_PER_TURN
+    ):
+        raise ContinuationCodecError("pending human transcripts are malformed")
+    payload: list[dict[str, object]] = []
+    for transcript in transcripts:
+        if not isinstance(transcript, power_human.PowerTranscript) or any(
+            response.secret for response in transcript.responses
+        ):
+            raise ContinuationCodecError("secret human responses cannot be persisted")
+        payload.append(
+            {
+                "interrupt_id": _interrupt_id(transcript.interrupt_id),
+                "responses": [_json_value(response.payload()) for response in transcript.responses],
+            }
+        )
+    return payload
 
 
 def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
@@ -173,13 +199,27 @@ def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
 
 
 def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[dict[str, object]]:
-    if (
-        kind != "integrations"
-        or not requirements
-        or any(not isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements)
-    ):
+    if not requirements:
         raise ContinuationCodecError("continuation requirements are malformed")
-    return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
+    if kind == "integrations" and all(
+        isinstance(item, integration_challenges.IntegrationRequirement) for item in requirements
+    ):
+        return [_json_value(asdict(item)) for item in requirements]  # type: ignore[list-item]
+    if kind == "human" and len(requirements) == 1 and isinstance(
+        requirements[0], power_challenges.HumanRequirement
+    ):
+        requirement = requirements[0]
+        return [
+            {
+                "assistant_id": requirement.assistant_id,
+                "assistant_name": requirement.assistant_name,
+                "power_id": requirement.power_id,
+                "power_summary": requirement.power_summary,
+                "interrupt_id": requirement.interrupt_id,
+                "request": _json_value(requirement.request.payload()),
+            }
+        ]
+    raise ContinuationCodecError("continuation requirements are malformed")
 
 
 def _release_images(pending: PendingLocalChat) -> dict[str, str]:
@@ -197,18 +237,27 @@ def _release_images(pending: PendingLocalChat) -> dict[str, str]:
 
 
 def _bindings(kind: str, requirements: tuple[object, ...], pending: PendingLocalChat) -> tuple[str, ...]:
-    if kind != "integrations":
-        raise ContinuationCodecError("continuation kind is malformed")
     images = _release_images(pending)
     bindings: set[str] = set()
-    for requirement in requirements:
+    if kind == "integrations":
+        for requirement in requirements:
+            assistant = _component_id(requirement.assistant_id, "continuation binding Assistant")
+            image = images.get(assistant)
+            if image is None:
+                raise ContinuationCodecError("continuation release binding is malformed")
+            for power_id in requirement.power_ids:
+                power = _component_id(power_id, "continuation binding Power")
+                bindings.add(f"{assistant}/{power}/{image}/-")
+    elif kind == "human" and len(requirements) == 1:
+        requirement = requirements[0]
         assistant = _component_id(requirement.assistant_id, "continuation binding Assistant")
+        power = _component_id(requirement.power_id, "continuation binding Power")
         image = images.get(assistant)
-        if image is None:
+        if image is None or not isinstance(requirement.request, power_human.HumanRequest):
             raise ContinuationCodecError("continuation release binding is malformed")
-        for power_id in requirement.power_ids:
-            power = _component_id(power_id, "continuation binding Power")
-            bindings.add(f"{assistant}/{power}/{image}/-")
+        bindings.add(f"{assistant}/{power}/{image}/{requirement.request.fingerprint}")
+    else:
+        raise ContinuationCodecError("continuation kind is malformed")
     return tuple(sorted(bindings))
 
 
@@ -378,6 +427,7 @@ def _pending(value: object) -> PendingLocalChat:
             "file_ids",
             "provider",
             "identity",
+            "transcripts",
         },
         "pending continuation",
     )
@@ -405,7 +455,46 @@ def _pending(value: object) -> PendingLocalChat:
         file_ids=file_ids,
         provider=provider,
         identity=identity,
+        transcripts=_transcripts(raw["transcripts"]),
     )
+
+
+def _human_response(value: object, ordinal: int) -> power_human.HumanResponse:
+    raw = _mapping(value, {"kind", "ordinal", "fingerprint", "value"}, "human response")
+    kind = raw["kind"]
+    fingerprint = raw["fingerprint"]
+    response_value = _json_value(raw["value"])
+    if (
+        not isinstance(kind, str)
+        or kind == "input:password"
+        or type(raw["ordinal"]) is not int
+        or raw["ordinal"] != ordinal
+        or not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or ((kind == "approval" or kind in power_human.AUTH_KINDS) and response_value is not True)
+    ):
+        raise ContinuationCodecError("human response is malformed")
+    return power_human.HumanResponse(kind, ordinal, fingerprint, response_value)
+
+
+def _transcripts(value: object) -> tuple[power_human.PowerTranscript, ...]:
+    transcripts: list[power_human.PowerTranscript] = []
+    count = 0
+    for item in _sequence(value, power_human.MAX_REQUESTS_PER_TURN, "human transcripts"):
+        raw = _mapping(item, {"interrupt_id", "responses"}, "human transcript")
+        responses = tuple(
+            _human_response(response, ordinal)
+            for ordinal, response in enumerate(
+                _sequence(raw["responses"], power_human.MAX_REQUESTS_PER_POWER, "human responses")
+            )
+        )
+        count += len(responses)
+        transcripts.append(power_human.PowerTranscript(_interrupt_id(raw["interrupt_id"]), responses))
+    if count > power_human.MAX_REQUESTS_PER_TURN or len({item.interrupt_id for item in transcripts}) != len(
+        transcripts
+    ):
+        raise ContinuationCodecError("human transcripts are malformed")
+    return tuple(transcripts)
 
 
 def _tuple_text(value: object, maximum: int, label: str) -> tuple[str, ...]:
@@ -442,6 +531,27 @@ def _integration_requirement(value: object) -> integration_challenges.Integratio
     )
 
 
+def _human_requirement(value: object) -> power_challenges.HumanRequirement:
+    raw = _mapping(
+        value,
+        {"assistant_id", "assistant_name", "power_id", "power_summary", "interrupt_id", "request"},
+        "human requirement",
+    )
+    request_value = raw["request"]
+    if not isinstance(request_value, dict) or not isinstance(request_value.get("kind"), str):
+        raise ContinuationCodecError("human requirement request is malformed")
+    try:
+        request = power_human.validate_request(request_value, (request_value["kind"],))
+    except power_human.HumanRequestError as exc:
+        raise ContinuationCodecError("human requirement request is malformed") from exc
+    return power_challenges.HumanRequirement(
+        _component_id(raw["assistant_id"], "human Assistant"),
+        str(_text(raw["assistant_name"], 80, "human Assistant name")),
+        _component_id(raw["power_id"], "human Power"),
+        str(_text(raw["power_summary"], 500, "human Power summary")),
+        _interrupt_id(raw["interrupt_id"]),
+        request,
+    )
 def decode(
     stored: local_chat_continuation_store.StoredContinuation,
 ) -> DecodedContinuation:
@@ -451,11 +561,13 @@ def decode(
     body = _decode_payload(stored.payload)
     if body["schema"] != SCHEMA_VERSION or body["kind"] != stored.kind:
         raise ContinuationCodecError("stored continuation contract changed")
-    if stored.kind != "integrations":
+    raw_requirements = _sequence(body["requirements"], 64, "continuation requirements")
+    if stored.kind == "integrations":
+        requirements = tuple(_integration_requirement(item) for item in raw_requirements)
+    elif stored.kind == "human" and len(raw_requirements) == 1:
+        requirements = (_human_requirement(raw_requirements[0]),)
+    else:
         raise ContinuationCodecError("stored continuation kind is malformed")
-    requirements = tuple(
-        _integration_requirement(item) for item in _sequence(body["requirements"], 64, "continuation requirements")
-    )
     if not requirements:
         raise ContinuationCodecError("continuation requirements are malformed")
     pending = _pending(body["pending"])

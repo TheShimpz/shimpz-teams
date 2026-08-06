@@ -31,7 +31,7 @@ MAX_BINDING_BYTES = 640
 MAX_TTL_SECONDS = 900
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _CHALLENGE_ID = re.compile(r"[0-9a-f]{32}\Z")
-_KINDS = frozenset({"integrations"})
+_KINDS = frozenset({"human", "integrations"})
 
 
 class ContinuationStoreError(RuntimeError):
