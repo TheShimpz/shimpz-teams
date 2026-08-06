@@ -130,7 +130,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         def rpc(_team_id, _token, _container, _power_id, payload):
             captured.append(payload)
-            return _zones()
+            return {"type": "result", "result": _zones()}
 
         def installed(_team_id, _assistant_id, current_inspect_memo=None):
             inspected.append(current_inspect_memo)
@@ -188,7 +188,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 "access_token": ACCESS_TOKEN,
             }
         }
-        rpc = mock.Mock(return_value=_zones())
+        rpc = mock.Mock(return_value={"type": "result", "result": _zones()})
         with (
             mock.patch.object(runtime_state, "_assistant_integrations", self.store),
             mock.patch.object(hosted_assistants, "_assistant_rpc", rpc),

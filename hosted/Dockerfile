@@ -135,7 +135,7 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
      integrations/challenges.py integrations/flow.py integrations/http.py \
      integrations/pkce.py integrations/private_state.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
-COPY power/__init__.py power/challenges.py power/execution.py power/human.py power/journal.py ./power/
+COPY power/__init__.py power/execution.py power/human.py power/journal.py ./power/
 COPY storage/__init__.py storage/files.py ./storage/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the

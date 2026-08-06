@@ -53,7 +53,7 @@ COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.p
     local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
     local/assistant/rpc.py ./local/assistant/
 COPY local/chat/__init__.py local/chat/api.py local/chat/continuation.py \
-    local/chat/continuation_store.py local/chat/execution.py local/chat/pause.py \
+    local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py \
     local/chat/state.py local/chat/types.py ./local/chat/
 COPY local/http/__init__.py local/http/dispatch.py local/http/server.py ./local/http/

@@ -811,8 +811,9 @@ class LocalController:
             rpc_payload = {
                 "input": safe_payload,
                 "integrations": power_execution.integration_access_tokens(integration_values),
-                "responses": responses,
             }
+            if responses:
+                rpc_payload["responses"] = responses
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
