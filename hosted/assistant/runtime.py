@@ -63,6 +63,7 @@ class _HostedAssistantSpec:
 class _HostedPowerSpec:
     integrations: tuple[str, ...]
     summary: str
+    human_requests: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +91,7 @@ def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
             power_id: _HostedPowerSpec(
                 tuple(getattr(power, "integrations", ())),
                 str(getattr(power, "summary", "")),
+                tuple(getattr(power, "human_requests", ())),
             )
             for power_id, power in active.contract.powers.items()
         },

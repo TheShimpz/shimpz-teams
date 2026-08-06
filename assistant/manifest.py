@@ -35,6 +35,21 @@ MAX_IDENTIFIER_LENGTH = 80
 MAX_SECRET_ID_LENGTH = 64
 MAX_GENESIS_LENGTH = 65_536
 DEFAULT_CACHE_ENTRIES = 256
+HUMAN_REQUEST_KINDS = frozenset(
+    {
+        "approval",
+        "auth:phishing-resistant",
+        "auth:reauth",
+        "auth:second-factor",
+        "input:choice",
+        "input:choices",
+        "input:password",
+        "input:phone",
+        "input:select",
+        "input:text",
+        "input:textarea",
+    }
+)
 _ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
@@ -349,6 +364,7 @@ def canonical_machine_contract(
             "input_schema",
             "output_schema",
             "integrations",
+            "human_requests",
         }:
             raise ManifestError("Assistant machine contract Power is invalid")
         power_id = _identifier(raw_power["id"], kind="Power")
@@ -367,12 +383,21 @@ def canonical_machine_contract(
         ):
             raise ManifestError("Assistant machine contract Power integrations are invalid")
         used_integrations.update(integrations)
+        human_requests = raw_power["human_requests"]
+        if (
+            not isinstance(human_requests, list)
+            or len(human_requests) > len(HUMAN_REQUEST_KINDS)
+            or len(human_requests) != len(set(human_requests))
+            or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
+        ):
+            raise ManifestError("Assistant machine contract Power human requests are invalid")
         powers.append(
             {
                 "id": power_id,
                 "input_schema": _machine_schema(raw_power["input_schema"], kind="input"),
                 "output_schema": _machine_schema(raw_power["output_schema"], kind="output"),
                 "integrations": sorted(integrations),
+                "human_requests": sorted(human_requests),
             }
         )
     if used_integrations != declared_ids:

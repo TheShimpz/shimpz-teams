@@ -89,6 +89,7 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "input_schema": dict(power.input_schema),
                     "output_schema": dict(power.output_schema),
                     "integrations": list(power.integrations),
+                    "human_requests": list(power.human_requests),
                 }
                 for power_id, power in sorted(powers.items())
             ],

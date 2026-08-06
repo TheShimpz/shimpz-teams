@@ -26,6 +26,7 @@ class PowerSpec:
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
     integrations: tuple[str, ...] = ()
+    human_requests: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

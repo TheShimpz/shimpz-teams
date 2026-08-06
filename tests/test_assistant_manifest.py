@@ -356,7 +356,7 @@ class AssistantManifestTests(unittest.TestCase):
         )
         self.assertEqual(
             set(reviewed.machine_contract["powers"][0]),
-            {"id", "input_schema", "output_schema", "integrations"},
+            {"id", "input_schema", "output_schema", "integrations", "human_requests"},
         )
 
         foreign = json.loads(raw)

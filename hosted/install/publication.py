@@ -60,6 +60,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
                 input_schema=power["input_schema"],
                 output_schema=power["output_schema"],
                 integrations=tuple(power["integrations"]),
+                human_requests=tuple(power["human_requests"]),
             )
             for power in machine_contract["powers"]
         }

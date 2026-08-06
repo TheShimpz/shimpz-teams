@@ -139,6 +139,10 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
         self.assertEqual(tuple(spec.contract.powers), ("hello",))
         self.assertEqual(
+            spec.contract.powers["hello"].human_requests,
+            ("approval", "input:choice"),
+        )
+        self.assertEqual(
             spec.required_image_labels,
             (
                 ("org.shimpz.assistant.id", "hello-world"),

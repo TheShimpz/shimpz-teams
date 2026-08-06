@@ -108,6 +108,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
                 input_schema=power["input_schema"],
                 output_schema=power["output_schema"],
                 integrations=tuple(power["integrations"]),
+                human_requests=tuple(power["human_requests"]),
             )
             for power in machine_contract["powers"]
         }
