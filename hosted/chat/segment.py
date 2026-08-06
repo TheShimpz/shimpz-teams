@@ -474,7 +474,9 @@ def _hosted_segment_response(
     file_ids: tuple[str, ...],
     owner: str,
 ) -> dict[str, object]:
-    def pending(suspension: chat_orchestrator.ChatSuspension) -> hosted_assistants._PendingHostedChat:
+    def pending(suspension: object) -> hosted_assistants._PendingHostedChat:
+        if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
+            raise AssertionError("invalid hosted chat suspension")
         return hosted_assistants._PendingHostedChat(
             continuation=suspension.continuation,
             assistant_ids=assistant_ids,
@@ -500,6 +502,12 @@ def _hosted_segment_response(
             (
                 lambda suspension, requirements, state: _pause_hosted_connection(
                     team_id, token, suspension, requirements, state
+                ),
+                lambda _suspension, _requirements, _state: (_ for _ in ()).throw(
+                    runtime_state.ApiError(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "Power human requests are unavailable",
+                    )
                 ),
             ),
             complete,

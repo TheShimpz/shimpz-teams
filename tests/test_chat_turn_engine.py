@@ -26,6 +26,7 @@ from local.chat import segment as local_chat_segment
 from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from power import human as power_human
 
 hosted_app = hosted_harness.app
 
@@ -128,6 +129,51 @@ def _context_contract(prepared) -> tuple[object, ...]:
 
 
 class SharedChatTurnEngineTest(unittest.TestCase):
+    def test_human_suspension_populates_only_the_human_gate(self) -> None:
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue",
+            "description": "Continue the reviewed Power operation.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        admitted = power_human.validate_request(descriptor, ("approval",))
+
+        class Batch:
+            @staticmethod
+            def prepare(_requests) -> None:
+                return None
+
+            @staticmethod
+            def invoke(_request):
+                raise power_human.HumanRequestSuspensionError(admitted)
+
+            @staticmethod
+            def delivered(_requests) -> None:
+                raise AssertionError("a human-suspended batch must not be delivered")
+
+        strategy = chat_turn_engine.SegmentStrategy(
+            runtime=_Runtime(),
+            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
+            validate_power=lambda _assistant, _power, payload: payload,
+            pause_for_private_inputs=lambda _requests, _requirements: False,
+            cancelled=lambda: False,
+            validate_context=lambda: None,
+            raise_problem=lambda reason, _exc: self.fail(reason),
+            human_requirement=lambda power, request: (power.interrupt_id, request.fingerprint),
+        )
+
+        result = chat_turn_engine.run_segment(
+            strategy,
+            message="Run the Power",
+            continuation=None,
+            expected_identity=("identity",),
+        )
+
+        self.assertIsInstance(result[2], chat_orchestrator.ChatHumanSuspension)
+        self.assertEqual(result[3].integrations, ())
+        self.assertEqual(result[3].human, (("interrupt-1", admitted.fingerprint),))
+
     def _strategy(self, *, decisions: list[str]) -> chat_turn_engine.SegmentStrategy:
         def private_inputs(_requests, requirements) -> bool:
             requirements.integrations = ("integration-required",)

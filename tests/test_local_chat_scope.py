@@ -65,7 +65,7 @@ class LocalChatScopeTests(LocalContractCase):
             def rpc(*_args):
                 started.set()
                 release.wait(timeout=2)
-                return LOOKUP_RESULT
+                return {"type": "result", "result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle._rpc = rpc
             with (

@@ -9,7 +9,9 @@ from inference import client as brain_runtime_client
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.validation import brain_thread_id as _brain_thread_id
+from power import challenges as power_challenges
 from power import execution as power_execution
+from power import human as power_human
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,6 +25,7 @@ class SegmentRequest:
     message: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
+    transcripts: tuple[power_human.PowerTranscript, ...] = ()
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 
@@ -45,11 +48,31 @@ def _run_chat_segment_with_metadata(
 
     def execute_power(power_request: brain_runtime_client.PowerRequest, _integration_values: object) -> object:
         active = _required_active_assistant(bindings, power_request.assistant_id)
+        transcript = power_human.transcript_for(request.transcripts, power_request.interrupt_id)
         return self._invoke_chat_power(
             request.team_id,
             request.token,
             power_request,
             active.container_id,
+            transcript.payloads(),
+            transcript.protected_values(),
+        )
+
+    def human_requirement(
+        power_request: brain_runtime_client.PowerRequest,
+        human_request: power_human.HumanRequest,
+    ) -> power_challenges.HumanRequirement:
+        active = _required_active_assistant(bindings, power_request.assistant_id)
+        power = active.spec.powers.get(power_request.power)
+        if power is None:
+            raise chat_orchestrator.ChatOrchestrationError("Power human request contract changed")
+        return power_challenges.HumanRequirement(
+            active.spec.assistant_id,
+            active.spec.name,
+            power_request.power,
+            power.summary,
+            power_request.interrupt_id,
+            human_request,
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -138,6 +161,7 @@ def _run_chat_segment_with_metadata(
             cancelled=lambda: self._chat_cancelled(request.token),
             validate_context=validate_current_context,
             raise_problem=self._raise_chat_problem,
+            human_requirement=human_requirement,
             progress=request.progress,
         ),
         message=request.message,
@@ -149,4 +173,5 @@ def _run_chat_segment_with_metadata(
         identity,
         outcome,
         requirements.integrations,
+        requirements.human,
     )

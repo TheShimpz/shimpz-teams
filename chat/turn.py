@@ -13,6 +13,7 @@ from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from integrations import store as integration_store
+from power import human as power_human
 from power import journal as power_journal
 
 CHAT_PAUSED_STATUSES = frozenset({"integrations-required"})
@@ -23,9 +24,10 @@ class SegmentRequirements:
     """Mutable suspension gates populated while one shared segment is driven."""
 
     integrations: tuple[object, ...] = ()
+    human: tuple[object, ...] = ()
 
     def groups(self) -> tuple[tuple[object, ...], ...]:
-        return (self.integrations,)
+        return self.integrations, self.human
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,11 +47,16 @@ class SegmentResult:
 
     team_name: str
     identity: tuple[object, ...]
-    outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension
+    outcome: (
+        chat_orchestrator.ChatOutcome
+        | chat_orchestrator.ChatSuspension
+        | chat_orchestrator.ChatHumanSuspension
+    )
     integrations: tuple[object, ...]
+    human: tuple[object, ...] = ()
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
-        return (self.integrations,)
+        return self.integrations, self.human
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +70,11 @@ class SegmentStrategy:
     cancelled: Callable[[], bool]
     validate_context: Callable[[], None]
     raise_problem: Callable[[str, BaseException | None], None]
+    human_requirement: Callable[[object, power_human.HumanRequest], object] = (
+        lambda _power, _request: (_ for _ in ()).throw(
+            chat_orchestrator.ChatOrchestrationError("Power human requests are unavailable")
+        )
+    )
     finalize: Callable[[], None] = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
@@ -149,7 +161,7 @@ def run_segment(
 ) -> tuple[
     str,
     tuple[object, ...],
-    chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension,
+    chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension,
     SegmentRequirements,
 ]:
     """Apply the same continuation, identity and suspension decisions on both Controllers."""
@@ -173,7 +185,10 @@ def run_segment(
         raise AssertionError("chat error adapter returned") from exc
     strategy.finalize()
     groups = requirements.groups()
-    if isinstance(outcome, chat_orchestrator.ChatSuspension) and suspension_gate_count(*groups) != 1:
+    if (
+        isinstance(outcome, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension)
+        and suspension_gate_count(*groups) != 1
+    ):
         strategy.raise_problem("invalid-suspension", None)
     return segment.team_name, segment.identity, outcome, requirements
 
@@ -185,7 +200,7 @@ def drive(
     message: str | None = None,
     continuation: chat_orchestrator.ChatContinuation | None = None,
     requirements: SegmentRequirements,
-) -> chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension:
+) -> chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension:
     """Run or resume one turn with the same durable Power hooks on both Controllers."""
 
     def pause_before_batch(requests: tuple[object, ...]) -> bool:
@@ -215,6 +230,8 @@ def drive(
             continuation,
             orchestration,
         )
+    if isinstance(outcome, chat_orchestrator.ChatHumanSuspension):
+        requirements.human = (strategy.human_requirement(outcome.power, outcome.request),)
     return outcome
 
 
@@ -243,14 +260,14 @@ def commit_suspension(
 
 
 def dispatch(
-    outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension,
+    outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension,
     requirements: tuple[tuple[object, ...], ...],
-    pending: Callable[[chat_orchestrator.ChatSuspension], object],
-    pause: tuple[Callable[[chat_orchestrator.ChatSuspension, tuple[object, ...], object], object], ...],
+    pending: Callable[[object], object],
+    pause: tuple[Callable[[object, tuple[object, ...], object], object], ...],
     complete: Callable[[chat_orchestrator.ChatOutcome], object],
 ) -> object:
     """Send exactly one suspension kind to its handler, or finish a terminal turn."""
-    if not isinstance(outcome, chat_orchestrator.ChatSuspension):
+    if not isinstance(outcome, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
         return complete(outcome)
     if len(requirements) != len(pause) or suspension_gate_count(*requirements) != 1:
         raise ValueError("invalid chat suspension")

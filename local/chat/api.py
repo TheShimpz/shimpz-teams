@@ -29,7 +29,9 @@ def _segment_response(
     file_ids: tuple[str, ...],
     provider: str,
 ) -> dict[str, object]:
-    def pending(suspension: chat_orchestrator.ChatSuspension) -> _PendingLocalChat:
+    def pending(suspension: object) -> _PendingLocalChat:
+        if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
+            raise AssertionError("invalid local chat suspension")
         return _PendingLocalChat(
             continuation=suspension.continuation,
             assistant_ids=assistant_ids,
@@ -52,6 +54,13 @@ def _segment_response(
             (
                 lambda suspension, requirements, state: self._pause_integration(
                     team_id, token, suspension, requirements, state
+                ),
+                lambda _suspension, _requirements, _state: (_ for _ in ()).throw(
+                    ApiProblem(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        "Power human requests are unavailable",
+                        code="human-request-unavailable",
+                    )
                 ),
             ),
             complete,
