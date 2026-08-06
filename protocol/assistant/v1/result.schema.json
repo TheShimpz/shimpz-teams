@@ -36,6 +36,7 @@
       "type": "object",
       "required": ["kind", "ordinal", "fingerprint", "title", "description"],
       "properties": {
+        "kind": {},
         "ordinal": {
           "type": "integer",
           "minimum": 0,
