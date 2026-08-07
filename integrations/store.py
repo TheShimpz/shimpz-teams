@@ -136,10 +136,7 @@ def _bounded_text(
         return None
     if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
         raise OAuthIntegrationValidationError(f"{label} is invalid")
-    try:
-        encoded = value.encode("utf-8")
-    except UnicodeError as exc:
-        raise OAuthIntegrationValidationError(f"{label} is invalid") from exc
+    encoded = value.encode("utf-8")
     if len(encoded) > maximum:
         raise OAuthIntegrationValidationError(f"{label} is invalid")
     return value
@@ -541,8 +538,6 @@ class OAuthIntegrationStore:
         validated = _validate_record(record)
         provider, scopes, expires_at, status, generation = _record_metadata(validated)
         envelope = validated["envelope"]
-        if not isinstance(envelope, dict):
-            raise OAuthIntegrationStoreError("OAuth integration envelope is malformed")
         try:
             plaintext = AESGCM(self._key()).decrypt(
                 _PRIVATE_STATE.decode_part(envelope.get("nonce"), expected=12),

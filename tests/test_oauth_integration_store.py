@@ -8,6 +8,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from integrations import store as integration_store
@@ -610,6 +611,270 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                     lambda *_tokens: self.fail("missing integration must not invoke revocation"),
                 )
             )
+
+    def test_validation_helpers_reject_malformed_public_and_private_values(self) -> None:
+        for function, arguments in (
+            (integration_store._component_id, ("Bad", "component")),
+            (integration_store._team_id, ("../team",)),
+        ):
+            with self.subTest(function=function.__name__), self.assertRaises(
+                integration_store.OAuthIntegrationValidationError
+            ):
+                function(*arguments)
+
+        self.assertIsNone(integration_store._bounded_text(None, "optional", 1, optional=True))
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._bounded_text("é", "bounded", 1)
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._integration(object())
+        identity = integration_store.OAuthIntegrationIdentity("identity")
+        self.assertEqual(integration_store._integration(identity), identity)
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._stored_status("invalid")
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._intent("missing", ())
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._token_set(object(), SCOPES, 1_000, None)
+        with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "expiry"):
+            integration_store._token_set(tokens(expires_in=30), SCOPES, 2**53 - 10, None)
+
+        for payload, message in ((b"\xff", "valid JSON"), (b"{", "valid JSON")):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                integration_store.OAuthIntegrationStoreError,
+                message,
+            ):
+                integration_store._strict_json(payload)
+
+    def test_state_shape_helpers_reject_every_untrusted_boundary(self) -> None:
+        malformed_metadata = {
+            "provider": "missing",
+            "scopes": [],
+            "expires_at": 1,
+            "status": "connected",
+            "generation": 1,
+        }
+        with self.assertRaises(integration_store.OAuthIntegrationStoreError):
+            integration_store._record_metadata(malformed_metadata)
+        malformed_metadata.update(provider="cloudflare", scopes=list(SCOPES), expires_at=0)
+        with self.assertRaises(integration_store.OAuthIntegrationStoreError):
+            integration_store._record_metadata(malformed_metadata)
+
+        for value in (
+            {},
+            {
+                **malformed_metadata,
+                "expires_at": 1,
+                "updated_at": "invalid",
+                "envelope": {},
+            },
+        ):
+            with self.subTest(value=value), self.assertRaises(integration_store.OAuthIntegrationStoreError):
+                integration_store._validate_record(value)
+
+        invalid_states = (
+            {},
+            {"schema": 1, "teams": []},
+            {"schema": 1, "teams": {"../team": {}}},
+            {"schema": 1, "teams": {"team_1": []}},
+            {"schema": 1, "teams": {"team_1": {"Bad": {}}}},
+            {"schema": 1, "teams": {"team_1": {"assistant": []}}},
+            {"schema": 1, "teams": {"team_1": {"assistant": {"Bad": {}}}}},
+        )
+        for state in invalid_states:
+            with self.subTest(state=state), self.assertRaises(integration_store.OAuthIntegrationStoreError):
+                integration_store._validate_state(state)
+
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._declarations([])
+        with self.assertRaises(integration_store.OAuthIntegrationValidationError):
+            integration_store._declarations({"integration": object()})
+        for identifiers in (
+            "integration",
+            ("integration", "integration"),
+            tuple(f"integration-{index}" for index in range(integration_store.MAX_INTEGRATIONS_PER_ASSISTANT + 1)),
+        ):
+            with self.subTest(identifiers=identifiers), self.assertRaises(
+                integration_store.OAuthIntegrationValidationError
+            ):
+                integration_store._declared_ids(identifiers)
+
+    def test_store_initialization_cache_clock_and_size_guards_fail_closed(self) -> None:
+        with self.assertRaises(integration_store.OAuthIntegrationStoreError):
+            integration_store.OAuthIntegrationStore(Path("state"), Path("key"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "separate"):
+                integration_store.OAuthIntegrationStore(root / "state", root / "key")
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "clock"):
+                integration_store.OAuthIntegrationStore(root / "state" / "data", root / "key" / "key", clock=None)
+            with (
+                mock.patch.object(Path, "resolve", side_effect=OSError("offline")),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "unavailable"),
+            ):
+                integration_store.OAuthIntegrationStore(root / "state" / "data", root / "key" / "key")
+
+            for clock in (lambda: True, lambda: -1, lambda: object()):
+                store = self._store(root, clock=clock)
+                with self.subTest(clock=clock), self.assertRaisesRegex(
+                    integration_store.OAuthIntegrationStoreError,
+                    "clock",
+                ):
+                    store._now()
+
+            store = self._store(root)
+            snapshot = SimpleNamespace(unchanged=True, payload=None, identity=None)
+            with (
+                mock.patch.object(
+                    integration_store.private_state.PrivateState,
+                    "read_private_file_if_changed",
+                    return_value=snapshot,
+                ),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "cache"),
+            ):
+                store._read_state()
+            with (
+                mock.patch.object(integration_store, "MAX_STATE_BYTES", 1),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "byte limit"),
+            ):
+                store._write_state(integration_store.private_state.empty_state())
+
+    def test_plaintext_and_decrypted_envelopes_enforce_exact_shape_and_bounds(self) -> None:
+        grant = integration_store._TokenGrant(ACCESS, REFRESH, None, SCOPES, 2_000, None, "connected")
+        with (
+            mock.patch.object(integration_store, "MAX_PLAINTEXT_BYTES", 1),
+            self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "too large"),
+        ):
+            integration_store.OAuthIntegrationStore._plaintext(grant)
+        with (
+            mock.patch.object(integration_store, "MAX_PLAINTEXT_BYTES", 1),
+            self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "malformed"),
+        ):
+            integration_store.OAuthIntegrationStore._decrypted(
+                b"{}",
+                "cloudflare",
+                SCOPES,
+                2_000,
+                "connected",
+                1,
+            )
+        for payload in (b"{}", b'{"access_token":"","refresh_token":null,"broker_lease":null,"integration":null}'):
+            with self.subTest(payload=payload), self.assertRaisesRegex(
+                integration_store.OAuthIntegrationStoreError,
+                "malformed",
+            ):
+                integration_store.OAuthIntegrationStore._decrypted(
+                    payload,
+                    "cloudflare",
+                    SCOPES,
+                    2_000,
+                    "connected",
+                    1,
+                )
+
+    def test_record_capacity_total_limit_and_callback_contracts_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = self._store(root)
+            with (
+                mock.patch.object(integration_store, "MAX_INTEGRATIONS_PER_ASSISTANT", 0),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "capacity"),
+            ):
+                store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
+
+            store = self._store(root)
+            store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
+            state = json.loads(store.state_path.read_text(encoding="utf-8"))
+            with (
+                mock.patch.object(integration_store, "MAX_TOTAL_RECORDS", 0),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "record limit"),
+            ):
+                integration_store._validate_state(state)
+
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "refresh callback"):
+                store.resolve("team_1", "assistant", "integration", "cloudflare", SCOPES, None)
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationValidationError, "revocation callback"):
+                store.revoke_then_delete("team_1", "assistant", "integration", None)
+
+    def test_refresh_and_revocation_detect_concurrent_generation_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            now = [1_000]
+            store = self._store(root, clock=lambda: now[0])
+            store.put(
+                "team_1",
+                "assistant",
+                "integration",
+                "cloudflare",
+                SCOPES,
+                tokens(expires_in=30),
+            )
+            now[0] = 1_031
+
+            def replace_during_refresh(_token: str, _lease: str | None) -> OAuthTokenSet:
+                store.put(
+                    "team_1",
+                    "assistant",
+                    "integration",
+                    "cloudflare",
+                    SCOPES,
+                    tokens(access="concurrent-access-token-private-material"),
+                )
+                return tokens(access="refreshed-access-token-private-material")
+
+            with self.assertRaisesRegex(
+                integration_store.OAuthIntegrationReauthorizationError,
+                "changed during refresh",
+            ):
+                store.resolve(
+                    "team_1",
+                    "assistant",
+                    "integration",
+                    "cloudflare",
+                    SCOPES,
+                    replace_during_refresh,
+                )
+
+            def delete_during_revocation(*_tokens: object) -> None:
+                store.delete_integration("team_1", "assistant", "integration")
+
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "changed during revocation"):
+                store.revoke_then_delete(
+                    "team_1",
+                    "assistant",
+                    "integration",
+                    delete_during_revocation,
+                )
+
+    def test_delete_team_and_all_report_both_state_transitions(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            self.assertFalse(store.delete_team("team_1"))
+            store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
+            self.assertTrue(store.delete_all())
+            self.assertFalse(store.delete_all())
+
+    def test_declared_grant_distinguishes_missing_and_revoked_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            with self.assertRaises(integration_store.OAuthIntegrationMissingError):
+                store._declared_grant("team_1", "assistant", "integration", "cloudflare", SCOPES)
+
+            store.put("team_1", "assistant", "integration", "cloudflare", SCOPES, tokens())
+            revoked = integration_store._TokenGrant(
+                ACCESS,
+                REFRESH,
+                None,
+                SCOPES,
+                2_000,
+                None,
+                "reauthorization-required",
+                1,
+            )
+            with (
+                mock.patch.object(store, "_resolve_record", return_value=revoked),
+                self.assertRaises(integration_store.OAuthIntegrationReauthorizationError),
+            ):
+                store._declared_grant("team_1", "assistant", "integration", "cloudflare", SCOPES)
 
 
 if __name__ == "__main__":
