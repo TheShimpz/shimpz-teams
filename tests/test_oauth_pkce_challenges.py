@@ -210,6 +210,56 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
                 store.create(**arguments)
         self.assertEqual(store.cancel_all(), 0)
 
+    def test_session_state_and_constructor_shape_edges_fail_closed(self) -> None:
+        self.assertEqual(
+            integration_pkce._session_digest(SESSION_ONE.encode("ascii")),
+            integration_pkce._session_digest(SESSION_ONE),
+        )
+        for value in ("\ud800" * 16, object()):
+            with self.subTest(value=type(value).__name__), self.assertRaisesRegex(
+                integration_pkce.OAuthChallengeError,
+                "session binding",
+            ):
+                integration_pkce._session_digest(value)
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
+            integration_pkce._state("invalid")
+
+        for options in (
+            {"capacity": 0},
+            {"per_session": 0},
+            {"per_team": 0},
+            {"ttl_seconds": 29},
+        ):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                integration_pkce.OAuthPKCEChallengeStore(**options)
+
+    def test_state_collision_remove_and_inspect_mismatch_edges(self) -> None:
+        store = integration_pkce.OAuthPKCEChallengeStore()
+        first = create(store)
+        store._by_binding[
+            integration_pkce.OAuthPKCEChallengeStore._binding(
+                SESSION_ONE,
+                "team_1",
+                "shimpz-cloudflare",
+                "cloudflare",
+            )
+        ] = "different-state"
+        self.assertIsNotNone(store._remove(first.state))
+        self.assertIsNone(store._remove(first.state))
+        store._by_binding.clear()
+
+        existing = create(store)
+        with mock.patch.object(
+            integration_pkce.secrets,
+            "token_urlsafe",
+            side_effect=(existing.state, "b" * 43, "v" * 64),
+        ):
+            created = create(store, session=SESSION_TWO, team="team_2")
+        self.assertEqual(created.state, "b" * 43)
+
+        with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):
+            store.inspect_callback(state=created.state, session_binding=SESSION_ONE)
+
 
 if __name__ == "__main__":
     unittest.main()

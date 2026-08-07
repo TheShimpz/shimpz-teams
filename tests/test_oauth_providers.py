@@ -51,6 +51,29 @@ class OAuthProviderTests(unittest.TestCase):
             ):
                 integration_providers.integration_intent(provider_id, scopes)
 
+    def test_trusted_provider_factory_rejects_invalid_registry_metadata(self) -> None:
+        base = {
+            "provider_id": "provider",
+            "authorization_endpoint": "https://provider.example/authorize",
+            "token_endpoint": "https://provider.example/token",
+            "revocation_endpoint": "https://provider.example/revoke",
+            "api_hosts": ("api.provider.example",),
+            "allowed_scopes": frozenset({"data.read"}),
+            "client_auth_method": "none",
+        }
+        invalid = (
+            {"provider_id": "Provider"},
+            {"client_auth_method": "private_key_jwt"},
+            {"authorization_endpoint": "http://provider.example/authorize"},
+            {"token_endpoint": "https://user@provider.example/token"},
+            {"revocation_endpoint": "https://provider.example/revoke?all=true"},
+            {"allowed_scopes": frozenset({"bad/scope"})},
+        )
+        for changed in invalid:
+            values = {**base, **changed}
+            with self.subTest(changed=changed), self.assertRaisesRegex(RuntimeError, "registry is invalid"):
+                integration_providers._provider(**values)
+
 
 if __name__ == "__main__":
     unittest.main()

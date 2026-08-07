@@ -97,6 +97,64 @@ class AssistantIntegrationChallengeTests(unittest.TestCase):
         with mock.patch.object(integration_challenges.time, "monotonic", return_value=17.0):
             self.assertIsNone(store.current("team_1"))
 
+    def test_generic_configuration_collision_restore_and_commit_edges(self) -> None:
+        contract = integration_challenges._CONTRACT
+        invalid = integration_challenges.challenge_store.ChallengeContract(
+            None,
+            bool,
+            integration_challenges.IntegrationChallengeError,
+            integration_challenges.IntegrationChallengeNotFoundError,
+            "integration",
+        )
+        with self.assertRaisesRegex(ValueError, "configuration"):
+            integration_challenges.challenge_store.ChallengeStore(invalid)
+
+        store = integration_challenges.IntegrationChallengeStore(capacity=1, ttl_seconds=30)
+        with mock.patch.object(
+            integration_challenges.challenge_store.secrets,
+            "token_hex",
+            side_effect=("a" * 32, "b" * 32),
+        ):
+            store._pending["a" * 32] = contract.pending_type(
+                "a" * 32,
+                "seed",
+                float("inf"),
+                (requirement(),),
+                object(),
+            )
+            store._capacity = 2
+            created = store.create("team_1", (requirement(),), object())
+        self.assertEqual(created.id, "b" * 32)
+
+        for remaining, metadata in ((0, (requirement(),)), (1, ())):
+            with self.subTest(remaining=remaining, metadata=metadata), self.assertRaisesRegex(
+                integration_challenges.IntegrationChallengeError,
+                "restore is invalid",
+            ):
+                store.restore("team_2", "c" * 32, remaining, metadata, object())
+
+        with self.assertRaisesRegex(integration_challenges.IntegrationChallengeError, "already"):
+            store.restore("team_1", "c" * 32, 1, (requirement(),), object())
+        with self.assertRaisesRegex(integration_challenges.IntegrationChallengeError, "capacity"):
+            store.restore("team_2", "c" * 32, 1, (requirement(),), object())
+
+        with self.assertRaisesRegex(integration_challenges.IntegrationChallengeError, "commit is invalid"):
+            store.claim_after("team_1", created.id, None)
+
+    def test_claim_and_expiry_keep_foreign_reverse_index_untouched(self) -> None:
+        store = integration_challenges.IntegrationChallengeStore(ttl_seconds=30)
+        challenge = store.create("team_1", (requirement(),), object())
+        store._by_team["team_1"] = "foreign"
+        self.assertEqual(store.claim("team_1", challenge.id), challenge)
+        self.assertEqual(store._by_team["team_1"], "foreign")
+
+        with mock.patch.object(integration_challenges.time, "monotonic", return_value=1.0):
+            expired = store.create("team_2", (requirement(),), object())
+        store._by_team["team_2"] = "foreign"
+        with mock.patch.object(integration_challenges.time, "monotonic", return_value=31.0):
+            self.assertEqual(store.drain_expired(), (expired,))
+        self.assertEqual(store._by_team["team_2"], "foreign")
+
 
 if __name__ == "__main__":
     unittest.main()

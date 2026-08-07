@@ -184,6 +184,57 @@ class OAuthBrokerClientTests(unittest.TestCase):
                     owner_uid=os.getuid(),
                 )
 
+    def test_proxy_capability_reader_rejects_change_encoding_and_value_edges(self) -> None:
+        account_egress = integration_broker.account_egress
+        metadata = Mock(
+            st_mode=0o100440,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=7,
+            st_size=64,
+            st_dev=1,
+            st_ino=1,
+            st_mtime_ns=1,
+            st_ctime_ns=1,
+        )
+        changed = Mock(
+            st_mode=0o100440,
+            st_nlink=1,
+            st_uid=0,
+            st_gid=7,
+            st_size=64,
+            st_dev=1,
+            st_ino=2,
+            st_mtime_ns=1,
+            st_ctime_ns=1,
+        )
+        for raw, after, message in (
+            (b"a" * 63, metadata, "changed while reading"),
+            (b"a" * 64, changed, "changed while reading"),
+            (b"\xff" * 64, metadata, "invalid"),
+            (b"g" * 64, metadata, "invalid"),
+        ):
+            with (
+                self.subTest(message=message),
+                patch.object(account_egress.grp, "getgrnam", return_value=Mock(gr_gid=7)),
+                patch.object(account_egress.os, "open", return_value=3),
+                patch.object(account_egress.os, "fstat", side_effect=(metadata, after)),
+                patch.object(account_egress.os, "read", return_value=raw),
+                patch.object(account_egress.os, "close"),
+                self.assertRaisesRegex(account_egress.AccountEgressCapabilityError, message),
+            ):
+                account_egress.read_capability(Path("/token"))
+
+        with (
+            patch.object(account_egress.grp, "getgrnam", return_value=Mock(gr_gid=7)),
+            patch.object(account_egress.os, "open", return_value=-1),
+            patch.object(account_egress.os, "fstat", return_value=metadata),
+            patch.object(account_egress.os, "read", return_value=b"a" * 64),
+            patch.object(account_egress.os, "close") as close,
+        ):
+            self.assertEqual(account_egress.read_capability(Path("/token")), "a" * 64)
+        close.assert_not_called()
+
     def test_claim_refresh_and_revoke_use_only_fixed_broker_operations(self) -> None:
         claimed = self.client.claim(
             provider_id="cloudflare",
