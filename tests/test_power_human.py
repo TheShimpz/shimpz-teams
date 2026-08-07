@@ -1,3 +1,4 @@
+import json
 import unittest
 
 from power import human
@@ -98,6 +99,85 @@ class HumanResponseTests(unittest.TestCase):
             human.append_response(transcripts, "interrupt-2", request("approval"), True)
         with self.assertRaises(human.HumanRequestError):
             human.transcript_for((*transcripts, transcripts[0]), "interrupt-0")
+
+    def test_request_admission_rejects_shape_capability_and_fingerprint_drift(self) -> None:
+        with self.assertRaises(human.HumanRequestError):
+            human.validate_request({}, ("approval",))
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue safely",
+            "description": "Approve the reviewed action.",
+            "fingerprint": "0" * 64,
+        }
+        with self.assertRaisesRegex(human.HumanRequestError, "fingerprint"):
+            human.validate_request(descriptor, ("approval",))
+        with self.assertRaises(human.HumanRequestError):
+            human.validate_request({**descriptor, "fingerprint": human._fingerprint(descriptor)}, ())
+
+        malformed = human.HumanRequest("approval", 0, "0" * 64, b"[]")
+        with self.assertRaises(AssertionError):
+            malformed.payload()
+
+    def test_internal_request_shapes_cover_all_closed_descriptor_families(self) -> None:
+        self.assertEqual(human._request_error(object()), "shape")
+        self.assertEqual(human._request_error({}), "base")
+        base = {
+            "kind": "unknown",
+            "ordinal": 0,
+            "title": "Title",
+            "description": "Description",
+        }
+        self.assertEqual(human._request_error(base), "kind")
+        self.assertEqual(human._kind_error({**base, "kind": "approval", "extra": True}, "approval"), "shape")
+
+        length = {
+            **base,
+            "kind": "input:text",
+            "label": "Value",
+            "required": True,
+            "placeholder": None,
+            "min_length": 0,
+            "max_length": 8,
+        }
+        self.assertIsNone(human._length_error(length, 8))
+        self.assertEqual(human._length_error({**length, "label": ""}, 8), "shape")
+        self.assertEqual(human._length_error({**length, "max_length": 9}, 8), "bounds")
+
+        options = [
+            {"value": "one", "label": "One", "description": None},
+            {"value": "two", "label": "Two", "description": None},
+        ]
+        choice = {
+            **base,
+            "kind": "input:choice",
+            "label": "Value",
+            "required": True,
+            "options": options,
+        }
+        self.assertEqual(human._choice_error({**choice, "options": []}, multiple=False), "options")
+        duplicate = {**choice, "options": [options[0], options[0]]}
+        self.assertEqual(human._choice_error(duplicate, multiple=False), "options")
+        multiple = {
+            **choice,
+            "kind": "input:choices",
+            "min_selections": 2,
+            "max_selections": 1,
+        }
+        self.assertEqual(human._choice_error(multiple, multiple=True), "bounds")
+
+        with self.assertRaises(human.HumanRequestError):
+            human._canonical({"value": object()})
+
+    def test_response_helpers_reject_malformed_replay_descriptors(self) -> None:
+        single = human.HumanRequest(
+            "input:choice",
+            0,
+            "0" * 64,
+            json.dumps({"options": None}).encode(),
+        )
+        with self.assertRaises(human.HumanRequestError):
+            human.admit_response(single, "value")
 
 
 if __name__ == "__main__":

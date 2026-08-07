@@ -56,6 +56,16 @@ class HumanChallengeTests(unittest.TestCase):
         self.assertEqual(store.drain_expired(), ())
         self.assertIsNone(store.current("team_1"))
 
+    def test_projection_rejects_wrong_type_and_expired_challenge(self) -> None:
+        with self.assertRaises(challenges.HumanChallengeError):
+            challenges.challenge_payload(object())
+        pending = challenges.HumanChallengeStore().create("team_1", requirement(), object())
+        with (
+            mock.patch.object(challenges.time, "monotonic", return_value=pending.expires_at),
+            self.assertRaisesRegex(challenges.HumanChallengeError, "expired"),
+        ):
+            challenges.challenge_payload(pending)
+
 
 if __name__ == "__main__":
     unittest.main()
