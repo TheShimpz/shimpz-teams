@@ -4,6 +4,8 @@ import json
 import unittest
 from base64 import b64decode
 from dataclasses import dataclass, field
+from types import SimpleNamespace
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from integrations import http as integration_http
@@ -234,6 +236,180 @@ class OAuthHTTPClientTests(unittest.TestCase):
                     refresh_token=REFRESH,
                     scopes=SCOPES,
                 )
+
+    def test_fixed_https_transport_validates_endpoint_io_and_response_bounds(self) -> None:
+        transport = integration_http.FixedHTTPSTransport()
+        for url in (
+            "http://provider.test/token",
+            "https://user@provider.test/token",
+            "https://provider.test:443/token",
+            "https://provider.test/token?query=1",
+            "https://provider.test/token#fragment",
+        ):
+            with self.subTest(url=url), self.assertRaisesRegex(integration_http.OAuthHTTPError, "endpoint"):
+                transport.request(method="POST", url=url, headers={}, body=b"")
+
+        provider_response = SimpleNamespace(
+            status=200,
+            read=lambda _maximum: b"{}",
+            getheader=lambda _name, _default: "application/json",
+        )
+        connection = mock.Mock()
+        connection.getresponse.return_value = provider_response
+        with mock.patch.object(integration_http.http.client, "HTTPSConnection", return_value=connection):
+            result = transport.request(
+                method="POST",
+                url="https://provider.test/token",
+                headers={"Accept": "application/json"},
+                body=b"body",
+            )
+        self.assertEqual(result, integration_http.OAuthHTTPResponse(200, "application/json", b"{}"))
+        connection.close.assert_called_once_with()
+
+        oversized = SimpleNamespace(
+            status=200,
+            read=lambda _maximum: b"x" * (integration_http.MAX_RESPONSE_BYTES + 1),
+            getheader=lambda _name, _default: "application/json",
+        )
+        connection = mock.Mock()
+        connection.getresponse.return_value = oversized
+        with (
+            mock.patch.object(integration_http.http.client, "HTTPSConnection", return_value=connection),
+            self.assertRaisesRegex(integration_http.OAuthHTTPError, "response"),
+        ):
+            transport.request(method="POST", url="https://provider.test/token", headers={}, body=b"")
+        connection.close.assert_called_once_with()
+
+        connection = mock.Mock()
+        connection.request.side_effect = OSError("offline")
+        with (
+            mock.patch.object(integration_http.http.client, "HTTPSConnection", return_value=connection),
+            self.assertRaisesRegex(integration_http.OAuthHTTPError, "unavailable"),
+        ):
+            transport.request(method="POST", url="https://provider.test/token", headers={}, body=b"")
+        connection.close.assert_called_once_with()
+
+    def test_http_scalar_challenge_and_provider_guards_fail_closed(self) -> None:
+        for function, value in (
+            (integration_http._client_secret, None),
+            (integration_http._client_secret, "é" * 16),
+            (integration_http._authorization_code, None),
+            (integration_http._authorization_code, "é" * 16),
+            (integration_http._authorization_code, "short"),
+            (integration_http._token, None),
+            (integration_http._token, "é" * 16),
+            (integration_http._token, "short"),
+        ):
+            with self.subTest(function=function.__name__, value=value), self.assertRaises(
+                integration_http.OAuthHTTPError
+            ):
+                function(value)
+
+        for payload in (b"", b"[]"):
+            with self.subTest(payload=payload), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http._strict_object(payload)
+        with self.assertRaisesRegex(integration_http.OAuthHTTPError, "unavailable"):
+            integration_http._confidential_provider("missing")
+        provider = SimpleNamespace(client_auth_method="none", pkce_method="S256")
+        with (
+            mock.patch.object(integration_http.integration_providers, "resolve", return_value=provider),
+            self.assertRaisesRegex(integration_http.OAuthHTTPError, "configuration"),
+        ):
+            integration_http._confidential_provider("cloudflare")
+
+        for state, challenge, scopes in (
+            ("short", CHALLENGE, SCOPES),
+            (STATE, "short", SCOPES),
+            (STATE, CHALLENGE, ("invalid",)),
+        ):
+            with self.subTest(state=state, challenge=challenge), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http.authorization_url(
+                    provider_id="cloudflare",
+                    client_id=CLIENT_ID,
+                    redirect_uri=integration_http.HOSTED_REDIRECT_URI,
+                    state=state,
+                    code_challenge=challenge,
+                    scopes=scopes,
+                )
+
+    def test_token_response_variants_and_exchange_scope_guards_fail_closed(self) -> None:
+        expected = tuple(sorted(SCOPES))
+        inherited = integration_http.OAuthHTTPClient._tokens(
+            response(
+                {
+                    "token_type": "bearer",
+                    "access_token": ACCESS,
+                    "refresh_token": REFRESH,
+                    "expires_in": 30,
+                }
+            ),
+            expected_scopes=expected,
+        )
+        self.assertEqual(inherited.scopes, expected)
+
+        bad_responses = (
+            response({}, content_type="text/plain"),
+            response({"token_type": "invalid", "expires_in": 30}),
+            response(
+                {
+                    "token_type": "bearer",
+                    "access_token": ACCESS,
+                    "refresh_token": REFRESH,
+                    "expires_in": 30,
+                    "scope": [],
+                }
+            ),
+        )
+        for provider_response in bad_responses:
+            with self.subTest(response=provider_response), self.assertRaises(integration_http.OAuthHTTPError):
+                integration_http.OAuthHTTPClient._tokens(provider_response, expected_scopes=expected)
+
+        for operation, kwargs in (
+            (
+                "exchange_code",
+                {
+                    "provider_id": "cloudflare",
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_CREDENTIAL,
+                    "redirect_uri": integration_http.HOSTED_REDIRECT_URI,
+                    "code": CODE,
+                    "code_verifier": "v" * 42,
+                    "scopes": SCOPES,
+                },
+            ),
+            (
+                "exchange_code",
+                {
+                    "provider_id": "cloudflare",
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_CREDENTIAL,
+                    "redirect_uri": integration_http.HOSTED_REDIRECT_URI,
+                    "code": CODE,
+                    "code_verifier": VERIFIER,
+                    "scopes": ("invalid",),
+                },
+            ),
+            (
+                "refresh",
+                {
+                    "provider_id": "cloudflare",
+                    "client_id": CLIENT_ID,
+                    "client_secret": CLIENT_CREDENTIAL,
+                    "refresh_token": REFRESH,
+                    "scopes": ("invalid",),
+                },
+            ),
+        ):
+            with self.subTest(operation=operation), self.assertRaises(integration_http.OAuthHTTPError):
+                getattr(integration_http.OAuthHTTPClient(FakeTransport([])), operation)(**kwargs)
+
+        with self.assertRaisesRegex(integration_http.OAuthHTTPError, "response"):
+            integration_http.OAuthHTTPClient(FakeTransport([response(b"body", content_type="text/html")])).revoke(
+                provider_id="cloudflare",
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_CREDENTIAL,
+                token=REFRESH,
+            )
 
 
 if __name__ == "__main__":
