@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
@@ -308,6 +309,163 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 scopes=SCOPES,
             )
         self.assertNotIn(private, f"{captured.exception!r} {captured.exception}")
+
+    def test_direct_transport_endpoint_capability_and_io_edges_are_closed(self) -> None:
+        transport = integration_broker.FixedBrokerTransport()
+        for url in (
+            "http://shimpz.com/api/oauth/cloudflare/claim",
+            "https://evil.example/api/oauth/cloudflare/claim",
+            "https://shimpz.com/api/oauth/cloudflare/start",
+        ):
+            with self.subTest(url=url), self.assertRaisesRegex(
+                integration_broker.OAuthBrokerClientError,
+                "endpoint is invalid",
+            ):
+                transport.request(url=url, headers={}, body=b"{}")
+
+        response = Mock(status=200, read=Mock(return_value=b"{}"), getheader=Mock(return_value="application/json"))
+        connection = Mock(getresponse=Mock(return_value=response))
+        with patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection) as connect:
+            self.assertEqual(
+                transport.request(
+                    url="https://shimpz.com/api/oauth/cloudflare/claim",
+                    headers={},
+                    body=b"{}",
+                ).body,
+                b"{}",
+            )
+        connect.assert_called_once_with("shimpz.com", timeout=integration_broker.HTTP_TIMEOUT_SECONDS)
+        connection.close.assert_called_once()
+
+        proxied = integration_broker.FixedBrokerTransport(
+            proxy_host="shimpz-account-egress",
+            proxy_capability_file="/run/token",
+        )
+        with (
+            patch.object(
+                integration_broker.account_egress,
+                "read_capability",
+                side_effect=integration_broker.account_egress.AccountEgressCapabilityError("missing"),
+            ),
+            self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "capability is unavailable"),
+        ):
+            proxied.request(
+                url="https://shimpz.com/api/oauth/cloudflare/claim",
+                headers={},
+                body=b"{}",
+            )
+
+        for payload, failure in (
+            (b"x" * (integration_broker.MAX_RESPONSE_BYTES + 1), None),
+            (b"{}", OSError("offline")),
+        ):
+            response = Mock(
+                status=200,
+                read=Mock(return_value=payload),
+                getheader=Mock(return_value="application/json"),
+            )
+            connection = Mock(getresponse=Mock(return_value=response))
+            if failure is not None:
+                connection.request.side_effect = failure
+            with (
+                self.subTest(failure=failure),
+                patch.object(integration_broker.http.client, "HTTPSConnection", return_value=connection),
+                self.assertRaises(integration_broker.OAuthBrokerClientError),
+            ):
+                transport.request(
+                    url="https://shimpz.com/api/oauth/cloudflare/claim",
+                    headers={},
+                    body=b"{}",
+                )
+            connection.close.assert_called_once()
+
+    def test_broker_helper_and_response_contract_edges_fail_closed(self) -> None:
+        self.assertEqual(repr(integration_broker.OAuthBrokerClient(self.transport)), "<OAuthBrokerClient shimpz.com>")
+        for value in (None, "short"):
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "binding"),
+            ):
+                integration_broker._binding(value)
+        for value in (None, "é" * 20, "x" * 15, "x" * 19 + "\n"):
+            with self.subTest(value=value), self.assertRaises(integration_broker.OAuthBrokerClientError):
+                integration_broker._private_text(value, "secret")
+
+        foreign = SimpleNamespace(provider=SimpleNamespace(id="foreign"), scopes=("read",))
+        with (
+            patch.object(integration_broker.integration_providers, "integration_intent", return_value=foreign),
+            self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "provider is unavailable"),
+        ):
+            integration_broker._intent("foreign", ("read",))
+
+        invalid_responses = (
+            integration_broker.BrokerHTTPResponse(503, "application/json", b"{}"),
+            integration_broker.BrokerHTTPResponse(200, "text/plain", b"{}"),
+            integration_broker.BrokerHTTPResponse(200, "application/json", b""),
+            integration_broker.BrokerHTTPResponse(200, "application/json", b"{"),
+            integration_broker.BrokerHTTPResponse(200, "application/json", b"[]"),
+        )
+        for response in invalid_responses:
+            with self.subTest(response=response), self.assertRaises(integration_broker.OAuthBrokerClientError):
+                integration_broker._object(response)
+
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "operation is invalid"):
+            self.client._post("start", {})
+
+    def test_token_claim_lease_and_revoke_result_edges_fail_closed(self) -> None:
+        valid = {
+            "access_token": ACCESS,
+            "refresh_token": REFRESH,
+            "expires_in": 3600,
+            "scopes": list(SCOPES),
+            "broker_lease": LEASE,
+        }
+        for changed in (
+            {"extra": True},
+            {"expires_in": True},
+            {"scopes": []},
+            {"broker_lease": "invalid"},
+        ):
+            value = {**valid, **changed}
+            with self.subTest(changed=changed), self.assertRaisesRegex(
+                integration_broker.OAuthBrokerClientError,
+                "response is invalid",
+            ):
+                self.client._tokens(value, SCOPES)
+
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "claim is invalid"):
+            self.client.claim(
+                provider_id="cloudflare",
+                claim="invalid",
+                state=STATE,
+                code_verifier="v" * 43,
+                scopes=SCOPES,
+            )
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
+            self.client.refresh(
+                provider_id="cloudflare",
+                refresh_token=REFRESH,
+                broker_lease="invalid",
+                scopes=SCOPES,
+            )
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
+            self.client.revoke(provider_id="cloudflare", token=ACCESS, broker_lease="invalid")
+
+        class BadRevokeTransport(Transport):
+            def request(self, **request) -> integration_broker.BrokerHTTPResponse:
+                response = super().request(**request)
+                return integration_broker.BrokerHTTPResponse(
+                    response.status,
+                    response.content_type,
+                    b'{"revoked":false}',
+                )
+
+        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "response is invalid"):
+            integration_broker.OAuthBrokerClient(BadRevokeTransport()).revoke(
+                provider_id="cloudflare",
+                token=ACCESS,
+                broker_lease=LEASE,
+            )
 
 
 if __name__ == "__main__":
