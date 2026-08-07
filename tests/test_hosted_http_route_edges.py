@@ -85,7 +85,7 @@ class HostedHttpStreamEdgeTests(unittest.TestCase):
     def test_stream_exposes_paused_terminal_status_and_audits_it(self) -> None:
         handler = _handler()
         handler._send_json = server.Handler._send_json.__get__(handler)
-        paused_status = next(iter(server.hosted_assistants.CHAT_PAUSED_STATUSES))
+        paused_status = "human-required"
         result = {"status": paused_status, "team_id": TEAM_ID}
         with (
             mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),

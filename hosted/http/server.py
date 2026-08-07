@@ -196,7 +196,11 @@ class Handler(BaseHTTPRequestHandler):
         self._audit_security(
             "chat",
             team_id,
-            result="ok" if terminal["type"] in {"done", "integrations-required"} else "error",
+            result=(
+                "ok"
+                if terminal["type"] == "done" or terminal["type"] in hosted_assistants.CHAT_PAUSED_STATUSES
+                else "error"
+            ),
             streamed=True,
             status=terminal.get("status"),
             reason=stream_error,
