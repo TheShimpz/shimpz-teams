@@ -416,6 +416,215 @@ class LocalAssistantEgressTests(unittest.TestCase):
                     tuple(sorted(self.spec.allowed_hosts)),
                 )
 
+    def test_policy_adapter_maps_unavailable_storage_and_missing_token(self) -> None:
+        unavailable = types.SimpleNamespace(
+            token=mock.Mock(side_effect=local_egress.egress_policy.EgressPolicyUnavailableError("unavailable")),
+            proxy_environment=mock.Mock(
+                side_effect=local_egress.egress_policy.EgressPolicyUnavailableError("unavailable")
+            ),
+            remove=mock.Mock(side_effect=local_egress.egress_policy.EgressPolicyUnavailableError("unavailable")),
+        )
+        lifecycle = self.controller.assistant_lifecycle
+        for operation in (
+            lambda: lifecycle._egress_token("team_1", self.spec.assistant_id, create=False, store=unavailable),
+            lambda: lifecycle._proxy_environment("token", unavailable),
+            lambda: lifecycle._remove_egress_policy("team_1", self.spec.assistant_id, unavailable),
+        ):
+            with self.subTest(operation=operation), self.assertRaises(local_app.ApiProblem) as caught:
+                operation()
+            self.assertEqual(caught.exception.code, "egress-policy-unavailable")
+
+        missing_token = types.SimpleNamespace(token=lambda *_args, **_kwargs: None)
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._write_egress_policy("team_1", self.spec, self.spec.allowed_hosts, missing_token)
+        self.assertEqual(caught.exception.code, "egress-policy-unavailable")
+
+    def test_proxy_lookup_connection_and_disconnection_fail_closed(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        with (
+            mock.patch.object(local_egress, "ASSISTANT_EGRESS_CONTAINER", ""),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._egress_proxy()
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+
+        self.controller.client.containers.get = mock.Mock(side_effect=DockerException("unavailable"))
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._egress_proxy()
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+        self.controller.client.containers.get = _Containers(self.proxy).get
+
+        broken_proxy = _Proxy("local-space")
+        broken_proxy.reload = mock.Mock(side_effect=DockerException("unavailable"))
+        with (
+            mock.patch.object(self.network, "connect", side_effect=DockerException("unavailable")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._connect_egress_proxy(self.network, broken_proxy)
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+
+        with (
+            mock.patch.object(self.network, "connect"),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._connect_egress_proxy(self.network, self.proxy)
+        self.assertEqual(caught.exception.code, "egress-proxy-drift")
+
+        lifecycle._disconnect_egress_proxy(self.network)
+        self.network.connect(self.proxy, aliases=[local_egress.ASSISTANT_EGRESS_ALIAS])
+        with (
+            mock.patch.object(self.network, "disconnect", side_effect=DockerException("unavailable")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._disconnect_egress_proxy(self.network)
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+
+        with (
+            mock.patch.object(self.network, "disconnect"),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            lifecycle._disconnect_egress_proxy(self.network)
+        self.assertEqual(caught.exception.code, "egress-proxy-drift")
+
+    def test_network_attachment_inventory_and_identity_errors_are_rejected(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        wrong_network = types.SimpleNamespace(name="wrong")
+        lifecycle._network = mock.Mock(return_value=wrong_network)
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._reconcile_egress_proxy_attachment("team_1", "expected", self.proxy)
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+
+        failing_network = mock.Mock()
+        failing_network.reload.side_effect = DockerException("unavailable")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._disconnect_egress_proxy_if_attached(failing_network)
+        self.assertEqual(caught.exception.code, "docker-unavailable")
+
+        invalid_inventory = mock.Mock(attrs={"Containers": ["invalid"]})
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._disconnect_egress_proxy_if_attached(invalid_inventory)
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+
+        self.controller.client.networks = types.SimpleNamespace(
+            list=mock.Mock(side_effect=DockerException("unavailable"))
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._managed_team_networks()
+        self.assertEqual(caught.exception.code, "docker-unavailable")
+
+    def test_team_egress_inventory_rejects_docker_registry_and_duplicate_drift(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        self.controller.client.containers.list = mock.Mock(side_effect=DockerException("unavailable"))
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._team_requires_egress_proxy("team_1", self.network)
+        self.assertEqual(caught.exception.code, "docker-unavailable")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._team_has_egress_assistant("team_1")
+        self.assertEqual(caught.exception.code, "docker-unavailable")
+
+        assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
+        self.controller.client.containers.list.side_effect = None
+        self.controller.client.containers.list.return_value = [assistant, assistant]
+        lifecycle._validate_container_profile = mock.Mock(return_value=({}, {}))
+        lifecycle._validate_container_egress_environment = mock.Mock(return_value=())
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._team_requires_egress_proxy("team_1", self.network)
+        self.assertEqual(caught.exception.code, "assistant-registry-drift")
+
+        direct_spec = types.SimpleNamespace(assistant_id="direct", allowed_hosts=())
+        direct = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: direct_spec.assistant_id})
+        lifecycle.registry = TestPublicationRegistry(
+            {direct_spec.assistant_id: direct_spec, self.spec.assistant_id: self.spec}
+        )
+        self.controller.client.containers.list.return_value = [direct, assistant]
+        self.assertTrue(lifecycle._team_has_egress_assistant("team_1"))
+
+        lifecycle.registry = TestPublicationRegistry({})
+        self.controller.client.containers.list.return_value = [assistant]
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._team_has_egress_assistant("team_1")
+        self.assertEqual(caught.exception.code, "assistant-registry-drift")
+
+        self.controller.client.containers.list.return_value = [assistant]
+        self.assertFalse(lifecycle._team_has_egress_assistant("team_1", excluding=self.spec.assistant_id))
+
+    def test_reconciliation_release_and_activation_cover_no_egress_paths(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        network = types.SimpleNamespace(
+            attrs={"Labels": {local_app.TEAM_LABEL: "INVALID"}},
+        )
+        lifecycle._managed_team_networks = mock.Mock(return_value=[network])
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._reconcile_egress_proxy_attachments()
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+
+        valid_network = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}})
+        lifecycle._managed_team_networks.return_value = [valid_network, valid_network]
+        lifecycle._validate_network = mock.Mock()
+        lifecycle._team_requires_egress_proxy = mock.Mock(return_value=False)
+        lifecycle._disconnect_egress_proxy_if_attached = mock.Mock()
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._reconcile_egress_proxy_attachments()
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+        lifecycle._disconnect_egress_proxy_if_attached.assert_called_once_with(valid_network)
+
+        lifecycle._remove_egress_policy = mock.Mock()
+        lifecycle._disconnect_egress_proxy = mock.Mock()
+        lifecycle._release_assistant_egress(
+            "team_1",
+            self.spec.assistant_id,
+            self.network,
+            remaining_egress=True,
+        )
+        lifecycle._disconnect_egress_proxy.assert_not_called()
+        lifecycle._remove_assistant_policy_if_needed("team_1", self.spec.assistant_id, self.spec)
+        lifecycle._remove_egress_policy.assert_called()
+
+        self.assertEqual(lifecycle._activate_assistant_egress("team_1", self.spec, self.network, ()), {})
+        lifecycle._write_egress_policy = mock.Mock(return_value={"HTTPS_PROXY": "proxy"})
+        lifecycle._connect_egress_proxy = mock.Mock(
+            side_effect=local_app.ApiProblem(503, "unavailable", code="egress-proxy-unavailable")
+        )
+        with self.assertRaises(local_app.ApiProblem):
+            lifecycle._activate_assistant_egress(
+                "team_1",
+                self.spec,
+                self.network,
+                self.spec.allowed_hosts,
+                types.SimpleNamespace(),
+            )
+
+    def test_network_validation_and_optional_lookup_fail_closed(self) -> None:
+        lifecycle = self.controller.assistant_lifecycle
+        invalid = types.SimpleNamespace(reload=mock.Mock(), attrs={})
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._validate_network(invalid, "team_1")
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+
+        labels = lifecycle._base_labels("team_1", "team")
+        labels[local_app.TEAM_NAME_LABEL] = ""
+        invalid_name = types.SimpleNamespace(
+            reload=mock.Mock(),
+            attrs={
+                "Labels": labels,
+                "Name": lifecycle._network_name("team_1"),
+                "Driver": "bridge",
+                "Internal": True,
+                "Attachable": False,
+            },
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._validate_network(invalid_name, "team_1")
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+
+        self.controller.client.networks = types.SimpleNamespace(
+            get=mock.Mock(side_effect=local_egress.NotFound("missing"))
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._network("team_1")
+        self.assertEqual(caught.exception.code, "team-not-found")
+        self.assertIsNone(lifecycle._network("team_1", required=False))
+
 
 if __name__ == "__main__":
     unittest.main()
