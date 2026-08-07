@@ -12,6 +12,7 @@ from contextlib import nullcontext
 from pathlib import Path
 from unittest import mock
 
+from install import artifact_trust
 from install.artifact_trust import (
     RELEASE_PROXY_URL,
     SIGNER_IDENTITY,
@@ -229,6 +230,135 @@ class ArtifactTrustTests(unittest.TestCase):
                 self.assertRaises(ArtifactTrustError),
             ):
                 verifier.verify(resolution)
+
+    def test_attachment_and_cosign_decoders_reject_invalid_evidence(self) -> None:
+        resolution = copy.deepcopy(RESOLUTION)
+        verifier = self._verifier(resolution)
+        with (
+            mock.patch.object(verifier, "_cosign_text", return_value="attacker.example:tag"),
+            self.assertRaisesRegex(ArtifactTrustError, "location is invalid"),
+        ):
+            verifier._verify_attachment("image", "expected", attestation=False)
+
+        docker_client = types.SimpleNamespace(
+            images=types.SimpleNamespace(get_registry_data=lambda *_args, **_kwargs: object())
+        )
+        unavailable = ArtifactTrustVerifier(
+            docker_client,
+            container_id="a" * 64,
+            credentials=AUTH,
+            trust_root=self._trust_root,
+        )
+        with (
+            mock.patch.object(
+                unavailable,
+                "_cosign_text",
+                return_value="ghcr.io/theshimpz/shimpz-assistant-trust:tag",
+            ),
+            self.assertRaisesRegex(ArtifactTrustError, "digest is unavailable"),
+        ):
+            unavailable._verify_attachment("image", "expected", attestation=False)
+
+        with (
+            mock.patch.object(verifier, "_run_cosign", return_value=b"not-json"),
+            self.assertRaisesRegex(ArtifactTrustError, "invalid verification evidence"),
+        ):
+            verifier._cosign_json("verify")
+        with (
+            mock.patch.object(verifier, "_run_cosign", return_value=b"\xff"),
+            self.assertRaisesRegex(ArtifactTrustError, "invalid attachment evidence"),
+        ):
+            verifier._cosign_text("triangulate")
+        with (
+            mock.patch.object(verifier, "_run_cosign", return_value=b" \n"),
+            self.assertRaisesRegex(ArtifactTrustError, "empty attachment evidence"),
+        ):
+            verifier._cosign_text("triangulate")
+
+    def test_cosign_stream_is_bounded_and_transport_failures_are_mapped(self) -> None:
+        api = mock.Mock()
+        api.exec_create.return_value = {"Id": "execution"}
+        api.exec_start.return_value = iter(((b"verified", b"warning"),))
+        api.exec_inspect.return_value = {"ExitCode": 0}
+        verifier = ArtifactTrustVerifier(
+            types.SimpleNamespace(api=api),
+            container_id="a" * 64,
+            credentials=AUTH,
+            trust_root=self._trust_root,
+        )
+        self.assertEqual(verifier._run_cosign(("verify", "image")), b"verified")
+
+        api.exec_start.return_value = iter(((b"still-running", None),))
+        with (
+            mock.patch.object(artifact_trust.time, "monotonic", side_effect=(0, 91)),
+            self.assertRaisesRegex(ArtifactTrustError, "timed out"),
+        ):
+            verifier._run_cosign(("verify", "image"))
+
+        api.exec_start.return_value = iter(((b"too-large", None),))
+        with (
+            mock.patch.object(artifact_trust, "_MAX_OUTPUT_BYTES", 1),
+            self.assertRaisesRegex(ArtifactTrustError, "output is too large"),
+        ):
+            verifier._run_cosign(("verify", "image"))
+
+        api.exec_start.return_value = iter(())
+        api.exec_inspect.return_value = {"ExitCode": 1}
+        with self.assertRaisesRegex(ArtifactTrustError, "verification failed"):
+            verifier._run_cosign(("verify", "image"))
+
+        api.exec_create.return_value = {}
+        with self.assertRaisesRegex(ArtifactTrustError, "verification is unavailable"):
+            verifier._run_cosign(("verify", "image"))
+
+    def test_trust_cache_and_controller_identity_fail_closed(self) -> None:
+        unavailable = Path(self._temporary_directory.name) / "unavailable"
+        with (
+            mock.patch.object(Path, "mkdir", side_effect=OSError("denied")),
+            self.assertRaisesRegex(RuntimeError, "cache is unavailable"),
+        ):
+            artifact_trust._ensure_private_directory(unavailable)
+
+        with (
+            mock.patch.object(Path, "read_text", side_effect=OSError("denied")),
+            self.assertRaisesRegex(RuntimeError, "identity is unavailable"),
+        ):
+            artifact_trust._self_container_id()
+        with (
+            mock.patch.object(Path, "read_text", return_value="not-a-container"),
+            self.assertRaisesRegex(RuntimeError, "identity is invalid"),
+        ):
+            artifact_trust._self_container_id()
+        with mock.patch.object(Path, "read_text", return_value="a" * 12):
+            self.assertEqual(artifact_trust._self_container_id(), "a" * 12)
+
+    def test_signature_and_provenance_shape_helpers_reject_malformed_records(self) -> None:
+        resolution = copy.deepcopy(RESOLUTION)
+        with self.assertRaisesRegex(ArtifactTrustError, "does not bind"):
+            artifact_trust._verify_signature_payload({}, resolution["oci_digest"])
+        for record in (None, {}, {"critical": []}, {"critical": {"image": []}}):
+            with self.subTest(record=record):
+                self.assertIsNone(artifact_trust._signature_digest(record))
+
+        with self.assertRaisesRegex(ArtifactTrustError, "provenance does not match"):
+            artifact_trust._verify_provenance([], resolution)
+        self.assertFalse(artifact_trust._provenance_matches(None, resolution))
+        self.assertFalse(artifact_trust._provenance_matches({}, resolution))
+        self.assertFalse(
+            artifact_trust._provenance_matches(
+                {"payloadType": "application/vnd.in-toto+json", "payload": 1},
+                resolution,
+            )
+        )
+        invalid_payload = base64.b64encode(b"not-json").decode()
+        self.assertFalse(
+            artifact_trust._provenance_matches(
+                {"payloadType": "application/vnd.in-toto+json", "payload": invalid_payload},
+                resolution,
+            )
+        )
+        self.assertIsNone(artifact_trust._decode_statement("not-base64"))
+        self.assertFalse(artifact_trust._predicate_matches({}, resolution))
 
 
 if __name__ == "__main__":
