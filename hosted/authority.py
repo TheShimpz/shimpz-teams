@@ -103,6 +103,13 @@ def _endpoint() -> tuple[str, int]:
     return parsed.hostname, port
 
 
+def _close_descriptor(descriptor: int | None) -> None:
+    if descriptor is None:
+        return
+    with suppress(OSError):
+        os.close(descriptor)
+
+
 def _capability() -> str:
     descriptor: int | None = None
     try:
@@ -114,9 +121,7 @@ def _capability() -> str:
     except (OSError, ValueError) as exc:
         raise AuthorityUnavailableError("Account authority capability is unavailable") from exc
     finally:
-        if descriptor is not None:
-            with suppress(OSError):
-                os.close(descriptor)
+        _close_descriptor(descriptor)
     if _CAPABILITY.fullmatch(raw) is None:
         raise AuthorityUnavailableError("Account authority capability is unavailable")
     return raw.decode("ascii")
@@ -212,6 +217,13 @@ def _evaluation(response: dict[str, object], binding: dict[str, object], expecte
     )
 
 
+def _close_connection(connection: http.client.HTTPConnection | None) -> None:
+    if connection is None:
+        return
+    with suppress(OSError):
+        connection.close()
+
+
 def evaluate(
     presented_session: object,
     binding: dict[str, object],
@@ -243,9 +255,7 @@ def evaluate(
     except (OSError, UnicodeError, http.client.HTTPException) as exc:
         raise AuthorityUnavailableError("Account authority is unavailable") from exc
     finally:
-        if connection is not None:
-            with suppress(OSError):
-                connection.close()
+        _close_connection(connection)
     if time.monotonic() - started > EVALUATION_TIMEOUT_SECONDS:
         raise AuthorityUnavailableError("Account authority evidence arrived too late")
     if response.status != 200:
