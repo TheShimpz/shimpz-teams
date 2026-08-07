@@ -33,7 +33,8 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         lock = SimpleNamespace(acquire=mock.Mock(return_value=False), release=mock.Mock())
         with (
             mock.patch.object(state, "_chat_lock_for", return_value=lock),
-            self.assertRaises(state.ApiError),api._exclusive_chat_turn("team_1", self.lease())
+            self.assertRaises(state.ApiError),
+            api._exclusive_chat_turn("team_1", self.lease()),
         ):
             self.fail("busy lock must not enter")
 
@@ -45,7 +46,8 @@ class HostedChatApiEdgeTests(unittest.TestCase):
                 "_require_current_authorization",
                 side_effect=state.ApiError(api.HTTPStatus.CONFLICT, "changed"),
             ),
-            self.assertRaises(state.ApiError),api._exclusive_chat_turn("team_1", self.lease())
+            self.assertRaises(state.ApiError),
+            api._exclusive_chat_turn("team_1", self.lease()),
         ):
             self.fail("failed authorization must not enter")
 
@@ -53,7 +55,8 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(state, "_chat_lock_for", return_value=lock),
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=container),
-            self.assertRaises(state.ApiError),api._exclusive_chat_turn("team_1", self.lease())
+            self.assertRaises(state.ApiError),
+            api._exclusive_chat_turn("team_1", self.lease()),
         ):
             self.fail("stopped Team must not enter")
 

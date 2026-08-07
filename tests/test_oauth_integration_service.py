@@ -448,8 +448,9 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
                 requirements=requirements,
                 payload=None,
             )
-            with self.subTest(requirements=requirements), self.assertRaises(
-                integration_service.OAuthIntegrationServiceError
+            with (
+                self.subTest(requirements=requirements),
+                self.assertRaises(integration_service.OAuthIntegrationServiceError),
             ):
                 integration_service._candidates(challenge)
 

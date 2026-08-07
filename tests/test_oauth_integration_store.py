@@ -617,8 +617,9 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             (integration_store._component_id, ("Bad", "component")),
             (integration_store._team_id, ("../team",)),
         ):
-            with self.subTest(function=function.__name__), self.assertRaises(
-                integration_store.OAuthIntegrationValidationError
+            with (
+                self.subTest(function=function.__name__),
+                self.assertRaises(integration_store.OAuthIntegrationValidationError),
             ):
                 function(*arguments)
 
@@ -639,9 +640,12 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             integration_store._token_set(tokens(expires_in=30), SCOPES, 2**53 - 10, None)
 
         for payload, message in ((b"\xff", "valid JSON"), (b"{", "valid JSON")):
-            with self.subTest(payload=payload), self.assertRaisesRegex(
-                integration_store.OAuthIntegrationStoreError,
-                message,
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(
+                    integration_store.OAuthIntegrationStoreError,
+                    message,
+                ),
             ):
                 integration_store._strict_json(payload)
 
@@ -693,8 +697,9 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             ("integration", "integration"),
             tuple(f"integration-{index}" for index in range(integration_store.MAX_INTEGRATIONS_PER_ASSISTANT + 1)),
         ):
-            with self.subTest(identifiers=identifiers), self.assertRaises(
-                integration_store.OAuthIntegrationValidationError
+            with (
+                self.subTest(identifiers=identifiers),
+                self.assertRaises(integration_store.OAuthIntegrationValidationError),
             ):
                 integration_store._declared_ids(identifiers)
 
@@ -715,9 +720,12 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
             for clock in (lambda: True, lambda: -1, lambda: object()):
                 store = self._store(root, clock=clock)
-                with self.subTest(clock=clock), self.assertRaisesRegex(
-                    integration_store.OAuthIntegrationStoreError,
-                    "clock",
+                with (
+                    self.subTest(clock=clock),
+                    self.assertRaisesRegex(
+                        integration_store.OAuthIntegrationStoreError,
+                        "clock",
+                    ),
                 ):
                     store._now()
 
@@ -758,9 +766,12 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 1,
             )
         for payload in (b"{}", b'{"access_token":"","refresh_token":null,"broker_lease":null,"integration":null}'):
-            with self.subTest(payload=payload), self.assertRaisesRegex(
-                integration_store.OAuthIntegrationStoreError,
-                "malformed",
+            with (
+                self.subTest(payload=payload),
+                self.assertRaisesRegex(
+                    integration_store.OAuthIntegrationStoreError,
+                    "malformed",
+                ),
             ):
                 integration_store.OAuthIntegrationStore._decrypted(
                     payload,

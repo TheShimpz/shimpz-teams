@@ -65,9 +65,12 @@ class InstallContractEdgeCoverageTests(unittest.TestCase):
         ):
             install_contract._validate_lifetime(value, "iat", "exp", 60, "lifetime")
         for value in ({"iat": 2, "exp": 2}, {"iat": 1, "exp": 62}):
-            with self.subTest(value=value), self.assertRaisesRegex(
-                install_contract.ContractValidationError,
-                "lifetime",
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
+                    install_contract.ContractValidationError,
+                    "lifetime",
+                ),
             ):
                 install_contract._validate_lifetime(value, "iat", "exp", 60, "lifetime")
 
@@ -85,9 +88,12 @@ class InstallContractEdgeCoverageTests(unittest.TestCase):
         duplicate = [{"id": "cloudflare"}, {"id": "cloudflare"}]
         contract = {"powers": [{"integrations": ["cloudflare"]}]}
         for intents in (duplicate, [{"id": "other"}]):
-            with self.subTest(intents=intents), self.assertRaisesRegex(
-                install_contract.ContractValidationError,
-                "integration_mismatch",
+            with (
+                self.subTest(intents=intents),
+                self.assertRaisesRegex(
+                    install_contract.ContractValidationError,
+                    "integration_mismatch",
+                ),
             ):
                 install_contract._validate_resolve({**base, "integrations": intents, "machine_contract": contract})
 

@@ -96,8 +96,9 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
 
     def test_memory_reload_and_physical_inventory_failures_are_contained(self) -> None:
         broken = _container(reload=mock.Mock(side_effect=resources.docker.errors.DockerException("inspect")))
-        with mock.patch.object(resources, "_admitted_resource_containers", return_value=[broken]), self.assertRaises(
-            state.ApiError
+        with (
+            mock.patch.object(resources, "_admitted_resource_containers", return_value=[broken]),
+            self.assertRaises(state.ApiError),
         ):
             resources._memory_usage()
 

@@ -66,8 +66,9 @@ class HostedResourceEdgeTests(unittest.TestCase):
 
     def test_daemon_runtime_and_container_runtime_fail_closed(self) -> None:
         docker_error = resources.docker.errors.DockerException("docker")
-        with mock.patch.object(state._docker, "info", side_effect=docker_error, create=True), self.assertRaises(
-            state.ApiError
+        with (
+            mock.patch.object(state._docker, "info", side_effect=docker_error, create=True),
+            self.assertRaises(state.ApiError),
         ):
             resources._require_team_runtime()
         for info in (None, {}):

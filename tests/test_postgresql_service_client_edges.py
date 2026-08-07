@@ -25,10 +25,13 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
             postgresql._principal_path("../escape")
 
     def test_principal_is_persisted_validated_and_permissioned(self) -> None:
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
-            postgresql,
-            "PRINCIPAL_DIR",
-            Path(directory) / "principals",
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(
+                postgresql,
+                "PRINCIPAL_DIR",
+                Path(directory) / "principals",
+            ),
         ):
             with self.assertRaises(postgresql.PostgreSQLServiceError):
                 postgresql._principal("team_1", create=False)

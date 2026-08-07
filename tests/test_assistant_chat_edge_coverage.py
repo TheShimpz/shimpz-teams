@@ -51,9 +51,12 @@ class AssistantContractEdgeCoverageTests(unittest.TestCase):
     def test_genesis_cache_rejects_invalid_container_identities(self) -> None:
         cache = assistant_genesis.GenesisCache()
         for identity in (None, "", "a" * 257, "bad/id"):
-            with self.subTest(identity=identity), self.assertRaisesRegex(
-                assistant_genesis.GenesisError,
-                "identity",
+            with (
+                self.subTest(identity=identity),
+                self.assertRaisesRegex(
+                    assistant_genesis.GenesisError,
+                    "identity",
+                ),
             ):
                 cache.get(SimpleNamespace(id=identity))
 
@@ -95,9 +98,12 @@ class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
             (suspension(_request("one")), lambda *_args: [], "invalid input contract"),
         )
         for turn, validator, message in cases:
-            with self.subTest(message=message), self.assertRaisesRegex(
-                chat_orchestrator.ChatOrchestrationError,
-                message,
+            with (
+                self.subTest(message=message),
+                self.assertRaisesRegex(
+                    chat_orchestrator.ChatOrchestrationError,
+                    message,
+                ),
             ):
                 chat_orchestrator.run(
                     FakeRuntime([turn]),

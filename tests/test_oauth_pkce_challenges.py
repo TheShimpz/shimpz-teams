@@ -216,9 +216,12 @@ class OAuthPKCEChallengeTests(unittest.TestCase):
             integration_pkce._session_digest(SESSION_ONE),
         )
         for value in ("\ud800" * 16, object()):
-            with self.subTest(value=type(value).__name__), self.assertRaisesRegex(
-                integration_pkce.OAuthChallengeError,
-                "session binding",
+            with (
+                self.subTest(value=type(value).__name__),
+                self.assertRaisesRegex(
+                    integration_pkce.OAuthChallengeError,
+                    "session binding",
+                ),
             ):
                 integration_pkce._session_digest(value)
         with self.assertRaises(integration_pkce.OAuthChallengeNotFoundError):

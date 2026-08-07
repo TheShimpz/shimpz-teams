@@ -19,9 +19,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
     def test_team_inventory_and_conversation_fail_closed(self) -> None:
         subject = types.SimpleNamespace(
             client=types.SimpleNamespace(
-                containers=types.SimpleNamespace(
-                    list=mock.Mock(side_effect=DockerException("unavailable"))
-                )
+                containers=types.SimpleNamespace(list=mock.Mock(side_effect=DockerException("unavailable")))
             ),
             assistant_lifecycle=types.SimpleNamespace(_assistant_filters=lambda _team_id: {}),
         )
@@ -101,9 +99,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
 
         self.assertEqual(local_lifecycle._remove_team_assistants(subject, "team_1", []), 0)
 
-        lifecycle._remove_assistant_policy_if_needed.assert_called_once_with(
-            "team_1", "own", own_spec
-        )
+        lifecycle._remove_assistant_policy_if_needed.assert_called_once_with("team_1", "own", own_spec)
         self.assertIsNone(registry.get("team_1", "own"))
         self.assertIsNotNone(registry.get("other_team", "other"))
 
@@ -116,9 +112,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
 
     def test_persistence_and_network_failures_are_mapped(self) -> None:
         unavailable_storage = types.SimpleNamespace(
-            storage=types.SimpleNamespace(
-                destroy=mock.Mock(side_effect=team_storage.StorageError("unavailable"))
-            ),
+            storage=types.SimpleNamespace(destroy=mock.Mock(side_effect=team_storage.StorageError("unavailable"))),
             inference_store=types.SimpleNamespace(delete=mock.Mock()),
             _raise_storage_problem=mock.Mock(
                 side_effect=local_app.ApiProblem(
@@ -135,9 +129,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         unavailable_inference = types.SimpleNamespace(
             storage=types.SimpleNamespace(destroy=lambda _team_id: True),
             inference_store=types.SimpleNamespace(
-                delete=mock.Mock(
-                    side_effect=inference_config.InferenceConfigError("unavailable")
-                )
+                delete=mock.Mock(side_effect=inference_config.InferenceConfigError("unavailable"))
             ),
             _raise_inference_problem=mock.Mock(
                 side_effect=local_app.ApiProblem(
@@ -152,14 +144,10 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "inference-config-unavailable")
 
         subject = types.SimpleNamespace(
-            assistant_lifecycle=types.SimpleNamespace(
-                _disconnect_egress_proxy_if_attached=mock.Mock()
-            )
+            assistant_lifecycle=types.SimpleNamespace(_disconnect_egress_proxy_if_attached=mock.Mock())
         )
         self.assertFalse(local_lifecycle._remove_team_network(subject, None))
-        network = types.SimpleNamespace(
-            remove=mock.Mock(side_effect=DockerException("unavailable"))
-        )
+        network = types.SimpleNamespace(remove=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_network(subject, network)
         self.assertEqual(caught.exception.code, "docker-remove-failed")
@@ -248,15 +236,11 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 _queue_residue=mock.Mock(),
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
-                _disconnect_egress_proxy_if_attached=lambda _network: events.append(
-                    "proxy-disconnect"
-                ),
+                _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
             ),
             registry=TestPublicationRegistry({}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
-            inference_store=types.SimpleNamespace(
-                delete=lambda _team_id: events.append("inference-delete")
-            ),
+            inference_store=types.SimpleNamespace(delete=lambda _team_id: events.append("inference-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),
         )
 

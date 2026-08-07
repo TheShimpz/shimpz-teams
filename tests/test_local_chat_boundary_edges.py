@@ -98,9 +98,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         challenge = _challenge(pending)
         events: list[str] = []
         subject = types.SimpleNamespace(
-            human_challenges=types.SimpleNamespace(
-                cancel_team=lambda _team_id: events.append("cancel")
-            ),
+            human_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: events.append("cancel")),
             _delete_chat_continuation=lambda *_args: events.append("delete"),
             _purge_human_pending=lambda _pending: events.append("purge"),
         )

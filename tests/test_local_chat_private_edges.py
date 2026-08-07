@@ -82,9 +82,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
     def test_human_pause_rejects_invalid_secret_and_auth_sequences(self) -> None:
         request = types.SimpleNamespace(kind="input:text")
         outcome = types.SimpleNamespace(request=request)
-        subject = types.SimpleNamespace(
-            _terminal_human_failure=mock.Mock(return_value={"failed": True})
-        )
+        subject = types.SimpleNamespace(_terminal_human_failure=mock.Mock(return_value={"failed": True}))
         payload = _pending()
 
         self.assertEqual(
@@ -98,14 +96,10 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             ),
             {"failed": True},
         )
-        subject._terminal_human_failure.assert_called_with(
-            "team_1", "token", payload, "request-invalid"
-        )
+        subject._terminal_human_failure.assert_called_with("team_1", "token", payload, "request-invalid")
 
         response = types.SimpleNamespace(secret=True)
-        secret_payload = _pending(
-            transcripts=(types.SimpleNamespace(responses=(response,)),)
-        )
+        secret_payload = _pending(transcripts=(types.SimpleNamespace(responses=(response,)),))
         requirement = types.SimpleNamespace(request=request)
         local_chat_pause._pause_human(
             subject,
@@ -115,9 +109,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             (requirement,),
             secret_payload,
         )
-        subject._terminal_human_failure.assert_called_with(
-            "team_1", "token", secret_payload, "secret-must-be-last"
-        )
+        subject._terminal_human_failure.assert_called_with("team_1", "token", secret_payload, "secret-must-be-last")
 
         auth_request = types.SimpleNamespace(kind="auth:second-factor")
         auth_outcome = types.SimpleNamespace(request=auth_request)
@@ -130,9 +122,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             (auth_requirement,),
             payload,
         )
-        subject._terminal_human_failure.assert_called_with(
-            "team_1", "token", payload, "authentication-unavailable"
-        )
+        subject._terminal_human_failure.assert_called_with("team_1", "token", payload, "authentication-unavailable")
 
     def test_human_pause_maps_store_conflict_and_rolls_back_persistence(self) -> None:
         request = types.SimpleNamespace(kind="input:text")
@@ -141,9 +131,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         payload = _pending()
         subject = types.SimpleNamespace(
             human_challenges=types.SimpleNamespace(
-                create=mock.Mock(
-                    side_effect=power_challenges.HumanChallengeError("conflict")
-                ),
+                create=mock.Mock(side_effect=power_challenges.HumanChallengeError("conflict")),
                 cancel_team=mock.Mock(),
             )
         )
@@ -185,9 +173,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         requirement = types.SimpleNamespace(assistant_id="assistant")
         challenge = types.SimpleNamespace(team_id="team_1", requirements=(requirement,))
         spec = types.SimpleNamespace(assistant_id="assistant")
-        subject = types.SimpleNamespace(
-            assistant_lifecycle=types.SimpleNamespace(_resolve=lambda *_args: spec)
-        )
+        subject = types.SimpleNamespace(assistant_lifecycle=types.SimpleNamespace(_resolve=lambda *_args: spec))
         with (
             mock.patch.object(
                 integration_flow,
@@ -201,9 +187,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
 
         subject = types.SimpleNamespace(
             integration_challenges=types.SimpleNamespace(
-                create=mock.Mock(
-                    side_effect=integration_challenges.IntegrationChallengeError("conflict")
-                ),
+                create=mock.Mock(side_effect=integration_challenges.IntegrationChallengeError("conflict")),
                 cancel_team=mock.Mock(),
             )
         )
@@ -265,9 +249,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         )
         subject = types.SimpleNamespace(
             assistant_integrations=types.SimpleNamespace(
-                metadata=mock.Mock(
-                    side_effect=integration_store.OAuthIntegrationStoreError("unavailable")
-                )
+                metadata=mock.Mock(side_effect=integration_store.OAuthIntegrationStoreError("unavailable"))
             ),
             _refresh_oauth_integration=mock.Mock(),
         )
@@ -350,9 +332,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         cases = (
             (
                 types.SimpleNamespace(
-                    get=mock.Mock(
-                        side_effect=integration_challenges.IntegrationChallengeError("expired")
-                    )
+                    get=mock.Mock(side_effect=integration_challenges.IntegrationChallengeError("expired"))
                 ),
                 types.SimpleNamespace(),
                 "assistant-integration-challenge-expired",
@@ -361,9 +341,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 types.SimpleNamespace(get=lambda *_args: object()),
                 types.SimpleNamespace(
                     authorization_url=mock.Mock(
-                        side_effect=integration_service.OAuthIntegrationServiceError(
-                            "unavailable"
-                        )
+                        side_effect=integration_service.OAuthIntegrationServiceError("unavailable")
                     )
                 ),
                 "assistant-integration-oauth-unavailable",
@@ -467,9 +445,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         for operation, arguments, method in operations:
             with self.subTest(operation=operation.__name__):
                 subject = types.SimpleNamespace(
-                    oauth_service=types.SimpleNamespace(
-                        **{method: mock.Mock(side_effect=failure)}
-                    ),
+                    oauth_service=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)}),
                     _current_integration_declaration=mock.Mock(),
                 )
                 with self.assertRaises(local_app.ApiProblem) as caught:
@@ -492,9 +468,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             {"challenge": challenge},
         )
 
-        subject = types.SimpleNamespace(
-            oauth_service=types.SimpleNamespace(disconnect=lambda *_args: True)
-        )
+        subject = types.SimpleNamespace(oauth_service=types.SimpleNamespace(disconnect=lambda *_args: True))
         self.assertEqual(
             local_chat_private.disconnect_assistant_integration(
                 subject,

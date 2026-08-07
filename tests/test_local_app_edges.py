@@ -78,9 +78,7 @@ class LocalControllerConstructionEdgeTests(unittest.TestCase):
 
     def test_seccomp_requires_available_daemon_and_default_profile(self) -> None:
         controller = object.__new__(local_app.LocalController)
-        controller.client = types.SimpleNamespace(
-            info=mock.Mock(side_effect=DockerException("unavailable"))
-        )
+        controller.client = types.SimpleNamespace(info=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaisesRegex(RuntimeError, "daemon is unavailable"):
             controller._require_default_seccomp()
 
@@ -110,9 +108,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         )
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),
-            load=mock.Mock(
-                return_value=types.SimpleNamespace(provider="openai", model="gpt-5.5")
-            ),
+            load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-5.5")),
             save=mock.Mock(),
         )
         controller.client = types.SimpleNamespace(
@@ -149,12 +145,8 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             controller.list_teams()
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        first = types.SimpleNamespace(
-            attrs={"Labels": {local_app.TEAM_LABEL: "team_b"}}
-        )
-        second = types.SimpleNamespace(
-            attrs={"Labels": {local_app.TEAM_LABEL: "team_a"}}
-        )
+        first = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_b"}})
+        second = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_a"}})
         controller.client.networks.list.return_value = [first, second]
         controller.assistant_lifecycle._validate_network.side_effect = (
             "Team B",
@@ -184,9 +176,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "storage-safety-failed")
 
         controller.storage.destroy.side_effect = None
-        controller.inference_store.delete.side_effect = inference_config.InferenceConfigError(
-            "unavailable"
-        )
+        controller.inference_store.delete.side_effect = inference_config.InferenceConfigError("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.create_team("team_1", "Team")
         self.assertEqual(caught.exception.code, "inference-store-failed")
@@ -228,9 +218,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             (team_storage.StorageError("failed"), "storage-safety-failed"),
         )
         for failure, expected_code in cases:
-            with self.subTest(expected_code=expected_code), self.assertRaises(
-                local_app.ApiProblem
-            ) as caught:
+            with self.subTest(expected_code=expected_code), self.assertRaises(local_app.ApiProblem) as caught:
                 local_app.LocalController._raise_storage_problem(failure)
             self.assertEqual(caught.exception.code, expected_code)
 
@@ -253,9 +241,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
 
     def test_inference_registry_and_health_cover_failure_and_success(self) -> None:
         controller = self.controller()
-        controller.inference_store.load.side_effect = inference_config.InferenceConfigError(
-            "missing"
-        )
+        controller.inference_store.load.side_effect = inference_config.InferenceConfigError("missing")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.inference_status("team_1")
         self.assertEqual(caught.exception.code, "inference-not-configured")
@@ -267,9 +253,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "invalid-inference")
 
-        controller.inference_store.save.side_effect = inference_config.InferenceConfigError(
-            "unavailable"
-        )
+        controller.inference_store.save.side_effect = inference_config.InferenceConfigError("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.configure_inference(
                 "team_1",

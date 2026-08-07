@@ -197,9 +197,7 @@ class SupervisorEdgeCoverageTests(unittest.TestCase):
             lambda: supervisor._integer(True, label="time"),
             lambda: supervisor._digest("bad", label="digest"),
             lambda: supervisor._body(None),
-            lambda: supervisor._body(
-                {"kind": "none", "length": 1, "sha256": supervisor.EMPTY_SHA256}
-            ),
+            lambda: supervisor._body({"kind": "none", "length": 1, "sha256": supervisor.EMPTY_SHA256}),
             lambda: supervisor._body({"kind": "none", "length": 0, "sha256": "a" * 64}),
             lambda: supervisor._body({"kind": "json", "length": 1, "sha256": "a" * 64}),
             lambda: supervisor._body(
@@ -210,9 +208,7 @@ class SupervisorEdgeCoverageTests(unittest.TestCase):
                     "media_type": "text/plain",
                 }
             ),
-            lambda: supervisor._body(
-                {"kind": "file", "length": 1, "filename": "name", "media_type": "invalid"}
-            ),
+            lambda: supervisor._body({"kind": "file", "length": 1, "filename": "name", "media_type": "invalid"}),
             lambda: supervisor._body({"kind": "unknown"}),
             lambda: supervisor._model(None),
             lambda: supervisor._model({"provider": "Bad", "key_sha256": "a" * 64}),

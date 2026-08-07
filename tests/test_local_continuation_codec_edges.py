@@ -27,8 +27,9 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
             (continuation._interrupt_id, ("invalid id",)),
         )
         for operation, arguments in invalid:
-            with self.subTest(operation=operation.__name__, arguments=arguments), self.assertRaises(
-                continuation.ContinuationCodecError
+            with (
+                self.subTest(operation=operation.__name__, arguments=arguments),
+                self.assertRaises(continuation.ContinuationCodecError),
             ):
                 operation(*arguments)
         self.assertIsNone(continuation._text(None, 8, "text", optional=True))
@@ -47,9 +48,7 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
             object(),
         )
         for value in invalid_values:
-            with self.subTest(value_type=type(value)), self.assertRaises(
-                continuation.ContinuationCodecError
-            ):
+            with self.subTest(value_type=type(value)), self.assertRaises(continuation.ContinuationCodecError):
                 continuation._json_value(value)
 
     def test_pending_transcript_identity_and_requirement_shapes_are_closed(self) -> None:
@@ -213,9 +212,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         mutations.append(value)
 
         for value in mutations:
-            with self.subTest(value=value), self.assertRaises(
-                continuation.ContinuationCodecError
-            ):
+            with self.subTest(value=value), self.assertRaises(continuation.ContinuationCodecError):
                 continuation._identity(value)
 
     def test_pending_rejects_duplicate_selection_and_provider_drift(self) -> None:
@@ -234,9 +231,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         mutations.append(value)
 
         for value in mutations:
-            with self.subTest(provider=value.get("provider")), self.assertRaises(
-                continuation.ContinuationCodecError
-            ):
+            with self.subTest(provider=value.get("provider")), self.assertRaises(continuation.ContinuationCodecError):
                 continuation._pending(value)
 
     def test_human_transcript_and_requirement_decoders_are_closed(self) -> None:

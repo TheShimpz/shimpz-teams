@@ -643,9 +643,12 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "metadata is invalid"):
             integration_flow._integration_payload(object())
         for expiry in (True, 0, 2**53 - 1):
-            with self.subTest(expiry=expiry), self.assertRaisesRegex(
-                integration_flow.IntegrationFlowError,
-                "expiry is invalid",
+            with (
+                self.subTest(expiry=expiry),
+                self.assertRaisesRegex(
+                    integration_flow.IntegrationFlowError,
+                    "expiry is invalid",
+                ),
             ):
                 integration_flow._expiry_payload(expiry)
 
@@ -693,9 +696,12 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
         for token in (None, "é" * 20):
             store = SimpleNamespace(resolve=lambda *_args, token=token: token)
-            with self.subTest(token=token), self.assertRaisesRegex(
-                integration_flow.IntegrationFlowError,
-                "access token is invalid",
+            with (
+                self.subTest(token=token),
+                self.assertRaisesRegex(
+                    integration_flow.IntegrationFlowError,
+                    "access token is invalid",
+                ),
             ):
                 integration_flow.resolve_power_integrations("team_1", spec, "read-profile", store, lambda *_: None)
 

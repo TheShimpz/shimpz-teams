@@ -82,9 +82,10 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         )
 
         for assistant_id in ("postgres", "missing"):
-            with self.subTest(assistant_id=assistant_id), self.assertRaises(
-                lifecycle.assistant_registry.AssistantSpecError
-        ):
+            with (
+                self.subTest(assistant_id=assistant_id),
+                self.assertRaises(lifecycle.assistant_registry.AssistantSpecError),
+            ):
                 lifecycle._resolve_team_assistant(TEAM_ID, assistant_id, {})
 
         with mock.patch.object(lifecycle.publication, "assistant_spec", return_value=SPEC):

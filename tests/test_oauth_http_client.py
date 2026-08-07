@@ -300,8 +300,9 @@ class OAuthHTTPClientTests(unittest.TestCase):
             (integration_http._token, "é" * 16),
             (integration_http._token, "short"),
         ):
-            with self.subTest(function=function.__name__, value=value), self.assertRaises(
-                integration_http.OAuthHTTPError
+            with (
+                self.subTest(function=function.__name__, value=value),
+                self.assertRaises(integration_http.OAuthHTTPError),
             ):
                 function(value)
 

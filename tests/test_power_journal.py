@@ -601,11 +601,14 @@ class PowerJournalTests(unittest.TestCase):
         with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "not executing"):
             journal.complete(batch, self.first, {"ok": True})
         journal.begin(batch, self.first)
-        with mock.patch.object(
-            journal,
-            "_load_operation",
-            return_value=(0, self.first.interrupt_id, self.first.fingerprint, "prepared", b"result"),
-        ), self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable state"):
+        with (
+            mock.patch.object(
+                journal,
+                "_load_operation",
+                return_value=(0, self.first.interrupt_id, self.first.fingerprint, "prepared", b"result"),
+            ),
+            self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable state"),
+        ):
             journal.begin(batch, self.first)
 
     def test_cached_result_guards_reject_invalid_raw_and_cached_bytes(self) -> None:

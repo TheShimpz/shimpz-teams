@@ -34,8 +34,9 @@ class ContinuationStoreValidationEdgeTests(unittest.TestCase):
             (continuation_store._challenge_id, "short"),
         )
         for validator, value in validators:
-            with self.subTest(validator=validator.__name__, value=value), self.assertRaises(
-                continuation_store.ContinuationStoreError
+            with (
+                self.subTest(validator=validator.__name__, value=value),
+                self.assertRaises(continuation_store.ContinuationStoreError),
             ):
                 validator(value)
 
@@ -54,9 +55,7 @@ class ContinuationStoreValidationEdgeTests(unittest.TestCase):
             [str(index) for index in range(continuation_store.MAX_BINDINGS + 1)],
         )
         for bindings in invalid_bindings:
-            with self.subTest(bindings=bindings), self.assertRaises(
-                continuation_store.ContinuationStoreError
-            ):
+            with self.subTest(bindings=bindings), self.assertRaises(continuation_store.ContinuationStoreError):
                 continuation_store._bindings(bindings)
 
     def test_private_file_errors_and_size_limits_fail_closed(self) -> None:
@@ -151,8 +150,9 @@ class ContinuationStoreValidationEdgeTests(unittest.TestCase):
             (base64.b64encode(b"long").decode("ascii"), {"maximum": 1}),
         )
         for value, options in invalid_parts:
-            with self.subTest(value=value, options=options), self.assertRaises(
-                continuation_store.ContinuationStoreError
+            with (
+                self.subTest(value=value, options=options),
+                self.assertRaises(continuation_store.ContinuationStoreError),
             ):
                 continuation_store._decode_part(value, **options)
 
@@ -248,8 +248,9 @@ class EncryptedContinuationStoreEdgeTests(unittest.TestCase):
             (1_100, ("binding",), b""),
         )
         for expires_at, bindings, payload in invalid_payloads:
-            with self.subTest(expires_at=expires_at, payload=payload), self.assertRaises(
-                continuation_store.ContinuationStoreError
+            with (
+                self.subTest(expires_at=expires_at, payload=payload),
+                self.assertRaises(continuation_store.ContinuationStoreError),
             ):
                 store.put(
                     "team_1",
@@ -314,9 +315,12 @@ class EncryptedContinuationStoreEdgeTests(unittest.TestCase):
         store = self.store()
         for operation in (store.active, store.drain_expired, lambda: store.delete("team_1"), store.clear):
             store._read_state = lambda: {"schema": 1, "records": []}
-            with self.subTest(operation=operation), self.assertRaisesRegex(
-                continuation_store.ContinuationStoreError,
-                "state is malformed",
+            with (
+                self.subTest(operation=operation),
+                self.assertRaisesRegex(
+                    continuation_store.ContinuationStoreError,
+                    "state is malformed",
+                ),
             ):
                 operation()
 

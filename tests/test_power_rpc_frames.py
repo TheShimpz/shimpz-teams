@@ -127,8 +127,9 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         request = brain_runtime_client.PowerRequest("interrupt", "assistant", "power", {})
         for container_id, image in (("", "image"), ("container", "")):
-            with self.subTest(container_id=container_id, image=image), self.assertRaises(
-                power_journal.PowerJournalConflictError
+            with (
+                self.subTest(container_id=container_id, image=image),
+                self.assertRaises(power_journal.PowerJournalConflictError),
             ):
                 power_execution.power_operation(request, container_id, image)
         malformed = SimpleNamespace(
@@ -447,9 +448,12 @@ class PowerRpcFrameTests(unittest.TestCase):
         close.assert_not_called()
 
     def test_rpc_frame_reader_bounds_cumulative_payload_and_deadline(self) -> None:
-        with _socket_bytes(_frame(1, b"ab") + _frame(2, b"cd")) as raw_socket, self.assertRaisesRegex(
-            ValueError,
-            "oversized",
+        with (
+            _socket_bytes(_frame(1, b"ab") + _frame(2, b"cd")) as raw_socket,
+            self.assertRaisesRegex(
+                ValueError,
+                "oversized",
+            ),
         ):
             power_execution.read_rpc_frames(raw_socket, time.monotonic() + 1, 3)
         reader, writer = socket.socketpair()

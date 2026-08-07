@@ -362,9 +362,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)
         self.assertEqual(handler._write_stream_record.call_count, 1)
 
-        handler._chat_start = mock.Mock(
-            return_value=(HTTPStatus.OK, {"reply": "ok"}, "chat", "team_1", None)
-        )
+        handler._chat_start = mock.Mock(return_value=(HTTPStatus.OK, {"reply": "ok"}, "chat", "team_1", None))
         handler._write_stream_record.reset_mock(side_effect=True)
         handler._write_stream_record.side_effect = OSError("terminal closed")
         handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)

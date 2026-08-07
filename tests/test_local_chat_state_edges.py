@@ -101,17 +101,13 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "assistant-unavailable")
 
         subject = self._setup_subject()
-        subject.inference_store.load = mock.Mock(
-            side_effect=inference_config.InferenceConfigError("unavailable")
-        )
+        subject.inference_store.load = mock.Mock(side_effect=inference_config.InferenceConfigError("unavailable"))
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._chat_setup(subject, "team_1", [], "openai", ())
         self.assertEqual(caught.exception.code, "inference-not-configured")
 
         subject = self._setup_subject()
-        subject.inference_store.load = lambda _team_id: types.SimpleNamespace(
-            provider="anthropic"
-        )
+        subject.inference_store.load = lambda _team_id: types.SimpleNamespace(provider="anthropic")
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._chat_setup(subject, "team_1", [], "openai", ())
         self.assertEqual(caught.exception.code, "inference-provider-mismatch")
@@ -121,9 +117,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         active = ActiveAssistant(spec, "container")
         subject = types.SimpleNamespace(
             client=types.SimpleNamespace(
-                containers=types.SimpleNamespace(
-                    get=mock.Mock(side_effect=DockerException("unavailable"))
-                )
+                containers=types.SimpleNamespace(get=mock.Mock(side_effect=DockerException("unavailable")))
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -147,9 +141,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
     def test_active_assistant_inventory_fails_closed_on_docker_registry_and_blocking(self) -> None:
         lifecycle = types.SimpleNamespace(
             client=types.SimpleNamespace(
-                containers=types.SimpleNamespace(
-                    list=mock.Mock(side_effect=DockerException("unavailable"))
-                )
+                containers=types.SimpleNamespace(list=mock.Mock(side_effect=DockerException("unavailable")))
             ),
             _assistant_filters=lambda _team_id: {},
         )
@@ -195,9 +187,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         for operation, method, arguments in operations:
             with self.subTest(operation=operation.__name__):
                 subject = types.SimpleNamespace(
-                    assistant_integrations=types.SimpleNamespace(
-                        **{method: mock.Mock(side_effect=failure)}
-                    ),
+                    assistant_integrations=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)}),
                     _raise_integration_problem=mock.Mock(
                         side_effect=local_app.ApiProblem(
                             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -215,9 +205,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
 
         spec = types.SimpleNamespace(assistant_id="assistant", integrations={})
         subject = types.SimpleNamespace(
-            assistant_integrations=types.SimpleNamespace(
-                retain_declared=mock.Mock(side_effect=failure)
-            ),
+            assistant_integrations=types.SimpleNamespace(retain_declared=mock.Mock(side_effect=failure)),
             _raise_integration_problem=mock.Mock(
                 side_effect=local_app.ApiProblem(
                     HTTPStatus.SERVICE_UNAVAILABLE,
@@ -246,9 +234,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
 
     def test_persistence_validates_lifetime_and_maps_codec_or_store_failures(self) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_state._raise_chat_continuation_problem(
-                continuation_store.ContinuationStoreError("unavailable")
-            )
+            local_chat_state._raise_chat_continuation_problem(continuation_store.ContinuationStoreError("unavailable"))
         self.assertEqual(caught.exception.code, "chat-state-unavailable")
 
         subject = types.SimpleNamespace(
@@ -341,9 +327,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
 
         decoded.kind = "integrations"
         subject.integration_challenges = types.SimpleNamespace(
-            restore=mock.Mock(
-                side_effect=integration_challenges.IntegrationChallengeError("conflict")
-            )
+            restore=mock.Mock(side_effect=integration_challenges.IntegrationChallengeError("conflict"))
         )
         with (
             mock.patch.object(local_chat_state.time, "time", return_value=1_000),
@@ -376,9 +360,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             local_chat_state._purge_expired_human_continuation(subject, _stored())
 
         failure = continuation_store.ContinuationStoreError("unavailable")
-        subject.chat_continuations = types.SimpleNamespace(
-            drain_expired=mock.Mock(side_effect=failure)
-        )
+        subject.chat_continuations = types.SimpleNamespace(drain_expired=mock.Mock(side_effect=failure))
         with self.assertRaises(local_app.ApiProblem):
             local_chat_state._restore_all_chat_continuations(subject)
 
@@ -399,9 +381,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             (local_chat_state._clear_chat_continuations, "clear", ()),
         ):
             with self.subTest(operation=operation.__name__):
-                subject.chat_continuations = types.SimpleNamespace(
-                    **{method: mock.Mock(side_effect=failure)}
-                )
+                subject.chat_continuations = types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)})
                 with self.assertRaises(local_app.ApiProblem):
                     operation(subject, *arguments)
 

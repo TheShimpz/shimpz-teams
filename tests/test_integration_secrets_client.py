@@ -258,9 +258,12 @@ class IntegrationSecretsClientTests(unittest.TestCase):
 
     def test_ciphertext_fields_require_canonical_base64_strings(self) -> None:
         for value in (None, "!"):
-            with self.subTest(value=value), self.assertRaisesRegex(
-                integration_secrets_client.IntegrationSecretError,
-                "invalid ciphertext",
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(
+                    integration_secrets_client.IntegrationSecretError,
+                    "invalid ciphertext",
+                ),
             ):
                 integration_secrets_client._b64decode(value)
 
@@ -470,9 +473,12 @@ class IntegrationSecretsClientTests(unittest.TestCase):
             integration_secrets_client.resolve("account-1", "openai")
 
         for generation in (True, 0, "1"):
-            with self.subTest(generation=generation), self.assertRaisesRegex(
-                integration_secrets_client.IntegrationSecretError,
-                "generation is invalid",
+            with (
+                self.subTest(generation=generation),
+                self.assertRaisesRegex(
+                    integration_secrets_client.IntegrationSecretError,
+                    "generation is invalid",
+                ),
             ):
                 integration_secrets_client.generation_is_current("account-1", "openai", generation)
         with (

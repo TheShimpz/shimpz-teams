@@ -162,9 +162,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _create_assistant_container=mock.Mock(),
             _team_has_egress_assistant=mock.Mock(return_value=False),
             _release_assistant_egress=mock.Mock(),
-            chat_turn_service=types.SimpleNamespace(
-                _retain_declared_assistant_integration_state=mock.Mock()
-            ),
+            chat_turn_service=types.SimpleNamespace(_retain_declared_assistant_integration_state=mock.Mock()),
         )
 
     def test_unready_replacement_maps_removal_and_forwards_authorization(self) -> None:
@@ -282,9 +280,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             registry=types.SimpleNamespace(all=lambda: specs),
             client=types.SimpleNamespace(
                 images=types.SimpleNamespace(
-                    get=mock.Mock(
-                        side_effect=(ImageNotFound("missing"), types.SimpleNamespace(id="target"))
-                    )
+                    get=mock.Mock(side_effect=(ImageNotFound("missing"), types.SimpleNamespace(id="target")))
                 )
             ),
         )
@@ -301,9 +297,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace(
             client=types.SimpleNamespace(
                 images=types.SimpleNamespace(remove=mock.Mock(side_effect=ImageNotFound("gone"))),
-                containers=types.SimpleNamespace(
-                    list=mock.Mock(side_effect=DockerException("unavailable"))
-                ),
+                containers=types.SimpleNamespace(list=mock.Mock(side_effect=DockerException("unavailable"))),
             ),
             _binding_uses_image=lambda _image_id: False,
         )
@@ -319,18 +313,14 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
 
     def test_residue_sweep_and_queue_defer_unavailable_state(self) -> None:
         subject = types.SimpleNamespace(
-            residues=types.SimpleNamespace(
-                list=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))
-            )
+            residues=types.SimpleNamespace(list=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable")))
         )
         self.assertIsNone(assistant_lifecycle.sweep_residues(subject))
 
         residue = types.SimpleNamespace(image_id="image")
         subject.residues.list.side_effect = None
         subject.residues.list.return_value = (residue,)
-        subject.residues.clear = mock.Mock(
-            side_effect=bindings.DynamicAssistantError("unavailable")
-        )
+        subject.residues.clear = mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))
         subject._remove_retired_image = lambda _image_id: True
         assistant_lifecycle.sweep_residues(subject)
         subject.residues.clear.assert_called_once_with(residue)
@@ -354,18 +344,14 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         controller, container, events = self._lifecycle_controller()
         previous = copy.copy(controller.registry["shimpz-cloudflare"])
         successor = copy.copy(previous)
-        previous_binding = types.SimpleNamespace(
-            binding_digest="sha256:" + "1" * 64
-        )
+        previous_binding = types.SimpleNamespace(binding_digest="sha256:" + "1" * 64)
         return controller, container, events, previous, successor, previous_binding
 
     def test_update_maps_previous_image_and_replacement_failures(self) -> None:
         controller, _container, _events, previous, successor, binding = self._update_specs()
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
         controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=object())
-        controller.client.images = types.SimpleNamespace(
-            get=mock.Mock(side_effect=DockerException("unavailable"))
-        )
+        controller.client.images = types.SimpleNamespace(get=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.assistant_lifecycle.update_assistant(
                 "team_1",
@@ -383,16 +369,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
         successor_image = types.SimpleNamespace(id="sha256:" + "b" * 64)
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
-        controller.assistant_lifecycle._trusted_image = mock.Mock(
-            return_value=successor_image
-        )
+        controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=successor_image)
         controller.client.images = types.SimpleNamespace(get=lambda _image: previous_image)
-        controller.assistant_lifecycle.updates = types.SimpleNamespace(
-            begin=lambda *_args: object()
-        )
-        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(
-            return_value=False
-        )
+        controller.assistant_lifecycle.updates = types.SimpleNamespace(begin=lambda *_args: object())
+        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
         controller.assistant_lifecycle._release_assistant_egress = mock.Mock()
         controller.assistant_lifecycle._create_assistant_container = mock.Mock(
             side_effect=local_app.ApiProblem(
@@ -439,18 +419,12 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             ),
         ):
             with self.subTest(cleanup_error=cleanup_error):
-                controller, _container, _events, previous, successor, binding = (
-                    self._update_specs()
-                )
+                controller, _container, _events, previous, successor, binding = self._update_specs()
                 previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
                 successor_image = types.SimpleNamespace(id="sha256:" + "b" * 64)
                 controller.assistant_lifecycle._validate_container_security = mock.Mock()
-                controller.assistant_lifecycle._trusted_image = mock.Mock(
-                    return_value=successor_image
-                )
-                controller.client.images = types.SimpleNamespace(
-                    get=lambda _image, current=previous_image: current
-                )
+                controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=successor_image)
+                controller.client.images = types.SimpleNamespace(get=lambda _image, current=previous_image: current)
                 transaction = types.SimpleNamespace(previous_image_id=previous_image.id)
                 controller.assistant_lifecycle.updates = types.SimpleNamespace(
                     begin=lambda *_args, current=transaction: current
@@ -459,9 +433,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 controller.registry.commit_replacement = mock.Mock(
                     side_effect=bindings.DynamicAssistantError("conflict")
                 )
-                controller.assistant_lifecycle._rollback_assistant_install = mock.Mock(
-                    return_value=cleanup_error
-                )
+                controller.assistant_lifecycle._rollback_assistant_install = mock.Mock(return_value=cleanup_error)
                 controller.assistant_lifecycle._restore_previous_assistant = mock.Mock()
                 controller.assistant_lifecycle._queue_residue = mock.Mock()
                 controller.assistant_lifecycle._clear_update = mock.Mock()
@@ -475,9 +447,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                         authorize_start=lambda: None,
                     )
                 expected = (
-                    "assistant-update-conflict"
-                    if cleanup_error is None
-                    else "assistant-install-rollback-incomplete"
+                    "assistant-update-conflict" if cleanup_error is None else "assistant-install-rollback-incomplete"
                 )
                 self.assertEqual(caught.exception.code, expected)
 
@@ -593,9 +563,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 spec=lambda binding: types.SimpleNamespace(binding=binding),
             ),
             _recover_update_target=mock.Mock(),
-            chat_turn_service=types.SimpleNamespace(
-                _retain_declared_assistant_integration_state=mock.Mock()
-            ),
+            chat_turn_service=types.SimpleNamespace(_retain_declared_assistant_integration_state=mock.Mock()),
             _queue_residue=mock.Mock(),
             _clear_update=mock.Mock(),
             sweep_residues=mock.Mock(),
@@ -610,12 +578,8 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
 class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
     def test_install_starts_stopped_current_assistant_with_authorization(self) -> None:
         controller, container, events = self._lifecycle_controller()
-        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(
-            return_value={}
-        )
-        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(
-            return_value=True
-        )
+        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(return_value={})
+        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(return_value=True)
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
         container.status = "exited"
         container.start = lambda: events.append("start")
@@ -635,12 +599,8 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_install_maps_start_failure_and_replaces_only_readiness_failure(self) -> None:
         controller, container, _events = self._lifecycle_controller()
-        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(
-            return_value={}
-        )
-        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(
-            return_value=True
-        )
+        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(return_value={})
+        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(return_value=True)
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
         container.status = "exited"
         container.start = mock.Mock(side_effect=DockerException("unavailable"))
@@ -652,12 +612,8 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "docker-start-failed")
 
         controller, container, _events = self._lifecycle_controller()
-        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(
-            return_value={}
-        )
-        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(
-            return_value=True
-        )
+        controller.assistant_lifecycle._validate_container_isolation = mock.Mock(return_value={})
+        controller.assistant_lifecycle._has_current_assistant_artifact = mock.Mock(return_value=True)
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
         controller.assistant_lifecycle._wait_ready = mock.Mock(
             side_effect=local_app.ApiProblem(
@@ -695,9 +651,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         )
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "installed": True})
         self.assertIs(
-            controller.assistant_lifecycle._create_assistant_container.call_args.kwargs[
-                "authorize_start"
-            ],
+            controller.assistant_lifecycle._create_assistant_container.call_args.kwargs["authorize_start"],
             authorize,
         )
 
@@ -722,16 +676,12 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_without_container_releases_residual_egress_and_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = types.SimpleNamespace(
-            resolution={"source_digest": "sha256:" + "c" * 64}
-        )
+        binding = types.SimpleNamespace(resolution={"source_digest": "sha256:" + "c" * 64})
         controller.registry.binding = lambda *_args: binding
         controller.registry.bindings = lambda: ()
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
         controller.assistant_lifecycle._egress_token = mock.Mock(return_value="token")
-        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(
-            return_value=False
-        )
+        controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
         controller.assistant_lifecycle._release_assistant_egress = mock.Mock()
         controller.icons = types.SimpleNamespace(discard_unreferenced=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
@@ -747,9 +697,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = types.SimpleNamespace(
-            resolution={"source_digest": "sha256:" + "c" * 64}
-        )
+        binding = types.SimpleNamespace(resolution={"source_digest": "sha256:" + "c" * 64})
         controller.registry.binding = lambda *_args: binding
         controller.registry.bindings = lambda: ()
         controller.icons = types.SimpleNamespace(discard_unreferenced=mock.Mock())

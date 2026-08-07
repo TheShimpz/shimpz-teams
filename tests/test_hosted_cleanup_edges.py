@@ -143,9 +143,12 @@ class HostedCleanupEdgeTests(unittest.TestCase):
             for payload in (b"{", b"[]", json.dumps({"version": 1}).encode()):
                 path.write_bytes(payload)
                 path.chmod(0o600)
-                with self.subTest(payload=payload), self.assertRaisesRegex(
-                    cleanup.CleanupStateError,
-                    "malformed",
+                with (
+                    self.subTest(payload=payload),
+                    self.assertRaisesRegex(
+                        cleanup.CleanupStateError,
+                        "malformed",
+                    ),
                 ):
                     cleanup._load_unlocked("team_1")
 

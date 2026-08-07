@@ -127,9 +127,12 @@ class AssistantIntegrationChallengeTests(unittest.TestCase):
         self.assertEqual(created.id, "b" * 32)
 
         for remaining, metadata in ((0, (requirement(),)), (1, ())):
-            with self.subTest(remaining=remaining, metadata=metadata), self.assertRaisesRegex(
-                integration_challenges.IntegrationChallengeError,
-                "restore is invalid",
+            with (
+                self.subTest(remaining=remaining, metadata=metadata),
+                self.assertRaisesRegex(
+                    integration_challenges.IntegrationChallengeError,
+                    "restore is invalid",
+                ),
             ):
                 store.restore("team_2", "c" * 32, remaining, metadata, object())
 

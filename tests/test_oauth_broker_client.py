@@ -317,9 +317,12 @@ class OAuthBrokerClientTests(unittest.TestCase):
             "https://evil.example/api/oauth/cloudflare/claim",
             "https://shimpz.com/api/oauth/cloudflare/start",
         ):
-            with self.subTest(url=url), self.assertRaisesRegex(
-                integration_broker.OAuthBrokerClientError,
-                "endpoint is invalid",
+            with (
+                self.subTest(url=url),
+                self.assertRaisesRegex(
+                    integration_broker.OAuthBrokerClientError,
+                    "endpoint is invalid",
+                ),
             ):
                 transport.request(url=url, headers={}, body=b"{}")
 
@@ -427,9 +430,12 @@ class OAuthBrokerClientTests(unittest.TestCase):
             {"broker_lease": "invalid"},
         ):
             value = {**valid, **changed}
-            with self.subTest(changed=changed), self.assertRaisesRegex(
-                integration_broker.OAuthBrokerClientError,
-                "response is invalid",
+            with (
+                self.subTest(changed=changed),
+                self.assertRaisesRegex(
+                    integration_broker.OAuthBrokerClientError,
+                    "response is invalid",
+                ),
             ):
                 self.client._tokens(value, SCOPES)
 
