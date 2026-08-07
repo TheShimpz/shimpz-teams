@@ -301,22 +301,23 @@ def rpc_exchange(
 ) -> object:
     """Execute one bounded Docker RPC with shared fail-stop and framing decisions."""
     transport_errors = strategy.transport_errors
-    stream = None
     try:
+        # Docker exec Env is additive; the workload inherits the container environment intentionally.
+        created = strategy.api.exec_create(
+            container_id,
+            argv,
+            stdin=True,
+            stdout=True,
+            stderr=True,
+            privileged=False,
+            user=strategy.user,
+            workdir=strategy.workdir,
+        )
+        exec_id = created["Id"]
+        stream = strategy.api.exec_start(exec_id, socket=True)
+        if stream is None:
+            raise OSError("Docker attach stream is unavailable")
         try:
-            # Docker exec Env is additive; the workload inherits the container environment intentionally.
-            created = strategy.api.exec_create(
-                container_id,
-                argv,
-                stdin=True,
-                stdout=True,
-                stderr=True,
-                privileged=False,
-                user=strategy.user,
-                workdir=strategy.workdir,
-            )
-            exec_id = created["Id"]
-            stream = strategy.api.exec_start(exec_id, socket=True)
             raw_socket = getattr(stream, "_sock", None)
             if raw_socket is None:
                 raise OSError("Docker attach socket cannot half-close stdin")
@@ -324,17 +325,16 @@ def rpc_exchange(
             _write_all(raw_socket, encoded, deadline)
             raw_socket.shutdown(socket.SHUT_WR)
             stdout, stderr = read_rpc_frames(raw_socket, deadline, strategy.maximum)
-        except TimeoutError as exc:
-            strategy.fail_stop()
-            strategy.cancelled(exc)
-            raise RpcExchangeError("timeout") from exc
-        except (*transport_errors, OSError, ValueError, KeyError) as exc:
-            strategy.fail_stop()
-            strategy.cancelled(exc)
-            raise RpcExchangeError("failed") from exc
-    finally:
-        if stream is not None:
+        finally:
             strategy.close_stream(stream)
+    except TimeoutError as exc:
+        strategy.fail_stop()
+        strategy.cancelled(exc)
+        raise RpcExchangeError("timeout") from exc
+    except (*transport_errors, OSError, ValueError, KeyError) as exc:
+        strategy.fail_stop()
+        strategy.cancelled(exc)
+        raise RpcExchangeError("failed") from exc
 
     try:
         details = strategy.api.exec_inspect(exec_id)
