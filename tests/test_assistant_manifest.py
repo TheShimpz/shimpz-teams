@@ -478,6 +478,256 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaises(assistant_manifest.ManifestError):
             cache.get(container, reviewed.integrations, drifted)
 
+    def test_public_contract_helpers_reject_wrong_shapes_and_secret_like_text(self) -> None:
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.canonical_allowed_hosts("api.example.com")
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "credential"):
+            assistant_manifest._public_text(
+                "api_key=private-material-123456",
+                kind="summary",
+                maximum=160,
+            )
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.canonical_integration_declarations([])
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.update_preserves_authority(object(), object())
+        with self.assertRaises(assistant_manifest.ManifestError):
+            assistant_manifest.reviewed_manifest_contract(allowed_hosts=(), integrations=None)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "provider"):
+            assistant_manifest.reviewed_manifest_contract(
+                allowed_hosts=(),
+                integrations={
+                    "cloudflare": type("Metadata", (), {"provider": "x", "scopes": ("zone.read",)})(),
+                },
+            )
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "reviewed manifest"):
+            assistant_manifest.reviewed_manifest_contract(
+                allowed_hosts=(),
+                integrations={"cloudflare": object()},
+            )
+
+    def test_machine_contract_shape_schema_and_usage_edges_fail_closed(self) -> None:
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        valid = json.loads(json.dumps(reviewed.machine_contract))
+        variants = []
+        variants.append({})
+        variants.append({"version": 1, "powers": []})
+        malformed_power = json.loads(json.dumps(valid))
+        malformed_power["powers"][0]["extra"] = True
+        variants.append(malformed_power)
+        duplicated = json.loads(json.dumps(valid))
+        duplicated["powers"].append(json.loads(json.dumps(duplicated["powers"][0])))
+        variants.append(duplicated)
+        invalid_human = json.loads(json.dumps(valid))
+        invalid_human["powers"][0]["human_requests"] = ["invalid"]
+        variants.append(invalid_human)
+        unused_integration = json.loads(json.dumps(valid))
+        for power in unused_integration["powers"]:
+            power["integrations"] = []
+        variants.append(unused_integration)
+        for contract in variants:
+            with self.subTest(contract=contract), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest.canonical_machine_contract(contract, reviewed.integrations)
+
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "subschema"):
+            assistant_manifest._reject_open_or_boolean_subschema([], kind="input")
+        schema_with_list = {
+            "type": "object",
+            "additionalProperties": False,
+            "oneOf": [
+                {"type": "object", "additionalProperties": False},
+            ],
+        }
+        self.assertEqual(assistant_manifest._machine_schema(schema_with_list, kind="input"), schema_with_list)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "invalid"):
+            assistant_manifest._machine_schema(
+                {"type": "object", "additionalProperties": False, "properties": "invalid"},
+                kind="input",
+            )
+        oversized = {
+            "type": "object",
+            "additionalProperties": False,
+            "description": "x" * (129 * 1024),
+        }
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "too large"):
+            assistant_manifest._machine_schema(oversized, kind="input")
+
+    def test_reviewed_catalog_file_and_entry_shapes_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / "missing.json"
+            with self.assertRaisesRegex(assistant_manifest.ManifestError, "unavailable"):
+                assistant_manifest.load_reviewed_catalog(missing)
+
+            valid_contract = json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text())
+            valid_entry = {
+                "name": "Assistant",
+                "summary": "Reviewed Assistant.",
+                "allowed_hosts": [],
+                "integrations": {},
+                "contract": valid_contract,
+            }
+            values = (
+                {},
+                {"version": 1, "assistants": {}},
+                {"version": 1, "assistants": {"assistant": {}}},
+                {
+                    "version": 1,
+                    "assistants": {"assistant": {**valid_entry, "integrations": []}},
+                },
+                {
+                    "version": 1,
+                    "assistants": {
+                        "assistant": {
+                            **valid_entry,
+                            "integrations": {"cloudflare": {}},
+                        }
+                    },
+                },
+            )
+            path = root / "catalog.json"
+            for value in values:
+                path.write_text(json.dumps(value), encoding="utf-8")
+                with self.subTest(value=value), self.assertRaises(assistant_manifest.ManifestError):
+                    assistant_manifest.load_reviewed_catalog(path)
+
+    def test_manifest_credential_nesting_and_section_shapes_fail_closed(self) -> None:
+        nested: object = "safe"
+        for _ in range(66):
+            nested = [nested]
+        for value, message in (
+            (nested, "nesting"),
+            ({1: "value"}, "invalid key"),
+            ({"client_secret": "value"}, "forbidden"),
+            ("Bearer private-material-123456", "credential material"),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(assistant_manifest.ManifestError, message):
+                assistant_manifest._reject_credential_material(value)
+
+        invalid_sections = (
+            b'[shimpz]\nvalue = "x"\n[network]\nallowed_hosts = []\n',
+            b'[shimpz]\nspec = 1\n[network]\nvalue = "x"\n',
+            b'shimpz = "invalid"\n[network]\nallowed_hosts = []\n',
+        )
+        for raw in invalid_sections:
+            with self.subTest(raw=raw), self.assertRaises(assistant_manifest.ManifestError):
+                assistant_manifest._manifest_table(raw)
+        root_integration = b'integrations = "invalid"\n' + manifest()
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "integration declarations"):
+            assistant_manifest.parse_manifest_contract(root_integration)
+
+    def test_bounded_archive_closes_stream_and_classifies_chunk_failures(self) -> None:
+        class Chunks:
+            def __init__(self, values: tuple[object, ...]) -> None:
+                self.values = values
+                self.closed = False
+
+            def __iter__(self):
+                return iter(self.values)
+
+            def close(self) -> None:
+                self.closed = True
+
+        chunks = Chunks((b"one", b"two"))
+        self.assertEqual(assistant_manifest._bounded_archive(chunks), b"onetwo")
+        self.assertTrue(chunks.closed)
+        for values, maximum, error in (
+            (("invalid",), 10, assistant_manifest.ManifestError),
+            ((b"too-large",), 1, assistant_manifest.ManifestError),
+        ):
+            with self.subTest(values=values), self.assertRaises(error):
+                assistant_manifest._bounded_archive(Chunks(values), maximum)
+
+        class Broken:
+            def __iter__(self):
+                raise OSError("offline")
+
+        with self.assertRaises(assistant_manifest.ManifestUnavailableError):
+            assistant_manifest._bounded_archive(Broken())
+
+    def test_container_metadata_extraction_and_size_mismatch_fail_closed(self) -> None:
+        valid = manifest()
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "metadata"):
+            assistant_manifest.read_container_manifest_contract(
+                type("Container", (), {"get_archive": lambda _self, _path: (iter(()), None)})()
+            )
+
+        bundle = mock.Mock()
+        member = mock.Mock()
+        member.name = "shimpz.toml"
+        member.isreg.return_value = True
+        member.size = len(valid)
+        member.mode = 0o444
+        bundle.getmembers.return_value = [member]
+        bundle.extractfile.return_value = None
+        bundle.__enter__ = mock.Mock(return_value=bundle)
+        bundle.__exit__ = mock.Mock(return_value=False)
+        container = Container("container", valid)
+        with (
+            mock.patch.object(assistant_manifest.tarfile, "open", return_value=bundle),
+            self.assertRaisesRegex(assistant_manifest.ManifestError, "archive"),
+        ):
+            assistant_manifest.read_container_manifest_contract(container)
+
+        extracted = mock.Mock()
+        extracted.read.side_effect = OSError("offline")
+        bundle.extractfile.return_value = extracted
+        with (
+            mock.patch.object(assistant_manifest.tarfile, "open", return_value=bundle),
+            self.assertRaisesRegex(assistant_manifest.ManifestError, "archive"),
+        ):
+            assistant_manifest.read_container_manifest_contract(container)
+
+        extracted.read.side_effect = None
+        extracted.read.return_value = valid[:-1]
+        with (
+            mock.patch.object(assistant_manifest.tarfile, "open", return_value=bundle),
+            self.assertRaisesRegex(assistant_manifest.ManifestError, "archive"),
+        ):
+            assistant_manifest.read_container_manifest_contract(container)
+
+        payload = archive(valid)
+        mismatch = type(
+            "Container",
+            (),
+            {
+                "get_archive": lambda _self, _path: (
+                    iter((payload,)),
+                    {"name": "shimpz.toml", "size": len(valid) - 1, "mode": 0o444},
+                )
+            },
+        )()
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "archive"):
+            assistant_manifest.read_container_manifest_contract(mismatch)
+
+    def test_contract_caches_validate_identity_review_and_evict_old_generations(self) -> None:
+        for cache_type in (assistant_manifest.ManifestContractCache, assistant_manifest.MachineContractCache):
+            with self.subTest(cache=cache_type.__name__), self.assertRaises(ValueError):
+                cache_type(0)
+
+        expected = assistant_manifest.parse_manifest_contract(manifest())
+        cache = assistant_manifest.ManifestContractCache(max_entries=1)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
+            cache.get(object(), expected)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "reviewed"):
+            cache.get(Container("valid", manifest()), object())
+        first = Container("first", manifest())
+        second = Container("second", manifest())
+        cache.get(first, expected)
+        cache.get(second, expected)
+        self.assertEqual(tuple(cache._entries), ("second",))
+        cache.discard(None)
+
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
+        machine = assistant_manifest.MachineContractCache(max_entries=1)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
+            machine.get(object(), reviewed.integrations, reviewed.machine_contract)
+        machine.get(ContractContainer("first", raw), reviewed.integrations, reviewed.machine_contract)
+        machine.get(ContractContainer("second", raw), reviewed.integrations, reviewed.machine_contract)
+        self.assertEqual(tuple(machine._entries), ("second",))
+        machine.discard(None)
+
 
 if __name__ == "__main__":
     unittest.main()

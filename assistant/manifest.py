@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import ipaddress
 import json
 import re
 import tarfile
@@ -129,12 +128,6 @@ def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
         if not isinstance(host, str) or not 1 <= len(host) <= 253 or not host.isascii() or host != host.lower():
             raise ManifestError("Assistant allowed_hosts is invalid")
         if _PUBLIC_HOST_RE.fullmatch(host) is None or host.endswith(_NON_PUBLIC_HOST_SUFFIXES):
-            raise ManifestError("Assistant allowed_hosts is invalid")
-        try:
-            ipaddress.ip_address(host)
-        except ValueError:
-            pass
-        else:
             raise ManifestError("Assistant allowed_hosts is invalid")
         hosts.append(host)
     if len(set(hosts)) != len(hosts):
@@ -516,8 +509,6 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
         manifest = tomllib.loads(text)
     except (RecursionError, tomllib.TOMLDecodeError) as exc:
         raise ManifestError("Assistant manifest is invalid TOML") from exc
-    if not isinstance(manifest, dict):
-        raise ManifestError("Assistant manifest is invalid")
     required_root = {"shimpz", "network"}
     if not required_root <= set(manifest) or set(manifest) - (required_root | {"integrations"}):
         raise ManifestError("Assistant manifest contains an unsupported top-level field")
@@ -546,8 +537,6 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     manifest = _manifest_table(raw)
     metadata = manifest["shimpz"]
     network = manifest["network"]
-    if not isinstance(metadata, dict) or not isinstance(network, dict):
-        raise ManifestError("Assistant manifest contains an invalid section")
     if metadata["spec"] != 1:
         raise ManifestError("Assistant spec is unsupported")
     assistant_id = _identifier(metadata["id"], kind="id", maximum=40)
@@ -590,8 +579,6 @@ def parse_manifest_genesis(raw: bytes) -> str:
     """Read the canonical model guidance from one complete Spec v1 manifest."""
     manifest = _manifest_table(raw)
     metadata = manifest["shimpz"]
-    if not isinstance(metadata, dict):
-        raise ManifestError("Assistant manifest contains an invalid section")
     return _genesis(metadata["genesis"]).strip()
 
 
