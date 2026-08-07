@@ -13,6 +13,7 @@ class RegistryAuthTests(unittest.TestCase):
     def test_anonymous_registry_access_writes_no_credentials(self) -> None:
         access = AnonymousRegistryAccess()
 
+        self.assertEqual(repr(access), "AnonymousRegistryAccess()")
         self.assertIsNone(access.docker_auth_config())
         with access.docker_config() as directory:
             self.assertEqual(Path(directory, "config.json").read_text(encoding="ascii"), '{"auths":{}}')
@@ -61,6 +62,23 @@ class RegistryAuthTests(unittest.TestCase):
                 token_path.write_text(token, encoding="utf-8")
                 with self.subTest(name=name), self.assertRaises(RegistryAuthError):
                     RegistryAuth.from_files(username_path, token_path)
+
+    def test_constructor_rejects_invalid_usernames_and_token_shapes(self) -> None:
+        for username in ("", "-reader", "reader-", "a" * 40):
+            with self.subTest(username=username), self.assertRaisesRegex(RegistryAuthError, "username"):
+                RegistryAuth(username, "x" * 20)
+        for token in ("short", "x" * 1025, "é" * 20, "x" * 19 + "\n"):
+            with self.subTest(token_length=len(token)), self.assertRaisesRegex(RegistryAuthError, "token"):
+                RegistryAuth("reader", token)
+
+    def test_secret_reader_rejects_empty_and_oversized_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "secret")
+            for raw in (b"", b"x" * 1025):
+                with self.subTest(size=len(raw)):
+                    path.write_bytes(raw)
+                    with self.assertRaisesRegex(RegistryAuthError, "invalid"):
+                        RegistryAuth.from_files(path, path)
 
 
 if __name__ == "__main__":

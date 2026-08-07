@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import docker
 from local_assistant_fixture import hosted_spec
@@ -139,6 +140,26 @@ class AssistantArtifactTests(unittest.TestCase):
         for payload in ({"page": 1, "per_page": 25, "shell": "id"}, {"page": 0, "per_page": 25}, []):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 assistant_registry.validate_power_payload(power, "input", payload)
+
+    def test_docker_lookup_and_pull_failures_are_redacted(self) -> None:
+        spec = hosted_spec(TEST_IMAGE)
+        images = mock.Mock()
+        images.get.side_effect = docker.errors.APIError("private transport detail")
+        with self.assertRaisesRegex(assistant_artifact.ImageTrustError, "unavailable"):
+            assistant_artifact.ensure_digest_artifact(images, spec, AUTH)
+
+        images.get.side_effect = docker.errors.ImageNotFound("missing")
+        images.pull.side_effect = docker.errors.APIError("private registry detail")
+        with self.assertRaisesRegex(assistant_artifact.ImageTrustError, "unavailable"):
+            assistant_artifact.ensure_digest_artifact(images, spec, AUTH)
+
+    def test_pull_that_does_not_materialize_the_digest_fails_closed(self) -> None:
+        spec = hosted_spec(TEST_IMAGE)
+        images = _Images(None)
+
+        with self.assertRaisesRegex(assistant_artifact.ImageTrustError, "unavailable"):
+            assistant_artifact.ensure_digest_artifact(images, spec, AUTH)
+        self.assertEqual(images.pulls, [TEST_IMAGE])
 
 
 if __name__ == "__main__":
