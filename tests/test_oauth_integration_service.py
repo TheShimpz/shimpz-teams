@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from integrations import challenges as integration_challenges
@@ -407,6 +410,60 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             self.store.metadata("team_1", "shimpz-cloudflare", {"cloudflare": DECLARATION})[0].status,
             "connected",
         )
+
+    def test_candidate_projection_rejects_malformed_pending_contracts(self) -> None:
+        self.assertEqual(
+            integration_service._declaration(SimpleNamespace(provider="cloudflare", scopes=SCOPES)),
+            ("cloudflare", SCOPES),
+        )
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
+            integration_service._identifier("Bad", "Assistant")
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
+            integration_service._declaration(object())
+        with self.assertRaises(integration_service.OAuthIntegrationServiceError):
+            integration_service._candidates(object())
+
+        malformed_requirement = integration_challenges.IntegrationRequirement(
+            assistant_id="assistant",
+            assistant_name="Assistant",
+            power_ids=("power",),
+            integrations=(),
+        )
+        malformed_integration = integration_challenges.IntegrationRequirement(
+            assistant_id="assistant",
+            assistant_name="Assistant",
+            power_ids=("power",),
+            integrations=(("invalid",),),
+        )
+        duplicate = requirement("assistant")
+        for requirements in (
+            (malformed_requirement,),
+            (malformed_integration,),
+            (duplicate, duplicate),
+        ):
+            challenge = integration_challenges.PendingIntegrationChallenge(
+                id="0" * 32,
+                team_id="team_1",
+                expires_at=time.monotonic() + 60,
+                requirements=requirements,
+                payload=None,
+            )
+            with self.subTest(requirements=requirements), self.assertRaises(
+                integration_service.OAuthIntegrationServiceError
+            ):
+                integration_service._candidates(challenge)
+
+    def test_completion_requires_a_live_declaration_resolver(self) -> None:
+        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "resolver"):
+            integration_service._complete(
+                self.challenges,
+                self.store,
+                mock.Mock(),
+                "state",
+                CODE,
+                SESSION,
+                None,
+            )
 
 
 if __name__ == "__main__":

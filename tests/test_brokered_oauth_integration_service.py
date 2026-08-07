@@ -212,6 +212,21 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
 
         self.assertEqual(self.transport.requests, [])
 
+    def test_configuration_repr_and_broker_failures_are_closed(self) -> None:
+        self.assertEqual(repr(self.service), "<BrokeredOAuthIntegrationService shimpz.com>")
+        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "configuration"):
+            integration_service.BrokeredOAuthIntegrationService(
+                challenge=object(),
+                store=self.store,
+                broker=integration_broker.OAuthBrokerClient(self.transport),
+            )
+        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "cancelled"):
+            self.service.cancel(None)
+        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "refreshed"):
+            self.service.refresh("missing", SCOPES, REFRESH, LEASE)
+        with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "disconnected"):
+            self.service.disconnect("../team", "assistant", "integration")
+
 
 if __name__ == "__main__":
     unittest.main()
