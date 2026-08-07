@@ -167,6 +167,17 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         ):
             self.assertFalse(lifecycle._teardown_assistants(TEAM_ID))
 
+        with (
+            mock.patch.object(lifecycle.assistant_lifecycle, "_team_assistant_containers", return_value=[valid]),
+            mock.patch.object(
+                lifecycle.assistant_lifecycle,
+                "_teardown_assistant",
+                return_value=resources._CleanupResult(False, True),
+            ),
+            mock.patch.object(state._dynamic_assistants, "list", return_value=()),
+        ):
+            self.assertFalse(lifecycle._teardown_assistants(TEAM_ID))
+
         binding = SimpleNamespace(assistant_id="assistant")
         for removed in (False, True):
             delete_error = lifecycle.dynamic_assistants.DynamicAssistantError("state") if removed else None
