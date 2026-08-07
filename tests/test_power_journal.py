@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import multiprocessing
 import os
 import shutil
@@ -8,6 +9,7 @@ import sqlite3
 import stat
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
@@ -31,6 +33,25 @@ def _crash_after_acknowledged_transition(path: str, phase: str) -> None:
     os._exit(0)
 
 
+class _ConnectionProxy:
+    def __init__(self, connection: sqlite3.Connection, match: str, *, result: object = None) -> None:
+        self.connection = connection
+        self.match = match
+        self.result = result
+        self.used = False
+
+    def execute(self, statement: str, parameters: object = ()) -> object:
+        if not self.used and self.match in statement:
+            self.used = True
+            if self.result is None:
+                raise sqlite3.Error("synthetic storage failure")
+            return mock.Mock(fetchone=lambda: self.result)
+        return self.connection.execute(statement, parameters)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.connection, name)
+
+
 class PowerJournalTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -43,6 +64,42 @@ class PowerJournalTests(unittest.TestCase):
         journal = power_journal.PowerJournal(self.path, **limits)
         self.addCleanup(journal.close)
         return journal
+
+    def assert_sql_failure(
+        self,
+        journal: power_journal.PowerJournal,
+        match: str,
+        operation: Callable[[], object],
+        message: str,
+    ) -> None:
+        connection = journal._connection
+        proxy = _ConnectionProxy(connection, match)
+        journal._connection = proxy
+        try:
+            with self.assertRaisesRegex(power_journal.PowerJournalError, message):
+                operation()
+            self.assertTrue(proxy.used)
+        finally:
+            journal._connection = connection
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+
+    def assert_change_conflict(
+        self,
+        journal: power_journal.PowerJournal,
+        operation: Callable[[], object],
+    ) -> None:
+        connection = journal._connection
+        proxy = _ConnectionProxy(connection, "SELECT changes()", result=(0,))
+        journal._connection = proxy
+        try:
+            with self.assertRaises(power_journal.PowerJournalConflictError):
+                operation()
+            self.assertTrue(proxy.used)
+        finally:
+            journal._connection = connection
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
 
     def test_reopen_returns_canonical_cached_result_without_reexecution(self) -> None:
         journal = self.journal()
@@ -403,6 +460,243 @@ class PowerJournalTests(unittest.TestCase):
             self.assertRaises(power_journal.PowerJournalCorruptionError),
         ):
             power_journal.PowerJournal(self.path)
+
+    def test_scalar_operation_and_json_guards_reject_invalid_values(self) -> None:
+        for value in (0, True, "1"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                power_journal._positive_limit(value, "limit")
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            power_journal._safe_id("../unsafe", "identifier")
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            power_journal._operation(object())
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            power_journal._operation(power_journal.Operation("interrupt", "invalid"))
+
+        for value in (
+            math.inf,
+            {1: "invalid"},
+            object(),
+        ):
+            with self.subTest(value=value), self.assertRaises(power_journal.PowerJournalConflictError):
+                power_journal._walk_json(value)
+        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "structure"):
+            power_journal._walk_json(None, budget=[0])
+        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "canonical"):
+            power_journal._canonical_result("\ud800", 100)
+        power_journal._walk_json(1.5)
+
+    def test_file_configuration_schema_and_transaction_failures_are_closed(self) -> None:
+        with (
+            mock.patch.object(Path, "mkdir", side_effect=OSError("offline")),
+            self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "unavailable"),
+        ):
+            power_journal.PowerJournal(self.path)
+
+        journal = object.__new__(power_journal.PowerJournal)
+        connection = mock.Mock()
+        journal._connection = connection
+        connection.execute.return_value.fetchone.return_value = ("delete",)
+        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable mode"):
+            journal._configure()
+
+        connection.reset_mock()
+        results = [("wal",), (0,), (1,)]
+        connection.execute.side_effect = lambda _statement: mock.Mock(fetchone=lambda: results.pop(0))
+        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durability policy"):
+            journal._configure()
+
+        connection.execute.side_effect = sqlite3.Error("offline")
+        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "integrity"):
+            journal._validate_schema()
+        with self.assertRaisesRegex(power_journal.PowerJournalError, "transaction"):
+            journal._transaction()
+        with self.assertRaisesRegex(power_journal.PowerJournalError, "commit"):
+            journal._commit()
+
+        journal._closed = True
+        with self.assertRaisesRegex(power_journal.PowerJournalError, "closed"):
+            journal._ensure_open()
+
+    def test_batch_and_handle_shapes_are_exact(self) -> None:
+        journal = self.journal(max_operations=2)
+        for operations in ("invalid", object(), (), (self.first, self.second, operation("third", "three"))):
+            with self.subTest(operations=operations), self.assertRaises(power_journal.PowerJournalConflictError):
+                journal._batch("generation", "thread", operations)
+        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "repeats"):
+            journal._batch("generation", "thread", (self.first, self.first))
+
+        valid = journal._batch("generation", "thread", (self.first,))
+        invalid_handles = (
+            object(),
+            power_journal.Batch(valid.generation, "invalid", valid.operations),
+            power_journal.Batch(valid.generation, valid.fingerprint, ()),
+            power_journal.Batch(valid.generation, valid.fingerprint, (self.first, self.first)),
+        )
+        for handle in invalid_handles:
+            with self.subTest(handle=handle), self.assertRaises(power_journal.PowerJournalConflictError):
+                journal._validate_handle(handle)
+
+    def test_internal_read_failures_are_never_mistaken_for_conflicts(self) -> None:
+        journal = self.journal()
+        batch = journal._batch("generation", "thread", (self.first,))
+        connection = journal._connection
+        journal._connection = mock.Mock()
+        journal._connection.execute.side_effect = sqlite3.Error("offline")
+        try:
+            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "batch could not be read"):
+                journal._load_batch(batch)
+            journal._validated_batches[(batch.generation, batch.fingerprint)] = {
+                self.first.interrupt_id: (0, self.first.fingerprint)
+            }
+            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "operation could not be read"):
+                journal._load_operation(batch, self.first)
+        finally:
+            journal._connection = connection
+
+    def test_constructor_schema_and_context_manager_edges_are_closed(self) -> None:
+        with (
+            mock.patch.object(
+                power_journal.sqlite3,
+                "connect",
+                side_effect=power_journal.PowerJournalCorruptionError("invalid"),
+            ),
+            self.assertRaises(power_journal.PowerJournalCorruptionError),
+        ):
+            power_journal.PowerJournal(self.path)
+        with (
+            mock.patch.object(
+                power_journal.PowerJournal,
+                "_configure",
+                side_effect=power_journal.PowerJournalCorruptionError("invalid"),
+            ),
+            self.assertRaises(power_journal.PowerJournalCorruptionError),
+        ):
+            power_journal.PowerJournal(self.path)
+
+        journal = self.journal()
+        journal._connection.execute("PRAGMA user_version = 2")
+        journal.close()
+        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "schema"):
+            power_journal.PowerJournal(self.path)
+
+        replacement = Path(self.temporary.name) / "context" / "journal.sqlite3"
+        with power_journal.PowerJournal(replacement) as opened:
+            self.assertIsInstance(opened, power_journal.PowerJournal)
+        with self.assertRaisesRegex(power_journal.PowerJournalError, "closed"):
+            opened.__enter__()
+        opened.__exit__()
+
+    def test_prepare_begin_complete_and_suspend_reject_state_corruption(self) -> None:
+        journal = self.journal()
+        batch = journal.prepare_batch("generation", "thread", (self.first,))
+        outsider = operation("outsider", "value")
+        for method, arguments in (
+            (journal.begin, (batch, outsider)),
+            (journal.complete, (batch, outsider, {"ok": True})),
+            (journal.suspend, (batch, outsider)),
+        ):
+            with self.subTest(method=method.__name__), self.assertRaises(power_journal.PowerJournalConflictError):
+                method(*arguments)
+
+        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "not executing"):
+            journal.complete(batch, self.first, {"ok": True})
+        journal.begin(batch, self.first)
+        with mock.patch.object(
+            journal,
+            "_load_operation",
+            return_value=(0, self.first.interrupt_id, self.first.fingerprint, "prepared", b"result"),
+        ), self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable state"):
+            journal.begin(batch, self.first)
+
+    def test_cached_result_guards_reject_invalid_raw_and_cached_bytes(self) -> None:
+        journal = self.journal()
+        batch = journal._batch("generation", "thread", (self.first,))
+        for raw in ("invalid", b"x" * (journal.max_result_bytes + 1)):
+            with self.subTest(raw=type(raw)), self.assertRaises(power_journal.PowerJournalCorruptionError):
+                journal._decode_result(raw)
+            with self.subTest(raw=type(raw)), self.assertRaises(power_journal.PowerJournalCorruptionError):
+                journal._validated_result(batch, self.first.interrupt_id, raw)
+
+        invalid = b"not-json"
+        journal._validated_results[(batch.generation, self.first.interrupt_id)] = hashlib.sha256(invalid).digest()
+        with self.assertRaises(power_journal.PowerJournalCorruptionError):
+            journal._validated_result(batch, self.first.interrupt_id, invalid)
+
+    def test_sqlite_write_failures_are_translated_for_every_transition(self) -> None:
+        journal = self.journal()
+        self.assert_sql_failure(
+            journal,
+            "SELECT fingerprint FROM batches",
+            lambda: journal.prepare_batch("generation", "thread", (self.first,)),
+            "prepared",
+        )
+
+        batch = journal.prepare_batch("generation", "thread", (self.first,))
+        self.assert_sql_failure(
+            journal,
+            "UPDATE operations SET state = 'executing'",
+            lambda: journal.begin(batch, self.first),
+            "begin",
+        )
+        journal.begin(batch, self.first)
+        self.assert_sql_failure(
+            journal,
+            "UPDATE operations SET state = 'completed'",
+            lambda: journal.complete(batch, self.first, {"ok": True}),
+            "committed",
+        )
+        self.assert_sql_failure(
+            journal,
+            "UPDATE operations SET state = 'prepared'",
+            lambda: journal.suspend(batch, self.first),
+            "suspension",
+        )
+        journal.complete(batch, self.first, {"ok": True})
+        self.assert_sql_failure(
+            journal,
+            "DELETE FROM batches",
+            lambda: journal.delivered(batch),
+            "delivery",
+        )
+
+    def test_purge_storage_failures_and_invalid_capacity_row_are_closed(self) -> None:
+        journal = self.journal()
+        connection = journal._connection
+        proxy = _ConnectionProxy(connection, "SELECT COUNT(*) FROM batches", result=None)
+        proxy.result = (None,)
+        journal._connection = proxy
+        try:
+            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "capacity"):
+                journal.prepare_batch("generation", "thread", (self.first,))
+        finally:
+            journal._connection = connection
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+
+        self.assert_sql_failure(
+            journal,
+            "DELETE FROM batches",
+            lambda: journal.purge("generation"),
+            "purged",
+        )
+        self.assert_sql_failure(
+            journal,
+            "SELECT state FROM operations",
+            lambda: journal.purge_replayable("generation"),
+            "replayable",
+        )
+
+    def test_every_compare_and_swap_rejects_a_lost_update(self) -> None:
+        journal = self.journal()
+        batch = journal.prepare_batch("generation", "thread", (self.first,))
+        self.assert_change_conflict(journal, lambda: journal.begin(batch, self.first))
+
+        journal.begin(batch, self.first)
+        self.assert_change_conflict(journal, lambda: journal.complete(batch, self.first, {"ok": True}))
+        self.assert_change_conflict(journal, lambda: journal.suspend(batch, self.first))
+
+        journal.complete(batch, self.first, {"ok": True})
+        self.assert_change_conflict(journal, lambda: journal.delivered(batch))
 
         real_lstat = Path.lstat
 

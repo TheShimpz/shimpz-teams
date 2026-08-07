@@ -521,8 +521,6 @@ class PowerJournal:
             if _canonical_result(result, self.max_result_bytes) != raw:
                 raise ValueError("result is not canonical")
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError, PowerJournalError) as exc:
-            if isinstance(exc, PowerJournalCorruptionError):
-                raise
             raise PowerJournalCorruptionError("cached Power result is invalid") from exc
         return result
 
