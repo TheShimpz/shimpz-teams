@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from inference import config as inference_config
 
@@ -91,6 +92,43 @@ class InferenceConfigTests(unittest.TestCase):
 
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.load("team_1")
+
+    def test_malformed_and_cross_team_persisted_metadata_fails_closed(self) -> None:
+        self.root.mkdir(parents=True)
+        target = self.store._path("team_1")
+        for payload in (
+            b"\xff",
+            b"{",
+            b"[]",
+            json.dumps({"schema": inference_config.SCHEMA}).encode(),
+            json.dumps(
+                {
+                    "schema": inference_config.SCHEMA + 1,
+                    "team_id": "team_1",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                }
+            ).encode(),
+            json.dumps(
+                {
+                    "schema": inference_config.SCHEMA,
+                    "team_id": "team_2",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                }
+            ).encode(),
+        ):
+            with self.subTest(payload=payload):
+                target.write_bytes(payload)
+                with self.assertRaisesRegex(inference_config.InferenceConfigError, "invalid"):
+                    self.store.load("team_1")
+
+    def test_delete_wraps_filesystem_failure(self) -> None:
+        with (
+            mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
+            self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
+        ):
+            self.store.delete("team_1")
 
 
 if __name__ == "__main__":

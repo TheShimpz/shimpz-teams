@@ -5,6 +5,7 @@ import secrets
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from inference import client as brain_runtime_client
 
@@ -204,6 +205,67 @@ class BrainRuntimeClientTests(unittest.TestCase):
         ):
             with self.subTest(url=url), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 brain_runtime_client.BrainRuntimeClient(base_url=url, token_file=self.token_file)
+
+    def test_default_connection_factory_builds_a_plain_http_connection(self) -> None:
+        with mock.patch.object(
+            brain_runtime_client.http.client,
+            "HTTPConnection",
+            return_value="connection",
+        ) as factory:
+            self.assertEqual(brain_runtime_client._connection("brain", 8080, 3.0), "connection")
+        factory.assert_called_once_with("brain", 8080, timeout=3.0)
+
+    def test_missing_and_malformed_runtime_tokens_fail_before_transport(self) -> None:
+        missing = self.token_file.with_name("missing")
+        client = brain_runtime_client.BrainRuntimeClient(token_file=missing)
+        with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "authentication"):
+            client._token()
+
+        for token in ("", "x" * 4097, "bad\0token"):
+            with self.subTest(token_length=len(token)):
+                self.token_file.write_text(token, encoding="utf-8")
+                with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "authentication"):
+                    client = brain_runtime_client.BrainRuntimeClient(token_file=self.token_file)
+                    client._token()
+
+    def test_transport_and_oversized_responses_fail_closed_and_close(self) -> None:
+        connection = _Connection(_Response({}))
+        connection.request = mock.Mock(side_effect=OSError("offline"))
+        client = brain_runtime_client.BrainRuntimeClient(
+            token_file=self.token_file,
+            connection_factory=lambda *_args: connection,
+        )
+        with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "unavailable"):
+            client.start(context(self.secret), "Hello")
+        self.assertTrue(connection.closed)
+
+        client, connection = self.client(_Response({}, raw=b"x" * (brain_runtime_client.MAX_RESPONSE_BYTES + 1)))
+        with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "invalid response"):
+            client.start(context(self.secret), "Hello")
+        self.assertTrue(connection.closed)
+
+    def test_root_and_power_identity_response_shapes_fail_closed(self) -> None:
+        invalid = (
+            [],
+            {"status": "completed", "reply": "ok", "powers": [], "extra": True},
+            {
+                "status": "power-required",
+                "reply": "",
+                "powers": [
+                    {
+                        "interrupt_id": "bad interrupt",
+                        "assistant_id": "hello-pulse",
+                        "power": "hello",
+                        "input": {},
+                    }
+                ],
+            },
+        )
+        for payload in invalid:
+            with self.subTest(payload=payload):
+                client, _connection = self.client(_Response(payload))
+                with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "invalid response"):
+                    client.start(context(self.secret), "Hello")
 
 
 if __name__ == "__main__":
