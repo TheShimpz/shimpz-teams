@@ -553,7 +553,7 @@ class Handler(BaseHTTPRequestHandler):
         if owner_account_id is None:
             raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Account Owner evidence is unavailable")
         runtime_state._enforce_rate("create", principal)
-        body = self._read_body()
+        body = self._read_body(max_bytes=runtime_state.MAX_TEAM_JSON_BODY_BYTES)
         lifecycle_body = {key: value for key, value in body.items() if key != "owner_account_id"}
         result = hosted_lifecycle._create(team_id, lifecycle_body, owner_account_id)
         trace = self._audit_security(

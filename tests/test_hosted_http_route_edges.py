@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import sys
 import unittest
 from http import HTTPStatus
@@ -169,6 +170,19 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
             handler._route_team_create(TEAM_ID, ("account", ACCOUNT_ID), ACCOUNT_ID)
         create.assert_called_once_with(TEAM_ID, {"team_name": "Marketing"}, ACCOUNT_ID)
         handler._send_json.assert_called_once_with(HTTPStatus.OK, {"created": True, "trace_id": "trace"})
+
+    def test_team_create_reuses_its_dedicated_body_limit_after_authorization(self) -> None:
+        handler = _handler()
+        body = {"team_name": "M" * 2048, "owner_account_id": ACCOUNT_ID}
+        handler._captured_json_body = body
+        handler._captured_json_raw = json.dumps(body).encode()
+        with (
+            mock.patch.object(runtime_state, "MAX_JSON_BODY_BYTES", 1024),
+            mock.patch.object(runtime_state, "_enforce_rate"),
+            mock.patch.object(hosted_lifecycle, "_create", return_value={"created": True}) as create,
+        ):
+            handler._route_team_create(TEAM_ID, ("account", ACCOUNT_ID), ACCOUNT_ID)
+        create.assert_called_once_with(TEAM_ID, {"team_name": "M" * 2048}, ACCOUNT_ID)
 
     def test_team_destroy_uses_the_cleanup_authorization_successor(self) -> None:
         handler = _handler()
