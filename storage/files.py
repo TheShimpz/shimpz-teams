@@ -158,8 +158,7 @@ class TeamStorage:
         path = self._team_dir(team_id, create=create) / "files.sqlite3"
         if create:
             flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_CLOEXEC
-            if hasattr(os, "O_NOFOLLOW"):
-                flags |= os.O_NOFOLLOW
+            flags |= getattr(os, "O_NOFOLLOW", 0)
             try:
                 descriptor = os.open(path, flags, 0o600)
             except FileExistsError:

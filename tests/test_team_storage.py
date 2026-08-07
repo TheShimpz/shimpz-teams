@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import sqlite3
 import stat
 import sys
 import tempfile
@@ -190,6 +191,133 @@ class TeamStorageTests(unittest.TestCase):
         with self.assertRaises(team_storage.StorageError):
             storage.put("alpha", "safe.bin", b"safe")
         self.assertEqual(target.read_bytes(), b"outside")
+
+    def test_identifiers_limits_and_file_inputs_fail_closed(self) -> None:
+        with self.assertRaises(team_storage.StorageError):
+            team_storage.TeamStorage(self.root, limit_bytes=True)
+        with self.assertRaises(team_storage.StorageError):
+            team_storage.TeamStorage(self.root, limit_bytes=0)
+
+        storage = team_storage.TeamStorage(self.root, limit_bytes=4)
+        with self.assertRaises(team_storage.StorageError):
+            storage.list("INVALID")
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            storage.get("alpha", "not-an-id")
+        with self.assertRaises(team_storage.StorageInputError):
+            storage.put("alpha", "x" * (team_storage.MAX_FILENAME_BYTES + 1), b"x")
+        with self.assertRaises(team_storage.StorageInputError):
+            storage.put("alpha", "empty.bin", b"")
+        with self.assertRaises(team_storage.StorageInputError):
+            storage.put("alpha", "not-bytes.bin", bytearray(b"x"))
+        with self.assertRaises(team_storage.StorageQuotaError):
+            storage.put("alpha", "large.bin", b"12345")
+
+    def test_storage_paths_reject_unavailable_and_unsafe_directories(self) -> None:
+        with (
+            mock.patch.object(Path, "mkdir", side_effect=OSError("denied")),
+            self.assertRaisesRegex(team_storage.StorageError, "root is unavailable"),
+        ):
+            team_storage.TeamStorage(self.root)
+
+        self.root.mkdir(mode=0o700)
+        self.root.chmod(stat.S_IMODE(self.root.stat().st_mode) | stat.S_IRGRP)
+        with self.assertRaisesRegex(team_storage.StorageError, "unsafe ownership or permissions"):
+            team_storage.TeamStorage(self.root)
+
+        self.root.chmod(0o700)
+        storage = team_storage.TeamStorage(self.root)
+        team = self.root / "alpha"
+        team.mkdir(mode=0o700)
+        team.chmod(stat.S_IMODE(team.stat().st_mode) | stat.S_IRGRP)
+        with self.assertRaisesRegex(team_storage.StorageError, "Team storage has unsafe"):
+            storage.list("alpha")
+        with self.assertRaisesRegex(team_storage.StorageError, "Team storage has unsafe"):
+            storage.destroy("alpha")
+
+        team.chmod(0o700)
+        self.assertFalse(storage._database_path("alpha", create=False).exists())
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            storage._connect("alpha", create=False)
+
+    def test_connection_setup_fails_closed_and_closes_the_database(self) -> None:
+        storage = team_storage.TeamStorage(self.root, limit_bytes=64)
+        path = self.root / "alpha" / "files.sqlite3"
+        path.parent.mkdir(mode=0o700)
+        path.touch(mode=0o600)
+
+        failed_connection = mock.Mock()
+        failed_connection.execute.side_effect = RuntimeError("pragma failed")
+        with (
+            mock.patch.object(sqlite3, "connect", return_value=failed_connection),
+            self.assertRaisesRegex(RuntimeError, "pragma failed"),
+        ):
+            storage._connect("alpha", create=False)
+        failed_connection.close.assert_called_once_with()
+
+        mismatched_connection = mock.Mock()
+
+        def execute(statement: str) -> mock.Mock:
+            result = mock.Mock()
+            if statement == "PRAGMA page_size":
+                result.fetchone.return_value = (4096,)
+            elif statement == "PRAGMA page_count":
+                result.fetchone.return_value = (0,)
+            elif statement.startswith("PRAGMA max_page_count="):
+                result.fetchone.return_value = (1,)
+            return result
+
+        mismatched_connection.execute.side_effect = execute
+        with (
+            mock.patch.object(sqlite3, "connect", return_value=mismatched_connection),
+            self.assertRaisesRegex(team_storage.StorageError, "page limit could not be applied"),
+        ):
+            storage._connect("alpha", create=False)
+        mismatched_connection.close.assert_called_once_with()
+
+    def test_database_errors_are_mapped_without_leaking_sqlite_failures(self) -> None:
+        storage = team_storage.TeamStorage(self.root, limit_bytes=64)
+        for detail, expected in (
+            ("database or disk is full", team_storage.StorageQuotaError),
+            ("malformed database", team_storage.StorageError),
+        ):
+            with self.subTest(detail=detail):
+                connection = mock.Mock()
+                connection.execute.side_effect = sqlite3.DatabaseError(detail)
+                with (
+                    mock.patch.object(storage, "_connect", return_value=connection),
+                    self.assertRaises(expected),
+                ):
+                    storage.put("alpha", "safe.bin", b"safe")
+                connection.close.assert_called_once_with()
+
+    def test_missing_storage_metadata_bounds_and_delete_rollback(self) -> None:
+        storage = team_storage.TeamStorage(self.root, limit_bytes=64)
+        missing_id = "0" * 32
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            storage.get("alpha", missing_id)
+        self.assertEqual(storage.metadata("alpha", []), [])
+        with storage.metadata_connection("alpha", []) as reader:
+            self.assertIsNone(reader)
+        with self.assertRaises(team_storage.StorageInputError):
+            storage.metadata("alpha", [missing_id] * 9)
+        with self.assertRaises(team_storage.StorageInputError):
+            storage.metadata("alpha", [missing_id, missing_id])
+        self.assertFalse(storage.delete("alpha", missing_id)["deleted"])
+
+        stored = storage.put("alpha", "safe.bin", b"safe")
+        with (
+            mock.patch.object(storage, "_usage", side_effect=RuntimeError("usage failed")),
+            self.assertRaisesRegex(RuntimeError, "usage failed"),
+        ):
+            storage.delete("alpha", stored["id"])
+        self.assertEqual(storage.get("alpha", stored["id"])[1], b"safe")
+
+    def test_destroy_all_counts_only_successful_current_directories(self) -> None:
+        storage = team_storage.TeamStorage(self.root, limit_bytes=64)
+        storage.put("alpha", "safe.bin", b"safe")
+        with mock.patch.object(storage, "destroy", return_value=False) as destroy:
+            self.assertEqual(storage.destroy_all(), 0)
+        destroy.assert_called_once_with("alpha")
 
 
 if __name__ == "__main__":
