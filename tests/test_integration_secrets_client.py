@@ -5,6 +5,7 @@ import secrets
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from cryptography.hazmat.primitives import hashes
@@ -48,6 +49,9 @@ def _delivery(account_id: str, provider: str, recipient: str, secret: str) -> di
 
 
 class IntegrationSecretsClientTests(unittest.TestCase):
+    def setUp(self) -> None:
+        integration_secrets_client._token_cache.clear()
+
     def test_resolve_delivers_only_an_api_key_in_memory(self):
         account_id = "account-1"
         provider = "openai"
@@ -251,6 +255,231 @@ class IntegrationSecretsClientTests(unittest.TestCase):
         for absent_name in ("credential_file", "credential_archive", "resolve_archive"):
             with self.subTest(name=absent_name):
                 self.assertFalse(hasattr(integration_secrets_client, absent_name))
+
+    def test_ciphertext_fields_require_canonical_base64_strings(self) -> None:
+        for value in (None, "!"):
+            with self.subTest(value=value), self.assertRaisesRegex(
+                integration_secrets_client.IntegrationSecretError,
+                "invalid ciphertext",
+            ):
+                integration_secrets_client._b64decode(value)
+
+    def test_delivery_envelope_shape_lengths_and_authentication_fail_closed(self) -> None:
+        private_key = x25519.X25519PrivateKey.generate()
+        recipient = integration_secrets_client._b64encode(
+            private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        )
+        valid = _delivery("account-1", "openai", recipient, "secret")
+        invalid = (
+            None,
+            {**valid, "v": 2},
+            {**valid, "alg": "unknown"},
+            {**valid, "sender_public_key": integration_secrets_client._b64encode(b"short")},
+            {**valid, "ciphertext": integration_secrets_client._b64encode(b"x" * 16)},
+            {**valid, "ciphertext": integration_secrets_client._b64encode(b"x" * 17)},
+        )
+        for delivery in invalid:
+            with self.subTest(delivery=delivery), self.assertRaises(integration_secrets_client.IntegrationSecretError):
+                integration_secrets_client._open_delivery(
+                    private_key,
+                    "account-1",
+                    "openai",
+                    "api_key",
+                    delivery,
+                )
+
+        tampered = dict(valid)
+        tampered["ciphertext"] = integration_secrets_client._b64encode(
+            integration_secrets_client._b64decode(valid["ciphertext"])[:-1] + b"x"
+        )
+        with self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "authentication failed"):
+            integration_secrets_client._open_delivery(
+                private_key,
+                "account-1",
+                "openai",
+                "api_key",
+                tampered,
+            )
+
+    def test_delivery_rejects_nul_plaintext(self) -> None:
+        private_key = x25519.X25519PrivateKey.generate()
+        recipient = integration_secrets_client._b64encode(
+            private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        )
+        delivery = _delivery("account-1", "openai", recipient, "bad\0secret")
+        with self.assertRaisesRegex(
+            integration_secrets_client.IntegrationSecretError,
+            "invalid plaintext",
+        ):
+            integration_secrets_client._open_delivery(
+                private_key,
+                "account-1",
+                "openai",
+                "api_key",
+                delivery,
+            )
+
+    @staticmethod
+    def _token_metadata(size: int, *, inode: int = 1, mode: int = 0o100600) -> SimpleNamespace:
+        return SimpleNamespace(
+            st_mode=mode,
+            st_nlink=1,
+            st_size=size,
+            st_dev=1,
+            st_ino=inode,
+            st_mtime_ns=1,
+            st_ctime_ns=1,
+        )
+
+    def test_token_reader_rejects_unsafe_unavailable_and_changed_files(self) -> None:
+        path = Path("/token")
+        unsafe = self._token_metadata(5, mode=0o040700)
+        with (
+            mock.patch.object(integration_secrets_client.os, "open", return_value=3),
+            mock.patch.object(integration_secrets_client.os, "fstat", return_value=unsafe),
+            mock.patch.object(integration_secrets_client.os, "close"),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"),
+        ):
+            integration_secrets_client._token(path)
+
+        with (
+            mock.patch.object(integration_secrets_client.os, "open", side_effect=OSError("denied")),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"),
+        ):
+            integration_secrets_client._token(path)
+
+        before = self._token_metadata(5)
+        after = self._token_metadata(5, inode=2)
+        with (
+            mock.patch.object(integration_secrets_client.os, "open", return_value=3),
+            mock.patch.object(integration_secrets_client.os, "fstat", side_effect=(before, after)),
+            mock.patch.object(integration_secrets_client.os, "read", return_value=b"token"),
+            mock.patch.object(integration_secrets_client.os, "close"),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"),
+        ):
+            integration_secrets_client._token(path)
+
+        with (
+            mock.patch.object(integration_secrets_client.os, "open", return_value=3),
+            mock.patch.object(integration_secrets_client.os, "fstat", return_value=before),
+            mock.patch.object(integration_secrets_client.os, "read", return_value=b""),
+            mock.patch.object(integration_secrets_client.os, "close"),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"),
+        ):
+            integration_secrets_client._token(path)
+
+    def test_token_reader_rejects_non_utf8_and_control_bearing_tokens(self) -> None:
+        path = Path("/token")
+        for raw in (b"\xff", b"\n", b"bad\ntoken"):
+            metadata = self._token_metadata(len(raw))
+            with (
+                self.subTest(raw=raw),
+                mock.patch.object(integration_secrets_client.os, "open", return_value=3),
+                mock.patch.object(integration_secrets_client.os, "fstat", return_value=metadata),
+                mock.patch.object(integration_secrets_client.os, "read", return_value=raw),
+                mock.patch.object(integration_secrets_client.os, "close"),
+                self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"),
+            ):
+                integration_secrets_client._token(path)
+
+    def test_token_reader_preserves_the_unopened_descriptor_sentinel(self) -> None:
+        path = Path("/token")
+        metadata = self._token_metadata(5)
+        with (
+            mock.patch.object(integration_secrets_client.os, "open", return_value=-1),
+            mock.patch.object(integration_secrets_client.os, "fstat", return_value=metadata),
+            mock.patch.object(integration_secrets_client.os, "read", return_value=b"token"),
+            mock.patch.object(integration_secrets_client.os, "close") as close,
+        ):
+            self.assertEqual(integration_secrets_client._token(path), "token")
+        close.assert_not_called()
+
+    def test_session_discard_without_a_connection_is_idempotent(self) -> None:
+        integration_secrets_client.IntegrationSecretSession().discard((object(), "host", 80))
+
+    def test_post_rejects_invalid_urls_transport_and_response_shapes(self) -> None:
+        with self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "unavailable"):
+            integration_secrets_client._post("file:///secret", "/v1/test", {}, Path("/token"))
+
+        class Response:
+            def __init__(self, raw: bytes, *, will_close: bool = False) -> None:
+                self.status = 200
+                self.raw = raw
+                self.will_close = will_close
+
+            def read(self, _maximum: int) -> bytes:
+                return self.raw
+
+        class Connection:
+            def __init__(self, response: Response, *, error: BaseException | None = None) -> None:
+                self.response = response
+                self.error = error
+                self.closed = 0
+
+            def request(self, *_args) -> None:
+                if self.error is not None:
+                    raise self.error
+
+            def getresponse(self) -> Response:
+                return self.response
+
+            def close(self) -> None:
+                self.closed += 1
+
+        cases = (
+            (Connection(Response(b"{}"), error=OSError("offline")), "unavailable"),
+            (
+                Connection(Response(b"x" * (integration_secrets_client.MAX_RESPONSE_BYTES + 1))),
+                "invalid response",
+            ),
+            (Connection(Response(b"{")), "invalid response"),
+            (Connection(Response(b"[]", will_close=True)), "invalid response"),
+        )
+        for connection, message in cases:
+            with (
+                self.subTest(message=message),
+                mock.patch.object(integration_secrets_client, "_token", return_value="token"),
+                mock.patch.object(
+                    integration_secrets_client.http.client,
+                    "HTTPConnection",
+                    return_value=connection,
+                ),
+                self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, message),
+            ):
+                integration_secrets_client._post("http://service:80", "/v1/test", {}, Path("/token"))
+            self.assertGreaterEqual(connection.closed, 1)
+
+    def test_resolution_and_generation_statuses_are_closed(self) -> None:
+        with mock.patch.object(integration_secrets_client, "_post", return_value=(404, {})):
+            self.assertIsNone(integration_secrets_client.resolve("account-1", "openai"))
+        with (
+            mock.patch.object(integration_secrets_client, "_post", return_value=(503, {})),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "lookup failed"),
+        ):
+            integration_secrets_client.resolve("account-1", "openai")
+
+        metadata = {"auth_type": "api_key", "secret_ref": {}, "generation": 1}
+        with (
+            mock.patch.object(
+                integration_secrets_client,
+                "_post",
+                side_effect=((200, metadata), (503, {"secret": "must-not-exist"})),
+            ),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "delivery failed"),
+        ):
+            integration_secrets_client.resolve("account-1", "openai")
+
+        for generation in (True, 0, "1"):
+            with self.subTest(generation=generation), self.assertRaisesRegex(
+                integration_secrets_client.IntegrationSecretError,
+                "generation is invalid",
+            ):
+                integration_secrets_client.generation_is_current("account-1", "openai", generation)
+        with (
+            mock.patch.object(integration_secrets_client, "_post", return_value=(200, {"valid": False})),
+            self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "generation check failed"),
+        ):
+            integration_secrets_client.generation_is_current("account-1", "openai", 1)
 
 
 if __name__ == "__main__":

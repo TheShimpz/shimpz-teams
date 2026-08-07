@@ -253,7 +253,8 @@ def _post(
     request_path = f"{parsed.path.rstrip('/')}{path}"
     body = json.dumps(payload, separators=(",", ":")).encode()
     try:
-        for attempt in range(2):
+        attempt = 0
+        while True:
             key, connection, reused = current_session.connection(connection_cls, host, port)
             try:
                 connection.request(
@@ -272,6 +273,7 @@ def _post(
                 # Resolve, generation-check, and encrypted delivery are idempotent reads. Retry
                 # only a previously healthy transport that the bounded server closed while idle.
                 if attempt == 0 and reused:
+                    attempt = 1
                     continue
                 raise IntegrationSecretError("Integration secret service is unavailable") from exc
             if len(raw) > MAX_RESPONSE_BYTES or getattr(response, "will_close", False):
