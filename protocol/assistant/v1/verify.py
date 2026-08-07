@@ -77,7 +77,7 @@ if not isinstance(declared_capabilities, list):
     fail("Assistant human-request vectors are invalid")
 try:
     verify_human_vectors(human, declared_capabilities)
-except KeyError, TypeError, ValueError:
+except (KeyError, TypeError, ValueError):
     fail("Assistant human-request vectors are invalid")
 
 print("Assistant protocol artifacts and conformance vectors are valid")
