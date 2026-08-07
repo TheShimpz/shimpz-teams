@@ -44,6 +44,13 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _validate_memory_budgets(global_bytes: int, owner_bytes: int, largest_resource: int) -> None:
+    if global_bytes < largest_resource:
+        raise ValueError("SHIMPZ_TEAM_GLOBAL_MEM_BUDGET is smaller than one Team resource")
+    if not largest_resource <= owner_bytes <= global_bytes:
+        raise ValueError("SHIMPZ_TEAM_OWNER_MEM_BUDGET must fit one resource and the global memory budget")
+
+
 LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 # The host has 125 GiB and each Team has a 2 GiB hard ceiling. The default leaves roughly half the
 # host for the platform, installed Assistants, and Docker overhead; Supervisors may lower these quotas.
@@ -59,10 +66,7 @@ OWNER_MEMORY_BUDGET_BYTES = container_spec.hard_memory_bytes(
     setting="SHIMPZ_TEAM_OWNER_MEM_BUDGET",
 )
 _LARGEST_RESOURCE_LIMIT = max(container_spec.MEM_LIMIT_BYTES, container_spec.ASSISTANT_MEM_LIMIT_BYTES)
-if GLOBAL_MEMORY_BUDGET_BYTES < _LARGEST_RESOURCE_LIMIT:
-    raise ValueError("SHIMPZ_TEAM_GLOBAL_MEM_BUDGET is smaller than one Team resource")
-if not _LARGEST_RESOURCE_LIMIT <= OWNER_MEMORY_BUDGET_BYTES <= GLOBAL_MEMORY_BUDGET_BYTES:
-    raise ValueError("SHIMPZ_TEAM_OWNER_MEM_BUDGET must fit one resource and the global memory budget")
+_validate_memory_budgets(GLOBAL_MEMORY_BUDGET_BYTES, OWNER_MEMORY_BUDGET_BYTES, _LARGEST_RESOURCE_LIMIT)
 MAX_JSON_BODY_BYTES = max(1024, int(os.environ.get("SHIMPZ_TEAM_MAX_JSON_BODY_BYTES", str(128 * 1024))))
 MAX_TEAM_JSON_BODY_BYTES = 64 * 1024
 CREATE_RATE_LIMIT = _positive_int_env("SHIMPZ_TEAM_CREATE_RATE_LIMIT", 5)
