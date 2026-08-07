@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest import mock
 
+from install import bindings
 from local.errors import ApiProblemError as ApiProblem
+from local.install import automatic
 from local.install.automatic import AutomaticAssistantUpdater
 from local.install.developers import DevelopersError, PublicationNotInstallableError
 
@@ -175,3 +178,88 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         now[0] = 300
         updater.run_once()
         self.assertEqual(attempts, ["update", "update"])
+
+    def test_thread_lifecycle_and_unavailable_binding_store_are_bounded(self) -> None:
+        controller = SimpleNamespace(
+            registry=SimpleNamespace(bindings=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=mock.Mock()),
+        )
+        records: list[tuple[object, ...]] = []
+        updater = AutomaticAssistantUpdater(controller, record=lambda *event: records.append(event))
+        self.assertFalse(updater.run_once())
+        self.assertEqual(records, [(None, None, "error", "cycle:bindings-unavailable")])
+
+        thread = mock.Mock()
+        thread.is_alive.return_value = True
+        with mock.patch.object(automatic.threading, "Thread", return_value=thread):
+            updater.start()
+        thread.start.assert_called_once_with()
+        with self.assertRaisesRegex(RuntimeError, "already running"):
+            updater.start()
+        updater.close()
+        thread.join.assert_called_once_with(timeout=30)
+
+        idle = AutomaticAssistantUpdater(controller)
+        idle.close()
+        stopped_thread = mock.Mock()
+        stopped_thread.is_alive.return_value = False
+        idle._thread = stopped_thread
+        idle.close()
+        stopped_thread.join.assert_called_once_with(timeout=30)
+
+    def test_invalid_binding_identity_and_current_candidate_are_not_installed(self) -> None:
+        invalid = SimpleNamespace(
+            team_id="team_1",
+            assistant_id="hello-world",
+            binding_digest=f"sha256:{'1' * 64}",
+            resolution={"assistant_version": "0.1.0", "source_digest": None},
+        )
+        mismatch = SimpleNamespace(
+            team_id="team_2",
+            assistant_id="hello-world",
+            binding_digest=f"sha256:{'2' * 64}",
+            resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
+        )
+        current = SimpleNamespace(
+            team_id="team_3",
+            assistant_id="hello-world",
+            binding_digest=f"sha256:{'3' * 64}",
+            resolution={"assistant_version": "0.2.0", "source_digest": f"sha256:{'b' * 64}"},
+        )
+
+        def latest(digest: str) -> dict[str, str]:
+            if digest.endswith("a" * 64):
+                return {**_candidate(), "assistant_id": "other"}
+            return _candidate("0.2.0")
+
+        records: list[tuple[object, ...]] = []
+        controller = SimpleNamespace(
+            developers=SimpleNamespace(latest=latest),
+            registry=SimpleNamespace(bindings=lambda: (invalid, mismatch, current)),
+            install_publication=mock.Mock(),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+        )
+        updater = AutomaticAssistantUpdater(controller, record=lambda *event: records.append(event))
+        self.assertTrue(updater.run_once())
+        controller.install_publication.assert_not_called()
+        self.assertIn(("team_1", "hello-world", "error", "binding:invalid"), records)
+        self.assertIn(("team_2", "hello-world", "error", "candidate:identity-mismatch"), records)
+
+    def test_worker_loop_backs_off_and_recovers_from_unexpected_failure(self) -> None:
+        controller = SimpleNamespace()
+        records: list[tuple[object, ...]] = []
+        updater = AutomaticAssistantUpdater(
+            controller,
+            interval_seconds=10,
+            jitter=lambda _maximum: 3,
+            record=lambda *event: records.append(event),
+        )
+        updater._stop = mock.Mock()
+        updater._stop.wait.side_effect = (False, False, False, True)
+        updater.run_once = mock.Mock(side_effect=(True, False, RuntimeError("unexpected")))
+        updater._run()
+        self.assertEqual([call.args[0] for call in updater._stop.wait.call_args_list], [0, 13, 26, 52])
+        self.assertEqual(records, [(None, None, "error", "thread:runtime-unavailable")])
+
+        updater._record = mock.Mock(side_effect=RuntimeError("audit unavailable"))
+        updater._record_result(None, None, "error", "detail")
