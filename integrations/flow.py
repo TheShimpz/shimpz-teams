@@ -125,10 +125,7 @@ def _public_text(value: object, label: str, *, optional: bool = False) -> str | 
         return None
     if not isinstance(value, str) or not value or value != value.strip() or not value.isprintable():
         raise IntegrationFlowError(f"{label} is invalid")
-    try:
-        encoded = value.encode("utf-8")
-    except UnicodeError as exc:
-        raise IntegrationFlowError(f"{label} is invalid") from exc
+    encoded = value.encode("utf-8")
     if len(encoded) > MAX_PUBLIC_TEXT_BYTES:
         raise IntegrationFlowError(f"{label} is invalid")
     return value
@@ -238,8 +235,6 @@ def _metadata_for(
         ):
             raise IntegrationFlowError("Assistant integration inventory is invalid")
         indexed[integration_id] = item
-    if set(indexed) != set(declarations):
-        raise IntegrationFlowError("Assistant integration inventory is invalid")
     return indexed
 
 
