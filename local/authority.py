@@ -112,7 +112,7 @@ def credential_state(headers: Message) -> str:
 
 
 def _public_key() -> Ed25519PublicKey:
-    descriptor: int | None = None
+    descriptor = -1
     try:
         expected_gid = grp.getgrnam(PUBLIC_KEY_GROUP).gr_gid
         descriptor = os.open(PUBLIC_KEY_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
@@ -129,9 +129,8 @@ def _public_key() -> Ed25519PublicKey:
     except (KeyError, OSError) as exc:
         raise SupervisorUnavailableError("Local Supervisor public key is unavailable") from exc
     finally:
-        if descriptor is not None:
-            with suppress(OSError):
-                os.close(descriptor)
+        with suppress(OSError):
+            os.close(descriptor)
     if len(raw) != metadata.st_size:
         raise SupervisorUnavailableError("Local Supervisor public key is unavailable")
     try:

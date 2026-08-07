@@ -224,6 +224,88 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         )
         self.assertEqual(evidence.assertion_id, "b" * 32)
 
+    def test_replay_and_assertion_shapes_are_bounded(self) -> None:
+        for capacity in (0, authority.MAX_REPLAY_ENTRIES + 1):
+            with self.subTest(capacity=capacity), self.assertRaises(ValueError):
+                authority.ReplayGuard(capacity=capacity)
+
+        headers = Message()
+        headers[contract.ASSERTION_HEADER] = "Bearer "
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "invalid"):
+            authority._one_assertion(headers)
+
+    def test_public_key_loading_maps_io_truncation_and_invalid_key_types(self) -> None:
+        with (
+            mock.patch.object(authority.os, "open", side_effect=OSError("denied")),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"),
+        ):
+            authority._public_key()
+        with (
+            mock.patch.object(authority.os, "read", return_value=b""),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "unavailable"),
+        ):
+            authority._public_key()
+        with mock.patch.object(authority.os, "close", side_effect=OSError("close failed")):
+            self.assertIsInstance(authority._public_key(), authority.Ed25519PublicKey)
+
+        self.public_key_path.chmod(0o600)
+        self.public_key_path.write_bytes(b"not a public key")
+        self.public_key_path.chmod(0o440)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"):
+            authority._public_key()
+
+        with (
+            mock.patch.object(authority, "load_pem_public_key", return_value=object()),
+            self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"),
+        ):
+            authority._public_key()
+
+    def test_segments_and_claim_shapes_must_be_canonical(self) -> None:
+        for encoded in ("é", "a=", "!", "AB"):
+            with self.subTest(encoded=encoded), self.assertRaises(authority.SupervisorDeniedError):
+                authority._decode_segment(encoded)
+
+        invalid_json = _segment(b"not-json")
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "malformed"):
+            authority._json_segment(invalid_json)
+        with (
+            mock.patch.object(
+                authority.contract,
+                "canonical_json",
+                side_effect=contract.SupervisorAssertionError("invalid"),
+            ),
+            self.assertRaisesRegex(authority.SupervisorDeniedError, "malformed"),
+        ):
+            authority._json_segment(_segment(b"{}"))
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "not canonical"):
+            authority._json_segment(_segment(b'{"b":1,"a":2}'))
+
+    def test_verified_claims_rejects_malformed_header_and_claim_contract(self) -> None:
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "malformed"):
+            authority._verified_claims("one.two", self.private_key.public_key())
+
+        wrong_header = _segment(contract.canonical_json({"alg": "wrong", "typ": "JWT"}))
+        valid_claims = _segment(contract.claims_json(_claims()))
+        signature = _segment(b"signature")
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "header is invalid"):
+            authority._verified_claims(f"{wrong_header}.{valid_claims}.{signature}", self.private_key.public_key())
+
+        valid_header = _segment(contract.canonical_json(contract.JWT_HEADER))
+        invalid_claims = _segment(contract.canonical_json({}))
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "claims are invalid"):
+            authority._verified_claims(f"{valid_header}.{invalid_claims}.{signature}", self.private_key.public_key())
+
+    def test_verified_request_rejects_non_string_assertion_id(self) -> None:
+        headers = Message()
+        headers[contract.ASSERTION_HEADER] = "Bearer encoded"
+        claims = _claims(jti=1)
+        with (
+            mock.patch.object(authority, "_public_key", return_value=self.private_key.public_key()),
+            mock.patch.object(authority, "_verified_claims", return_value=claims),
+            self.assertRaisesRegex(authority.SupervisorDeniedError, "assertion is invalid"),
+        ):
+            authority.verify(headers, request=_binding(), replay_guard=authority.ReplayGuard(), now=NOW)
+
 
 if __name__ == "__main__":
     unittest.main()
