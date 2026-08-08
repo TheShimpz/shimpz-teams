@@ -330,9 +330,11 @@ class OAuthBrokerClient:
         broker_lease: object,
     ) -> None:
         try:
-            integration_providers.resolve(provider_id)
-        except ValueError as exc:
+            provider = integration_providers.resolve(provider_id)
+        except integration_providers.OAuthProviderError as exc:
             raise OAuthBrokerClientError("OAuth integration intent is invalid") from exc
+        if provider.id != "cloudflare":
+            raise OAuthBrokerClientError("OAuth broker provider is unavailable")
         if not isinstance(broker_lease, str) or _LEASE.fullmatch(broker_lease) is None:
             raise OAuthBrokerClientError("OAuth broker lease is invalid")
         if self._post(

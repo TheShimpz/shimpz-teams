@@ -288,6 +288,8 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 scopes=SCOPES,
                 callback_mode="loopback",
             )
+        with self.assertRaises(integration_broker.OAuthBrokerClientError):
+            self.client.revoke(provider_id="unknown", token=ACCESS, broker_lease=LEASE)
 
         private = "private-broker-response-123456789"
 
