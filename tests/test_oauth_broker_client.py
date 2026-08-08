@@ -17,7 +17,7 @@ CHALLENGE = "c" * 43
 CLAIM = "a" * 64
 ACCESS = "access-token-private-123456789"
 REFRESH = "refresh-token-private-123456789"
-LEASE = f"l1.1999999999.{'b' * 43}.{'c' * 43}.{'d' * 43}"
+LEASE = f"l2.1999999999.{'b' * 43}.{'c' * 43}.{'d' * 43}.{'e' * 43}"
 
 
 class Transport:
