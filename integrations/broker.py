@@ -29,9 +29,7 @@ MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
 _BINDING = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _CLAIM = re.compile(r"[0-9a-f]{64}\Z")
-_LEASE = re.compile(
-    r"l2\.\d{10}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\Z"
-)
+_LEASE = re.compile(r"l2\.\d{10}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\.[A-Za-z0-9_-]{43}\Z")
 _PROXY_HOST = "shimpz-account-egress"
 _PROXY_PORT = 8889
 
