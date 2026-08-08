@@ -144,6 +144,50 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
                 )
         self.assertEqual(self.transport.requests, [])
 
+    def test_reconsent_revokes_the_old_broker_grant_before_claiming_the_replacement(self) -> None:
+        first = self.store.put(
+            "team_1",
+            "shimpz-cloudflare",
+            "cloudflare",
+            "cloudflare",
+            SCOPES,
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600, LEASE),
+        )
+        self.store._demote_for_reauthorization("team_1", "shimpz-cloudflare", "cloudflare")
+        url = self.service.authorization_url(pending(), SESSION, callback_mode="hosted")
+        state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
+
+        completed = self.service.complete(
+            state,
+            CLAIM,
+            SESSION,
+            lambda _team, _assistant, _integration: DECLARATION,
+        )
+
+        self.assertEqual((first.generation, completed.generation), (1, 2))
+        self.assertEqual(
+            [urlsplit(str(item["url"])).path for item in self.transport.requests],
+            ["/api/oauth/cloudflare/revoke", "/api/oauth/cloudflare/claim"],
+        )
+
+    def test_replacement_normalizes_broker_revocation_failures_for_store_compensation(self) -> None:
+        broker = self.service._broker
+        with (
+            mock.patch.object(
+                broker,
+                "revoke",
+                side_effect=integration_broker.OAuthBrokerClientError("unavailable"),
+            ),
+            self.assertRaises(integration_store.OAuthIntegrationRevocationError),
+        ):
+            integration_service._replace_revoke_broker(
+                broker,
+                "cloudflare",
+                ACCESS,
+                REFRESH,
+                LEASE,
+            )
+
     def test_invalid_callback_mode_creates_no_pkce_challenge(self) -> None:
         with (
             mock.patch.object(self.challenge, "create", wraps=self.challenge.create) as create,

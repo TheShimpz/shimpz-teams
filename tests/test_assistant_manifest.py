@@ -127,7 +127,7 @@ class AssistantManifestTests(unittest.TestCase):
 
         self.assertEqual(declared, reviewed)
 
-    def test_update_authority_allows_only_equal_or_narrower_manifest_contracts(self) -> None:
+    def test_automatic_update_allows_oauth_changes_but_not_new_outbound_hosts(self) -> None:
         previous = assistant_manifest.canonical_manifest_contract(
             allowed_hosts=("api.cloudflare.com", "api.example.com"),
             integration_declarations={
@@ -154,12 +154,12 @@ class AssistantManifestTests(unittest.TestCase):
             allowed_hosts=("api.cloudflare.com",),
         )
 
-        self.assertTrue(assistant_manifest.update_preserves_authority(previous, previous))
-        self.assertTrue(assistant_manifest.update_preserves_authority(previous, narrowing))
-        self.assertFalse(assistant_manifest.update_preserves_authority(narrowing, widened_host))
-        self.assertFalse(assistant_manifest.update_preserves_authority(narrowing, widened_scope))
-        self.assertFalse(assistant_manifest.update_preserves_authority(no_integration, added_integration))
-        self.assertTrue(assistant_manifest.update_preserves_authority(added_integration, no_integration))
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(previous, previous))
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(previous, narrowing))
+        self.assertFalse(assistant_manifest.automatic_update_preserves_egress(narrowing, widened_host))
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(narrowing, widened_scope))
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(no_integration, added_integration))
+        self.assertTrue(assistant_manifest.automatic_update_preserves_egress(added_integration, no_integration))
 
     def test_reviewed_catalog_rejects_reserved_and_oversized_assistant_ids(self) -> None:
         invalid = (
@@ -490,7 +490,7 @@ class AssistantManifestTests(unittest.TestCase):
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.canonical_integration_declarations([])
         with self.assertRaises(assistant_manifest.ManifestError):
-            assistant_manifest.update_preserves_authority(object(), object())
+            assistant_manifest.automatic_update_preserves_egress(object(), object())
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.reviewed_manifest_contract(allowed_hosts=(), integrations=None)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "provider"):

@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import logging
 import os
 import re
 import threading
@@ -50,6 +51,8 @@ IntegrationStatus = Literal[
     "reauthorization-required",
 ]
 
+log = logging.getLogger("shimpz.team.integrations.store")
+
 
 class OAuthIntegrationStoreError(RuntimeError):
     """OAuth integration state is invalid, unavailable, or unauthentic."""
@@ -65,6 +68,10 @@ class OAuthIntegrationMissingError(OAuthIntegrationStoreError):
 
 class OAuthIntegrationReauthorizationError(OAuthIntegrationStoreError):
     """A new provider authorization is required before this integration can run."""
+
+
+class OAuthIntegrationRevocationError(OAuthIntegrationStoreError):
+    """The reviewed provider boundary could not revoke an OAuth grant."""
 
 
 _PRIVATE_STATE = private_state.PrivateState(
@@ -93,6 +100,12 @@ class OAuthIntegrationMetadata:
     integration: OAuthIntegrationIdentity | None
     expires_at: int | None
     generation: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class OAuthReplacementCallbacks:
+    exchange: Callable[[], object]
+    revoke: Callable[[str, str, str | None, str | None], None]
 
 
 class _IntegrationFlight:
@@ -587,7 +600,6 @@ class OAuthIntegrationStore:
         integration = _component_id(integration_id, "integration id")
         canonical_provider, canonical_scopes = _intent(provider, scopes)
         canonical = _token_set(token_set, canonical_scopes, self._now(), identity)
-        plaintext = self._plaintext(canonical)
         with self._lock:
             state = self._read_state_for_update()
             key = self._key(allow_create=not _PRIVATE_STATE.has_records(state))
@@ -596,27 +608,15 @@ class OAuthIntegrationStore:
                 raise OAuthIntegrationStoreError("OAuth integration capacity reached")
             previous = records.get(integration)
             generation = int(previous.get("generation", 0)) + 1 if isinstance(previous, dict) else 1
-            record: dict[str, object] = {
-                "provider": canonical_provider,
-                "scopes": list(canonical.scopes),
-                "expires_at": canonical.expires_at,
-                "status": canonical.status,
-                "generation": generation,
-                "updated_at": private_state.timestamp(),
-                "envelope": {},
-            }
-            nonce = os.urandom(12)
-            ciphertext = AESGCM(key).encrypt(
-                nonce,
-                plaintext,
-                _aad(team, assistant, integration, record),
+            records[integration] = self._sealed_record(
+                team,
+                assistant,
+                integration,
+                canonical_provider,
+                canonical,
+                generation,
+                key,
             )
-            record["envelope"] = {
-                "algorithm": "AES-256-GCM",
-                "nonce": base64.b64encode(nonce).decode("ascii"),
-                "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
-            }
-            records[integration] = record
             self._write_state(state)
             return OAuthIntegrationMetadata(
                 integration,
@@ -627,6 +627,133 @@ class OAuthIntegrationStore:
                 canonical.expires_at,
                 generation,
             )
+
+    def _sealed_record(
+        self,
+        team: str,
+        assistant: str,
+        integration: str,
+        provider: str,
+        grant: _TokenGrant,
+        generation: int,
+        key: bytes,
+    ) -> dict[str, object]:
+        record: dict[str, object] = {
+            "provider": provider,
+            "scopes": list(grant.scopes),
+            "expires_at": grant.expires_at,
+            "status": grant.status,
+            "generation": generation,
+            "updated_at": private_state.timestamp(),
+            "envelope": {},
+        }
+        nonce = os.urandom(12)
+        ciphertext = AESGCM(key).encrypt(
+            nonce,
+            self._plaintext(grant),
+            _aad(team, assistant, integration, record),
+        )
+        record["envelope"] = {
+            "algorithm": "AES-256-GCM",
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "ciphertext": base64.b64encode(ciphertext).decode("ascii"),
+        }
+        return record
+
+    def _demote_for_reauthorization(
+        self,
+        team: str,
+        assistant: str,
+        integration: str,
+    ) -> tuple[str, _TokenGrant] | None:
+        with self._lock:
+            state = self._read_state_for_update()
+            records = _PRIVATE_STATE.records(state, team, assistant, create=False)
+            raw_record = records.get(integration)
+            if raw_record is None:
+                return None
+            record = _validate_record(raw_record)
+            provider, scopes, expires_at, _status, generation = _record_metadata(record)
+            current = self._resolve_record(team, assistant, integration, record)
+            demoted = _TokenGrant(
+                current.access_token,
+                current.refresh_token,
+                current.broker_lease,
+                scopes,
+                expires_at,
+                current.integration,
+                "reauthorization-required",
+                generation,
+            )
+            records[integration] = self._sealed_record(
+                team,
+                assistant,
+                integration,
+                provider,
+                demoted,
+                generation,
+                self._key(),
+            )
+            self._write_state(state)
+            return provider, demoted
+
+    def replace(
+        self,
+        team_id: object,
+        assistant_id: object,
+        integration_id: object,
+        provider: object,
+        scopes: object,
+        callbacks: OAuthReplacementCallbacks,
+        identity: object = None,
+    ) -> OAuthIntegrationMetadata:
+        """Revoke any prior grant, exchange, and seal its replacement under one flight.
+
+        Providers must normalize an unknown or already-revoked token as successful
+        revocation. Any error exposed by the reviewed provider boundary fails closed
+        before a replacement token is requested.
+        """
+        team = _team_id(team_id)
+        assistant = _component_id(assistant_id, "Assistant id")
+        integration = _component_id(integration_id, "integration id")
+        canonical_provider, canonical_scopes = _intent(provider, scopes)
+        if not isinstance(callbacks, OAuthReplacementCallbacks) or not callable(callbacks.exchange):
+            raise OAuthIntegrationValidationError("OAuth exchange callback is invalid")
+        if not callable(callbacks.revoke):
+            raise OAuthIntegrationValidationError("OAuth revocation callback is invalid")
+        with self._integration_flight(team, assistant, integration):
+            previous = self._demote_for_reauthorization(team, assistant, integration)
+            if previous is not None:
+                previous_provider, previous_grant = previous
+                callbacks.revoke(
+                    previous_provider,
+                    previous_grant.access_token,
+                    previous_grant.refresh_token,
+                    previous_grant.broker_lease,
+                )
+            token_set = callbacks.exchange()
+            try:
+                return self.put(
+                    team,
+                    assistant,
+                    integration,
+                    canonical_provider,
+                    canonical_scopes,
+                    token_set,
+                    identity,
+                )
+            except OAuthIntegrationStoreError:
+                try:
+                    replacement = _token_set(token_set, canonical_scopes, self._now(), identity)
+                    callbacks.revoke(
+                        canonical_provider,
+                        replacement.access_token,
+                        replacement.refresh_token,
+                        replacement.broker_lease,
+                    )
+                except OAuthIntegrationRevocationError:
+                    log.exception("OAuth replacement compensation could not revoke the unsealed grant")
+                raise
 
     def resolve(
         self,

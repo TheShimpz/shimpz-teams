@@ -212,7 +212,7 @@ def _authorization_url(
 def _complete(
     challenge: integration_pkce.OAuthPKCEChallengeStore,
     store: integration_store.OAuthIntegrationStore,
-    exchange_tokens: Callable[..., object],
+    operations: _CompletionOperations,
     state: object,
     claim_or_code: object,
     session_binding: object,
@@ -236,21 +236,23 @@ def _complete(
         provider, scopes = _declaration(current)
         if provider != exchange.provider_id or scopes != exchange.scopes:
             raise OAuthIntegrationServiceError("OAuth integration declaration changed")
-        token_set = exchange_tokens(
-            provider_id=provider,
-            credential=claim_or_code,
-            state=state,
-            code_verifier=exchange.code_verifier,
-            scopes=scopes,
+        callbacks = integration_store.OAuthReplacementCallbacks(
+            exchange=lambda: operations.exchange(
+                provider_id=provider,
+                credential=claim_or_code,
+                state=state,
+                code_verifier=exchange.code_verifier,
+                scopes=scopes,
+            ),
+            revoke=operations.revoke,
         )
-        metadata = store.put(
+        metadata = store.replace(
             exchange.team_id,
             exchange.assistant_id,
             exchange.integration_id,
             provider,
             scopes,
-            token_set,
-            None,
+            callbacks,
         )
         return OAuthIntegrationCompletion(
             team_id=exchange.team_id,
@@ -311,6 +313,72 @@ def _claim_broker(
         code_verifier=code_verifier,
         scopes=scopes,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class _CompletionOperations:
+    exchange: Callable[..., object]
+    revoke: Callable[[str, str, str | None, str | None], None]
+
+
+def _revoke_direct(
+    http: integration_http.OAuthHTTPClient,
+    client_configuration: tuple[str, str, str],
+    provider: str,
+    access_token: str,
+    refresh_token: str | None,
+    _broker_lease: str | None,
+) -> None:
+    client_id, client_secret, _redirect_uri = client_configuration
+    tokens = tuple(dict.fromkeys(token for token in (refresh_token, access_token) if token))
+    for token in tokens:
+        http.revoke(
+            provider_id=provider,
+            client_id=client_id,
+            client_secret=client_secret,
+            token=token,
+        )
+
+
+def _revoke_broker(
+    broker: integration_broker.OAuthBrokerClient,
+    provider: str,
+    access_token: str,
+    refresh_token: str | None,
+    broker_lease: str | None,
+) -> None:
+    broker.revoke(
+        provider_id=provider,
+        token=refresh_token or access_token,
+        broker_lease=broker_lease,
+    )
+
+
+def _replace_revoke_direct(
+    http: integration_http.OAuthHTTPClient,
+    client_configuration: tuple[str, str, str],
+    provider: str,
+    access_token: str,
+    refresh_token: str | None,
+    broker_lease: str | None,
+) -> None:
+    try:
+        _revoke_direct(http, client_configuration, provider, access_token, refresh_token, broker_lease)
+    except integration_http.OAuthHTTPError as exc:
+        raise integration_store.OAuthIntegrationRevocationError("OAuth provider revocation failed") from exc
+
+
+def _replace_revoke_broker(
+    broker: integration_broker.OAuthBrokerClient,
+    provider: str,
+    access_token: str,
+    refresh_token: str | None,
+    broker_lease: str | None,
+) -> None:
+    try:
+        _revoke_broker(broker, provider, access_token, refresh_token, broker_lease)
+    except integration_broker.OAuthBrokerClientError as exc:
+        raise integration_store.OAuthIntegrationRevocationError("OAuth broker revocation failed") from exc
 
 
 class OAuthIntegrationService:
@@ -388,10 +456,14 @@ class OAuthIntegrationService:
         """Claim once, revalidate the installed declaration, exchange, and seal tokens."""
         client_configuration = self._client_configuration()
         exchange_tokens = functools.partial(_exchange_code, self._http, client_configuration)
+        operations = _CompletionOperations(
+            exchange=exchange_tokens,
+            revoke=functools.partial(_replace_revoke_direct, self._http, client_configuration),
+        )
         return _complete(
             self._challenge,
             self._store,
-            exchange_tokens,
+            operations,
             state,
             code,
             session_binding,
@@ -400,22 +472,7 @@ class OAuthIntegrationService:
 
     def disconnect(self, team_id: object, assistant_id: object, integration_id: object) -> bool:
         """Revoke each upstream token before atomically deleting local custody."""
-
-        def revoke(
-            provider: str,
-            access_token: str,
-            refresh_token: str | None,
-            _broker_lease: str | None,
-        ) -> None:
-            client_id, client_secret, _ = self._client_configuration()
-            tokens = tuple(dict.fromkeys(token for token in (refresh_token, access_token) if token))
-            for token in tokens:
-                self._http.revoke(
-                    provider_id=provider,
-                    client_id=client_id,
-                    client_secret=client_secret,
-                    token=token,
-                )
+        revoke = functools.partial(_revoke_direct, self._http, self._client_configuration())
 
         try:
             return self._store.revoke_then_delete(
@@ -487,11 +544,14 @@ class BrokeredOAuthIntegrationService:
         session_binding: object,
         current_declaration_callback: Callable[[str, str, str], object],
     ) -> OAuthIntegrationCompletion:
-        exchange_tokens = functools.partial(_claim_broker, self._broker)
+        operations = _CompletionOperations(
+            exchange=functools.partial(_claim_broker, self._broker),
+            revoke=functools.partial(_replace_revoke_broker, self._broker),
+        )
         return _complete(
             self._challenge,
             self._store,
-            exchange_tokens,
+            operations,
             state,
             claim,
             session_binding,
@@ -528,17 +588,7 @@ class BrokeredOAuthIntegrationService:
         assistant_id: object,
         integration_id: object,
     ) -> bool:
-        def revoke(
-            provider: str,
-            access_token: str,
-            refresh_token: str | None,
-            broker_lease: str | None,
-        ) -> None:
-            self._broker.revoke(
-                provider_id=provider,
-                token=refresh_token or access_token,
-                broker_lease=broker_lease,
-            )
+        revoke = functools.partial(_revoke_broker, self._broker)
 
         try:
             return self._store.revoke_then_delete(

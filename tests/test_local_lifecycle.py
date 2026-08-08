@@ -103,9 +103,16 @@ class LocalLifecycleTests(LocalContractCase):
 
     def test_update_commits_only_after_the_successor_is_running(self) -> None:
         controller, container, events = self._lifecycle_controller()
-        successor = controller.registry["shimpz-cloudflare"]
-        previous = copy.copy(successor)
+        base = controller.registry["shimpz-cloudflare"]
+        previous = copy.copy(base)
         previous.image = OUTDATED_ASSISTANT_IMAGE
+        successor = copy.copy(base)
+        successor.integrations = {
+            "cloudflare": SimpleNamespace(
+                provider="cloudflare",
+                scopes=("dns.read", "dns.write", "offline_access", "zone.read"),
+            )
+        }
         container.attrs["Image"] = "sha256:" + "a" * 64
         previous_image = SimpleNamespace(id="sha256:" + "a" * 64)
         successor_image = object()
@@ -163,7 +170,7 @@ class LocalLifecycleTests(LocalContractCase):
             ],
         )
 
-    def test_update_rejects_authority_expansion_before_docker_mutation(self) -> None:
+    def test_update_rejects_outbound_host_expansion_before_docker_mutation(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         previous = copy.copy(controller.registry["shimpz-cloudflare"])
         successor = copy.copy(previous)

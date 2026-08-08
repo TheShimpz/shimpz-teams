@@ -165,6 +165,42 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             self._complete(state)
         self.assertEqual(len(self.transport.requests), 1)
 
+    def test_reconsent_revokes_both_old_tokens_before_exchanging_the_replacement(self) -> None:
+        first = self.store.put(
+            "team_1",
+            "shimpz-cloudflare",
+            "cloudflare",
+            "cloudflare",
+            SCOPES,
+            integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600),
+        )
+        self.store._demote_for_reauthorization("team_1", "shimpz-cloudflare", "cloudflare")
+        state = self._state(self.service.authorization_url(pending(requirement()), SESSION))
+
+        completed = self._complete(state)
+
+        self.assertEqual((first.generation, completed.generation), (1, 2))
+        self.assertEqual(
+            [urlsplit(str(item["url"])).path for item in self.transport.requests],
+            ["/oauth2/revoke", "/oauth2/revoke", "/oauth2/token"],
+        )
+        revoked = [parse_qs(item["body"].decode())["token"] for item in self.transport.requests[:2]]
+        self.assertEqual(revoked, [[REFRESH], [ACCESS]])
+
+    def test_replacement_normalizes_direct_revocation_failures_for_store_compensation(self) -> None:
+        with (
+            mock.patch.object(self.http, "revoke", side_effect=integration_http.OAuthHTTPError("unavailable")),
+            self.assertRaises(integration_store.OAuthIntegrationRevocationError),
+        ):
+            integration_service._replace_revoke_direct(
+                self.http,
+                (CLIENT_ID, CLIENT_CREDENTIAL, integration_http.HOSTED_REDIRECT_URI),
+                "cloudflare",
+                ACCESS,
+                REFRESH,
+                None,
+            )
+
     def test_install_or_scope_drift_consumes_state_before_any_exchange(self) -> None:
         drifted = (
             None,

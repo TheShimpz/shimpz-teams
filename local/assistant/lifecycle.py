@@ -377,10 +377,10 @@ def update_assistant(
         allowed_hosts=successor.allowed_hosts,
         integrations=successor.integrations,
     )
-    if not assistant_manifest.update_preserves_authority(previous_contract, successor_contract):
+    if not assistant_manifest.automatic_update_preserves_egress(previous_contract, successor_contract):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Assistant update requires approval for expanded authority",
+            "Assistant update requires approval for expanded outbound hosts",
             code="assistant-update-approval-required",
         )
     with self._lock(team_id):
