@@ -17,7 +17,7 @@ class OAuthProviderTests(unittest.TestCase):
         self.assertEqual(provider.client_auth_method, "client_secret_basic")
         self.assertEqual(
             provider.allowed_scopes,
-            {"dns.read", "offline_access", "zone.read"},
+            {"dns.read", "dns.write", "offline_access", "zone.read"},
         )
         self.assertEqual(set(integration_providers.PROVIDERS), {"cloudflare"})
         with self.assertRaises(TypeError):
@@ -26,12 +26,12 @@ class OAuthProviderTests(unittest.TestCase):
     def test_connection_scopes_are_canonical_and_limited_to_the_trusted_provider(self) -> None:
         intent = integration_providers.integration_intent(
             "cloudflare",
-            ("zone.read", "offline_access", "dns.read"),
+            ("zone.read", "offline_access", "dns.write", "dns.read"),
         )
         self.assertEqual(intent.provider.id, "cloudflare")
         self.assertEqual(
             intent.scopes,
-            ("dns.read", "offline_access", "zone.read"),
+            ("dns.read", "dns.write", "offline_access", "zone.read"),
         )
 
         invalid = (
@@ -40,7 +40,7 @@ class OAuthProviderTests(unittest.TestCase):
             ("cloudflare", ()),
             ("cloudflare", "zone.read"),
             ("cloudflare", ("zone.read", "zone.read")),
-            ("cloudflare", ("dns.write",)),
+            ("cloudflare", ("zone.write",)),
             ("cloudflare", ("zone/read",)),
             ("cloudflare", tuple("scope" for _ in range(integration_providers.MAX_REQUESTED_SCOPES + 1))),
         )

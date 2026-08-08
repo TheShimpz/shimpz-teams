@@ -86,15 +86,15 @@ def _provider(
 
 # Cloudflare's server-side Authorization Code client uses a secret. PKCE S256 is
 # kept as an additional one-use binding even though it is optional for a
-# confidential client. Only read scopes needed by the first Assistant release
-# are admitted here.
+# confidential client. The closed set admits zone discovery plus reconciliable
+# DNS-record reads and writes; no zone or account write scope is admitted.
 _CLOUDFLARE = _provider(
     provider_id="cloudflare",
     authorization_endpoint="https://dash.cloudflare.com/oauth2/auth",
     token_endpoint=urlunsplit(("https", "dash.cloudflare.com", "/oauth2/token", "", "")),
     revocation_endpoint="https://dash.cloudflare.com/oauth2/revoke",
     api_hosts=("api.cloudflare.com",),
-    allowed_scopes=frozenset({"dns.read", "offline_access", "zone.read"}),
+    allowed_scopes=frozenset({"dns.read", "dns.write", "offline_access", "zone.read"}),
     client_auth_method="client_secret_basic",
 )
 
