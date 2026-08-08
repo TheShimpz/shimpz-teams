@@ -192,7 +192,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     "name": "Cloudflare",
                     "summary": (
                         "Connect your Cloudflare integration so this Assistant can use only "
-                        "its reviewed read permissions."
+                        "its reviewed Cloudflare permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                     "status": "missing",

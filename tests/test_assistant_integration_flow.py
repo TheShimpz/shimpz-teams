@@ -133,7 +133,10 @@ def _cloudflare_spec() -> AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + ("b" * 64)),
         ),
         integrations={
-            "cloudflare": IntegrationSpec("cloudflare", ("dns.read", "offline_access", "zone.read")),
+            "cloudflare": IntegrationSpec(
+                "cloudflare",
+                ("dns.read", "dns.write", "offline_access", "zone.read"),
+            ),
         },
     )
 
@@ -242,7 +245,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                     "name": "Cloudflare",
                     "summary": (
                         "Connect your Cloudflare integration so this Assistant can use only "
-                        "its reviewed read permissions."
+                        "its reviewed Cloudflare permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                     "powers": [
@@ -264,7 +267,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             ("list-zones",),
-            (("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
+            (("cloudflare", "cloudflare", ("dns.read", "dns.write", "offline_access", "zone.read")),),
         )
         challenge = integration_challenges.PendingIntegrationChallenge(
             "b" * 32,
@@ -290,9 +293,9 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                     "name": "Cloudflare",
                     "summary": (
                         "Connect your Cloudflare integration so this Assistant can use only "
-                        "its reviewed read permissions."
+                        "its reviewed Cloudflare permissions."
                     ),
-                    "scopes": ["dns.read", "offline_access", "zone.read"],
+                    "scopes": ["dns.read", "dns.write", "offline_access", "zone.read"],
                     "powers": [
                         {
                             "id": "list-zones",

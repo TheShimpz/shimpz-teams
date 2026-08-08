@@ -149,7 +149,8 @@ class LocalAssistantLifecycleMixin:
                 "provider": "cloudflare",
                 "name": "Cloudflare",
                 "summary": (
-                    "Connect your Cloudflare integration so this Assistant can use only its reviewed read permissions."
+                    "Connect your Cloudflare integration so this Assistant can use only "
+                    "its reviewed Cloudflare permissions."
                 ),
                 "scopes": ["dns.read", "offline_access", "zone.read"],
                 "status": "missing",
