@@ -105,8 +105,9 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
                 integration_store.OAuthReplacementCallbacks(mock.Mock(), None),
             )
             for callbacks in invalid:
-                with self.subTest(callbacks=callbacks), self.assertRaises(
-                    integration_store.OAuthIntegrationValidationError
+                with (
+                    self.subTest(callbacks=callbacks),
+                    self.assertRaises(integration_store.OAuthIntegrationValidationError),
                 ):
                     store.replace("team_1", "assistant", "cloudflare", "cloudflare", SCOPES, callbacks)
 
