@@ -235,6 +235,47 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
         self.assertEqual(decisions, ["commit"])
 
+    def test_terminal_drive_error_abandons_only_the_current_uncertain_batch(self) -> None:
+        decisions: list[str] = []
+
+        class Batch:
+            @staticmethod
+            def prepare(_requests) -> None:
+                decisions.append("prepare")
+
+            @staticmethod
+            def invoke(_request):
+                decisions.append("invoke")
+                raise RuntimeError("Assistant RPC failed")
+
+            @staticmethod
+            def delivered(_requests) -> None:
+                raise AssertionError("a failed batch must not be delivered")
+
+            @staticmethod
+            def abandon_uncertain() -> None:
+                decisions.append("abandon")
+
+        strategy = chat_turn_engine.SegmentStrategy(
+            runtime=_Runtime(),
+            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
+            validate_power=lambda _assistant, _power, payload: payload,
+            pause_for_private_inputs=lambda _requests, _requirements: False,
+            cancelled=lambda: False,
+            validate_context=lambda: None,
+            raise_problem=lambda reason, _exc: self.fail(reason),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "Assistant RPC failed"):
+            chat_turn_engine.run_segment(
+                strategy,
+                message="Run the Power",
+                continuation=None,
+                expected_identity=("identity",),
+            )
+
+        self.assertEqual(decisions, ["prepare", "invoke", "abandon"])
+
     def test_stale_or_failed_suspension_rolls_back_before_error(self) -> None:
         def assert_rollback(continuation: str, commit_result: bool, expected: list[str]) -> None:
             decisions: list[str] = []

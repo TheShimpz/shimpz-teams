@@ -15,6 +15,7 @@ from local_controller_harness import LocalContractCase, TestPublicationRegistry
 
 from inference import client as brain_runtime_client
 from local import app as local_app
+from power import execution as power_execution
 from power import human as power_human
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
@@ -318,6 +319,77 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertEqual(response["request"]["kind"], "auth:reauth")
             self.assertIsNotNone(controller.chat_turn_service.human_challenges.current("team_1"))
             self.assertIsNotNone(controller.chat_turn_service.chat_continuations.current("team_1"))
+
+    def test_failed_reauthentication_resume_requires_a_fresh_request_without_wedging_team(self) -> None:
+        request = brain_runtime_client.PowerRequest("power-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+
+            def resume(self, _context, results):
+                if results != {"power-1": LOOKUP_RESULT}:
+                    raise AssertionError("reauthenticated result changed")
+                return brain_runtime_client.RuntimeTurn("completed", "Recovered", ())
+
+        descriptor = {
+            "kind": "auth:reauth",
+            "ordinal": 0,
+            "title": "Confirm identity",
+            "description": "Confirm current identity before continuing.",
+        }
+        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
+        admitted = power_human.validate_request(descriptor, ("auth:reauth",))
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            invocations: list[tuple[object, ...]] = []
+
+            def invoke(*args):
+                invocations.append(args)
+                if len(invocations) in {1, 3}:
+                    raise power_human.HumanRequestSuspensionError(admitted)
+                if len(invocations) == 2:
+                    raise local_app.ApiProblem(
+                        HTTPStatus.BAD_GATEWAY,
+                        "private Assistant failure",
+                        code="assistant-rpc-failed",
+                    )
+                return {"result": LOOKUP_RESULT}
+
+            controller.assistant_lifecycle.invoke = invoke
+            first_pause = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            with self.assertRaises(local_app.ApiProblem) as failed:
+                controller.chat_turn_service.resume_chat_human(
+                    "team_1",
+                    {"challenge_id": first_pause["challenge_id"], "decision": "submit", "value": True},
+                    "openai",
+                    "sk-test-0123456789",
+                )
+            second_pause = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            completed = controller.chat_turn_service.resume_chat_human(
+                "team_1",
+                {"challenge_id": second_pause["challenge_id"], "decision": "submit", "value": True},
+                "openai",
+                "sk-test-0123456789",
+            )
+
+        self.assertEqual(failed.exception.code, "assistant-rpc-failed")
+        self.assertEqual(first_pause["status"], "human-required")
+        self.assertEqual(second_pause["status"], "human-required")
+        self.assertNotEqual(first_pause["challenge_id"], second_pause["challenge_id"])
+        self.assertEqual(completed["reply"], "Recovered")
+        self.assertEqual(len(invocations), 4)
 
     def test_chat_stop_does_not_hold_the_global_guard_during_power_termination(self) -> None:
         token = "turn-token"
@@ -787,7 +859,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(response["reply"], "Recovered")
         self.assertEqual(batches, (0,))
 
-    def test_chat_refuses_to_repeat_an_uncertain_power_execution(self) -> None:
+    def test_terminal_rpc_failure_does_not_wedge_the_next_independent_turn(self) -> None:
         request = brain_runtime_client.PowerRequest(
             interrupt_id="power-1",
             assistant_id="shimpz-cloudflare",
@@ -799,8 +871,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
             def start(self, _context, _message):
                 return brain_runtime_client.RuntimeTurn(status="power-required", reply="", powers=(request,))
 
-            def resume(self, _context, _results):
-                raise AssertionError("an uncertain Power must never reach resume")
+            def resume(self, _context, results):
+                if results != {"power-1": LOOKUP_RESULT}:
+                    raise AssertionError("the independent Power result changed")
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Recovered", powers=())
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
@@ -808,11 +882,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
             def fail_rpc(*_args):
                 invocations.append("rpc")
-                raise local_app.ApiProblem(
-                    HTTPStatus.BAD_GATEWAY,
-                    "private Assistant failure",
-                    code="assistant-rpc-failed",
-                )
+                if len(invocations) == 1:
+                    raise local_app.ApiProblem(
+                        HTTPStatus.BAD_GATEWAY,
+                        "private Assistant failure",
+                        code="assistant-rpc-failed",
+                    )
+                return {"result": LOOKUP_RESULT}
 
             controller.invoke = fail_rpc
             controller.assistant_lifecycle.invoke = controller.invoke
@@ -823,17 +899,66 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     "openai",
                     "sk-test-0123456789",
                 )
-            with self.assertRaises(local_app.ApiProblem) as retry:
-                controller.chat_turn_service.chat(
-                    "team_1",
-                    {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
-                    "openai",
-                    "sk-test-0123456789",
-                )
+            self.assertEqual(invocations, ["rpc"])
+            retry = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
 
         self.assertEqual(first.exception.code, "assistant-rpc-failed")
-        self.assertEqual(retry.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertEqual(retry.exception.code, "power-state-unavailable")
-        self.assertEqual(retry.exception.message, "Team Power execution state is unavailable")
-        self.assertNotIn("private Assistant failure", str(retry.exception))
-        self.assertEqual(invocations, ["rpc"])
+        self.assertNotIn("private Assistant failure", str(retry))
+        self.assertEqual(retry["reply"], "Recovered")
+        self.assertEqual(invocations, ["rpc", "rpc"])
+
+    def test_crash_uncertain_batch_remains_blocked_across_identical_local_retries(self) -> None:
+        request = brain_runtime_client.PowerRequest(
+            interrupt_id="power-1",
+            assistant_id="shimpz-cloudflare",
+            power="list-zones",
+            input=LOOKUP_INPUT,
+        )
+
+        class Runtime:
+            @staticmethod
+            def start(_context, _message):
+                return brain_runtime_client.RuntimeTurn(status="power-required", reply="", powers=(request,))
+
+            @staticmethod
+            def resume(_context, _results):
+                raise AssertionError("an uncertain Power must not reach Brain resume")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            assistant = controller.registry["shimpz-cloudflare"]
+            operation = power_execution.power_operation(
+                request,
+                "assistant-container",
+                assistant.image,
+                integration_generations=(("cloudflare", 1),),
+            )
+            generation = "a" * 64
+            batch = controller.power_state.prepare_batch(
+                generation,
+                local_app._brain_thread_id("local-space", "team_1", generation),
+                (operation,),
+            )
+            controller.power_state.begin(batch, operation)
+            controller.assistant_lifecycle.invoke = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("an uncertain Power must not execute")
+            )
+
+            for attempt in range(2):
+                with self.subTest(attempt=attempt), self.assertRaises(local_app.ApiProblem) as failed:
+                    controller.chat_turn_service.chat(
+                        "team_1",
+                        {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                        "openai",
+                        "sk-test-0123456789",
+                    )
+                self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+                self.assertEqual(failed.exception.code, "power-state-unavailable")
+
+            with self.assertRaises(local_app.power_journal.PowerJournalUncertainError):
+                controller.power_state.begin(batch, operation)

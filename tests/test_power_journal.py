@@ -380,6 +380,30 @@ class PowerJournalTests(unittest.TestCase):
         with self.assertRaises(power_journal.PowerJournalConflictError):
             journal.begin(batch, self.first)
 
+    def test_terminal_abandonment_removes_only_the_exact_uncertain_batch(self) -> None:
+        journal = self.journal(max_generations=1)
+        uncertain = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        journal.begin(uncertain, self.first)
+
+        self.assertTrue(journal.abandon_uncertain(uncertain))
+        replacement = journal.prepare_batch("generation-1", "thread-2", [self.second])
+        with self.assertRaises(power_journal.PowerJournalConflictError):
+            journal.abandon_uncertain(uncertain)
+
+        self.assertTrue(journal.begin(replacement, self.second).execute)
+
+    def test_terminal_abandonment_preserves_a_completed_batch_for_replay(self) -> None:
+        journal = self.journal()
+        completed = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        journal.begin(completed, self.first)
+        journal.complete(completed, self.first, {"answer": 1})
+
+        self.assertFalse(journal.abandon_uncertain(completed))
+        replay = journal.begin(completed, self.first)
+
+        self.assertFalse(replay.execute)
+        self.assertEqual(replay.result, {"answer": 1})
+
     def test_replayable_purge_abandons_paused_work_but_keeps_uncertain_work(self) -> None:
         journal = self.journal()
         prepared = journal.prepare_batch("generation-0", "thread-0", [self.first])
@@ -644,6 +668,12 @@ class PowerJournalTests(unittest.TestCase):
         journal.begin(batch, self.first)
         self.assert_sql_failure(
             journal,
+            "DELETE FROM batches",
+            lambda: journal.abandon_uncertain(batch),
+            "abandoned",
+        )
+        self.assert_sql_failure(
+            journal,
             "UPDATE operations SET state = 'completed'",
             lambda: journal.complete(batch, self.first, {"ok": True}),
             "committed",
@@ -697,6 +727,7 @@ class PowerJournalTests(unittest.TestCase):
         journal.begin(batch, self.first)
         self.assert_change_conflict(journal, lambda: journal.complete(batch, self.first, {"ok": True}))
         self.assert_change_conflict(journal, lambda: journal.suspend(batch, self.first))
+        self.assert_change_conflict(journal, lambda: journal.abandon_uncertain(batch))
 
         journal.complete(batch, self.first, {"ok": True})
         self.assert_change_conflict(journal, lambda: journal.delivered(batch))

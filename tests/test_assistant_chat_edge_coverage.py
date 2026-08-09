@@ -24,7 +24,12 @@ def _request(interrupt_id: str) -> brain_runtime_client.PowerRequest:
 
 
 def _prepared(identity: tuple[object, ...] = ("identity",)) -> chat_turn.PreparedSegment:
-    batch = SimpleNamespace(prepare=lambda _batch: None, invoke=lambda _request: {}, delivered=lambda _batch: None)
+    batch = SimpleNamespace(
+        prepare=lambda _batch: None,
+        invoke=lambda _request: {},
+        delivered=lambda _batch: None,
+        abandon_uncertain=lambda: False,
+    )
     return chat_turn.PreparedSegment("Team", identity, context(), [], batch)
 
 

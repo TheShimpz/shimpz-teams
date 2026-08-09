@@ -637,6 +637,42 @@ class PowerJournal:
                     raise
                 raise PowerJournalError("Power batch delivery could not be committed") from exc
 
+    def abandon_uncertain(self, batch: Batch) -> bool:
+        """End one handled terminal attempt only when its exact batch is uncertain."""
+        batch = self._validate_handle(batch)
+        with self._guard:
+            self._ensure_open()
+            self._transaction()
+            try:
+                row = self._connection.execute(
+                    "SELECT fingerprint FROM batches WHERE generation = ?",
+                    (batch.generation,),
+                ).fetchone()
+                if row is None:
+                    self._commit()
+                    return False
+                if row != (batch.fingerprint,):
+                    raise PowerJournalConflictError("a newer Power batch replaced this abandonment handle")
+                operations = self._load_batch(batch)
+                if not any(operation[3] == "executing" for operation in operations):
+                    self._commit()
+                    return False
+                self._connection.execute(
+                    "DELETE FROM batches WHERE generation = ? AND fingerprint = ?",
+                    (batch.generation, batch.fingerprint),
+                )
+                if self._connection.execute("SELECT changes()").fetchone() != (1,):
+                    raise PowerJournalConflictError("Power batch changed before terminal abandonment")
+                self._commit()
+                self._forget_generation(batch.generation)
+            except (sqlite3.Error, PowerJournalError) as exc:
+                self._rollback()
+                if isinstance(exc, PowerJournalError):
+                    raise
+                raise PowerJournalError("uncertain Power batch could not be abandoned") from exc
+            else:
+                return True
+
     def purge(self, generation: str) -> None:
         safe_generation = _safe_id(generation, "generation")
         with self._guard:

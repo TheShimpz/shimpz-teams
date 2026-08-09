@@ -706,20 +706,28 @@ class HostedChatLifecycleTests(unittest.TestCase):
             journal.begin(batch, operation)
             anchor, environment = self._journal_chat_environment(journal, runtime, rpc)
 
-            with environment, self.assertRaises(runtime_state.ApiError) as failed:
-                hosted_chat_segment._chat_in_turn(
-                    "team_1",
-                    "Greet me",
-                    [],
-                    ("shimpz-cloudflare",),
-                    "retry-turn",
-                    anchor,
-                    "account_1",
-                )
+            with environment:
+                for attempt in range(2):
+                    with (
+                        self.subTest(attempt=attempt),
+                        self.assertRaises(runtime_state.ApiError) as failed,
+                    ):
+                        hosted_chat_segment._chat_in_turn(
+                            "team_1",
+                            "Greet me",
+                            [],
+                            ("shimpz-cloudflare",),
+                            "retry-turn",
+                            anchor,
+                            "account_1",
+                        )
+                    self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+                    self.assertEqual(failed.exception.message, "Team Power execution state is unavailable")
+                    self.assertNotIn("uncertain", str(failed.exception).lower())
 
-        self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertEqual(failed.exception.message, "Team Power execution state is unavailable")
-        self.assertNotIn("uncertain", str(failed.exception).lower())
+            with self.assertRaises(power_journal.PowerJournalUncertainError):
+                journal.begin(batch, operation)
+
         rpc.assert_not_called()
 
     def test_power_journal_uses_the_injected_path_lazily(self) -> None:

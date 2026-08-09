@@ -174,9 +174,16 @@ def run_segment(
             continuation=continuation,
             requirements=requirements,
         )
-    except _DRIVE_ERRORS as exc:
-        strategy.raise_problem("drive-error", exc)
-        raise AssertionError("chat error adapter returned") from exc
+    except Exception as exc:
+        try:
+            segment.durable_batch.abandon_uncertain()
+        except power_journal.PowerJournalError as abandonment_error:
+            strategy.raise_problem("drive-error", abandonment_error)
+            raise AssertionError("chat error adapter returned") from abandonment_error
+        if isinstance(exc, _DRIVE_ERRORS):
+            strategy.raise_problem("drive-error", exc)
+            raise AssertionError("chat error adapter returned") from exc
+        raise
     strategy.finalize()
     groups = requirements.groups()
     if (

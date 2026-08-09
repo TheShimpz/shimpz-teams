@@ -159,6 +159,7 @@ class PowerBatch:
         self._strategy = strategy
         self._batch: power_journal.Batch | None = None
         self._operations: dict[str, power_journal.Operation] = {}
+        self._executing_here: set[str] = set()
 
     def _operation_with_evidence(self, request: object) -> tuple[power_journal.Operation, object]:
         active = self._bindings.get(request.assistant_id)
@@ -200,12 +201,15 @@ class PowerBatch:
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
             return decision.result
+        self._executing_here.add(operation.interrupt_id)
         try:
             result = self._strategy.execute(request, evidence)
         except power_human.HumanRequestSuspensionError:
             self._journal.suspend(self._batch, operation)
+            self._executing_here.discard(operation.interrupt_id)
             raise
         self._journal.complete(self._batch, operation, result)
+        self._executing_here.discard(operation.interrupt_id)
         return result
 
     def delivered(self, requests: tuple[object, ...]) -> None:
@@ -217,8 +221,22 @@ class PowerBatch:
         self._journal.delivered(self._batch)
         self._batch = None
         self._operations = {}
+        self._executing_here.clear()
         if callable(self._journal_source):
             self._journal = None
+
+    def abandon_uncertain(self) -> bool:
+        """Release only this batch after an in-band terminal uncertain execution."""
+        if self._journal is None or self._batch is None or not self._executing_here:
+            return False
+        abandoned = self._journal.abandon_uncertain(self._batch)
+        if abandoned:
+            self._batch = None
+            self._operations = {}
+            self._executing_here.clear()
+            if callable(self._journal_source):
+                self._journal = None
+        return abandoned
 
 
 class RpcExchangeError(RuntimeError):
