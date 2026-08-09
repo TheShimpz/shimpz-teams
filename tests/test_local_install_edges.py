@@ -97,6 +97,14 @@ class LocalInstallEdgeTests(unittest.TestCase):
             assert binding is not None
             self.assertEqual(registry.spec(binding), spec)
             self.assertEqual(registry.all(), (spec,))
+
+            successor = copy.deepcopy(resolution)
+            successor["assistant_version"] = "9.0.0"
+            successor["source_digest"] = f"sha256:{'9' * 64}"
+            successor["name"] = "Current Assistant"
+            current = registry.put("team_2", successor)
+            self.assertEqual(registry.all(), (current,))
+
             with self.assertRaises(bindings.DynamicAssistantConflictError):
                 registry.replacement("team_1", f"sha256:{'0' * 64}", resolution)
 

@@ -68,11 +68,12 @@ class PublicationRegistry:
         return self._store.snapshot()
 
     def all(self) -> tuple[AssistantSpec, ...]:
-        unique: dict[tuple[str, str], AssistantSpec] = {}
+        unique: dict[str, bindings.DynamicAssistantBinding] = {}
         for binding in self._store.snapshot():
-            spec = _spec(binding)
-            unique[(spec.assistant_id, spec.image)] = spec
-        return tuple(sorted(unique.values(), key=lambda spec: (spec.assistant_id, spec.image)))
+            current = unique.get(binding.assistant_id)
+            if current is None or _catalog_order(binding) > _catalog_order(current):
+                unique[binding.assistant_id] = binding
+        return tuple(_spec(unique[assistant_id]) for assistant_id in sorted(unique))
 
 
 def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
@@ -139,3 +140,7 @@ def _version(resolution: dict[str, object]) -> tuple[int, int, int]:
         return int(major), int(minor), int(patch)
     except (ValueError, TypeError) as exc:
         raise bindings.DynamicAssistantError("publication has no valid Assistant version") from exc
+
+
+def _catalog_order(binding: bindings.DynamicAssistantBinding) -> tuple[tuple[int, int, int], str]:
+    return _version(binding.resolution), binding.binding_digest
