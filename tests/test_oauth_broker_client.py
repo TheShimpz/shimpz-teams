@@ -458,6 +458,15 @@ class OAuthBrokerClientTests(unittest.TestCase):
             )
         with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
             self.client.revoke(provider_id="cloudflare", token=ACCESS, broker_lease="invalid")
+        with (
+            patch.object(
+                integration_broker.integration_providers,
+                "resolve",
+                return_value=SimpleNamespace(id="foreign"),
+            ),
+            self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "provider is unavailable"),
+        ):
+            self.client.revoke(provider_id="foreign", token=ACCESS, broker_lease=LEASE)
 
         class BadRevokeTransport(Transport):
             def request(self, **request) -> integration_broker.BrokerHTTPResponse:

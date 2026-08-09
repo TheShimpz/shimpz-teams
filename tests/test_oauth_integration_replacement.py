@@ -96,6 +96,20 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
             with self.assertRaises(integration_store.OAuthIntegrationReauthorizationError):
                 store.resolve("team_1", "assistant", "cloudflare", "cloudflare", SCOPES, mock.Mock())
 
+    def test_replace_rejects_invalid_callback_contracts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            invalid = (
+                None,
+                integration_store.OAuthReplacementCallbacks(None, mock.Mock()),
+                integration_store.OAuthReplacementCallbacks(mock.Mock(), None),
+            )
+            for callbacks in invalid:
+                with self.subTest(callbacks=callbacks), self.assertRaises(
+                    integration_store.OAuthIntegrationValidationError
+                ):
+                    store.replace("team_1", "assistant", "cloudflare", "cloudflare", SCOPES, callbacks)
+
     def test_exchange_failure_is_retryable_and_put_failure_revokes_new_tokens(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
@@ -138,6 +152,31 @@ class OAuthIntegrationReplacementTests(unittest.TestCase):
                     integration_store.OAuthReplacementCallbacks(lambda: replacement, revoke),
                 )
             self.assertEqual(revocations, [ACCESS, ACCESS, "replacement-access-token-123456789"])
+
+    def test_replace_preserves_write_failure_when_compensation_revocation_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            replacement = tokens(access="replacement-access-token-123456789")
+            with (
+                mock.patch.object(
+                    store,
+                    "put",
+                    side_effect=integration_store.OAuthIntegrationStoreError("write failed"),
+                ),
+                self.assertLogs("shimpz.team.integrations.store", level="ERROR"),
+                self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "write failed"),
+            ):
+                store.replace(
+                    "team_1",
+                    "assistant",
+                    "cloudflare",
+                    "cloudflare",
+                    SCOPES,
+                    integration_store.OAuthReplacementCallbacks(
+                        lambda: replacement,
+                        mock.Mock(side_effect=integration_store.OAuthIntegrationRevocationError("unavailable")),
+                    ),
+                )
 
 
 if __name__ == "__main__":
