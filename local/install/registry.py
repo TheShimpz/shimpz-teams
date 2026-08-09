@@ -68,6 +68,13 @@ class PublicationRegistry:
         return self._store.snapshot()
 
     def all(self) -> tuple[AssistantSpec, ...]:
+        unique: dict[tuple[str, str], AssistantSpec] = {}
+        for binding in self._store.snapshot():
+            spec = _spec(binding)
+            unique[(spec.assistant_id, spec.image)] = spec
+        return tuple(sorted(unique.values(), key=lambda spec: (spec.assistant_id, spec.image)))
+
+    def catalog(self) -> tuple[AssistantSpec, ...]:
         unique: dict[str, bindings.DynamicAssistantBinding] = {}
         for binding in self._store.snapshot():
             current = unique.get(binding.assistant_id)

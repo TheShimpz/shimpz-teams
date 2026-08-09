@@ -743,7 +743,7 @@ class LocalController:
                     "summary": spec.summary,
                     "powers": sorted(spec.powers),
                 }
-                for spec in self.registry.all()
+                for spec in self.registry.catalog()
             ]
         }
 

@@ -102,8 +102,27 @@ class LocalInstallEdgeTests(unittest.TestCase):
             successor["assistant_version"] = "9.0.0"
             successor["source_digest"] = f"sha256:{'9' * 64}"
             successor["name"] = "Current Assistant"
+            successor["image_reference"] = (
+                f"ghcr.io/theshimpz/shimpz-assistant@sha256:{'c' * 64}"
+            )
+            successor["oci_digest"] = f"sha256:{'c' * 64}"
             current = registry.put("team_2", successor)
-            self.assertEqual(registry.all(), (current,))
+            self.assertEqual(registry.all(), (spec, current))
+            self.assertEqual(registry.catalog(), (current,))
+
+            same_version = copy.deepcopy(successor)
+            same_version["source_digest"] = f"sha256:{'8' * 64}"
+            same_version["name"] = "Deterministic Assistant"
+            contender = registry.put("team_3", same_version)
+            contender_binding = registry.binding("team_3", contender.assistant_id)
+            current_binding = registry.binding("team_2", current.assistant_id)
+            assert contender_binding is not None
+            assert current_binding is not None
+            expected = registry.spec(max(
+                (current_binding, contender_binding),
+                key=lambda candidate: candidate.binding_digest,
+            ))
+            self.assertEqual(registry.catalog(), (expected,))
 
             with self.assertRaises(bindings.DynamicAssistantConflictError):
                 registry.replacement("team_1", f"sha256:{'0' * 64}", resolution)

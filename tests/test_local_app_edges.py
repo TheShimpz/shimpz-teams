@@ -267,7 +267,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             summary="Summary",
             powers={"b": object(), "a": object()},
         )
-        controller.registry = types.SimpleNamespace(all=lambda: (spec,))
+        controller.registry = types.SimpleNamespace(catalog=lambda: (spec,))
         self.assertEqual(controller.list_registry()["assistants"][0]["powers"], ["a", "b"])
 
         controller.client.ping.return_value = False
