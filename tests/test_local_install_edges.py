@@ -102,9 +102,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             successor["assistant_version"] = "9.0.0"
             successor["source_digest"] = f"sha256:{'9' * 64}"
             successor["name"] = "Current Assistant"
-            successor["image_reference"] = (
-                f"ghcr.io/theshimpz/shimpz-assistant@sha256:{'c' * 64}"
-            )
+            successor["image_reference"] = f"ghcr.io/theshimpz/shimpz-assistant@sha256:{'c' * 64}"
             successor["oci_digest"] = f"sha256:{'c' * 64}"
             current = registry.put("team_2", successor)
             self.assertEqual(registry.all(), (spec, current))
@@ -118,10 +116,12 @@ class LocalInstallEdgeTests(unittest.TestCase):
             current_binding = registry.binding("team_2", current.assistant_id)
             assert contender_binding is not None
             assert current_binding is not None
-            expected = registry.spec(max(
-                (current_binding, contender_binding),
-                key=lambda candidate: candidate.binding_digest,
-            ))
+            expected = registry.spec(
+                max(
+                    (current_binding, contender_binding),
+                    key=lambda candidate: candidate.binding_digest,
+                )
+            )
             self.assertEqual(registry.catalog(), (expected,))
 
             with self.assertRaises(bindings.DynamicAssistantConflictError):
