@@ -386,6 +386,7 @@ class PowerJournalTests(unittest.TestCase):
         journal.begin(uncertain, self.first)
 
         self.assertTrue(journal.abandon_uncertain(uncertain))
+        self.assertFalse(journal.abandon_uncertain(uncertain))
         replacement = journal.prepare_batch("generation-1", "thread-2", [self.second])
         with self.assertRaises(power_journal.PowerJournalConflictError):
             journal.abandon_uncertain(uncertain)

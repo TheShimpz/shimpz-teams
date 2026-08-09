@@ -27,6 +27,7 @@ from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from power import human as power_human
+from power import journal as power_journal
 
 hosted_app = hosted_harness.app
 
@@ -275,6 +276,46 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             )
 
         self.assertEqual(decisions, ["prepare", "invoke", "abandon"])
+
+    def test_terminal_drive_error_fails_closed_when_abandonment_is_unavailable(self) -> None:
+        decisions: list[str] = []
+
+        class Batch:
+            @staticmethod
+            def prepare(_requests) -> None:
+                pass
+
+            @staticmethod
+            def invoke(_request):
+                raise RuntimeError("Assistant RPC failed")
+
+            @staticmethod
+            def delivered(_requests) -> None:
+                raise AssertionError("a failed batch must not be delivered")
+
+            @staticmethod
+            def abandon_uncertain() -> None:
+                raise power_journal.PowerJournalError("journal unavailable")
+
+        strategy = chat_turn_engine.SegmentStrategy(
+            runtime=_Runtime(),
+            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
+            validate_power=lambda _assistant, _power, payload: payload,
+            pause_for_private_inputs=lambda _requests, _requirements: False,
+            cancelled=lambda: False,
+            validate_context=lambda: None,
+            raise_problem=lambda reason, _exc: decisions.append(reason),
+        )
+
+        with self.assertRaisesRegex(AssertionError, "chat error adapter returned"):
+            chat_turn_engine.run_segment(
+                strategy,
+                message="Run the Power",
+                continuation=None,
+                expected_identity=("identity",),
+            )
+
+        self.assertEqual(decisions, ["drive-error"])
 
     def test_stale_or_failed_suspension_rolls_back_before_error(self) -> None:
         def assert_rollback(continuation: str, commit_result: bool, expected: list[str]) -> None:

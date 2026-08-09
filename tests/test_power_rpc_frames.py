@@ -609,6 +609,35 @@ class PowerRpcFrameTests(unittest.TestCase):
                 batch.invoke(request)
             self.assertEqual(batch.invoke(request), {"ok": True})
 
+    def test_terminal_abandonment_resets_a_lazy_journal_only_after_exact_deletion(self) -> None:
+        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {})
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        with tempfile.TemporaryDirectory() as directory:
+            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            journal_source = mock.Mock(return_value=journal)
+            batch = power_execution.PowerBatch(
+                journal_source,
+                "generation-1",
+                "thread-1",
+                {"assistant": binding},
+                power_execution.PowerBatchStrategy(
+                    lambda item: (item.container_id, item.spec.image),
+                    lambda _request, _evidence: (_ for _ in ()).throw(RuntimeError("terminal failure")),
+                    lambda _request: None,
+                ),
+            )
+            batch.prepare((request,))
+            with self.assertRaisesRegex(RuntimeError, "terminal failure"):
+                batch.invoke(request)
+
+            with mock.patch.object(journal, "abandon_uncertain", return_value=False):
+                self.assertFalse(batch.abandon_uncertain())
+            self.assertTrue(batch.abandon_uncertain())
+            self.assertFalse(batch.abandon_uncertain())
+
+        journal_source.assert_called_once_with()
+
     def test_power_resolution_failures_have_identical_statuses(self) -> None:
         local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", powers={}, integrations={})
 
