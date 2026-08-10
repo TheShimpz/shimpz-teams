@@ -55,14 +55,14 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
         for container in containers:
             labels = container.labels
             assistant_id = labels.get(ASSISTANT_LABEL)
-            spec = self.registry.get(team_id, assistant_id)
-            version = self.registry.version(team_id, assistant_id)
-            if spec is None or version is None:
+            versioned = self.registry.get_versioned(team_id, assistant_id)
+            if versioned is None:
                 raise ApiProblem(
                     HTTPStatus.CONFLICT,
                     "an installed Assistant is no longer allowlisted",
                     code="assistant-registry-drift",
                 )
+            spec, version = versioned
             config, environment = self.assistant_lifecycle._validate_container_profile(
                 container,
                 team_id,

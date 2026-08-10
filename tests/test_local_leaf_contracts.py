@@ -172,7 +172,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _lock=lambda _team_id: nullcontext(),
             assistant_lifecycle=lifecycle,
             client=types.SimpleNamespace(containers=types.SimpleNamespace(list=mock.Mock())),
-            registry=types.SimpleNamespace(get=mock.Mock(), version=mock.Mock()),
+            registry=types.SimpleNamespace(get_versioned=mock.Mock()),
         )
         controller.client.containers.list.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
@@ -181,12 +181,11 @@ class LocalLeafContractTests(unittest.TestCase):
         container = types.SimpleNamespace(labels={assistant_api.ASSISTANT_LABEL: "helper"}, status="running")
         controller.client.containers.list.side_effect = None
         controller.client.containers.list.return_value = [container]
-        controller.registry.get.return_value = None
+        controller.registry.get_versioned.return_value = None
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
             assistant_api.list_assistants(controller, "team_1")
 
-        controller.registry.get.return_value = object()
-        controller.registry.version.return_value = "0.1.0"
+        controller.registry.get_versioned.return_value = (object(), "0.1.0")
         lifecycle._validate_container_egress = mock.Mock(
             side_effect=ApiProblemError(409, "unexpected egress failure", code="unexpected")
         )

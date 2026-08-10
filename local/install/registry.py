@@ -31,14 +31,14 @@ class PublicationRegistry:
     def binding(self, team_id: str, assistant_id: str) -> bindings.DynamicAssistantBinding | None:
         return self._store.get(team_id, assistant_id)
 
-    def version(self, team_id: str, assistant_id: str) -> str | None:
+    def get_versioned(self, team_id: str, assistant_id: str) -> tuple[AssistantSpec, str] | None:
         binding = self._store.get(team_id, assistant_id)
         if binding is None:
             return None
         value = binding.resolution.get("assistant_version")
         if not isinstance(value, str):
             raise bindings.DynamicAssistantError("publication has no valid Assistant version")
-        return value
+        return _spec(binding), value
 
     def replacement(
         self,

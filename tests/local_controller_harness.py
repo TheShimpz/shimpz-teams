@@ -57,8 +57,9 @@ class TestPublicationRegistry(dict):
     def binding(self, _team_id, assistant_id):
         return None
 
-    def version(self, _team_id, assistant_id):
-        return TEST_ASSISTANT_VERSION if assistant_id in self else None
+    def get_versioned(self, _team_id, assistant_id):
+        spec = super().get(assistant_id)
+        return None if spec is None else (spec, TEST_ASSISTANT_VERSION)
 
 
 class LocalContractCase(unittest.TestCase):

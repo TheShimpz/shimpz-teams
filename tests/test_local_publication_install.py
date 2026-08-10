@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
-from install.bindings import DynamicAssistantStore
+from install.bindings import DynamicAssistantStore, binding_from_resolution
 from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from local import app as local_app
@@ -166,6 +166,19 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 registry.identities(),
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},
             )
+
+    def test_registry_reads_a_versioned_runtime_from_one_binding_snapshot(self) -> None:
+        resolution = _runtime_resolution()
+        binding = binding_from_resolution("team_1", resolution)
+        store = mock.Mock()
+        store.get.return_value = binding
+        registry = PublicationRegistry(store)
+
+        self.assertEqual(
+            registry.get_versioned("team_1", binding.assistant_id),
+            (registry.spec(binding), resolution["assistant_version"]),
+        )
+        store.get.assert_called_once_with("team_1", binding.assistant_id)
 
     def test_controller_routes_a_newer_bound_publication_through_update(self) -> None:
         current = _runtime_resolution()
