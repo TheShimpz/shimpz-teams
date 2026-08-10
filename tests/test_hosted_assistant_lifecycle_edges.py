@@ -278,9 +278,10 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
     def test_list_and_icon_inventory_require_current_binding(self) -> None:
         lease = SimpleNamespace()
         container = _container()
+        unlabeled = _container(labels={})
         with (
             mock.patch.object(resources, "_require_current_authorization"),
-            mock.patch.object(lifecycle, "_team_assistant_containers", return_value=[container]),
+            mock.patch.object(lifecycle, "_team_assistant_containers", return_value=[container, unlabeled]),
             mock.patch.object(lifecycle, "_dynamic_binding_snapshot", return_value={ASSISTANT_ID: BINDING}),
             mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, SPEC)),
         ):

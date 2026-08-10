@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
-from install.bindings import DynamicAssistantStore, binding_from_resolution
+from install.bindings import DynamicAssistantError, DynamicAssistantStore, binding_from_resolution
 from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from local import app as local_app
@@ -178,6 +178,17 @@ class LocalPublicationInstallTests(unittest.TestCase):
             registry.get_versioned("team_1", binding.assistant_id),
             (registry.spec(binding), resolution["assistant_version"]),
         )
+        store.get.assert_called_once_with("team_1", binding.assistant_id)
+
+        store.reset_mock()
+        store.get.return_value = None
+        self.assertIsNone(registry.get_versioned("team_1", binding.assistant_id))
+        store.get.assert_called_once_with("team_1", binding.assistant_id)
+
+        store.reset_mock()
+        store.get.return_value = SimpleNamespace(resolution={"assistant_version": 1})
+        with self.assertRaisesRegex(DynamicAssistantError, "valid Assistant version"):
+            registry.get_versioned("team_1", binding.assistant_id)
         store.get.assert_called_once_with("team_1", binding.assistant_id)
 
     def test_controller_routes_a_newer_bound_publication_through_update(self) -> None:
