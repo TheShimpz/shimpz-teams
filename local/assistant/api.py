@@ -56,7 +56,8 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
             labels = container.labels
             assistant_id = labels.get(ASSISTANT_LABEL)
             spec = self.registry.get(team_id, assistant_id)
-            if spec is None:
+            version = self.registry.version(team_id, assistant_id)
+            if spec is None or version is None:
                 raise ApiProblem(
                     HTTPStatus.CONFLICT,
                     "an installed Assistant is no longer allowlisted",
@@ -94,6 +95,12 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                     status = container.status
             else:
                 status = "outdated"
-            output.append({"assistant": assistant_id, "status": status})
+            output.append(
+                {
+                    "assistant": assistant_id,
+                    "assistant_version": version,
+                    "status": status,
+                }
+            )
         output.sort(key=lambda item: item["assistant"])
         return {"assistants": output}

@@ -294,7 +294,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "future-assistant", "status": "outdated"}]},
+            {"assistants": [{"assistant": "future-assistant", "assistant_version": "0.1.0", "status": "outdated"}]},
         )
         self.assertEqual(
             controller.assistant_lifecycle.install_assistant("team_1", "future-assistant"),
@@ -316,7 +316,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "invalid"}]},
         )
         self.assertEqual(events, ["reload"])
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_called_once_with(
@@ -380,7 +380,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "invalid"}]},
         )
         controller.assistant_lifecycle._admit_assistant_allowed_hosts.assert_not_called()
 

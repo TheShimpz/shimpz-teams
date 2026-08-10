@@ -259,7 +259,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         inventory = {
             "team_id": "team_1",
             "assistants": [
-                {"assistant": "example-assistant", "status": "running"},
+                {"assistant": "example-assistant", "assistant_version": "0.1.0", "status": "running"},
             ],
         }
 
@@ -272,7 +272,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
 
         handler._send_json.assert_called_once_with(
             HTTPStatus.OK,
-            {"assistants": [{"assistant": "example-assistant", "status": "running"}]},
+            {"assistants": [{"assistant": "example-assistant", "assistant_version": "0.1.0", "status": "running"}]},
             no_store=True,
         )
 

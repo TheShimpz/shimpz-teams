@@ -28,7 +28,10 @@ class LocalEgressRecoveryMixin:
             "/v1/teams/demo_team/assistants",
         )
         self.assertEqual(inventory_status, 200, inventory)
-        self.assertEqual(inventory["assistants"], [{"assistant": "shimpz-cloudflare", "status": "running"}])
+        self.assertEqual(
+            inventory["assistants"],
+            [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "running"}],
+        )
 
         repaired_networks = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]["NetworkSettings"]["Networks"]
         self.assertIn(flow.network_name, repaired_networks)

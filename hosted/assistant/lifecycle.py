@@ -723,20 +723,19 @@ def _list_assistants(
             )
         )
         bindings = _dynamic_binding_snapshot(team_id, ids)
-        assistants = [
-            {
-                "assistant": assistant_id,
-                "status": container.status,
-                "container": container.name,
-                "powers": sorted(spec.contract.powers),
-            }
-            for container in containers
-            if isinstance(
-                assistant_id := (container.labels or {}).get("team.assistant"),
-                str,
+        assistants = []
+        for container in containers:
+            assistant_id = (container.labels or {}).get("team.assistant")
+            if not isinstance(assistant_id, str):
+                continue
+            _resolve_team_assistant(team_id, assistant_id, bindings)
+            assistants.append(
+                {
+                    "assistant": assistant_id,
+                    "assistant_version": bindings[assistant_id].resolution["assistant_version"],
+                    "status": container.status,
+                }
             )
-            for _resolved_id, spec in [_resolve_team_assistant(team_id, assistant_id, bindings)]
-        ]
         return {"team_id": team_id, "assistants": assistants}
 
 

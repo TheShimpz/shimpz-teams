@@ -205,6 +205,7 @@ HOSTED_BINDING = types.SimpleNamespace(
     binding_digest="sha256:" + ("b" * 64),
     resolution={
         "assistant_id": "shimpz-cloudflare",
+        "assistant_version": "0.1.0",
         "source_digest": "sha256:" + ("c" * 64),
         "oci_digest": "sha256:" + ("a" * 64),
     },

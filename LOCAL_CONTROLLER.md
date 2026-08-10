@@ -61,7 +61,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `GET` | `/v1/teams` | running Team inventory |
 | `POST` | `/v1/teams/{team_id}/create` | idempotently create a named Team network/state |
 | `DELETE` | `/v1/teams/{team_id}` | idempotently remove its Assistants and owned state |
-| `GET` | `/v1/teams/{team_id}/assistants` | installed Assistant status inventory |
+| `GET` | `/v1/teams/{team_id}/assistants` | installed Assistant version and status inventory |
 | `POST` | `/v1/teams/{team_id}/assistants` | install one trusted Assistant ID/digest |
 | `DELETE` | `/v1/teams/{team_id}/assistants/{assistant_id}` | uninstall one owned Assistant |
 | `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/powers/{power_id}` | invoke one declared Power directly |

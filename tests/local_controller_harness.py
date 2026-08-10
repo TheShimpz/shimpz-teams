@@ -38,6 +38,7 @@ TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "12345
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
 OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 64
+TEST_ASSISTANT_VERSION = "0.1.0"
 
 
 class TestPublicationRegistry(dict):
@@ -53,8 +54,11 @@ class TestPublicationRegistry(dict):
     def delete(self, _team_id, assistant_id):
         return self.pop(assistant_id, None) is not None
 
-    def binding(self, _team_id, _assistant_id):
+    def binding(self, _team_id, assistant_id):
         return None
+
+    def version(self, _team_id, assistant_id):
+        return TEST_ASSISTANT_VERSION if assistant_id in self else None
 
 
 class LocalContractCase(unittest.TestCase):
@@ -120,7 +124,13 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._assistant_container = lambda _team_id, _assistant: container
         controller.assistant_lifecycle._validate_container = lambda *_args: None
         controller.assistant_lifecycle.list_assistants = lambda _team_id: {
-            "assistants": [{"assistant": "shimpz-cloudflare", "status": "running"}]
+            "assistants": [
+                {
+                    "assistant": "shimpz-cloudflare",
+                    "assistant_version": TEST_ASSISTANT_VERSION,
+                    "status": "running",
+                }
+            ]
         }
         controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
             ActiveAssistant(controller.registry["shimpz-cloudflare"], container.id, container),

@@ -256,7 +256,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "outdated"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "outdated"}]},
         )
         with self.assertRaises(local_app.ApiProblem) as update_required:
             controller.assistant_lifecycle._validate_container(
@@ -315,7 +315,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(
             controller.list_assistants("team_1"),
-            {"assistants": [{"assistant": "shimpz-cloudflare", "status": "invalid"}]},
+            {"assistants": [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "invalid"}]},
         )
 
     def test_outdated_release_lineage_is_closed_before_lifecycle_actions(self) -> None:

@@ -285,7 +285,10 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
             mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, SPEC)),
         ):
             result = lifecycle._list_assistants(TEAM_ID, lease)
-        self.assertEqual(result["assistants"][0]["assistant"], ASSISTANT_ID)
+        self.assertEqual(
+            result["assistants"],
+            [{"assistant": ASSISTANT_ID, "assistant_version": "0.1.0", "status": "running"}],
+        )
 
         with (
             mock.patch.object(resources, "_require_current_authorization"),
