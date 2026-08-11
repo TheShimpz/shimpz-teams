@@ -251,7 +251,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
 
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
         action = SimpleNamespace(summary="Action", input_schema={})
-        contract = SimpleNamespace(actions={"action": action})
+        contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action})
         active = SimpleNamespace(
             assistant_id="assistant",
             container=SimpleNamespace(id="assistant-container"),
@@ -290,6 +290,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
                 strategy.human_requirement(missing_action, object())
             requirement = strategy.human_requirement(requested, object())
             self.assertEqual(requirement.action_id, "action")
+            self.assertEqual(requirement.assistant_name, "Reviewed Assistant")
             return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
 
         with (

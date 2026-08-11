@@ -324,7 +324,7 @@ def _run_hosted_chat_segment_with_metadata(
             raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
         return action_challenges.HumanRequirement(
             active.assistant_id,
-            active.assistant_id.replace("-", " ").title(),
+            active.contract.name,
             action_request.action,
             action.summary,
             action_request.interrupt_id,

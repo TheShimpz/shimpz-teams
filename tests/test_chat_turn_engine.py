@@ -411,8 +411,9 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             declared_action.output_schema,
         )
         hosted_contract = assistant_registry.AssistantContract(
-            {"list-zones": hosted_action},
-            {},
+            name="Assistant",
+            actions={"list-zones": hosted_action},
+            integrations={},
         )
         assistant_container = SimpleNamespace(id="b" * 64)
         hosted_active = hosted_harness.hosted_assistants._ActiveAssistant(

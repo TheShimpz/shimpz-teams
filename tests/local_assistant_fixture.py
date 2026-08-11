@@ -109,6 +109,7 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + ("c" * 64)),
         ),
         contract=assistant_registry.AssistantContract(
+            name=local.name,
             actions=local.actions,
             integrations=local.integrations,
             machine_contract=local.machine_contract,

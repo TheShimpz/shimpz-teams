@@ -51,6 +51,16 @@ class HostedInstallPublicationTests(unittest.TestCase):
         with self.assertRaises(bindings.DynamicAssistantError):
             publication._cached_assistant_spec("digest", json.dumps(resolution).encode())
 
+    def test_spec_retains_the_reviewed_assistant_name(self) -> None:
+        with mock.patch.object(
+            assistant_manifest,
+            "canonical_machine_contract",
+            return_value=RESOLUTION["machine_contract"],
+        ):
+            spec = publication._build_assistant_spec(RESOLUTION["assistant_id"], RESOLUTION)
+
+        self.assertEqual(spec.contract.name, RESOLUTION["name"])
+
     def test_binding_digest_is_recomputed_before_cache_use(self) -> None:
         invalid = SimpleNamespace(
             team_id="team_1",

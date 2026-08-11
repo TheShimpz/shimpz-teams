@@ -76,6 +76,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             ("org.shimpz.source.digest", resolution["source_digest"]),
         ),
         contract=assistant_registry.AssistantContract(
+            name=resolution["name"],
             actions=actions,
             integrations=integrations,
             machine_contract=machine_contract,

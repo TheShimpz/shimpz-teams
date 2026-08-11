@@ -643,7 +643,7 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         hosted_active = SimpleNamespace(
             assistant_id="assistant",
-            contract=SimpleNamespace(actions={}, integrations={}),
+            contract=SimpleNamespace(name="Assistant", actions={}, integrations={}),
         )
         self.local.assistant_integrations = object()
         with self.assertRaises(runtime_state.ApiError) as hosted_integration:

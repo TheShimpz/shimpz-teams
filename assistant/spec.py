@@ -37,6 +37,7 @@ class IntegrationSpec:
 
 @dataclass(frozen=True, slots=True)
 class AssistantContract:
+    name: str
     actions: dict[str, ActionSpec]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     machine_contract: dict[str, Any] = field(default_factory=dict)

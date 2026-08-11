@@ -86,10 +86,9 @@ class _PendingHostedChat:
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
-    name = active.assistant_id.replace("-", " ").title()
     return _HostedAssistantSpec(
         assistant_id=active.assistant_id,
-        name=name,
+        name=active.contract.name,
         actions={
             action_id: _HostedActionSpec(
                 tuple(getattr(action, "integrations", ())),
