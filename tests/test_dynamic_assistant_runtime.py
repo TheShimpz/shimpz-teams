@@ -20,10 +20,10 @@ RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
 class DynamicAssistantRuntimeTests(unittest.TestCase):
     def test_direct_runtime_is_digest_only_nonroot_readonly_and_mountless(self) -> None:
         resolution = copy.deepcopy(RESOLUTION)
-        power = resolution["machine_contract"]["powers"][0]
-        power["input_schema"]["additionalProperties"] = False
-        power["output_schema"]["additionalProperties"] = False
-        power["human_requests"] = []
+        action = resolution["machine_contract"]["actions"][0]
+        action["input_schema"]["additionalProperties"] = False
+        action["output_schema"]["additionalProperties"] = False
+        action["human_requests"] = []
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
             spec = assistant_spec(store.put("team_1", resolution))

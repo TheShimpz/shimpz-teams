@@ -118,7 +118,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             local_app.LocalControllerDependencies(
                 inference_store=SimpleNamespace(),
                 brain_runtime=SimpleNamespace(),
-                power_state=SimpleNamespace(),
+                action_state=SimpleNamespace(),
                 assistant_integrations=injected_store,
                 integration_challenges=injected_challenges,
                 oauth_broker=SimpleNamespace(),
@@ -257,7 +257,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 local_app.LocalControllerDependencies(
                     inference_store=SimpleNamespace(),
                     brain_runtime=SimpleNamespace(),
-                    power_state=SimpleNamespace(),
+                    action_state=SimpleNamespace(),
                     assistant_integrations=integrations,
                     integration_challenges=SimpleNamespace(),
                     oauth_pkce=pkce,
@@ -298,7 +298,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     local_app.LocalControllerDependencies(
                         inference_store=SimpleNamespace(),
                         brain_runtime=SimpleNamespace(),
-                        power_state=SimpleNamespace(),
+                        action_state=SimpleNamespace(),
                         developers=SimpleNamespace(),
                         artifact_trust=SimpleNamespace(),
                     ),
@@ -308,7 +308,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         requirement = integration_challenges.IntegrationRequirement(
             assistant_id="shimpz-cloudflare",
             assistant_name="Shimpz Cloudflare",
-            power_ids=("list-zones",),
+            action_ids=("list-zones",),
             integrations=(("cloudflare", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
         )
         challenges = integration_challenges.IntegrationChallengeStore()
@@ -468,27 +468,27 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(disconnected[1], {"disconnected": True})
         self.assertEqual(disconnected[2], "assistant-integration-disconnect")
 
-    def test_chat_pauses_before_any_power_when_integration_is_missing(self) -> None:
+    def test_chat_pauses_before_any_action_when_integration_is_missing(self) -> None:
         spec = self._registry()["shimpz-cloudflare"]
-        request = brain_runtime_client.PowerRequest(
+        request = brain_runtime_client.ActionRequest(
             interrupt_id="call-1",
             assistant_id=spec.assistant_id,
-            power="list-zones",
+            action="list-zones",
             input={"page": 1, "per_page": 25},
         )
 
         class Runtime:
             def start(self, _context, _message):
-                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, _results):  # pragma: no cover - must stay unreachable
-                raise AssertionError("Power batch must not execute before OAuth consent")
+                raise AssertionError("Action batch must not execute before OAuth consent")
 
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
             controller.space_id = "local-space"
             controller.brain_runtime = Runtime()
-            controller.power_state = SimpleNamespace(purge_replayable=lambda _generation: False)
+            controller.action_state = SimpleNamespace(purge_replayable=lambda _generation: False)
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
             )
@@ -506,10 +506,10 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 inference_config.InferenceConfig("openai", "gpt-5-nano"),
             )
             controller.chat_turn_service._chat_setup = lambda *_args: setup
-            controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use reviewed Powers only."
+            controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use reviewed Actions only."
             controller.chat_turn_service._chat_cancelled = lambda _token: False
-            controller.chat_turn_service._invoke_chat_power = lambda *_args: (_ for _ in ()).throw(
-                AssertionError("Power must not execute before OAuth consent")
+            controller.chat_turn_service._invoke_chat_action = lambda *_args: (_ for _ in ()).throw(
+                AssertionError("Action must not execute before OAuth consent")
             )
             turn_token = "turn-token"
 
@@ -532,14 +532,14 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     def test_integration_resume_is_one_use_and_returns_completed_turn(self) -> None:
         registry = self._registry()
         spec = registry["shimpz-cloudflare"]
-        request = brain_runtime_client.PowerRequest(
+        request = brain_runtime_client.ActionRequest(
             interrupt_id="call-1",
             assistant_id=spec.assistant_id,
-            power="list-zones",
+            action="list-zones",
             input={"page": 1, "per_page": 25},
         )
         continuation = chat_orchestrator.ChatContinuation(
-            turn=brain_runtime_client.RuntimeTurn("power-required", "", (request,)),
+            turn=brain_runtime_client.RuntimeTurn("action-required", "", (request,)),
             seen_interrupts=(),
             invoked=(),
             round_index=0,
@@ -548,7 +548,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             integration_challenges.IntegrationRequirement(
                 assistant_id=spec.assistant_id,
                 assistant_name=spec.name,
-                power_ids=("list-zones",),
+                action_ids=("list-zones",),
                 integrations=(("cloudflare", "cloudflare", spec.integrations["cloudflare"].scopes),),
             ),
         )
@@ -645,7 +645,7 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
     def _runtime(request, *, reply="Done"):
         class Runtime:
             def start(self, _context, _message):
-                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, _results):
                 return brain_runtime_client.RuntimeTurn("completed", reply, ())
@@ -680,7 +680,7 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
         controller.assistant_integrations = store
         controller.chat_turn_service.assistant_integrations = store
         controller.chat_turn_service.oauth_service = SimpleNamespace(refresh=refresh)
-        controller.chat_turn_service._invoke_chat_power = lambda *_args: {
+        controller.chat_turn_service._invoke_chat_action = lambda *_args: {
             "zones": [],
             "pagination": {
                 "page": 1,
@@ -704,11 +704,11 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
             message="List my Cloudflare zones",
         )
 
-    def test_expired_grant_refreshes_once_before_power_batch(self) -> None:
-        request = brain_runtime_client.PowerRequest(
+    def test_expired_grant_refreshes_once_before_action_batch(self) -> None:
+        request = brain_runtime_client.ActionRequest(
             interrupt_id="call-1",
             assistant_id="shimpz-cloudflare",
-            power="list-zones",
+            action="list-zones",
             input={"page": 1, "per_page": 25},
         )
         refresh_calls: list[tuple[object, ...]] = []
@@ -741,10 +741,10 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
         self.assertEqual(metadata[0].generation, 2)
 
     def test_refresh_failure_is_fail_closed_without_oauth_challenge(self) -> None:
-        request = brain_runtime_client.PowerRequest(
+        request = brain_runtime_client.ActionRequest(
             interrupt_id="call-1",
             assistant_id="shimpz-cloudflare",
-            power="list-zones",
+            action="list-zones",
             input={"page": 1, "per_page": 25},
         )
 

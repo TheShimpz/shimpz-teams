@@ -8,6 +8,8 @@ from unittest import mock
 
 from docker.errors import DockerException
 
+from action import challenges as action_challenges
+from action import journal as action_journal
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -17,8 +19,6 @@ from local import app as local_app
 from local.chat import pause as local_chat_pause
 from local.chat import private as local_chat_private
 from local.chat.types import PendingLocalChat
-from power import challenges as power_challenges
-from power import journal as power_journal
 
 
 def _pending(
@@ -40,9 +40,9 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
     def test_human_projection_and_generation_purge_fail_closed(self) -> None:
         with (
             mock.patch.object(
-                power_challenges,
+                action_challenges,
                 "challenge_payload",
-                side_effect=power_challenges.HumanChallengeError("invalid"),
+                side_effect=action_challenges.HumanChallengeError("invalid"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
@@ -54,13 +54,13 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "team-context-changed")
 
         subject = types.SimpleNamespace(
-            power_state=types.SimpleNamespace(
-                purge=mock.Mock(side_effect=power_journal.PowerJournalError("unavailable"))
+            action_state=types.SimpleNamespace(
+                purge=mock.Mock(side_effect=action_journal.ActionJournalError("unavailable"))
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_pause._purge_human_generation(subject, "generation")
-        self.assertEqual(caught.exception.code, "power-state-unavailable")
+        self.assertEqual(caught.exception.code, "action-state-unavailable")
 
     def test_terminal_human_failure_requires_terminal_commit(self) -> None:
         subject = types.SimpleNamespace(
@@ -131,7 +131,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         payload = _pending()
         subject = types.SimpleNamespace(
             human_challenges=types.SimpleNamespace(
-                create=mock.Mock(side_effect=power_challenges.HumanChallengeError("conflict")),
+                create=mock.Mock(side_effect=action_challenges.HumanChallengeError("conflict")),
                 cancel_team=mock.Mock(),
             )
         )
@@ -239,11 +239,11 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
 
 
 class LocalChatPrivateEdgeTests(unittest.TestCase):
-    def test_power_integration_state_and_resolution_fail_closed(self) -> None:
+    def test_action_integration_state_and_resolution_fail_closed(self) -> None:
         active = types.SimpleNamespace(
             spec=types.SimpleNamespace(
                 assistant_id="assistant",
-                powers={"power": types.SimpleNamespace(integrations=("integration",))},
+                actions={"action": types.SimpleNamespace(integrations=("integration",))},
                 integrations={"integration": object()},
             )
         )
@@ -253,49 +253,49 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             ),
             _refresh_oauth_integration=mock.Mock(),
         )
-        with self.assertRaises(power_journal.PowerJournalConflictError):
-            local_chat_private._power_integration_generations(
+        with self.assertRaises(action_journal.ActionJournalConflictError):
+            local_chat_private._action_integration_generations(
                 subject,
                 "team_1",
                 active,
-                "power",
+                "action",
             )
 
         with (
             mock.patch.object(
                 integration_flow,
-                "resolve_power_integrations",
+                "resolve_action_integrations",
                 side_effect=integration_flow.IntegrationFlowError("unavailable"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_private._resolve_power_integrations(
+            local_chat_private._resolve_action_integrations(
                 subject,
                 "team_1",
                 active.spec,
-                "power",
+                "action",
             )
         self.assertEqual(caught.exception.code, "assistant-integration-unavailable")
 
     def test_rpc_envelope_and_inventory_errors_are_mapped(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt", "assistant", "power", {})
+        request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         active = types.SimpleNamespace(spec=types.SimpleNamespace())
         subject = types.SimpleNamespace()
         with (
             mock.patch.object(
-                local_chat_private.power_execution,
+                local_chat_private.action_execution,
                 "require_rpc_envelope",
                 side_effect=ValueError("too large"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_private._require_power_rpc_envelope(
+            local_chat_private._require_action_rpc_envelope(
                 subject,
                 "team_1",
                 {"assistant": active},
                 request,
             )
-        self.assertEqual(caught.exception.code, "assistant-power-input-too-large")
+        self.assertEqual(caught.exception.code, "assistant-action-input-too-large")
 
         for failure, expected_code in (
             (

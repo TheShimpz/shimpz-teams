@@ -1,1 +1,1 @@
-"""Local Assistant admission, isolation, lifecycle, and Power RPC."""
+"""Local Assistant admission, isolation, lifecycle, and Action RPC."""

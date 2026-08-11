@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.shimpz.com/assistant/v1/invocation.schema.json",
-  "title": "Shimpz Power invocation v1",
+  "title": "Shimpz Action invocation v1",
   "type": "object",
   "additionalProperties": false,
   "required": ["input", "integrations"],

@@ -306,7 +306,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             ("assistant-uninstall", {"team_id": "team_1", "assistant_id": "assistant"}),
             (
                 "assistant-invoke",
-                {"team_id": "team_1", "assistant_id": "assistant", "power_id": "power"},
+                {"team_id": "team_1", "assistant_id": "assistant", "action_id": "action"},
             ),
         )
         for operation, params in cases:

@@ -32,7 +32,7 @@ assistant_registry = assistant_lifecycle.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
 integration_http = runtime_state.integration_http
-power_journal = runtime_state.power_journal
+action_journal = runtime_state.action_journal
 hosted_egress_policy = assistant_lifecycle.egress_policy
 TEARDOWN_RESIDUES = (
     "assistant_containers",
@@ -49,6 +49,7 @@ TEARDOWN_RESIDUES = (
     "team_volumes",
 )
 TEAM_RESIDUES = [
+    "action_checkpoints",
     "assistant_containers",
     "brain_checkpoints",
     "cleanup_authority",
@@ -57,7 +58,6 @@ TEAM_RESIDUES = [
     "egress_policies",
     "inference_configuration",
     "integration_credentials",
-    "power_checkpoints",
     "publication_bindings",
     "runtime_container",
     "runtime_state",
@@ -67,18 +67,18 @@ TEAM_RESIDUES = [
 ]
 
 
-def hosted_power_batch(round_index: int, count: int) -> brain_runtime_client.RuntimeTurn:
+def hosted_action_batch(round_index: int, count: int) -> brain_runtime_client.RuntimeTurn:
     return brain_runtime_client.RuntimeTurn(
-        "power-required",
+        "action-required",
         "",
         tuple(
-            brain_runtime_client.PowerRequest(
-                f"power-{round_index}-{power_index}",
+            brain_runtime_client.ActionRequest(
+                f"action-{round_index}-{action_index}",
                 "shimpz-cloudflare",
                 "list-zones",
                 {"page": 1, "per_page": 25},
             )
-            for power_index in range(count)
+            for action_index in range(count)
         ),
     )
 
@@ -159,7 +159,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     contract,
                     assistant.container,
                 ),
-                _invoke_assistant_power=rpc,
+                _invoke_assistant_action=rpc,
                 _model_credential=lambda _owner, _provider, *_args: ("secret-in-memory", 7),
                 _require_model_credential_current=require_current,
             )
@@ -170,7 +170,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _brain_runtime=runtime,
                 _commit_chat_terminal=lambda _team_id, _token: True,
                 _inference_store=types.SimpleNamespace(load=lambda _team_id: config),
-                _power_execution_journal=lambda: journal,
+                _action_execution_journal=lambda: journal,
                 _assistant_integrations=assistant_integrations,
             )
         )
@@ -178,7 +178,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             mock.patch.object(
                 assistant_lifecycle,
                 "_require_assistant_genesis",
-                return_value="Use only the declared Cloudflare Powers.",
+                return_value="Use only the declared Cloudflare Actions.",
             )
         )
         environment.enter_context(mock.patch.object(hosted_chat_segment, "_current_team_anchor", return_value=anchor))
@@ -298,7 +298,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         )
 
     def test_hosted_chat_scope_is_explicit_bounded_and_selects_only_requested_assistants(self) -> None:
-        contract = types.SimpleNamespace(powers={})
+        contract = types.SimpleNamespace(actions={})
         places = hosted_assistants._ActiveAssistant("places", contract, types.SimpleNamespace(id="places-container"))
         weather = hosted_assistants._ActiveAssistant(
             "weather",
@@ -341,7 +341,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
         runtime = Runtime()
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             anchor, environment = self._journal_chat_environment(journal, runtime, mock.Mock())
             with environment:
@@ -361,7 +361,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
     def test_revoked_generation_during_turn_cannot_commit_reply(self) -> None:
         checks: list[tuple[str, str, int]] = []
         commit = mock.Mock(return_value=True)
-        contract = types.SimpleNamespace(powers={})
+        contract = types.SimpleNamespace(actions={})
         assistant_container = types.SimpleNamespace(id="assistant-container")
         anchor = types.SimpleNamespace(
             id=ANCHOR_ID,
@@ -380,7 +380,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         def run(_runtime, _context, _message, strategy):
             strategy.validate_context()
             strategy.validate_context()
-            return chat_orchestrator.ChatOutcome(reply="late reply", powers=())
+            return chat_orchestrator.ChatOutcome(reply="late reply", actions=())
 
         with (
             mock.patch.multiple(
@@ -399,7 +399,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             mock.patch.object(
                 assistant_lifecycle,
                 "_require_assistant_genesis",
-                return_value="Use only declared Powers.",
+                return_value="Use only declared Actions.",
             ),
             mock.patch.object(assistant_lifecycle, "_dynamic_binding_snapshot", return_value={}),
             mock.patch.object(
@@ -437,28 +437,28 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
     def test_credential_generation_queries_match_context_security_boundaries(self) -> None:
         shapes = (
-            ("no Powers", (), 2),
-            ("one Power", (1,), 5),
-            ("four Powers in one batch", (4,), 8),
-            ("four single-Power rounds", (1, 1, 1, 1), 14),
-            ("eight Powers in one batch", (8,), 12),
-            ("eight single-Power rounds", (1, 1, 1, 1, 1, 1, 1, 1), 26),
+            ("no Actions", (), 2),
+            ("one Action", (1,), 5),
+            ("four Actions in one batch", (4,), 8),
+            ("four single-Action rounds", (1, 1, 1, 1), 14),
+            ("eight Actions in one batch", (8,), 12),
+            ("eight single-Action rounds", (1, 1, 1, 1, 1, 1, 1, 1), 26),
         )
-        power_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}
+        action_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}
 
         for name, batch_sizes, expected in shapes:
             with self.subTest(shape=name), tempfile.TemporaryDirectory() as directory:
                 turns = [
-                    *(hosted_power_batch(round_index, count) for round_index, count in enumerate(batch_sizes)),
+                    *(hosted_action_batch(round_index, count) for round_index, count in enumerate(batch_sizes)),
                     brain_runtime_client.RuntimeTurn("completed", "Done", ()),
                 ]
                 runtime = ScriptedRuntime(turns)
                 checks = CredentialCheckCounter()
-                journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+                journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
                 anchor, environment = self._journal_chat_environment(
                     journal,
                     runtime,
-                    mock.Mock(return_value={"result": power_result}),
+                    mock.Mock(return_value={"result": action_result}),
                     checks,
                 )
                 with environment:
@@ -479,13 +479,13 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.assertIsNotNone(checks.sessions[0])
 
     def test_hosted_team_context_contains_and_routes_two_active_assistants(self) -> None:
-        place_power = types.SimpleNamespace(summary="Find a place.", input_schema={"type": "object"})
-        weather_power = types.SimpleNamespace(
+        place_action = types.SimpleNamespace(summary="Find a place.", input_schema={"type": "object"})
+        weather_action = types.SimpleNamespace(
             summary="Read current weather.",
             input_schema={"type": "object"},
         )
-        place_contract = types.SimpleNamespace(powers={"search": place_power})
-        weather_contract = types.SimpleNamespace(powers={"current": weather_power})
+        place_contract = types.SimpleNamespace(actions={"search": place_action})
+        weather_contract = types.SimpleNamespace(actions={"current": weather_action})
         place_container = types.SimpleNamespace(
             id="places-container",
             attrs={"Config": {"Image": "example.invalid/places@sha256:" + "1" * 64}},
@@ -505,13 +505,13 @@ class HostedChatLifecycleTests(unittest.TestCase):
             self.assertEqual([assistant.id for assistant in context.assistants], ["places", "weather"])
             self.assertEqual(
                 [assistant.genesis for assistant in context.assistants],
-                ["Compose Powers for places-container.", "Compose Powers for weather-container."],
+                ["Compose Actions for places-container.", "Compose Actions for weather-container."],
             )
             self.assertEqual(context.thread_id, hosted_resources._brain_thread_id("team_1", ANCHOR_ID))
-            self.assertTrue(callable(strategy.validate_power))
+            self.assertTrue(callable(strategy.validate_action))
             requests = (
-                brain_runtime_client.PowerRequest("place-1", "places", "search", {"name": "Berlin"}),
-                brain_runtime_client.PowerRequest(
+                brain_runtime_client.ActionRequest("place-1", "places", "search", {"name": "Berlin"}),
+                brain_runtime_client.ActionRequest(
                     "weather-1",
                     "weather",
                     "current",
@@ -521,22 +521,22 @@ class HostedChatLifecycleTests(unittest.TestCase):
             strategy.prepare_batch(requests)
             for request in requests:
                 strategy.validate_context()
-                strategy.invoke_power(request)
+                strategy.invoke_action(request)
             strategy.batch_delivered(requests)
             return chat_orchestrator.ChatOutcome(
                 reply="Berlin weather is ready.",
-                powers=(
-                    chat_orchestrator.InvokedPower("places", "search"),
-                    chat_orchestrator.InvokedPower("weather", "current"),
+                actions=(
+                    chat_orchestrator.InvokedAction("places", "search"),
+                    chat_orchestrator.InvokedAction("weather", "current"),
                 ),
             )
 
         def invoke(request):
-            invoked.append((request.assistant_id, request.power, request.payload))
+            invoked.append((request.assistant_id, request.action, request.payload))
             return {"result": {"ok": True}}
 
         def current_identity(_request, assistants, _config, _generation, validation):
-            validation.power_assistants.update({active.assistant_id: active for active in assistants})
+            validation.action_assistants.update({active.assistant_id: active for active in assistants})
             return (
                 ANCHOR_ID,
                 "account_1",
@@ -548,7 +548,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             )
 
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             with (
                 mock.patch.multiple(
@@ -560,18 +560,18 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     _chat_file_metadata=lambda _team_id, _files, *_args: [],
                     _model_credential=lambda _owner, _provider, *_args: ("secret-in-memory", 7),
                     _require_model_credential_current=lambda *_args: None,
-                    _invoke_assistant_power=invoke,
+                    _invoke_assistant_action=invoke,
                 ),
                 mock.patch.object(
                     assistant_lifecycle,
                     "_require_assistant_genesis",
-                    side_effect=lambda container: f"Compose Powers for {container.id}.",
+                    side_effect=lambda container: f"Compose Actions for {container.id}.",
                 ),
                 mock.patch.multiple(
                     runtime_state,
                     _inference_store=store,
                     _brain_runtime=object(),
-                    _power_execution_journal=lambda: journal,
+                    _action_execution_journal=lambda: journal,
                     _commit_chat_terminal=lambda _team_id, _token: True,
                 ),
                 mock.patch.object(hosted_chat_segment, "_current_team_anchor", return_value=anchor),
@@ -595,9 +595,9 @@ class HostedChatLifecycleTests(unittest.TestCase):
         self.assertEqual([item[:2] for item in invoked], [("places", "search"), ("weather", "current")])
         self.assertEqual(result, {"team_id": "team_1", "team_name": "Marketing", "reply": "Berlin weather is ready."})
 
-    def test_completed_power_is_cached_until_a_successful_brain_resume(self) -> None:
-        request = brain_runtime_client.PowerRequest(
-            "power-1",
+    def test_completed_action_is_cached_until_a_successful_brain_resume(self) -> None:
+        request = brain_runtime_client.ActionRequest(
+            "action-1",
             "shimpz-cloudflare",
             "list-zones",
             {"page": 1, "per_page": 25},
@@ -609,7 +609,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.results: list[dict[str, object]] = []
 
             def start(self, _context, _message):
-                return brain_runtime_client.RuntimeTurn("power-required", "", (request,))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, results):
                 self.resume_calls += 1
@@ -619,10 +619,10 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 return brain_runtime_client.RuntimeTurn("completed", "Cached reply", ())
 
         runtime = Runtime()
-        power_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}
-        rpc = mock.Mock(return_value={"result": power_result})
+        action_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}
+        rpc = mock.Mock(return_value={"result": action_result})
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             anchor, environment = self._journal_chat_environment(journal, runtime, rpc)
             lease = types.SimpleNamespace(owner="account_1")
@@ -660,16 +660,16 @@ class HostedChatLifecycleTests(unittest.TestCase):
         self.assertEqual(
             runtime.results,
             [
-                {"power-1": power_result},
-                {"power-1": power_result},
+                {"action-1": action_result},
+                {"action-1": action_result},
             ],
         )
         delivered.assert_called_once()
         self.assertEqual(result["reply"], "Cached reply")
 
-    def test_uncertain_power_fails_closed_before_a_second_rpc(self) -> None:
-        normalized = brain_runtime_client.PowerRequest(
-            "power-1",
+    def test_uncertain_action_fails_closed_before_a_second_rpc(self) -> None:
+        normalized = brain_runtime_client.ActionRequest(
+            "action-1",
             "shimpz-cloudflare",
             "list-zones",
             {"page": 1, "per_page": 25},
@@ -679,24 +679,24 @@ class HostedChatLifecycleTests(unittest.TestCase):
         class Runtime:
             @staticmethod
             def start(_context, _message):
-                raw = brain_runtime_client.PowerRequest(
-                    "power-1",
+                raw = brain_runtime_client.ActionRequest(
+                    "action-1",
                     "shimpz-cloudflare",
                     "list-zones",
                     {"page": 1, "per_page": 25},
                 )
-                return brain_runtime_client.RuntimeTurn("power-required", "", (raw,))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (raw,))
 
             @staticmethod
             def resume(_context, _results):
-                raise AssertionError("an uncertain Power must not reach Brain resume")
+                raise AssertionError("an uncertain Action must not reach Brain resume")
 
         runtime = Runtime()
-        rpc = mock.Mock(side_effect=AssertionError("an uncertain Power must not execute"))
+        rpc = mock.Mock(side_effect=AssertionError("an uncertain Action must not execute"))
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            operation = hosted_assistants.power_execution.power_operation(
+            operation = hosted_assistants.action_execution.action_operation(
                 normalized,
                 "b" * 64,
                 HOSTED_SPEC.image,
@@ -722,23 +722,23 @@ class HostedChatLifecycleTests(unittest.TestCase):
                             "account_1",
                         )
                     self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-                    self.assertEqual(failed.exception.message, "Team Power execution state is unavailable")
+                    self.assertEqual(failed.exception.message, "Team Action execution state is unavailable")
                     self.assertNotIn("uncertain", str(failed.exception).lower())
 
-            with self.assertRaises(power_journal.PowerJournalUncertainError):
+            with self.assertRaises(action_journal.ActionJournalUncertainError):
                 journal.begin(batch, operation)
 
         rpc.assert_not_called()
 
-    def test_power_journal_uses_the_injected_path_lazily(self) -> None:
+    def test_action_journal_uses_the_injected_path_lazily(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "private" / "journal.sqlite3"
-            with mock.patch.multiple(runtime_state, POWER_JOURNAL_PATH=path, _power_journal_instance=None):
+            with mock.patch.multiple(runtime_state, ACTION_JOURNAL_PATH=path, _action_journal_instance=None):
                 self.assertFalse(path.exists())
-                journal = runtime_state._power_execution_journal()
+                journal = runtime_state._action_execution_journal()
                 self.addCleanup(journal.close)
                 self.assertTrue(path.exists())
-                self.assertIs(runtime_state._power_execution_journal(), journal)
+                self.assertIs(runtime_state._action_execution_journal(), journal)
 
     def test_destroy_deletes_generation_after_chat_drain_before_teardown(self) -> None:
         events: list[object] = []
@@ -777,7 +777,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _lock_for=lambda _team_id: contextlib.nullcontext(),
                 _chat_lock_for=lambda _team_id: chat_lock,
                 _brain_runtime=types.SimpleNamespace(delete_thread=delete_thread),
-                _power_execution_journal=lambda: journal,
+                _action_execution_journal=lambda: journal,
                 _clear_team_id_runtime_state=lambda _team_id: events.append("runtime-cleared"),
             ),
             mock.patch.object(
@@ -828,7 +828,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             delete_thread=lambda _thread: self.fail("no Brain generation exists"),
         )
         journal = types.SimpleNamespace(
-            purge=lambda _generation: self.fail("no Power generation exists"),
+            purge=lambda _generation: self.fail("no Action generation exists"),
         )
 
         with (
@@ -837,7 +837,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _lock_for=lambda _team_id: contextlib.nullcontext(),
                 _chat_lock_for=lambda _team_id: chat_lock,
                 _brain_runtime=runtime,
-                _power_execution_journal=lambda: journal,
+                _action_execution_journal=lambda: journal,
                 _clear_team_id_runtime_state=lambda team_id: events.append(("runtime-cleared", team_id)),
             ),
             mock.patch.object(
@@ -911,7 +911,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _lock_for=lambda _team_id: contextlib.nullcontext(),
                 _chat_lock_for=lambda _team_id: ChatLock(),
                 _brain_runtime=types.SimpleNamespace(delete_thread=delete_thread),
-                _power_execution_journal=lambda: journal,
+                _action_execution_journal=lambda: journal,
                 _clear_team_id_runtime_state=clear,
             ),
             mock.patch.object(hosted_resources, "_require_cleanup_authorization", return_value=object()),
@@ -957,7 +957,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 cls.released = True
 
         def fail_purge(_generation: str) -> None:
-            raise power_journal.PowerJournalError("private-journal-state")
+            raise action_journal.ActionJournalError("private-journal-state")
 
         with (
             mock.patch.multiple(
@@ -965,7 +965,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 _lock_for=lambda _team_id: contextlib.nullcontext(),
                 _chat_lock_for=lambda _team_id: ChatLock(),
                 _brain_runtime=types.SimpleNamespace(delete_thread=lambda _thread: None),
-                _power_execution_journal=lambda: types.SimpleNamespace(purge=fail_purge),
+                _action_execution_journal=lambda: types.SimpleNamespace(purge=fail_purge),
                 _clear_team_id_runtime_state=clear,
             ),
             mock.patch.object(hosted_resources, "_require_cleanup_authorization", return_value=object()),
@@ -975,7 +975,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             hosted_lifecycle._destroy("team_1", lease)
 
         self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertEqual(failed.exception.message, "Team Power execution state could not be deleted")
+        self.assertEqual(failed.exception.message, "Team Action execution state could not be deleted")
         self.assertNotIn("private-journal-state", str(failed.exception))
         teardown.assert_not_called()
         clear.assert_not_called()

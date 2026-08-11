@@ -52,7 +52,7 @@ def pending() -> integration_challenges.PendingIntegrationChallenge:
     requirement = integration_challenges.IntegrationRequirement(
         assistant_id="shimpz-cloudflare",
         assistant_name="Shimpz Cloudflare",
-        power_ids=("list-zones",),
+        action_ids=("list-zones",),
         integrations=(("cloudflare", "cloudflare", SCOPES),),
     )
     return integration_challenges.IntegrationChallengeStore().create(

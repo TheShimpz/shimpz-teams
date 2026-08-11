@@ -107,15 +107,15 @@ class ManifestContract:
 
 @dataclass(frozen=True, slots=True)
 class ReviewedAssistant:
-    """Controller-reviewed metadata and machine Power contract."""
+    """Controller-reviewed metadata and machine Action contract."""
 
     assistant_id: str
     name: str
     summary: str
     allowed_hosts: tuple[str, ...]
     integrations: tuple[IntegrationDeclaration, ...]
-    powers: dict[str, dict[str, Any]]
-    power_validators: dict[str, dict[str, Draft202012Validator]]
+    actions: dict[str, dict[str, Any]]
+    action_validators: dict[str, dict[str, Draft202012Validator]]
     machine_contract: dict[str, Any]
 
 
@@ -304,25 +304,25 @@ def _child_subschemas(node: dict[str, Any]) -> Iterator[object]:
 
 def _reject_open_or_boolean_subschema(node: object, *, kind: str) -> None:
     if isinstance(node, bool):
-        raise ManifestError(f"Assistant Power {kind} schema must not use a boolean subschema")
+        raise ManifestError(f"Assistant Action {kind} schema must not use a boolean subschema")
     if not isinstance(node, dict):
-        raise ManifestError(f"Assistant Power {kind} schema subschema is invalid")
+        raise ManifestError(f"Assistant Action {kind} schema subschema is invalid")
     if _subschema_permits_object(node) and node.get("additionalProperties") is not False:
-        raise ManifestError(f"Assistant Power {kind} schema must close every object")
+        raise ManifestError(f"Assistant Action {kind} schema must close every object")
     for child in _child_subschemas(node):
         _reject_open_or_boolean_subschema(child, kind=kind)
 
 
 def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("type") != "object":
-        raise ManifestError(f"Assistant Power {kind} schema must describe an object")
+        raise ManifestError(f"Assistant Action {kind} schema must describe an object")
     try:
         Draft202012Validator.check_schema(value)
     except SchemaError as exc:
-        raise ManifestError(f"Assistant Power {kind} schema is invalid") from exc
+        raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
     encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
     if len(encoded) > 128 * 1024:
-        raise ManifestError(f"Assistant Power {kind} schema is too large")
+        raise ManifestError(f"Assistant Action {kind} schema is too large")
     _reject_open_or_boolean_subschema(value, kind=kind)
     return value
 
@@ -330,30 +330,30 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
 def canonical_machine_contract(
     value: object, declared_integrations: tuple[IntegrationDeclaration, ...]
 ) -> dict[str, Any]:
-    """Validate and canonicalize an untrusted SDK-generated Power contract."""
-    if not isinstance(value, dict) or set(value) != {"version", "powers"} or value["version"] != 1:
+    """Validate and canonicalize an untrusted SDK-generated Action contract."""
+    if not isinstance(value, dict) or set(value) != {"version", "actions"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
-    raw_powers = value["powers"]
-    if not isinstance(raw_powers, list) or not 1 <= len(raw_powers) <= 128:
-        raise ManifestError("Assistant machine contract Powers are invalid")
+    raw_actions = value["actions"]
+    if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 128:
+        raise ManifestError("Assistant machine contract Actions are invalid")
     declared_ids = {integration.id for integration in declared_integrations}
     used_integrations: set[str] = set()
-    powers: list[dict[str, Any]] = []
+    actions: list[dict[str, Any]] = []
     ids: set[str] = set()
-    for raw_power in raw_powers:
-        if not isinstance(raw_power, dict) or set(raw_power) != {
+    for raw_action in raw_actions:
+        if not isinstance(raw_action, dict) or set(raw_action) != {
             "id",
             "input_schema",
             "output_schema",
             "integrations",
             "human_requests",
         }:
-            raise ManifestError("Assistant machine contract Power is invalid")
-        power_id = _identifier(raw_power["id"], kind="Power")
-        if power_id in ids:
-            raise ManifestError("Assistant machine contract Power id is duplicated")
-        ids.add(power_id)
-        integrations = raw_power["integrations"]
+            raise ManifestError("Assistant machine contract Action is invalid")
+        action_id = _identifier(raw_action["id"], kind="Action")
+        if action_id in ids:
+            raise ManifestError("Assistant machine contract Action id is duplicated")
+        ids.add(action_id)
+        integrations = raw_action["integrations"]
         if (
             not isinstance(integrations, list)
             or len(integrations) > 4
@@ -363,28 +363,28 @@ def canonical_machine_contract(
                 for integration_id in integrations
             )
         ):
-            raise ManifestError("Assistant machine contract Power integrations are invalid")
+            raise ManifestError("Assistant machine contract Action integrations are invalid")
         used_integrations.update(integrations)
-        human_requests = raw_power["human_requests"]
+        human_requests = raw_action["human_requests"]
         if (
             not isinstance(human_requests, list)
             or len(human_requests) > len(HUMAN_REQUEST_KINDS)
             or len(human_requests) != len(set(human_requests))
             or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
         ):
-            raise ManifestError("Assistant machine contract Power human requests are invalid")
-        powers.append(
+            raise ManifestError("Assistant machine contract Action human requests are invalid")
+        actions.append(
             {
-                "id": power_id,
-                "input_schema": _machine_schema(raw_power["input_schema"], kind="input"),
-                "output_schema": _machine_schema(raw_power["output_schema"], kind="output"),
+                "id": action_id,
+                "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
+                "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
                 "integrations": sorted(integrations),
                 "human_requests": sorted(human_requests),
             }
         )
     if used_integrations != declared_ids:
         raise ManifestError("Assistant machine contract must use every declared integration")
-    return {"version": 1, "powers": sorted(powers, key=lambda power: power["id"])}
+    return {"version": 1, "actions": sorted(actions, key=lambda action: action["id"])}
 
 
 def parse_machine_contract(raw: bytes, declared_integrations: tuple[IntegrationDeclaration, ...]) -> dict[str, Any]:
@@ -396,13 +396,13 @@ def parse_machine_contract(raw: bytes, declared_integrations: tuple[IntegrationD
 
 
 def validate_schema_payload(validator: Draft202012Validator, payload: object) -> dict[str, object]:
-    """Validate one untrusted Power input or output against its reviewed schema."""
+    """Validate one untrusted Action input or output against its reviewed schema."""
     if not isinstance(payload, dict):
-        raise ValueError("Power payload must be an object")
+        raise ValueError("Action payload must be an object")
     try:
         validator.validate(payload)
     except ValidationError as exc:
-        raise ValueError("Power payload does not match its reviewed schema") from exc
+        raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload
 
 
@@ -449,13 +449,13 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
             summary=summary,
             allowed_hosts=canonical_allowed_hosts(metadata["allowed_hosts"]),
             integrations=integrations,
-            powers={power["id"]: power for power in machine_contract["powers"]},
-            power_validators={
-                power["id"]: {
-                    "input": Draft202012Validator(power["input_schema"]),
-                    "output": Draft202012Validator(power["output_schema"]),
+            actions={action["id"]: action for action in machine_contract["actions"]},
+            action_validators={
+                action["id"]: {
+                    "input": Draft202012Validator(action["input_schema"]),
+                    "output": Draft202012Validator(action["output_schema"]),
                 }
-                for power in machine_contract["powers"]
+                for action in machine_contract["actions"]
             },
             machine_contract=machine_contract,
         )

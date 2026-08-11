@@ -44,7 +44,7 @@ OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 
 
 
 class LocalChatScopeTests(LocalContractCase):
-    def test_blocking_power_rpc_does_not_hold_a_colliding_team_stripe(self) -> None:
+    def test_blocking_action_rpc_does_not_hold_a_colliding_team_stripe(self) -> None:
         started = threading.Event()
         release = threading.Event()
 
@@ -73,13 +73,13 @@ class LocalChatScopeTests(LocalContractCase):
                 concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor,
             ):
                 future = executor.submit(
-                    controller.chat_turn_service._invoke_chat_power,
+                    controller.chat_turn_service._invoke_chat_action,
                     first_team,
                     token,
-                    brain_runtime_client.PowerRequest(
+                    brain_runtime_client.ActionRequest(
                         interrupt_id="interrupt-1",
                         assistant_id="shimpz-cloudflare",
-                        power="list-zones",
+                        action="list-zones",
                         input=LOOKUP_INPUT,
                     ),
                     frozen_container_id,
@@ -130,7 +130,7 @@ class LocalChatScopeTests(LocalContractCase):
         class Runtime:
             @staticmethod
             def start(_context, _message):
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", powers=())
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
 
         file_id = "a" * 32
         connection = object()
@@ -170,7 +170,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             def start(self, context, _message):
                 self.context = context
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Integrated.", powers=())
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Integrated.", actions=())
 
         runtime = Runtime()
         with tempfile.TemporaryDirectory() as directory:
@@ -180,7 +180,7 @@ class LocalChatScopeTests(LocalContractCase):
                 hello,
                 assistant_id="account-helper",
                 image=hello.image.replace("a" * 64, "b" * 64),
-                powers={"lookup": hello.powers["list-zones"]},
+                actions={"lookup": hello.actions["list-zones"]},
             )
             controller.registry[account_helper.assistant_id] = account_helper
             controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
@@ -204,7 +204,7 @@ class LocalChatScopeTests(LocalContractCase):
         )
         self.assertEqual(
             [assistant.genesis for assistant in runtime.context.assistants],
-            ["Use only the declared Cloudflare Powers.", "Use only the declared Cloudflare Powers."],
+            ["Use only the declared Cloudflare Actions.", "Use only the declared Cloudflare Actions."],
         )
         self.assertEqual(
             runtime.context.thread_id,
@@ -218,7 +218,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             def start(self, context, _message):
                 self.context = context
-                return brain_runtime_client.RuntimeTurn(status="completed", reply="Brain only.", powers=())
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Brain only.", actions=())
 
         runtime = Runtime()
         with tempfile.TemporaryDirectory() as directory:
@@ -298,7 +298,7 @@ class LocalChatScopeTests(LocalContractCase):
 
         self.assertEqual(caught.exception.code, "team-context-changed")
 
-    def test_chat_power_rejects_a_container_replaced_between_selection_and_rpc(self) -> None:
+    def test_chat_action_rejects_a_container_replaced_between_selection_and_rpc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
             frozen = SimpleNamespace(id="assistant-v1", status="running", reload=lambda: None)
@@ -313,18 +313,18 @@ class LocalChatScopeTests(LocalContractCase):
 
             controller.assistant_lifecycle._assistant_container = assistant_container
             controller.assistant_lifecycle._rpc = lambda *_args: self.fail(
-                "a replacement Assistant container executed the Power"
+                "a replacement Assistant container executed the Action"
             )
             controller.chat_turn_service._active_chat_tokens["team_1"] = "turn-token"
 
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.chat_turn_service._invoke_chat_power(
+                controller.chat_turn_service._invoke_chat_action(
                     "team_1",
                     "turn-token",
-                    brain_runtime_client.PowerRequest(
+                    brain_runtime_client.ActionRequest(
                         interrupt_id="interrupt-1",
                         assistant_id="shimpz-cloudflare",
-                        power="list-zones",
+                        action="list-zones",
                         input=LOOKUP_INPUT,
                     ),
                     frozen.id,
@@ -333,20 +333,20 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertEqual(lookups, [frozen.id, replacement.id])
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         self.assertEqual(caught.exception.code, "team-context-changed")
-        self.assertEqual(controller.chat_turn_service._active_power_containers, {})
+        self.assertEqual(controller.chat_turn_service._active_action_containers, {})
 
     def test_chat_never_exposes_or_executes_an_unselected_assistant(self) -> None:
         class Runtime:
             def start(self, context, _message):
                 self.context = context
                 return brain_runtime_client.RuntimeTurn(
-                    status="power-required",
+                    status="action-required",
                     reply="",
-                    powers=(
-                        brain_runtime_client.PowerRequest(
-                            interrupt_id="power-1",
+                    actions=(
+                        brain_runtime_client.ActionRequest(
+                            interrupt_id="action-1",
                             assistant_id="account-helper",
-                            power="lookup",
+                            action="lookup",
                             input=LOOKUP_INPUT,
                         ),
                     ),
@@ -360,14 +360,14 @@ class LocalChatScopeTests(LocalContractCase):
                 hello,
                 assistant_id="account-helper",
                 image=hello.image.replace("a" * 64, "b" * 64),
-                powers={"lookup": hello.powers["list-zones"]},
+                actions={"lookup": hello.actions["list-zones"]},
             )
             controller.registry[account_helper.assistant_id] = account_helper
             controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
                 ActiveAssistant(hello, "hello-container"),
                 ActiveAssistant(account_helper, "account-helper-container"),
             )
-            controller.invoke = lambda *_args: self.fail("an unselected Assistant Power executed")
+            controller.invoke = lambda *_args: self.fail("an unselected Assistant Action executed")
             controller.assistant_lifecycle.invoke = controller.invoke
 
             with self.assertRaises(local_app.ApiProblem) as caught:

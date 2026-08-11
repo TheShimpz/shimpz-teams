@@ -431,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
         session_token = self._account_session()
         body_binding = self._capture_body(route.operation)
         captured_body = self._read_body() if route.operation == "chat-human-submit" else None
-        assurance, assurance_handle = admission.power_assurance(route.operation, params, captured_body)
+        assurance, assurance_handle = admission.action_assurance(route.operation, params, captured_body)
         evaluation = self._human_authority(
             session_token,
             admission.AuthorityRequest(

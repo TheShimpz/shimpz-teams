@@ -19,8 +19,8 @@ from tests.test_assistant_genesis import Container, manifest
 from tests.test_chat_orchestrator import FakeRuntime, accept_input, context, strategy, suspended, suspension
 
 
-def _request(interrupt_id: str) -> brain_runtime_client.PowerRequest:
-    return suspended(interrupt_id=interrupt_id).powers[0]
+def _request(interrupt_id: str) -> brain_runtime_client.ActionRequest:
+    return suspended(interrupt_id=interrupt_id).actions[0]
 
 
 def _prepared(identity: tuple[object, ...] = ("identity",)) -> chat_turn.PreparedSegment:
@@ -37,7 +37,7 @@ def _segment_strategy(**overrides) -> chat_turn.SegmentStrategy:
     values = {
         "runtime": FakeRuntime([]),
         "prepare": _prepared,
-        "validate_power": accept_input,
+        "validate_action": accept_input,
         "pause_for_private_inputs": lambda _requests, _requirements: False,
         "cancelled": lambda: False,
         "validate_context": lambda: None,
@@ -76,19 +76,19 @@ class AssistantContractEdgeCoverageTests(unittest.TestCase):
         self.assertEqual(cache.get(container), "Safe guidance.")
         self.assertEqual(container.reads, 2)
 
-    def test_unknown_power_payload_direction_fails_closed(self) -> None:
-        power = assistant_spec.PowerSpec("Summary", {}, {})
+    def test_unknown_action_payload_direction_fails_closed(self) -> None:
+        action = assistant_spec.ActionSpec("Summary", {}, {})
 
         with self.assertRaisesRegex(ValueError, "direction"):
-            assistant_spec.validate_power_payload(power, "sideways", {})
+            assistant_spec.validate_action_payload(action, "sideways", {})
 
-    def test_malformed_decision_and_power_input_are_redacted_contract_errors(self) -> None:
+    def test_malformed_decision_and_action_input_are_redacted_contract_errors(self) -> None:
         for raw in (None, "{"):
             with self.subTest(raw=raw), self.assertRaisesRegex(chat_contract.ChatContractError, "decision"):
                 chat_contract.parse_decision(raw, max_message_chars=100, max_input_bytes=100)
-        with self.assertRaisesRegex(chat_contract.ChatContractError, "Power input"):
+        with self.assertRaisesRegex(chat_contract.ChatContractError, "Action input"):
             chat_contract.parse_decision(
-                '{"kind":"power","message":"","power":"lookup","input":"{"}',
+                '{"kind":"action","message":"","action":"lookup","input":"{"}',
                 max_message_chars=100,
                 max_input_bytes=100,
             )
@@ -98,8 +98,8 @@ class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
     def test_invalid_suspension_batches_fail_before_invocation(self) -> None:
         duplicate = _request("duplicate")
         cases = (
-            (suspension(), accept_input, "without a Power"),
-            (suspension(duplicate, duplicate), accept_input, "repeated a Power interrupt id"),
+            (suspension(), accept_input, "without an Action"),
+            (suspension(duplicate, duplicate), accept_input, "repeated an Action interrupt id"),
             (suspension(_request("one")), lambda *_args: [], "invalid input contract"),
         )
         for turn, validator, message in cases:
@@ -114,7 +114,7 @@ class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
                     FakeRuntime([turn]),
                     context(),
                     "Run",
-                    strategy(validator, lambda _request: self.fail("Power must not run")),
+                    strategy(validator, lambda _request: self.fail("Action must not run")),
                 )
 
     def test_cancellation_between_start_and_drive_stops_the_turn(self) -> None:
@@ -153,7 +153,7 @@ class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
                 FakeRuntime([]),
                 context(),
                 continuation,
-                strategy(accept_input, lambda _request: self.fail("Power must not run")),
+                strategy(accept_input, lambda _request: self.fail("Action must not run")),
             )
 
     def test_invalid_continuation_round_and_noncontinuable_run_fail_closed(self) -> None:
@@ -161,7 +161,7 @@ class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
             suspended(),
             (),
             (),
-            chat_orchestrator.MAX_POWER_ROUNDS + 1,
+            chat_orchestrator.MAX_ACTION_ROUNDS + 1,
         )
         with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "did not complete"):
             chat_orchestrator.continue_after_pause(
@@ -196,7 +196,7 @@ class ChatProgressEdgeCoverageTests(unittest.TestCase):
         calls = (
             ("unknown", "started", {}),
             ("model", "unknown", {}),
-            ("power", "started", {"index": 1}),
+            ("action", "started", {"index": 1}),
             ("model", "started", {"index": 1, "total": 1}),
             ("model", "started", {"elapsed_ms": 0}),
             ("model", "finished", {"elapsed_ms": None}),
@@ -319,7 +319,7 @@ class ChatTurnEdgeCoverageTests(unittest.TestCase):
     def test_segment_adapter_rejects_a_suspension_without_exactly_one_gate(self) -> None:
         outcome = chat_orchestrator.ChatSuspension(
             chat_orchestrator.ChatContinuation(suspended(), (), (), 0),
-            suspended().powers,
+            suspended().actions,
         )
         with (
             mock.patch.object(chat_turn, "drive", return_value=outcome),
@@ -335,7 +335,7 @@ class ChatTurnEdgeCoverageTests(unittest.TestCase):
     def test_dispatch_rejects_invalid_gate_shapes_and_unreachable_state(self) -> None:
         outcome = chat_orchestrator.ChatSuspension(
             chat_orchestrator.ChatContinuation(suspended(), (), (), 0),
-            suspended().powers,
+            suspended().actions,
         )
         for requirements, pause in ((((),), ()), (((),), (lambda *_args: None,))):
             with self.subTest(requirements=requirements), self.assertRaisesRegex(ValueError, "invalid chat suspension"):

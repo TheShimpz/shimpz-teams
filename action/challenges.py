@@ -1,4 +1,4 @@
-"""Bounded Team-owned challenges for admitted Power human requests."""
+"""Bounded Team-owned challenges for admitted Action human requests."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from action import human
 from integrations import challenge_store
-from power import human
 
 DEFAULT_TTL_SECONDS = 300
 
 
 class HumanChallengeError(RuntimeError):
-    """A Power human challenge is invalid, unavailable, or conflicts."""
+    """An Action human challenge is invalid, unavailable, or conflicts."""
 
 
 class HumanChallengeNotFoundError(HumanChallengeError):
@@ -24,14 +24,15 @@ class HumanChallengeNotFoundError(HumanChallengeError):
 
 @dataclass(frozen=True, slots=True)
 class HumanRequirement:
-    """Public context for one exact request without Power input or private values."""
+    """Public context for one exact request without Action input or private values."""
 
     assistant_id: str
     assistant_name: str
-    power_id: str
-    power_summary: str
+    action_id: str
+    action_summary: str
     interrupt_id: str
     request: human.HumanRequest
+    assistant_version: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +45,12 @@ class PendingHumanChallenge:
 
 
 def _requirement(value: object) -> bool:
-    return isinstance(value, HumanRequirement) and isinstance(value.request, human.HumanRequest)
+    return (
+        isinstance(value, HumanRequirement)
+        and isinstance(value.request, human.HumanRequest)
+        and isinstance(value.assistant_version, str)
+        and 1 <= len(value.assistant_version) <= 40
+    )
 
 
 _CONTRACT = challenge_store.ChallengeContract(
@@ -52,7 +58,7 @@ _CONTRACT = challenge_store.ChallengeContract(
     _requirement,
     HumanChallengeError,
     HumanChallengeNotFoundError,
-    "Power human request",
+    "Action human request",
 )
 
 
@@ -75,12 +81,12 @@ class HumanChallengeStore(challenge_store.ChallengeStore[PendingHumanChallenge])
 
 
 def challenge_payload(challenge: PendingHumanChallenge) -> dict[str, object]:
-    """Project one public modal descriptor without Power input or response material."""
+    """Project one public modal descriptor without Action input or response material."""
     if not isinstance(challenge, PendingHumanChallenge) or not _requirement(challenge.requirement):
-        raise HumanChallengeError("Power human challenge is invalid")
+        raise HumanChallengeError("Action human challenge is invalid")
     remaining = math.ceil(challenge.expires_at - time.monotonic())
     if not 1 <= remaining <= DEFAULT_TTL_SECONDS:
-        raise HumanChallengeError("Power human challenge is expired")
+        raise HumanChallengeError("Action human challenge is expired")
     requirement = challenge.requirement
     return {
         "team_id": challenge.team_id,
@@ -91,10 +97,11 @@ def challenge_payload(challenge: PendingHumanChallenge) -> dict[str, object]:
         "assistant": {
             "id": requirement.assistant_id,
             "name": requirement.assistant_name,
+            "version": requirement.assistant_version,
         },
-        "power": {
-            "id": requirement.power_id,
-            "summary": requirement.power_summary,
+        "action": {
+            "id": requirement.action_id,
+            "summary": requirement.action_summary,
         },
         "request": requirement.request.payload(),
     }

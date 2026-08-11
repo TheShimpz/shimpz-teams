@@ -21,7 +21,7 @@ class AssistantSpecError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class PowerSpec:
+class ActionSpec:
     summary: str
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
@@ -37,7 +37,7 @@ class IntegrationSpec:
 
 @dataclass(frozen=True, slots=True)
 class AssistantContract:
-    powers: dict[str, PowerSpec]
+    actions: dict[str, ActionSpec]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     machine_contract: dict[str, Any] = field(default_factory=dict)
 
@@ -57,21 +57,21 @@ def validate_assistant_id(value: object) -> str:
     return value
 
 
-def power_summary(power_id: str) -> str:
-    return power_id.replace("-", " ").capitalize()
+def action_summary(action_id: str) -> str:
+    return action_id.replace("-", " ").capitalize()
 
 
-def validate_power_payload(
-    power: PowerSpec,
+def validate_action_payload(
+    action: ActionSpec,
     direction: str,
     payload: object,
 ) -> dict[str, object]:
     if direction == "input":
-        schema = power.input_schema
+        schema = action.input_schema
     elif direction == "output":
-        schema = power.output_schema
+        schema = action.output_schema
     else:
-        raise ValueError("unknown Power payload direction")
+        raise ValueError("unknown Action payload direction")
     return assistant_manifest.validate_schema_payload(
         Draft202012Validator(dict(schema)),
         payload,

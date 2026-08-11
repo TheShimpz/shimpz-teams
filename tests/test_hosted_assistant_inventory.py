@@ -59,6 +59,14 @@ class HostedAssistantInventoryTests(unittest.TestCase):
                     spec,
                 ),
             ),
+            mock.patch.object(
+                assistant_lifecycle,
+                "_dynamic_binding_snapshot",
+                return_value={
+                    assistant_id: types.SimpleNamespace(resolution={"assistant_version": "0.4.1"})
+                    for assistant_id in candidate_ids
+                },
+            ),
             mock.patch.object(hosted_assistants, "_installed_assistant", side_effect=installed),
         ):
             active = hosted_assistants._active_team_assistants("team_1")

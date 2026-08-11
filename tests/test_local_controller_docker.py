@@ -260,7 +260,7 @@ class DockerFlowTests(
         self._run("volume", "create", flow.audit_volume)
         self._run("volume", "create", flow.storage_volume)
         self._run("volume", "create", flow.inference_volume)
-        self._run("volume", "create", flow.power_journal_volume)
+        self._run("volume", "create", flow.action_journal_volume)
         self._run("volume", "create", flow.publication_volume)
         self._run("volume", "create", flow.continuation_state_volume)
         self._run("volume", "create", flow.continuation_key_volume)
@@ -410,7 +410,7 @@ class DockerFlowTests(
             "--volume",
             f"{flow.inference_volume}:/var/lib/shimpz-local/inference",
             "--volume",
-            f"{flow.power_journal_volume}:/var/lib/shimpz-local/power-journal",
+            f"{flow.action_journal_volume}:/var/lib/shimpz-local/action-journal",
             "--volume",
             f"{flow.publication_volume}:/var/lib/shimpz-local/publications",
             "--volume",
@@ -451,7 +451,7 @@ class DockerFlowTests(
             flow.controller,
             "/opt/venv/bin/python",
             "-c",
-            "import os,stat; s=os.stat('/var/lib/shimpz-local/power-journal/journal.sqlite3'); "
+            "import os,stat; s=os.stat('/var/lib/shimpz-local/action-journal/journal.sqlite3'); "
             "print(oct(stat.S_IMODE(s.st_mode)),s.st_uid,s.st_gid,s.st_nlink)",
         ).stdout.strip()
         self.assertEqual(journal_mode, "0o600 10001 10001 1")
@@ -646,7 +646,7 @@ class DockerFlowTests(
                 "egress_policies",
                 "inference_configuration",
                 "integration_credentials",
-                "power_checkpoints",
+                "action_checkpoints",
                 "publication_bindings",
                 "runtime_state",
                 "team_networks",
@@ -721,7 +721,7 @@ class DockerFlowTests(
                 "egress_policies",
                 "inference_configuration",
                 "integration_credentials",
-                "power_checkpoints",
+                "action_checkpoints",
                 "publication_bindings",
                 "runtime_state",
                 "team_networks",
@@ -804,7 +804,7 @@ class DockerFlowTests(
             flow.audit_volume,
             flow.storage_volume,
             flow.inference_volume,
-            flow.power_journal_volume,
+            flow.action_journal_volume,
             flow.publication_volume,
             flow.continuation_state_volume,
             flow.continuation_key_volume,

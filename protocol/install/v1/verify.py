@@ -124,14 +124,14 @@ def validate_resolve(value: dict[str, object]) -> None:
     intent_ids = [
         intent.get("id") for intent in intents if isinstance(intent, dict) and isinstance(intent.get("id"), str)
     ]
-    powers = contract.get("powers")
-    if not isinstance(powers, list):
+    actions = contract.get("actions")
+    if not isinstance(actions, list):
         return
     required_ids = {
         integration
-        for power in powers
-        if isinstance(power, dict) and isinstance(power.get("integrations"), list)
-        for integration in power["integrations"]
+        for action in actions
+        if isinstance(action, dict) and isinstance(action.get("integrations"), list)
+        for integration in action["integrations"]
         if isinstance(integration, str)
     }
     if len(intent_ids) != len(intents) or len(set(intent_ids)) != len(intent_ids):

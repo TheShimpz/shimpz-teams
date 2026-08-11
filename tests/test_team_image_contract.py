@@ -20,7 +20,7 @@ PRODUCTION_PACKAGES = {
     "install",
     "integrations",
     "local",
-    "power",
+    "action",
     "storage",
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
@@ -302,12 +302,12 @@ class StaticTeamImageContractTests(unittest.TestCase):
         )
         self.assertIn("chmod 0750 /run/shimpz-brain-runtime", dockerfile)
         self.assertIn("/var/lib/team/inference", dockerfile)
-        self.assertIn("/var/lib/team/power-journal", dockerfile)
+        self.assertIn("/var/lib/team/action-journal", dockerfile)
         self.assertNotIn("/var/lib/team/assistant-secrets", dockerfile)
         self.assertIn("/var/lib/team/assistant-integrations/state", dockerfile)
         self.assertIn("/var/lib/team/assistant-integrations/key", dockerfile)
         self.assertIn(
-            "/var/lib/team/cleanup \\\n        /var/lib/team/inference \\\n        /var/lib/team/power-journal \\",
+            "/var/lib/team/cleanup \\\n        /var/lib/team/inference \\\n        /var/lib/team/action-journal \\",
             dockerfile,
         )
 

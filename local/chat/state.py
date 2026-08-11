@@ -8,6 +8,7 @@ from typing import NoReturn
 
 from docker.errors import DockerException
 
+from action import challenges as action_challenges
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from inference import config as inference_config
@@ -20,7 +21,6 @@ from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 from local.labels import ASSISTANT_LABEL
-from power import challenges as power_challenges
 from storage import files as team_storage
 
 log = logging.getLogger("shimpz-team-local")
@@ -187,11 +187,11 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
             current_egress_proxy,
             refresh=False,
         )
-        if container.id in self.assistant_lifecycle._blocked_power_workloads:
+        if container.id in self.assistant_lifecycle._blocked_action_workloads:
             raise ApiProblem(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant Power execution is blocked until this Assistant is reinstalled",
-                code="assistant-power-blocked",
+                "Assistant Action execution is blocked until this Assistant is reinstalled",
+                code="assistant-action-blocked",
             )
         if container.status == "running":
             active.append(_ActiveAssistant(spec=spec, container_id=container.id, container=container))
@@ -306,7 +306,7 @@ def _restore_chat_continuation(
         local_chat_continuation_store.ContinuationStoreError,
         local_chat_continuations.ContinuationCodecError,
         integration_challenges.IntegrationChallengeError,
-        power_challenges.HumanChallengeError,
+        action_challenges.HumanChallengeError,
     ) as exc:
         self._raise_chat_continuation_problem(exc)
 

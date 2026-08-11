@@ -296,10 +296,10 @@ class TokenAndProcessCoverageTests(unittest.TestCase):
 
     def test_hosted_chat_cleanup_maps_journal_failure(self) -> None:
         journal = mock.Mock()
-        journal.purge_replayable.side_effect = hosted_chat_lifecycle.power_journal.PowerJournalError("offline")
+        journal.purge_replayable.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("offline")
         with (
             mock.patch.object(hosted_chat_lifecycle.runtime_state._human_challenges, "cancel_team", return_value=True),
-            mock.patch.object(hosted_chat_lifecycle.runtime_state, "_power_execution_journal", return_value=journal),
+            mock.patch.object(hosted_chat_lifecycle.runtime_state, "_action_execution_journal", return_value=journal),
             self.assertRaises(hosted_chat_lifecycle.runtime_state.ApiError) as raised,
         ):
             hosted_chat_lifecycle.cancel_replayable_human("team_1", "generation")
@@ -319,7 +319,7 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
             mock.patch.object(admission.hosted_chat_human, "_expire_challenges") as expire,
         ):
             self.assertEqual(
-                admission.power_assurance(
+                admission.action_assurance(
                     "chat-human-submit",
                     {"team_id": "team_1"},
                     {"decision": "submit", "challenge_id": "a" * 32},
@@ -334,7 +334,7 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
             return_value=self._challenge("approval"),
         ):
             self.assertEqual(
-                admission.power_assurance(
+                admission.action_assurance(
                     "chat-human-submit",
                     {"team_id": "team_1"},
                     {"decision": "submit", "challenge_id": "a" * 32},
@@ -350,7 +350,7 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
             ),
             self.assertRaises(admission.runtime_state.ApiError) as raised,
         ):
-            admission.power_assurance(
+            admission.action_assurance(
                 "chat-human-submit",
                 {"team_id": "team_1"},
                 {"decision": "submit", "challenge_id": "a" * 32, "value": "invalid"},

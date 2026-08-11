@@ -2,7 +2,7 @@
 # check=skip=SecretsUsedInArgOrEnv ; the Cloudflare Assistant image is a public OCI digest, not a credential
 #
 # Separate local-only Team controller. It does not copy the hosted app.py/runsc/PG control
-# plane; only the narrow LangGraph runtime protocol and Controller-owned Power loop are shared.
+# plane; only the narrow LangGraph runtime protocol and Controller-owned Action loop are shared.
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 ARG SOURCE_DATE_EPOCH=0
 
@@ -71,7 +71,7 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY protocol/http/v1/progress.py protocol/http/v1/supervisor.py protocol/http/v1/websocket.py ./protocol/http/v1/
-COPY power/__init__.py power/challenges.py power/execution.py power/human.py power/journal.py ./power/
+COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py ./action/
 COPY storage/__init__.py storage/files.py ./storage/
 
 RUN test -x /usr/bin/timeout && \
@@ -85,7 +85,7 @@ RUN test -x /usr/bin/timeout && \
         --no-create-home --shell /usr/sbin/nologin shimpzlocal && \
     mkdir -p /run/shimpz-local /run/shimpz-brain-runtime /run/shimpz-local-supervisor \
         /var/log/shimpz-local /var/lib/shimpz-local/storage \
-        /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal /var/lib/shimpz-local/assistant-egress \
+        /var/lib/shimpz-local/inference /var/lib/shimpz-local/action-journal /var/lib/shimpz-local/assistant-egress \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     mkdir -p /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
@@ -95,14 +95,14 @@ RUN test -x /usr/bin/timeout && \
     chown root:shimpzsupervisor-key /run/shimpz-local-supervisor && \
     chmod 2770 /run/shimpz-local-supervisor && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
-        /var/lib/shimpz-local/inference /var/lib/shimpz-local/power-journal \
+        /var/lib/shimpz-local/inference /var/lib/shimpz-local/action-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzassistant-egress-policy /var/lib/shimpz-local/assistant-egress && \
     chmod 0770 /var/lib/shimpz-local/assistant-egress && \
     chmod 0700 /var/log/shimpz-local /var/lib/shimpz-local/storage /var/lib/shimpz-local/inference \
-        /var/lib/shimpz-local/power-journal \
+        /var/lib/shimpz-local/action-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \

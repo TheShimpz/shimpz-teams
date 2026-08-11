@@ -228,9 +228,9 @@
       "record": {"type": "progress", "seq": 1, "phase": "model", "state": "started"}
     },
     {
-      "name": "power_finished",
+      "name": "action_finished",
       "valid": true,
-      "record": {"type": "progress", "seq": 2, "phase": "power", "state": "finished", "elapsed_ms": 12, "assistant_id": "hello-world", "index": 1, "power": "lookup", "total": 2}
+      "record": {"type": "progress", "seq": 2, "phase": "action", "state": "finished", "elapsed_ms": 12, "assistant_id": "hello-world", "index": 1, "action": "lookup", "total": 2}
     },
     {
       "name": "terminal",
@@ -245,17 +245,17 @@
     {
       "name": "finished_without_duration",
       "valid": false,
-      "record": {"type": "progress", "seq": 4, "phase": "power-delivery", "state": "finished"}
+      "record": {"type": "progress", "seq": 4, "phase": "action-delivery", "state": "finished"}
     },
     {
-      "name": "power_without_identity",
+      "name": "action_without_identity",
       "valid": false,
-      "record": {"type": "progress", "seq": 5, "phase": "power", "state": "started", "index": 1, "total": 1}
+      "record": {"type": "progress", "seq": 5, "phase": "action", "state": "started", "index": 1, "total": 1}
     },
     {
-      "name": "identity_outside_power",
+      "name": "identity_outside_action",
       "valid": false,
-      "record": {"type": "progress", "seq": 6, "phase": "model", "state": "started", "assistant_id": "hello-world", "power": "lookup"}
+      "record": {"type": "progress", "seq": 6, "phase": "model", "state": "started", "assistant_id": "hello-world", "action": "lookup"}
     },
     {
       "name": "boolean_terminal_status",

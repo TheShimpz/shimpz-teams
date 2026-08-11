@@ -133,13 +133,13 @@ def _intent_ids(intents: list[object]) -> list[str]:
 
 
 def _required_integration_ids(contract: dict[str, object]) -> set[str]:
-    powers = contract.get("powers")
-    if not isinstance(powers, list):
+    actions = contract.get("actions")
+    if not isinstance(actions, list):
         return set()
     return {
         integration
-        for power in powers
-        if isinstance(power, dict) and isinstance(power.get("integrations"), list)
-        for integration in power["integrations"]
+        for action in actions
+        if isinstance(action, dict) and isinstance(action.get("integrations"), list)
+        for integration in action["integrations"]
         if isinstance(integration, str)
     }

@@ -1,4 +1,4 @@
-"""Hosted Assistant contracts, RPC, private state, and Power execution."""
+"""Hosted Assistant contracts, RPC, private state, and Action execution."""
 
 from __future__ import annotations
 
@@ -12,6 +12,9 @@ import docker
 import docker.errors
 from jsonschema import Draft202012Validator
 
+from action import execution as action_execution
+from action import human as action_human
+from action import journal as action_journal
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from chat import contract as assistant_chat
@@ -28,9 +31,6 @@ from inference import integration_secrets as integration_secrets_client
 from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import store as integration_store
-from power import execution as power_execution
-from power import human as power_human
-from power import journal as power_journal
 from storage import files as team_storage
 
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
@@ -48,6 +48,7 @@ class _ActiveAssistant:
     contract: assistant_registry.AssistantContract
     container: object
     image: str = ""
+    version: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,12 +57,12 @@ class _HostedAssistantSpec:
 
     assistant_id: str
     name: str
-    powers: dict[str, object]
+    actions: dict[str, object]
     integrations: dict[str, assistant_registry.IntegrationSpec]
 
 
 @dataclass(frozen=True, slots=True)
-class _HostedPowerSpec:
+class _HostedActionSpec:
     integrations: tuple[str, ...]
     summary: str
     human_requests: tuple[str, ...]
@@ -81,7 +82,7 @@ class _PendingHostedChat:
     file_ids: tuple[str, ...]
     owner: str
     identity: tuple[object, ...]
-    transcripts: tuple[power_human.PowerTranscript, ...] = ()
+    transcripts: tuple[action_human.ActionTranscript, ...] = ()
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
@@ -89,13 +90,13 @@ def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
     return _HostedAssistantSpec(
         assistant_id=active.assistant_id,
         name=name,
-        powers={
-            power_id: _HostedPowerSpec(
-                tuple(getattr(power, "integrations", ())),
-                str(getattr(power, "summary", "")),
-                tuple(getattr(power, "human_requests", ())),
+        actions={
+            action_id: _HostedActionSpec(
+                tuple(getattr(action, "integrations", ())),
+                str(getattr(action, "summary", "")),
+                tuple(getattr(action, "human_requests", ())),
             )
-            for power_id, power in active.contract.powers.items()
+            for action_id, action in active.contract.actions.items()
         },
         integrations=getattr(active.contract, "integrations", {}),
     )
@@ -110,7 +111,7 @@ def _integration_bindings(
     }
 
 
-def _hosted_power_identity(active: _ActiveAssistant) -> tuple[object, object]:
+def _hosted_action_identity(active: _ActiveAssistant) -> tuple[object, object]:
     config = getattr(active.container, "attrs", {}).get("Config", {})
     image = config.get("Image") if isinstance(config, dict) else None
     if not isinstance(image, str) or not image:
@@ -119,7 +120,7 @@ def _hosted_power_identity(active: _ActiveAssistant) -> tuple[object, object]:
 
 
 def _close_exec_stream(stream) -> None:
-    power_execution.close_exec_stream(stream)
+    action_execution.close_exec_stream(stream)
 
 
 def _installed_assistant(
@@ -138,10 +139,10 @@ def _installed_assistant(
     if container is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"Assistant {assistant_id!r} is not installed in this Team")
     with runtime_state._active_chat_guard:
-        if (team_id, container.id) in runtime_state._blocked_power_workloads:
+        if (team_id, container.id) in runtime_state._blocked_action_workloads:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant Power execution is blocked until this Assistant is reinstalled",
+                "Assistant Action execution is blocked until this Assistant is reinstalled",
             )
     if (
         not network_policy.assistant_identity_valid(container.attrs, team_id, assistant_id)
@@ -205,7 +206,10 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
             egress_store,
         )
         seen.add(current_id)
-        active.append(_ActiveAssistant(current_id, contract, container, spec.image))
+        version = dynamic_bindings[current_id].resolution.get("assistant_version")
+        if not isinstance(version, str) or not version:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant has no valid version")
+        active.append(_ActiveAssistant(current_id, contract, container, spec.image, version))
     active.sort(key=lambda item: item.assistant_id)
     return tuple(active)
 
@@ -237,29 +241,29 @@ def _select_team_assistants(
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "a selected Assistant is unavailable") from None
 
 
-def _register_active_power(team_id: str, token: str, container) -> None:
+def _register_active_action(team_id: str, token: str, container) -> None:
     with runtime_state._active_chat_guard:
         if runtime_state._active_chat_tokens.get(team_id) != token or token in runtime_state._cancelled_chat_tokens:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
-        if team_id in runtime_state._active_power_container_ids:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team already has an active Assistant Power")
-        runtime_state._active_power_container_ids[team_id] = (token, container.id)
+        if team_id in runtime_state._active_action_container_ids:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team already has an active Assistant Action")
+        runtime_state._active_action_container_ids[team_id] = (token, container.id)
 
 
-def _release_active_power(team_id: str, token: str, container_id: str) -> None:
+def _release_active_action(team_id: str, token: str, container_id: str) -> None:
     with runtime_state._active_chat_guard:
-        if runtime_state._active_power_container_ids.get(team_id) == (token, container_id):
-            runtime_state._active_power_container_ids.pop(team_id, None)
+        if runtime_state._active_action_container_ids.get(team_id) == (token, container_id):
+            runtime_state._active_action_container_ids.pop(team_id, None)
 
 
-def _register_optional_power(team_id: str, token: str | None, container) -> None:
+def _register_optional_action(team_id: str, token: str | None, container) -> None:
     if token is not None:
-        _register_active_power(team_id, token, container)
+        _register_active_action(team_id, token, container)
 
 
-def _release_optional_power(team_id: str, token: str | None, container_id: str) -> None:
+def _release_optional_action(team_id: str, token: str | None, container_id: str) -> None:
     if token is not None:
-        _release_active_power(team_id, token, container_id)
+        _release_active_action(team_id, token, container_id)
 
 
 def _raise_if_rpc_cancelled(token: str | None, exc: BaseException | None = None) -> None:
@@ -267,16 +271,16 @@ def _raise_if_rpc_cancelled(token: str | None, exc: BaseException | None = None)
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped") from exc
 
 
-def _fail_stop_power(team_id: str, container) -> None:
+def _fail_stop_action(team_id: str, container) -> None:
     """Prove an ambiguous Assistant RPC can no longer execute before returning an error."""
     try:
         hosted_resources._fail_stop_team(container, timeout=3)
     except runtime_state.ApiError as exc:
         with runtime_state._active_chat_guard:
-            runtime_state._blocked_power_workloads.add((team_id, container.id))
+            runtime_state._blocked_action_workloads.add((team_id, container.id))
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant Power termination could not be proved; reinstall the Assistant",
+            "Assistant Action termination could not be proved; reinstall the Assistant",
         ) from exc
 
 
@@ -284,7 +288,7 @@ def _fail_stop_power(team_id: str, container) -> None:
 class AssistantRpcRequest:
     team_id: str
     container: object
-    power_id: str
+    action_id: str
     payload: dict
     token: str | None
 
@@ -294,14 +298,14 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
     container = request.container
     token = request.token
     try:
-        encoded = power_execution.encode_rpc_invocation(
+        encoded = action_execution.encode_rpc_invocation(
             request.payload["input"],
             request.payload["integrations"],
             request.payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:
-        raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Power input is too large") from exc
-    _register_optional_power(team_id, token, container)
+        raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Action input is too large") from exc
+    _register_optional_action(team_id, token, container)
 
     def close_stream(stream: object) -> None:
         with contextlib.suppress(Exception):
@@ -309,58 +313,58 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
 
     try:
         try:
-            return power_execution.rpc_exchange(
+            return action_execution.rpc_exchange(
                 container.id,
-                [power_execution.POWER_COMMAND, request.power_id],
+                [action_execution.ACTION_COMMAND, request.action_id],
                 encoded,
-                power_execution.RpcExchangeStrategy(
+                action_execution.RpcExchangeStrategy(
                     api=runtime_state._docker.api,
-                    user=power_execution.ASSISTANT_RPC_USER,
+                    user=action_execution.ASSISTANT_RPC_USER,
                     workdir=container_spec.CONTAINER_TMP,
-                    timeout=power_execution.RPC_TIMEOUT_SECONDS,
-                    maximum=power_execution.MAX_RPC_RESPONSE_BYTES,
+                    timeout=action_execution.RPC_TIMEOUT_SECONDS,
+                    maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                     transport_errors=(docker.errors.DockerException,),
-                    fail_stop=lambda: _fail_stop_power(team_id, container),
+                    fail_stop=lambda: _fail_stop_action(team_id, container),
                     cancelled=lambda exc: _raise_if_rpc_cancelled(token, exc),
                     close_stream=close_stream,
                 ),
             )
-        except power_execution.RpcExchangeError as exc:
-            message = power_execution.rpc_failure_message(exc.kind)[0]
-            status = power_execution.rpc_failure_status(exc.kind)
+        except action_execution.RpcExchangeError as exc:
+            message = action_execution.rpc_failure_message(exc.kind)[0]
+            status = action_execution.rpc_failure_status(exc.kind)
             raise runtime_state.ApiError(status, message) from exc
     finally:
-        _release_optional_power(team_id, token, container.id)
+        _release_optional_action(team_id, token, container.id)
 
 
 def _assistant_rpc(
     team_id: str,
     token: str,
     container,
-    power_id: str,
+    action_id: str,
     payload: dict,
 ) -> object:
     return _assistant_rpc_exchange(
         AssistantRpcRequest(
             team_id=team_id,
             container=container,
-            power_id=power_id,
+            action_id=action_id,
             payload=payload,
             token=token,
         )
     )
 
 
-def _power_integration_generations(
+def _action_integration_generations(
     team_id: str,
     active: _ActiveAssistant,
-    power_id: str,
+    action_id: str,
 ) -> tuple[tuple[str, int], ...]:
     try:
-        return power_execution.integration_generations(
-            active.contract.powers,
+        return action_execution.integration_generations(
+            active.contract.actions,
             getattr(active.contract, "integrations", {}),
-            power_id,
+            action_id,
             lambda declarations: runtime_state._assistant_integrations.metadata(
                 team_id,
                 active.assistant_id,
@@ -368,7 +372,7 @@ def _power_integration_generations(
             ),
         )
     except integration_store.OAuthIntegrationStoreError as exc:
-        raise power_journal.PowerJournalConflictError("Power integration state is unavailable") from exc
+        raise action_journal.ActionJournalConflictError("Action integration state is unavailable") from exc
 
 
 def _refresh_oauth_integration(
@@ -391,41 +395,44 @@ def _refresh_oauth_integration(
         ) from exc
 
 
-def _resolve_power_integrations(
+def _resolve_action_integrations(
     team_id: str,
     active: _ActiveAssistant,
-    power_id: str,
+    action_id: str,
 ) -> dict[str, dict[str, str]]:
     try:
-        return integration_flow.resolve_power_integrations(
+        return integration_flow.resolve_action_integrations(
             team_id,
             _hosted_integration_spec(active),
-            power_id,
+            action_id,
             runtime_state._assistant_integrations,
             _refresh_oauth_integration,
         )
     except integration_flow.IntegrationFlowError as exc:
         raise runtime_state.ApiError(
-            power_execution.INTEGRATION_PRECONDITION_STATUS, "Assistant integration is unavailable"
+            action_execution.INTEGRATION_PRECONDITION_STATUS, "Assistant integration is unavailable"
         ) from exc
 
 
-def _require_hosted_power_rpc_envelope(
+def _require_hosted_action_rpc_envelope(
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
-    request: brain_runtime_client.PowerRequest,
+    request: brain_runtime_client.ActionRequest,
 ) -> Mapping[str, Mapping[str, object]]:
     active = bindings.get(request.assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
     try:
-        return power_execution.require_rpc_envelope(
+        return action_execution.require_rpc_envelope(
             active,
             request,
-            lambda binding, power_id: _resolve_power_integrations(team_id, binding, power_id),
+            lambda binding, action_id: _resolve_action_integrations(team_id, binding, action_id),
         )
     except ValueError as exc:
-        raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Assistant Power input is too large") from exc
+        raise runtime_state.ApiError(
+            HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+            "Assistant Action input is too large",
+        ) from exc
 
 
 def _assistant_integration_inventory(
@@ -474,34 +481,37 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class PowerInvocationRequest:
+class ActionInvocationRequest:
     team_id: str
     token: str
     assistant_id: str
     contract: assistant_registry.AssistantContract
     container: object
-    power: object
+    action: object
     payload: object
     inspect_memo: dict[str, object] | None = None
     validated_assistant: _ActiveAssistant | None = None
     integration_values: Mapping[str, Mapping[str, object]] | None = None
-    transcript: power_human.PowerTranscript | None = None
+    transcript: action_human.ActionTranscript | None = None
 
 
-def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object]:
+def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, object]:
     team_id = request.team_id
     assistant_id = request.assistant_id
     contract = request.contract
     container = request.container
-    power = request.power
+    action = request.action
     if (
-        not isinstance(power, str)
-        or assistant_chat.POWER_ID_RE.fullmatch(power) is None
-        or power not in contract.powers
+        not isinstance(action, str)
+        or assistant_chat.ACTION_ID_RE.fullmatch(action) is None
+        or action not in contract.actions
     ):
-        raise runtime_state.ApiError(power_execution.UNDECLARED_POWER_STATUS, "Assistant requested an undeclared Power")
+        raise runtime_state.ApiError(
+            action_execution.UNDECLARED_ACTION_STATUS,
+            "Assistant requested an undeclared Action",
+        )
     try:
-        safe_input = _validate_power_payload(contract, power, request.payload, output=False)
+        safe_input = _validate_action_payload(contract, action, request.payload, output=False)
     except ValueError as exc:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
     validated = request.validated_assistant
@@ -518,23 +528,23 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
     if _current_id != assistant_id or current_contract != contract or current_container.id != container.id:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant changed during the chat turn")
     active = _ActiveAssistant(assistant_id, contract, container)
-    transcript = request.transcript or power_human.PowerTranscript("")
+    transcript = request.transcript or action_human.ActionTranscript("")
     integration_values = (
-        _resolve_power_integrations(team_id, active, power)
+        _resolve_action_integrations(team_id, active, action)
         if request.integration_values is None
         else dict(request.integration_values)
     )
     audit.log(
-        "assistant_power",
+        "assistant_action",
         team_id,
         result="ok",
         phase="started",
         assistant=assistant_id,
-        power=power,
+        action=action,
     )
     rpc_payload = {
         "input": safe_input,
-        "integrations": power_execution.integration_access_tokens(integration_values),
+        "integrations": action_execution.integration_access_tokens(integration_values),
     }
     if transcript.responses:
         rpc_payload["responses"] = transcript.payloads()
@@ -543,80 +553,80 @@ def _invoke_assistant_power(request: PowerInvocationRequest) -> dict[str, object
             team_id,
             request.token,
             container,
-            power,
+            action,
             rpc_payload,
         )
     except runtime_state.ApiError as exc:
         audit.log(
-            "assistant_power",
+            "assistant_action",
             team_id,
             result="error",
             assistant=assistant_id,
-            power=power,
+            action=action,
             status=int(exc.status),
         )
         raise
     try:
-        projected = power_execution.project_rpc_result(
+        projected = action_execution.project_rpc_result(
             raw_result,
             integration_values,
-            lambda value: _validate_power_payload(contract, power, value, output=True),
-            tuple(contract.powers[power].human_requests),
+            lambda value: _validate_action_payload(contract, action, value, output=True),
+            tuple(contract.actions[action].human_requests),
             transcript.protected_values(),
         )
-    except power_execution.RpcSecretExposureError:
+    except action_execution.RpcSecretExposureError:
         audit.log(
-            "assistant_power",
+            "assistant_action",
             team_id,
             result="error",
             assistant=assistant_id,
-            power=power,
+            action=action,
             reason="secret-exposure",
         )
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Power exposed protected data") from None
-    except power_execution.RpcInvalidResultError as exc:
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action exposed protected data") from None
+    except action_execution.RpcInvalidResultError as exc:
         audit.log(
-            "assistant_power",
+            "assistant_action",
             team_id,
             result="error",
             assistant=assistant_id,
-            power=power,
+            action=action,
             reason="invalid-output",
         )
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Power returned an invalid result") from exc
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action returned an invalid result") from exc
     audit.log(
-        "assistant_power",
+        "assistant_action",
         team_id,
         result="ok",
         phase="completed",
         assistant=assistant_id,
-        power=power,
+        action=action,
     )
-    return {"assistant": assistant_id, "power": power, "result": projected}
+    return {"assistant": assistant_id, "action": action, "result": projected}
 
 
-def _validate_assistant_power_input(bindings, assistant_id: str, power: str, power_input) -> object:
-    """Normalize one hosted Power input without touching Docker or another external system."""
+def _validate_assistant_action_input(bindings, assistant_id: str, action: str, action_input) -> object:
+    """Normalize one hosted Action input without touching Docker or another external system."""
     active = bindings.get(assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
     try:
-        return _validate_power_payload(active.contract, power, power_input, output=False)
+        return _validate_action_payload(active.contract, action, action_input, output=False)
     except ValueError as exc:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
-def _validate_power_payload(
+def _validate_action_payload(
     contract: assistant_registry.AssistantContract,
-    power_id: str,
+    action_id: str,
     payload: object,
     *,
     output: bool,
 ) -> dict[str, object]:
-    power = contract.powers.get(power_id)
-    if power is None:
-        raise ValueError("the Power has no declared contract")
-    schema = power.output_schema if output else power.input_schema
+    action = contract.actions.get(action_id)
+    if action is None:
+        raise ValueError("the Action has no declared contract")
+    schema = action.output_schema if output else action.input_schema
     return assistant_manifest.validate_schema_payload(
         Draft202012Validator(schema),
         payload,

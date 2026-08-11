@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from assistant.spec import IntegrationSpec, PowerSpec, digest_is_bound
+from assistant.spec import ActionSpec, IntegrationSpec, digest_is_bound
 
 _DIGEST_REF = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]{1,5})?/)?"
@@ -16,10 +16,11 @@ _DIGEST_REF = re.compile(
 @dataclass(frozen=True, slots=True)
 class AssistantSpec:
     assistant_id: str
+    version: str
     name: str
     summary: str
     image: str
-    powers: dict[str, PowerSpec]
+    actions: dict[str, ActionSpec]
     allowed_hosts: tuple[str, ...]
     required_image_labels: tuple[tuple[str, str], ...]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)

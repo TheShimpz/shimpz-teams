@@ -10,7 +10,7 @@ def requirement() -> integration_challenges.IntegrationRequirement:
     return integration_challenges.IntegrationRequirement(
         assistant_id="shimpz-cloudflare",
         assistant_name="Shimpz Cloudflare",
-        power_ids=("protected-action", "read-profile"),
+        action_ids=("protected-action", "read-profile"),
         integrations=(
             (
                 "x",

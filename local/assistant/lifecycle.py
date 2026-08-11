@@ -9,6 +9,7 @@ from http import HTTPStatus
 from docker.errors import DockerException, ImageNotFound, NotFound
 from docker.types import LogConfig, Ulimit
 
+from action import execution as action_execution
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.assistant import isolation as local_container_policy
@@ -16,7 +17,6 @@ from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
-from power import execution as power_execution
 
 ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
@@ -81,7 +81,7 @@ def _rollback_assistant_install(
         except DockerException:
             incomplete = True
             with suppress(ApiProblem):
-                self._fail_stop_power(container)
+                self._fail_stop_action(container)
     if egress_prepared:
         try:
             self._release_assistant_egress(team_id, spec.assistant_id, network)
@@ -127,7 +127,7 @@ def _create_assistant_container(
             name=self._container_name(team_id, spec.assistant_id),
             command=None,
             detach=True,
-            user=power_execution.ASSISTANT_RPC_USER,
+            user=action_execution.ASSISTANT_RPC_USER,
             network=network.name,
             labels=self._assistant_labels(team_id, spec),
             environment={
@@ -652,7 +652,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 "Docker could not uninstall the Assistant",
                 code="docker-remove-failed",
             ) from exc
-        self._blocked_power_workloads.discard(container.id)
+        self._blocked_action_workloads.discard(container.id)
         self._assistant_genesis_cache.discard(container.id)
         self._assistant_allowed_hosts_cache.discard(container.id)
         self._assistant_machine_contract_cache.discard(container.id)

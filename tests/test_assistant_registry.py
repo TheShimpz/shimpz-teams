@@ -23,5 +23,5 @@ class SharedRegistry(unittest.TestCase):
         self.assertTrue(assistant_registry.is_digest_image(image))
 
     def test_local_runtime_reuses_shared_contract_types(self):
-        self.assertIs(local_runtime.PowerSpec, assistant_registry.PowerSpec)
+        self.assertIs(local_runtime.ActionSpec, assistant_registry.ActionSpec)
         self.assertIs(local_runtime.IntegrationSpec, assistant_registry.IntegrationSpec)

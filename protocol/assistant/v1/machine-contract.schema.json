@@ -4,17 +4,17 @@
   "title": "Shimpz Assistant SDK machine contract v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "powers"],
+  "required": ["version", "actions"],
   "properties": {
     "version": {
       "const": 1
     },
-    "powers": {
+    "actions": {
       "type": "array",
       "minItems": 1,
       "maxItems": 128,
       "items": {
-        "$ref": "#/$defs/power"
+        "$ref": "#/$defs/action"
       }
     }
   },
@@ -34,7 +34,7 @@
         }
       }
     },
-    "power": {
+    "action": {
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "input_schema", "output_schema", "integrations", "human_requests"],

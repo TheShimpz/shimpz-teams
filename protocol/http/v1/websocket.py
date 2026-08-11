@@ -133,7 +133,7 @@ def challenge_identity(value: object, expected_team_id: str) -> tuple[str, str] 
 
 
 def canonical_human_response(value: object) -> dict[str, object]:
-    """Validate one exact Local Admin response to a pending Power human challenge."""
+    """Validate one exact Local Admin response to a pending Action human challenge."""
     if (
         not isinstance(value, dict)
         or value.get("type") != "human-response"

@@ -28,9 +28,9 @@ ICON = b"canonical icon"
 def _runtime_resolution() -> dict[str, object]:
     resolution = copy.deepcopy(RESOLUTION)
     resolution["icon_digest"] = f"sha256:{hashlib.sha256(ICON).hexdigest()}"
-    power = resolution["machine_contract"]["powers"][0]
-    power["input_schema"]["additionalProperties"] = False
-    power["output_schema"]["additionalProperties"] = False
+    action = resolution["machine_contract"]["actions"][0]
+    action["input_schema"]["additionalProperties"] = False
+    action["output_schema"]["additionalProperties"] = False
     return resolution
 
 

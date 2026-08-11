@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import challenges as action_challenges
+from action import execution as action_execution
+from action import human as action_human
+from action import journal as action_journal
 from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -20,10 +24,6 @@ from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from integrations import store as integration_store
-from power import challenges as power_challenges
-from power import execution as power_execution
-from power import human as power_human
-from power import journal as power_journal
 
 
 def _current_team_anchor(
@@ -93,9 +93,9 @@ def _raise_hosted_chat_problem(reason: str, exc: BaseException | None) -> NoRetu
         )
     if reason == "context-changed":
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
-    if isinstance(exc, power_journal.PowerJournalError):
+    if isinstance(exc, action_journal.ActionJournalError):
         raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Team Power execution state is unavailable"
+            HTTPStatus.SERVICE_UNAVAILABLE, "Team Action execution state is unavailable"
         ) from exc
     if isinstance(exc, chat_orchestrator.ChatStoppedError):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped") from exc
@@ -109,7 +109,7 @@ def _raise_hosted_chat_problem(reason: str, exc: BaseException | None) -> NoRetu
 def _hosted_private_requirements(
     team_id: str,
     bindings: dict[str, hosted_assistants._ActiveAssistant],
-    requests: tuple[brain_runtime_client.PowerRequest, ...],
+    requests: tuple[brain_runtime_client.ActionRequest, ...],
 ) -> tuple[integration_challenges.IntegrationRequirement, ...]:
     try:
         return integration_flow.requirements_for_batch(
@@ -136,7 +136,7 @@ class HostedChatSegmentRequest:
     message: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
-    transcripts: tuple[power_human.PowerTranscript, ...] = ()
+    transcripts: tuple[action_human.ActionTranscript, ...] = ()
 
 
 @dataclass(slots=True)
@@ -144,11 +144,11 @@ class HostedValidationContext:
     inspect_memo: dict[str, object]
     metadata_connection: object
     credential_session: object
-    power_assistants: dict[str, hosted_assistants._ActiveAssistant]
+    action_assistants: dict[str, hosted_assistants._ActiveAssistant]
 
 
 @dataclass(frozen=True, slots=True)
-class HostedPowerExecution:
+class HostedActionExecution:
     team_id: str
     token: str
     bindings: dict[str, hosted_assistants._ActiveAssistant]
@@ -187,13 +187,14 @@ def _hosted_chat_current_identity(
         for active in assistants
     )
     current_assistants = tuple(item[2] for item in current)
-    validation.power_assistants.update(
+    validation.action_assistants.update(
         {
             assistant_id: hosted_assistants._ActiveAssistant(
                 assistant_id,
                 contract,
                 current_container,
                 prepared.image,
+                prepared.version,
             )
             for prepared, (assistant_id, contract, current_container) in zip(
                 assistants,
@@ -233,24 +234,24 @@ def _hosted_chat_current_identity(
     )
 
 
-def _execute_hosted_power(
-    execution: HostedPowerExecution,
-    request: brain_runtime_client.PowerRequest,
+def _execute_hosted_action(
+    execution: HostedActionExecution,
+    request: brain_runtime_client.ActionRequest,
     validated_assistant: hosted_assistants._ActiveAssistant,
     integration_values: object,
-    transcript: power_human.PowerTranscript,
+    transcript: action_human.ActionTranscript,
 ) -> object:
     active = execution.bindings.get(request.assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
-    invocation = hosted_assistants._invoke_assistant_power(
-        hosted_assistants.PowerInvocationRequest(
+    invocation = hosted_assistants._invoke_assistant_action(
+        hosted_assistants.ActionInvocationRequest(
             team_id=execution.team_id,
             token=execution.token,
             assistant_id=request.assistant_id,
             contract=active.contract,
             container=active.container,
-            power=request.power,
+            action=request.action,
             payload=request.input,
             inspect_memo=execution.inspect_memo,
             validated_assistant=validated_assistant,
@@ -288,46 +289,47 @@ def _run_hosted_chat_segment_with_metadata(
     prepared_assistants: tuple[hosted_assistants._ActiveAssistant, ...] = ()
     inspect_memo: dict[str, object] = {}
     credential_evidence = False
-    validated_power_assistants: dict[str, hosted_assistants._ActiveAssistant] = {}
+    validated_action_assistants: dict[str, hosted_assistants._ActiveAssistant] = {}
 
-    def validate_power(assistant_id: str, power: str, power_input) -> object:
-        return hosted_assistants._validate_assistant_power_input(bindings, assistant_id, power, power_input)
+    def validate_action(assistant_id: str, action: str, action_input) -> object:
+        return hosted_assistants._validate_assistant_action_input(bindings, assistant_id, action, action_input)
 
-    def execute_power(power_request: brain_runtime_client.PowerRequest, integration_values: object) -> object:
-        nonlocal credential_evidence, validated_power_assistants
+    def execute_action(action_request: brain_runtime_client.ActionRequest, integration_values: object) -> object:
+        nonlocal credential_evidence, validated_action_assistants
         if not credential_evidence:
-            raise AssertionError("hosted Power lacks fresh credential evidence")
-        validated_assistant = validated_power_assistants.get(power_request.assistant_id)
+            raise AssertionError("hosted Action lacks fresh credential evidence")
+        validated_assistant = validated_action_assistants.get(action_request.assistant_id)
         if validated_assistant is None:
-            raise AssertionError("hosted Power lacks fresh Assistant evidence")
+            raise AssertionError("hosted Action lacks fresh Assistant evidence")
         credential_evidence = False
-        validated_power_assistants = {}
-        transcript = power_human.transcript_for(request.transcripts, power_request.interrupt_id)
-        return _execute_hosted_power(
-            HostedPowerExecution(team_id, token, bindings, inspect_memo),
-            power_request,
+        validated_action_assistants = {}
+        transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
+        return _execute_hosted_action(
+            HostedActionExecution(team_id, token, bindings, inspect_memo),
+            action_request,
             validated_assistant,
             integration_values,
             transcript,
         )
 
     def human_requirement(
-        power_request: brain_runtime_client.PowerRequest,
-        human_request: power_human.HumanRequest,
-    ) -> power_challenges.HumanRequirement:
-        active = bindings.get(power_request.assistant_id)
+        action_request: brain_runtime_client.ActionRequest,
+        human_request: action_human.HumanRequest,
+    ) -> action_challenges.HumanRequirement:
+        active = bindings.get(action_request.assistant_id)
         if active is None:
-            raise chat_orchestrator.ChatOrchestrationError("Power human request Assistant changed")
-        power = active.contract.powers.get(power_request.power)
-        if power is None:
-            raise chat_orchestrator.ChatOrchestrationError("Power human request contract changed")
-        return power_challenges.HumanRequirement(
+            raise chat_orchestrator.ChatOrchestrationError("Action human request Assistant changed")
+        action = active.contract.actions.get(action_request.action)
+        if action is None:
+            raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+        return action_challenges.HumanRequirement(
             active.assistant_id,
             active.assistant_id.replace("-", " ").title(),
-            power_request.power,
-            power.summary,
-            power_request.interrupt_id,
+            action_request.action,
+            action.summary,
+            action_request.interrupt_id,
             human_request,
+            active.version,
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -352,13 +354,13 @@ def _run_hosted_chat_segment_with_metadata(
                 brain_runtime_client.RuntimeAssistant(
                     id=active.assistant_id,
                     genesis=genesis_by_id[active.assistant_id],
-                    powers=tuple(
-                        brain_runtime_client.RuntimePower(
-                            id=power_id,
-                            summary=power.summary,
-                            input_schema=power.input_schema,
+                    actions=tuple(
+                        brain_runtime_client.RuntimeAction(
+                            id=action_id,
+                            summary=action.summary,
+                            input_schema=action.input_schema,
                         )
-                        for power_id, power in sorted(active.contract.powers.items())
+                        for action_id, action in sorted(active.contract.actions.items())
                     ),
                 )
                 for active in prepared_assistants
@@ -368,21 +370,21 @@ def _run_hosted_chat_segment_with_metadata(
             api_key=api_key,
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
-        batch = power_execution.PowerBatch(
-            runtime_state._power_execution_journal,
+        batch = action_execution.ActionBatch(
+            runtime_state._action_execution_journal,
             container.id,
             context.thread_id,
             bindings,
-            power_execution.PowerBatchStrategy(
-                hosted_assistants._hosted_power_identity,
-                execute_power,
-                lambda request: hosted_assistants._require_hosted_power_rpc_envelope(
+            action_execution.ActionBatchStrategy(
+                hosted_assistants._hosted_action_identity,
+                execute_action,
+                lambda request: hosted_assistants._require_hosted_action_rpc_envelope(
                     team_id,
                     bindings,
                     request,
                 ),
-                lambda request: hosted_assistants._power_integration_generations(
-                    team_id, bindings[request.assistant_id], request.power
+                lambda request: hosted_assistants._action_integration_generations(
+                    team_id, bindings[request.assistant_id], request.action
                 ),
             ),
         )
@@ -400,7 +402,7 @@ def _run_hosted_chat_segment_with_metadata(
         return bool(requirements.integrations)
 
     def validate_context() -> None:
-        nonlocal credential_evidence, inspect_memo, validated_power_assistants
+        nonlocal credential_evidence, inspect_memo, validated_action_assistants
         inspect_memo = {}
         validation = HostedValidationContext(
             inspect_memo,
@@ -418,13 +420,13 @@ def _run_hosted_chat_segment_with_metadata(
         if current_identity != initial_identity:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
         credential_evidence = True
-        validated_power_assistants = validation.power_assistants
+        validated_action_assistants = validation.action_assistants
 
     team_name, identity, outcome, requirements = chat_turn_engine.run_segment(
         chat_turn_engine.SegmentStrategy(
             runtime=runtime_state._brain_runtime,
             prepare=prepare,
-            validate_power=validate_power,
+            validate_action=validate_action,
             pause_for_private_inputs=pause_for_private_inputs,
             cancelled=lambda: runtime_state._token_cancelled(token),
             validate_context=validate_context,
@@ -503,11 +505,11 @@ def _purge_hosted_human_pending(pending: hosted_assistants._PendingHostedChat) -
     if not isinstance(generation, str):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     try:
-        runtime_state._power_execution_journal().purge(generation)
-    except power_journal.PowerJournalError as exc:
+        runtime_state._action_execution_journal().purge(generation)
+    except action_journal.ActionJournalError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Power execution state is unavailable",
+            "Team Action execution state is unavailable",
         ) from exc
 
 
@@ -524,18 +526,18 @@ def _terminal_hosted_human_failure(
     return {"team_id": team_id, "status": "human-denied", "reason": reason}
 
 
-def _hosted_human_challenge_payload(challenge: power_challenges.PendingHumanChallenge) -> dict[str, object]:
+def _hosted_human_challenge_payload(challenge: action_challenges.PendingHumanChallenge) -> dict[str, object]:
     try:
-        return power_challenges.challenge_payload(challenge)
-    except power_challenges.HumanChallengeError as exc:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Power human request changed; retry the message") from exc
+        return action_challenges.challenge_payload(challenge)
+    except action_challenges.HumanChallengeError as exc:
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Action human request changed; retry the message") from exc
 
 
 def _pause_hosted_human(
     team_id: str,
     token: str,
     outcome: chat_orchestrator.ChatHumanSuspension,
-    requirements: tuple[power_challenges.HumanRequirement, ...],
+    requirements: tuple[action_challenges.HumanRequirement, ...],
     pending: hosted_assistants._PendingHostedChat,
 ) -> dict[str, object]:
     if len(requirements) != 1 or requirements[0].request != outcome.request:
@@ -544,9 +546,9 @@ def _pause_hosted_human(
         return _terminal_hosted_human_failure(team_id, token, pending, "secret-must-be-last")
     try:
         challenge = runtime_state._human_challenges.create(team_id, requirements[0], pending)
-    except power_challenges.HumanChallengeError as exc:
+    except action_challenges.HumanChallengeError as exc:
         _purge_hosted_human_pending(pending)
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Power human request is already pending") from exc
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Action human request is already pending") from exc
     _commit_hosted_suspension(
         team_id,
         token,
@@ -565,7 +567,7 @@ def _hosted_segment_response(
     assistant_ids: tuple[str, ...],
     file_ids: tuple[str, ...],
     owner: str,
-    transcripts: tuple[power_human.PowerTranscript, ...] = (),
+    transcripts: tuple[action_human.ActionTranscript, ...] = (),
 ) -> dict[str, object]:
     def pending(suspension: object) -> hosted_assistants._PendingHostedChat:
         if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):

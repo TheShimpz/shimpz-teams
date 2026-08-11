@@ -2,6 +2,9 @@
 
 from http import HTTPStatus
 
+from action import challenges as action_challenges
+from action import human as action_human
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from integrations import challenges as integration_challenges
@@ -9,9 +12,6 @@ from integrations import flow as integration_flow
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
-from power import challenges as power_challenges
-from power import human as power_human
-from power import journal as power_journal
 
 
 def _commit_suspension(
@@ -35,14 +35,14 @@ def _commit_suspension(
 
 def _human_response(
     self,
-    challenge: power_challenges.PendingHumanChallenge,
+    challenge: action_challenges.PendingHumanChallenge,
 ) -> dict[str, object]:
     try:
-        return power_challenges.challenge_payload(challenge)
-    except power_challenges.HumanChallengeError as exc:
+        return action_challenges.challenge_payload(challenge)
+    except action_challenges.HumanChallengeError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Power human request changed; retry the message",
+            "Action human request changed; retry the message",
             code="human-request-invalid",
         ) from exc
 
@@ -55,12 +55,12 @@ def _purge_human_generation(self, generation: object) -> None:
             code="team-context-changed",
         )
     try:
-        self.power_state.purge(generation)
-    except power_journal.PowerJournalError as exc:
+        self.action_state.purge(generation)
+    except action_journal.ActionJournalError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Power execution state is unavailable",
-            code="power-state-unavailable",
+            "Team Action execution state is unavailable",
+            code="action-state-unavailable",
         ) from exc
 
 
@@ -93,21 +93,21 @@ def _pause_human(
     team_id: str,
     token: str,
     outcome: chat_orchestrator.ChatHumanSuspension,
-    requirements: tuple[power_challenges.HumanRequirement, ...],
+    requirements: tuple[action_challenges.HumanRequirement, ...],
     payload: _PendingLocalChat,
 ) -> dict[str, object]:
     if len(requirements) != 1 or requirements[0].request != outcome.request:
         return self._terminal_human_failure(team_id, token, payload, "request-invalid")
     if any(response.secret for transcript in payload.transcripts for response in transcript.responses):
         return self._terminal_human_failure(team_id, token, payload, "secret-must-be-last")
-    if outcome.request.kind in power_human.AUTH_KINDS - {"auth:reauth"}:
+    if outcome.request.kind in action_human.AUTH_KINDS - {"auth:reauth"}:
         return self._terminal_human_failure(team_id, token, payload, "authentication-unavailable")
     try:
         challenge = self.human_challenges.create(team_id, requirements[0], payload)
-    except power_challenges.HumanChallengeError as exc:
+    except action_challenges.HumanChallengeError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Power human request is already pending",
+            "Action human request is already pending",
             code="human-request-conflict",
         ) from exc
     try:

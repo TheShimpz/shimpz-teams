@@ -1,4 +1,4 @@
-"""Hosted Owner responses to Team-owned Power human challenges."""
+"""Hosted Owner responses to Team-owned Action human challenges."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from http import HTTPStatus
 
+from action import challenges as action_challenges
+from action import human as action_human
 from hosted import state as runtime_state
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
-from power import challenges as power_challenges
-from power import human as power_human
 
 
 def _expire_challenges() -> None:
@@ -34,7 +34,7 @@ def pending_chat_human(team_id: str) -> dict[str, object]:
 
 def _resume_body(body: object) -> tuple[object, str, object | None]:
     if not isinstance(body, dict) or body.get("decision") not in {"submit", "deny"}:
-        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power human response is invalid")
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid")
     decision = body["decision"]
     expected = (
         {"challenge_id", "decision", "value"}
@@ -45,18 +45,18 @@ def _resume_body(body: object) -> tuple[object, str, object | None]:
         }
     )
     if set(body) != expected:
-        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power human response is invalid")
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid")
     return body["challenge_id"], decision, body.get("value")
 
 
-def _pending_challenge(team_id: str, challenge_id: object) -> power_challenges.PendingHumanChallenge:
+def _pending_challenge(team_id: str, challenge_id: object) -> action_challenges.PendingHumanChallenge:
     try:
         challenge = runtime_state._human_challenges.get(team_id, challenge_id)
-    except power_challenges.HumanChallengeNotFoundError as exc:
+    except action_challenges.HumanChallengeNotFoundError as exc:
         _expire_challenges()
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
-            "Power human request expired; retry the message",
+            "Action human request expired; retry the message",
         ) from exc
     if not isinstance(challenge.payload, hosted_assistants._PendingHostedChat):
         raise AssertionError("invalid hosted human continuation")
@@ -65,7 +65,7 @@ def _pending_challenge(team_id: str, challenge_id: object) -> power_challenges.P
 
 def _validate_pending_context(
     team_id: str,
-    challenge: power_challenges.PendingHumanChallenge,
+    challenge: action_challenges.PendingHumanChallenge,
     container: object,
     owner: str,
 ) -> hosted_assistants._PendingHostedChat:
@@ -88,20 +88,20 @@ def _validate_pending_context(
 
 def _admit_response(
     team_id: str,
-    challenge: power_challenges.PendingHumanChallenge,
+    challenge: action_challenges.PendingHumanChallenge,
     pending: hosted_assistants._PendingHostedChat,
     decision: str,
     value: object | None,
     assurance: dict[str, str] | None,
-) -> tuple[power_human.PowerTranscript, ...] | None:
+) -> tuple[action_human.ActionTranscript, ...] | None:
     if decision == "deny":
         if assurance is not None:
-            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Power human response is invalid")
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid")
         runtime_state._human_challenges.claim(team_id, challenge.id)
         return None
     request = challenge.requirement.request
     response = value
-    if request.kind in power_human.AUTH_KINDS:
+    if request.kind in action_human.AUTH_KINDS:
         expected = {"kind": request.kind, "challenge_id": challenge.id}
         if assurance != expected:
             return None
@@ -109,16 +109,16 @@ def _admit_response(
     elif assurance is not None:
         return None
     try:
-        transcripts = power_human.append_response(
+        transcripts = action_human.append_response(
             pending.transcripts,
             challenge.requirement.interrupt_id,
             request,
             response,
         )
-    except power_human.HumanRequestError as exc:
+    except action_human.HumanRequestError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Power human response does not match its request",
+            "Action human response does not match its request",
         ) from exc
     runtime_state._human_challenges.claim(team_id, challenge.id)
     return transcripts
@@ -131,7 +131,7 @@ def resume_chat_human(
     lease: hosted_resources._AuthorizationLease,
     exclusive_turn: Callable[[str, hosted_resources._AuthorizationLease], AbstractContextManager],
 ) -> dict[str, object]:
-    """Consume one exact Owner decision and deterministically replay its Power."""
+    """Consume one exact Owner decision and deterministically replay its Action."""
     challenge_id, decision, value = _resume_body(body)
     with exclusive_turn(team_id, lease) as (token, container):
         challenge = _pending_challenge(team_id, challenge_id)

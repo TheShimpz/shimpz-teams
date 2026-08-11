@@ -13,15 +13,15 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 
-from power import journal as power_journal
+from action import journal as action_journal
 
 
-def operation(interrupt_id: str, value: str) -> power_journal.Operation:
-    return power_journal.Operation(interrupt_id, hashlib.sha256(value.encode()).hexdigest())
+def operation(interrupt_id: str, value: str) -> action_journal.Operation:
+    return action_journal.Operation(interrupt_id, hashlib.sha256(value.encode()).hexdigest())
 
 
 def _crash_after_acknowledged_transition(path: str, phase: str) -> None:
-    journal = power_journal.PowerJournal(Path(path))
+    journal = action_journal.ActionJournal(Path(path))
     selected = operation("interrupt-1", "validated-input-1")
     batch = journal.prepare_batch("generation-1", "thread-1", [selected])
     if phase in {"executing", "completed", "delivered"}:
@@ -52,7 +52,7 @@ class _ConnectionProxy:
         return getattr(self.connection, name)
 
 
-class PowerJournalTests(unittest.TestCase):
+class ActionJournalTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -60,14 +60,14 @@ class PowerJournalTests(unittest.TestCase):
         self.first = operation("interrupt-1", "validated-input-1")
         self.second = operation("interrupt-2", "validated-input-2")
 
-    def journal(self, **limits: int) -> power_journal.PowerJournal:
-        journal = power_journal.PowerJournal(self.path, **limits)
+    def journal(self, **limits: int) -> action_journal.ActionJournal:
+        journal = action_journal.ActionJournal(self.path, **limits)
         self.addCleanup(journal.close)
         return journal
 
     def assert_sql_failure(
         self,
-        journal: power_journal.PowerJournal,
+        journal: action_journal.ActionJournal,
         match: str,
         operation: Callable[[], object],
         message: str,
@@ -76,7 +76,7 @@ class PowerJournalTests(unittest.TestCase):
         proxy = _ConnectionProxy(connection, match)
         journal._connection = proxy
         try:
-            with self.assertRaisesRegex(power_journal.PowerJournalError, message):
+            with self.assertRaisesRegex(action_journal.ActionJournalError, message):
                 operation()
             self.assertTrue(proxy.used)
         finally:
@@ -86,14 +86,14 @@ class PowerJournalTests(unittest.TestCase):
 
     def assert_change_conflict(
         self,
-        journal: power_journal.PowerJournal,
+        journal: action_journal.ActionJournal,
         operation: Callable[[], object],
     ) -> None:
         connection = journal._connection
         proxy = _ConnectionProxy(connection, "SELECT changes()", result=(0,))
         journal._connection = proxy
         try:
-            with self.assertRaises(power_journal.PowerJournalConflictError):
+            with self.assertRaises(action_journal.ActionJournalConflictError):
                 operation()
             self.assertTrue(proxy.used)
         finally:
@@ -104,7 +104,7 @@ class PowerJournalTests(unittest.TestCase):
     def test_reopen_returns_canonical_cached_result_without_reexecution(self) -> None:
         journal = self.journal()
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
-        self.assertEqual(journal.begin(batch, self.first), power_journal.Execution(True, None))
+        self.assertEqual(journal.begin(batch, self.first), action_journal.Execution(True, None))
         journal.complete(batch, self.first, {"z": [2, 1], "a": "ok"})
         journal.close()
 
@@ -114,7 +114,7 @@ class PowerJournalTests(unittest.TestCase):
         self.assertEqual(same, batch)
         self.assertEqual(
             reopened.begin(same, self.first),
-            power_journal.Execution(False, {"a": "ok", "z": [2, 1]}),
+            action_journal.Execution(False, {"a": "ok", "z": [2, 1]}),
         )
         self.assertEqual(stat.S_IMODE(self.path.parent.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
@@ -127,7 +127,7 @@ class PowerJournalTests(unittest.TestCase):
 
         reopened = self.journal()
         same = reopened.prepare_batch("generation-1", "thread-1", [self.first])
-        with self.assertRaises(power_journal.PowerJournalUncertainError):
+        with self.assertRaises(action_journal.ActionJournalUncertainError):
             reopened.begin(same, self.first)
 
     def test_proven_suspension_returns_only_the_executing_operation_to_prepared(self) -> None:
@@ -141,7 +141,7 @@ class PowerJournalTests(unittest.TestCase):
 
         self.assertEqual(journal.begin(batch, self.first).result, {"answer": 1})
         self.assertTrue(journal.begin(batch, self.second).execute)
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.suspend(batch, self.first)
 
     def test_process_crash_loses_no_acknowledged_transition(self) -> None:
@@ -163,7 +163,7 @@ class PowerJournalTests(unittest.TestCase):
                 process.join(timeout=10)
                 self.assertEqual(process.exitcode, 0)
 
-                reopened = power_journal.PowerJournal(path)
+                reopened = action_journal.ActionJournal(path)
                 self.addCleanup(reopened.close)
                 row = reopened._connection.execute(
                     "SELECT state, result FROM operations WHERE generation = 'generation-1'"
@@ -177,10 +177,10 @@ class PowerJournalTests(unittest.TestCase):
         self.assertEqual(journal._connection.execute("PRAGMA synchronous").fetchone(), (1,))
         self.assertEqual(
             journal._connection.execute("PRAGMA wal_autocheckpoint").fetchone(),
-            (power_journal.WAL_AUTOCHECKPOINT_PAGES,),
+            (action_journal.WAL_AUTOCHECKPOINT_PAGES,),
         )
 
-    def test_power_loss_model_bounds_acknowledged_state_loss(self) -> None:
+    def test_action_loss_model_bounds_acknowledged_state_loss(self) -> None:
         journal = self.journal()
         operations = tuple(operation(f"interrupt-{index}", f"validated-input-{index}") for index in range(16))
         batch = journal.prepare_batch("generation-1", "thread-1", operations)
@@ -203,13 +203,13 @@ class PowerJournalTests(unittest.TestCase):
         page_size = journal._connection.execute("PRAGMA page_size").fetchone()[0]
         wal_size = self.path.with_name(f"{self.path.name}-wal").stat().st_size
         frames = (wal_size - 32) // (page_size + 24)
-        self.assertEqual(transitions, power_journal.MAX_ACKNOWLEDGED_TRANSITIONS_AT_RISK)
+        self.assertEqual(transitions, action_journal.MAX_ACKNOWLEDGED_TRANSITIONS_AT_RISK)
         self.assertEqual(frames, transitions)
 
         simulated_loss = Path(self.temporary.name) / "loss" / "journal.sqlite3"
         simulated_loss.parent.mkdir(mode=0o700)
         shutil.copy2(stable_checkpoint, simulated_loss)
-        recovered_before_checkpoint = power_journal.PowerJournal(simulated_loss)
+        recovered_before_checkpoint = action_journal.ActionJournal(simulated_loss)
         self.addCleanup(recovered_before_checkpoint.close)
         states = recovered_before_checkpoint._connection.execute(
             "SELECT state FROM operations ORDER BY ordinal"
@@ -220,7 +220,7 @@ class PowerJournalTests(unittest.TestCase):
         after_checkpoint = Path(self.temporary.name) / "checkpointed" / "journal.sqlite3"
         after_checkpoint.parent.mkdir(mode=0o700)
         shutil.copy2(self.path, after_checkpoint)
-        recovered_after_checkpoint = power_journal.PowerJournal(after_checkpoint)
+        recovered_after_checkpoint = action_journal.ActionJournal(after_checkpoint)
         self.addCleanup(recovered_after_checkpoint.close)
         states = recovered_after_checkpoint._connection.execute(
             "SELECT state FROM operations ORDER BY ordinal"
@@ -231,15 +231,15 @@ class PowerJournalTests(unittest.TestCase):
         journal = self.journal()
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
 
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.prepare_batch("generation-1", "thread-1", [self.second])
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.prepare_batch("generation-1", "other-thread", [self.first])
 
         journal.begin(batch, self.first)
         journal.complete(batch, self.first, {"answer": 1})
         journal.complete(batch, self.first, {"answer": 1})
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.complete(batch, self.first, {"answer": 2})
 
     def test_batch_identity_is_scanned_once_before_point_transitions(self) -> None:
@@ -270,7 +270,7 @@ class PowerJournalTests(unittest.TestCase):
             ("f" * 64, batch.generation),
         )
 
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.complete(batch, self.first, {"answer": 1})
 
     def test_delivery_requires_all_results_then_allows_the_next_batch(self) -> None:
@@ -278,7 +278,7 @@ class PowerJournalTests(unittest.TestCase):
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
         journal.begin(batch, self.first)
         journal.complete(batch, self.first, {"first": True})
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.delivered(batch)
 
         journal.begin(batch, self.second)
@@ -288,9 +288,9 @@ class PowerJournalTests(unittest.TestCase):
 
         next_batch = journal.prepare_batch("generation-1", "thread-1", [operation("interrupt-3", "input-3")])
         self.assertNotEqual(next_batch.fingerprint, batch.fingerprint)
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.delivered(batch)
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.begin(batch, self.first)
 
         next_operation = next_batch.operations[0]
@@ -342,25 +342,25 @@ class PowerJournalTests(unittest.TestCase):
         connection.close()
 
         reopened = self.journal()
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
             reopened.begin(batch, self.first)
         reopened.close()
 
         self.path.write_bytes(b"not-a-sqlite-database")
         self.path.chmod(0o600)
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
-            power_journal.PowerJournal(self.path)
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
+            action_journal.ActionJournal(self.path)
 
     def test_capacity_and_json_limits_are_enforced_without_raw_inputs(self) -> None:
         journal = self.journal(max_generations=1, max_operations=1, max_result_bytes=16)
         batch = journal.prepare_batch("generation-1", "thread-secret", [self.first])
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.prepare_batch("generation-2", "thread-2", [self.second])
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.prepare_batch("generation-1", "thread-secret", [self.first, self.second])
 
         journal.begin(batch, self.first)
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.complete(batch, self.first, {"secret": "raw-input-must-not-fit"})
 
         raw = self.path.read_bytes()
@@ -377,7 +377,7 @@ class PowerJournalTests(unittest.TestCase):
         replacement = journal.prepare_batch("generation-2", "thread-2", [self.second])
 
         self.assertTrue(journal.begin(replacement, self.second).execute)
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.begin(batch, self.first)
 
     def test_terminal_abandonment_removes_only_the_exact_uncertain_batch(self) -> None:
@@ -388,7 +388,7 @@ class PowerJournalTests(unittest.TestCase):
         self.assertTrue(journal.abandon_uncertain(uncertain))
         self.assertFalse(journal.abandon_uncertain(uncertain))
         replacement = journal.prepare_batch("generation-1", "thread-2", [self.second])
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.abandon_uncertain(uncertain)
 
         self.assertTrue(journal.begin(replacement, self.second).execute)
@@ -409,7 +409,7 @@ class PowerJournalTests(unittest.TestCase):
         journal = self.journal()
         prepared = journal.prepare_batch("generation-0", "thread-0", [self.first])
         self.assertTrue(journal.purge_replayable("generation-0"))
-        with self.assertRaises(power_journal.PowerJournalConflictError):
+        with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.begin(prepared, self.first)
 
         paused = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
@@ -424,7 +424,7 @@ class PowerJournalTests(unittest.TestCase):
         uncertain = journal.prepare_batch("generation-2", "thread-2", [self.second])
         journal.begin(uncertain, self.second)
         self.assertFalse(journal.purge_replayable("generation-2"))
-        with self.assertRaises(power_journal.PowerJournalUncertainError):
+        with self.assertRaises(action_journal.ActionJournalUncertainError):
             journal.begin(uncertain, self.second)
 
         completed = journal.prepare_batch("generation-3", "thread-3", [self.first])
@@ -439,26 +439,26 @@ class PowerJournalTests(unittest.TestCase):
         self.path.parent.mkdir(mode=0o700)
         self.path.write_bytes(b"")
         self.path.chmod(0o644)
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
-            power_journal.PowerJournal(self.path)
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
+            action_journal.ActionJournal(self.path)
 
         self.path.unlink()
         victim = Path(self.temporary.name) / "victim"
         victim.write_bytes(b"unchanged")
         self.path.symlink_to(victim)
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
-            power_journal.PowerJournal(self.path)
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
+            action_journal.ActionJournal(self.path)
         self.assertEqual(victim.read_bytes(), b"unchanged")
 
     def test_new_database_file_and_parent_entry_are_fsynced(self) -> None:
         synced_modes: list[int] = []
-        real_fsync = power_journal.os.fsync
+        real_fsync = action_journal.os.fsync
 
         def observe(descriptor: int) -> None:
-            synced_modes.append(power_journal.os.fstat(descriptor).st_mode)
+            synced_modes.append(action_journal.os.fstat(descriptor).st_mode)
             real_fsync(descriptor)
 
-        with mock.patch.object(power_journal.os, "fsync", side_effect=observe):
+        with mock.patch.object(action_journal.os, "fsync", side_effect=observe):
             journal = self.journal()
 
         self.assertIsNotNone(journal)
@@ -472,93 +472,93 @@ class PowerJournalTests(unittest.TestCase):
         linked = self.path.parent / "journal-copy.sqlite3"
         linked.hardlink_to(self.path)
 
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
-            power_journal.PowerJournal(self.path)
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
+            action_journal.ActionJournal(self.path)
 
     def test_foreign_parent_or_database_owner_fails_closed(self) -> None:
         journal = self.journal()
         journal.close()
 
-        effective_uid = power_journal.os.geteuid()
+        effective_uid = action_journal.os.geteuid()
         with (
-            mock.patch.object(power_journal.os, "geteuid", return_value=effective_uid + 1),
-            self.assertRaises(power_journal.PowerJournalCorruptionError),
+            mock.patch.object(action_journal.os, "geteuid", return_value=effective_uid + 1),
+            self.assertRaises(action_journal.ActionJournalCorruptionError),
         ):
-            power_journal.PowerJournal(self.path)
+            action_journal.ActionJournal(self.path)
 
     def test_scalar_operation_and_json_guards_reject_invalid_values(self) -> None:
         for value in (0, True, "1"):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                power_journal._positive_limit(value, "limit")
-        with self.assertRaises(power_journal.PowerJournalConflictError):
-            power_journal._safe_id("../unsafe", "identifier")
-        with self.assertRaises(power_journal.PowerJournalConflictError):
-            power_journal._operation(object())
-        with self.assertRaises(power_journal.PowerJournalConflictError):
-            power_journal._operation(power_journal.Operation("interrupt", "invalid"))
+                action_journal._positive_limit(value, "limit")
+        with self.assertRaises(action_journal.ActionJournalConflictError):
+            action_journal._safe_id("../unsafe", "identifier")
+        with self.assertRaises(action_journal.ActionJournalConflictError):
+            action_journal._operation(object())
+        with self.assertRaises(action_journal.ActionJournalConflictError):
+            action_journal._operation(action_journal.Operation("interrupt", "invalid"))
 
         for value in (
             math.inf,
             {1: "invalid"},
             object(),
         ):
-            with self.subTest(value=value), self.assertRaises(power_journal.PowerJournalConflictError):
-                power_journal._walk_json(value)
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "structure"):
-            power_journal._walk_json(None, budget=[0])
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "canonical"):
-            power_journal._canonical_result("\ud800", 100)
-        power_journal._walk_json(1.5)
+            with self.subTest(value=value), self.assertRaises(action_journal.ActionJournalConflictError):
+                action_journal._walk_json(value)
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "structure"):
+            action_journal._walk_json(None, budget=[0])
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "canonical"):
+            action_journal._canonical_result("\ud800", 100)
+        action_journal._walk_json(1.5)
 
     def test_file_configuration_schema_and_transaction_failures_are_closed(self) -> None:
         with (
             mock.patch.object(Path, "mkdir", side_effect=OSError("offline")),
-            self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "unavailable"),
+            self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "unavailable"),
         ):
-            power_journal.PowerJournal(self.path)
+            action_journal.ActionJournal(self.path)
 
-        journal = object.__new__(power_journal.PowerJournal)
+        journal = object.__new__(action_journal.ActionJournal)
         connection = mock.Mock()
         journal._connection = connection
         connection.execute.return_value.fetchone.return_value = ("delete",)
-        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable mode"):
+        with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "durable mode"):
             journal._configure()
 
         connection.reset_mock()
         results = [("wal",), (0,), (1,)]
         connection.execute.side_effect = lambda _statement: mock.Mock(fetchone=lambda: results.pop(0))
-        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durability policy"):
+        with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "durability policy"):
             journal._configure()
 
         connection.execute.side_effect = sqlite3.Error("offline")
-        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "integrity"):
+        with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "integrity"):
             journal._validate_schema()
-        with self.assertRaisesRegex(power_journal.PowerJournalError, "transaction"):
+        with self.assertRaisesRegex(action_journal.ActionJournalError, "transaction"):
             journal._transaction()
-        with self.assertRaisesRegex(power_journal.PowerJournalError, "commit"):
+        with self.assertRaisesRegex(action_journal.ActionJournalError, "commit"):
             journal._commit()
 
         journal._closed = True
-        with self.assertRaisesRegex(power_journal.PowerJournalError, "closed"):
+        with self.assertRaisesRegex(action_journal.ActionJournalError, "closed"):
             journal._ensure_open()
 
     def test_batch_and_handle_shapes_are_exact(self) -> None:
         journal = self.journal(max_operations=2)
         for operations in ("invalid", object(), (), (self.first, self.second, operation("third", "three"))):
-            with self.subTest(operations=operations), self.assertRaises(power_journal.PowerJournalConflictError):
+            with self.subTest(operations=operations), self.assertRaises(action_journal.ActionJournalConflictError):
                 journal._batch("generation", "thread", operations)
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "repeats"):
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "repeats"):
             journal._batch("generation", "thread", (self.first, self.first))
 
         valid = journal._batch("generation", "thread", (self.first,))
         invalid_handles = (
             object(),
-            power_journal.Batch(valid.generation, "invalid", valid.operations),
-            power_journal.Batch(valid.generation, valid.fingerprint, ()),
-            power_journal.Batch(valid.generation, valid.fingerprint, (self.first, self.first)),
+            action_journal.Batch(valid.generation, "invalid", valid.operations),
+            action_journal.Batch(valid.generation, valid.fingerprint, ()),
+            action_journal.Batch(valid.generation, valid.fingerprint, (self.first, self.first)),
         )
         for handle in invalid_handles:
-            with self.subTest(handle=handle), self.assertRaises(power_journal.PowerJournalConflictError):
+            with self.subTest(handle=handle), self.assertRaises(action_journal.ActionJournalConflictError):
                 journal._validate_handle(handle)
 
     def test_internal_read_failures_are_never_mistaken_for_conflicts(self) -> None:
@@ -568,12 +568,12 @@ class PowerJournalTests(unittest.TestCase):
         journal._connection = mock.Mock()
         journal._connection.execute.side_effect = sqlite3.Error("offline")
         try:
-            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "batch could not be read"):
+            with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "batch could not be read"):
                 journal._load_batch(batch)
             journal._validated_batches[(batch.generation, batch.fingerprint)] = {
                 self.first.interrupt_id: (0, self.first.fingerprint)
             }
-            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "operation could not be read"):
+            with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "operation could not be read"):
                 journal._load_operation(batch, self.first)
         finally:
             journal._connection = connection
@@ -581,33 +581,33 @@ class PowerJournalTests(unittest.TestCase):
     def test_constructor_schema_and_context_manager_edges_are_closed(self) -> None:
         with (
             mock.patch.object(
-                power_journal.sqlite3,
+                action_journal.sqlite3,
                 "connect",
-                side_effect=power_journal.PowerJournalCorruptionError("invalid"),
+                side_effect=action_journal.ActionJournalCorruptionError("invalid"),
             ),
-            self.assertRaises(power_journal.PowerJournalCorruptionError),
+            self.assertRaises(action_journal.ActionJournalCorruptionError),
         ):
-            power_journal.PowerJournal(self.path)
+            action_journal.ActionJournal(self.path)
         with (
             mock.patch.object(
-                power_journal.PowerJournal,
+                action_journal.ActionJournal,
                 "_configure",
-                side_effect=power_journal.PowerJournalCorruptionError("invalid"),
+                side_effect=action_journal.ActionJournalCorruptionError("invalid"),
             ),
-            self.assertRaises(power_journal.PowerJournalCorruptionError),
+            self.assertRaises(action_journal.ActionJournalCorruptionError),
         ):
-            power_journal.PowerJournal(self.path)
+            action_journal.ActionJournal(self.path)
 
         journal = self.journal()
         journal._connection.execute("PRAGMA user_version = 2")
         journal.close()
-        with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "schema"):
-            power_journal.PowerJournal(self.path)
+        with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "schema"):
+            action_journal.ActionJournal(self.path)
 
         replacement = Path(self.temporary.name) / "context" / "journal.sqlite3"
-        with power_journal.PowerJournal(replacement) as opened:
-            self.assertIsInstance(opened, power_journal.PowerJournal)
-        with self.assertRaisesRegex(power_journal.PowerJournalError, "closed"):
+        with action_journal.ActionJournal(replacement) as opened:
+            self.assertIsInstance(opened, action_journal.ActionJournal)
+        with self.assertRaisesRegex(action_journal.ActionJournalError, "closed"):
             opened.__enter__()
         opened.__exit__()
 
@@ -620,10 +620,10 @@ class PowerJournalTests(unittest.TestCase):
             (journal.complete, (batch, outsider, {"ok": True})),
             (journal.suspend, (batch, outsider)),
         ):
-            with self.subTest(method=method.__name__), self.assertRaises(power_journal.PowerJournalConflictError):
+            with self.subTest(method=method.__name__), self.assertRaises(action_journal.ActionJournalConflictError):
                 method(*arguments)
 
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "not executing"):
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not executing"):
             journal.complete(batch, self.first, {"ok": True})
         journal.begin(batch, self.first)
         with (
@@ -632,7 +632,7 @@ class PowerJournalTests(unittest.TestCase):
                 "_load_operation",
                 return_value=(0, self.first.interrupt_id, self.first.fingerprint, "prepared", b"result"),
             ),
-            self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "durable state"),
+            self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "durable state"),
         ):
             journal.begin(batch, self.first)
 
@@ -640,14 +640,14 @@ class PowerJournalTests(unittest.TestCase):
         journal = self.journal()
         batch = journal._batch("generation", "thread", (self.first,))
         for raw in ("invalid", b"x" * (journal.max_result_bytes + 1)):
-            with self.subTest(raw=type(raw)), self.assertRaises(power_journal.PowerJournalCorruptionError):
+            with self.subTest(raw=type(raw)), self.assertRaises(action_journal.ActionJournalCorruptionError):
                 journal._decode_result(raw)
-            with self.subTest(raw=type(raw)), self.assertRaises(power_journal.PowerJournalCorruptionError):
+            with self.subTest(raw=type(raw)), self.assertRaises(action_journal.ActionJournalCorruptionError):
                 journal._validated_result(batch, self.first.interrupt_id, raw)
 
         invalid = b"not-json"
         journal._validated_results[(batch.generation, self.first.interrupt_id)] = hashlib.sha256(invalid).digest()
-        with self.assertRaises(power_journal.PowerJournalCorruptionError):
+        with self.assertRaises(action_journal.ActionJournalCorruptionError):
             journal._validated_result(batch, self.first.interrupt_id, invalid)
 
     def test_sqlite_write_failures_are_translated_for_every_transition(self) -> None:
@@ -700,7 +700,7 @@ class PowerJournalTests(unittest.TestCase):
         proxy.result = (None,)
         journal._connection = proxy
         try:
-            with self.assertRaisesRegex(power_journal.PowerJournalCorruptionError, "capacity"):
+            with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "capacity"):
                 journal.prepare_batch("generation", "thread", (self.first,))
         finally:
             journal._connection = connection
@@ -735,19 +735,19 @@ class PowerJournalTests(unittest.TestCase):
 
         real_lstat = Path.lstat
 
-        def foreign_database(path: Path) -> power_journal.os.stat_result:
+        def foreign_database(path: Path) -> action_journal.os.stat_result:
             metadata = real_lstat(path)
             if path == self.path:
                 fields = list(metadata)
                 fields[4] = metadata.st_uid + 1
-                return power_journal.os.stat_result(fields)
+                return action_journal.os.stat_result(fields)
             return metadata
 
         with (
             mock.patch.object(Path, "lstat", autospec=True, side_effect=foreign_database),
-            self.assertRaises(power_journal.PowerJournalCorruptionError),
+            self.assertRaises(action_journal.ActionJournalCorruptionError),
         ):
-            power_journal.PowerJournal(self.path)
+            action_journal.ActionJournal(self.path)
 
 
 if __name__ == "__main__":

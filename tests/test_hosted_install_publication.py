@@ -36,7 +36,7 @@ class HostedInstallPublicationTests(unittest.TestCase):
             mock.patch.object(
                 assistant_manifest,
                 "canonical_machine_contract",
-                return_value={"powers": []},
+                return_value={"actions": []},
             ),
             self.assertRaises(bindings.DynamicAssistantError),
         ):

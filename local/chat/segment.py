@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass, field
 
+from action import challenges as action_challenges
+from action import execution as action_execution
+from action import human as action_human
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -9,10 +13,6 @@ from inference import client as brain_runtime_client
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.validation import brain_thread_id as _brain_thread_id
-from power import challenges as power_challenges
-from power import execution as power_execution
-from power import human as power_human
-from power import journal as power_journal
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class SegmentRequest:
     message: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
-    transcripts: tuple[power_human.PowerTranscript, ...] = ()
+    transcripts: tuple[action_human.ActionTranscript, ...] = ()
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 
@@ -47,33 +47,34 @@ def _run_chat_segment_with_metadata(
     identity: tuple[object, ...] = ()
     network_id = ""
 
-    def execute_power(power_request: brain_runtime_client.PowerRequest, _integration_values: object) -> object:
-        active = _required_active_assistant(bindings, power_request.assistant_id)
-        transcript = power_human.transcript_for(request.transcripts, power_request.interrupt_id)
-        return self._invoke_chat_power(
+    def execute_action(action_request: brain_runtime_client.ActionRequest, _integration_values: object) -> object:
+        active = _required_active_assistant(bindings, action_request.assistant_id)
+        transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
+        return self._invoke_chat_action(
             request.team_id,
             request.token,
-            power_request,
+            action_request,
             active.container_id,
             transcript.payloads(),
             transcript.protected_values(),
         )
 
     def human_requirement(
-        power_request: brain_runtime_client.PowerRequest,
-        human_request: power_human.HumanRequest,
-    ) -> power_challenges.HumanRequirement:
-        active = _required_active_assistant(bindings, power_request.assistant_id)
-        power = active.spec.powers.get(power_request.power)
-        if power is None:
-            raise chat_orchestrator.ChatOrchestrationError("Power human request contract changed")
-        return power_challenges.HumanRequirement(
+        action_request: brain_runtime_client.ActionRequest,
+        human_request: action_human.HumanRequest,
+    ) -> action_challenges.HumanRequirement:
+        active = _required_active_assistant(bindings, action_request.assistant_id)
+        action = active.spec.actions.get(action_request.action)
+        if action is None:
+            raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+        return action_challenges.HumanRequirement(
             active.spec.assistant_id,
             active.spec.name,
-            power_request.power,
-            power.summary,
-            power_request.interrupt_id,
+            action_request.action,
+            action.summary,
+            action_request.interrupt_id,
             human_request,
+            active.spec.version,
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -88,8 +89,8 @@ def _run_chat_segment_with_metadata(
         identity = self._chat_identity(team_name, network_id, assistants, files, config)
         if request.continuation is None:
             try:
-                self.power_state.purge_replayable(network_id)
-            except power_journal.PowerJournalError as exc:
+                self.action_state.purge_replayable(network_id)
+            except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
         context = brain_runtime_client.RuntimeContext(
@@ -99,13 +100,13 @@ def _run_chat_segment_with_metadata(
                 brain_runtime_client.RuntimeAssistant(
                     id=active.spec.assistant_id,
                     genesis=genesis_by_id[active.spec.assistant_id],
-                    powers=tuple(
-                        brain_runtime_client.RuntimePower(
-                            id=power_id,
-                            summary=power.summary,
-                            input_schema=power.input_schema,
+                    actions=tuple(
+                        brain_runtime_client.RuntimeAction(
+                            id=action_id,
+                            summary=action.summary,
+                            input_schema=action.input_schema,
                         )
-                        for power_id, power in sorted(active.spec.powers.items())
+                        for action_id, action in sorted(active.spec.actions.items())
                     ),
                 )
                 for active in assistants
@@ -115,23 +116,23 @@ def _run_chat_segment_with_metadata(
             api_key=request.api_key,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
-        batch = power_execution.PowerBatch(
-            self.power_state,
+        batch = action_execution.ActionBatch(
+            self.action_state,
             network_id,
             context.thread_id,
             bindings,
-            power_execution.PowerBatchStrategy(
+            action_execution.ActionBatchStrategy(
                 lambda active: (active.container_id, active.spec.image),
-                execute_power,
-                lambda power_request: self._require_power_rpc_envelope(
+                execute_action,
+                lambda action_request: self._require_action_rpc_envelope(
                     request.team_id,
                     bindings,
-                    power_request,
+                    action_request,
                 ),
-                lambda power_request: self._power_integration_generations(
+                lambda action_request: self._action_integration_generations(
                     request.team_id,
-                    _required_active_assistant(bindings, power_request.assistant_id),
-                    power_request.power,
+                    _required_active_assistant(bindings, action_request.assistant_id),
+                    action_request.action,
                 ),
             ),
         )
@@ -157,10 +158,10 @@ def _run_chat_segment_with_metadata(
         chat_turn_engine.SegmentStrategy(
             runtime=self.brain_runtime,
             prepare=prepare,
-            validate_power=lambda assistant_id, power, payload: self._validate_chat_power(
+            validate_action=lambda assistant_id, action, payload: self._validate_chat_action(
                 bindings,
                 assistant_id,
-                power,
+                action,
                 payload,
             ),
             pause_for_private_inputs=private_inputs,

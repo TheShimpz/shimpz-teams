@@ -10,7 +10,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from power import execution as power_execution
+from action import execution as action_execution
 
 SECRET = "private-test-credential-123456789"
 
@@ -19,8 +19,8 @@ class SecretScanTests(unittest.TestCase):
     @staticmethod
     def _decisions(value: object, secrets: dict[str, str]) -> tuple[bool, bool]:
         return (
-            power_execution.contains_secret(value, secrets),
-            power_execution.contains_secret(value, secrets),
+            action_execution.contains_secret(value, secrets),
+            action_execution.contains_secret(value, secrets),
         )
 
     def test_literal_secret_in_nested_result_or_key_is_caught(self) -> None:

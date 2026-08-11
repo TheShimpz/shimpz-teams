@@ -16,9 +16,9 @@ RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_REPLY_CHARS = 60_000
-MAX_POWER_REQUESTS = 64
+MAX_ACTION_REQUESTS = 64
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
-POWER_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
+ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -27,7 +27,7 @@ class BrainRuntimeError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimePower:
+class RuntimeAction:
     id: str
     summary: str
     input_schema: Mapping[str, Any]
@@ -37,7 +37,7 @@ class RuntimePower:
 class RuntimeAssistant:
     id: str
     genesis: str
-    powers: tuple[RuntimePower, ...]
+    actions: tuple[RuntimeAction, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,18 +51,18 @@ class RuntimeContext:
 
 
 @dataclass(frozen=True, slots=True)
-class PowerRequest:
+class ActionRequest:
     interrupt_id: str
     assistant_id: str
-    power: str
+    action: str
     input: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
 class RuntimeTurn:
-    status: Literal["completed", "power-required"]
+    status: Literal["completed", "action-required"]
     reply: str
-    powers: tuple[PowerRequest, ...]
+    actions: tuple[ActionRequest, ...]
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -114,13 +114,13 @@ class BrainRuntimeClient:
                 {
                     "id": assistant.id,
                     "genesis": assistant.genesis,
-                    "powers": [
+                    "actions": [
                         {
-                            "id": power.id,
-                            "summary": power.summary,
-                            "input_schema": dict(power.input_schema),
+                            "id": action.id,
+                            "summary": action.summary,
+                            "input_schema": dict(action.input_schema),
                         }
-                        for power in assistant.powers
+                        for action in assistant.actions
                     ],
                 }
                 for assistant in context.assistants
@@ -163,59 +163,59 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
-        if not isinstance(value, dict) or set(value) != {"status", "reply", "powers"}:
+        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         status = value["status"]
         reply = value["reply"]
-        raw_powers = value["powers"]
+        raw_actions = value["actions"]
         if (
-            status not in {"completed", "power-required"}
+            status not in {"completed", "action-required"}
             or not isinstance(reply, str)
-            or not isinstance(raw_powers, list)
+            or not isinstance(raw_actions, list)
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         if (
             len(reply) > MAX_REPLY_CHARS
             or REPLY_CONTROL_RE.search(reply) is not None
-            or len(raw_powers) > MAX_POWER_REQUESTS
+            or len(raw_actions) > MAX_ACTION_REQUESTS
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        powers: list[PowerRequest] = []
-        for raw in raw_powers:
+        actions: list[ActionRequest] = []
+        for raw in raw_actions:
             if not isinstance(raw, dict) or set(raw) != {
                 "interrupt_id",
                 "assistant_id",
-                "power",
+                "action",
                 "input",
             }:
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
             interrupt_id = raw["interrupt_id"]
             assistant_id = raw["assistant_id"]
-            power = raw["power"]
-            power_input = raw["input"]
+            action = raw["action"]
+            action_input = raw["input"]
             if (
                 not isinstance(interrupt_id, str)
                 or SAFE_ID_RE.fullmatch(interrupt_id) is None
                 or not isinstance(assistant_id, str)
-                or POWER_ID_RE.fullmatch(assistant_id) is None
-                or not isinstance(power, str)
-                or POWER_ID_RE.fullmatch(power) is None
-                or not isinstance(power_input, dict)
+                or ACTION_ID_RE.fullmatch(assistant_id) is None
+                or not isinstance(action, str)
+                or ACTION_ID_RE.fullmatch(action) is None
+                or not isinstance(action_input, dict)
             ):
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
-            powers.append(
-                PowerRequest(
+            actions.append(
+                ActionRequest(
                     interrupt_id=interrupt_id,
                     assistant_id=assistant_id,
-                    power=power,
-                    input=power_input,
+                    action=action,
+                    input=action_input,
                 )
             )
-        if status == "completed" and (not reply.strip() or powers):
+        if status == "completed" and (not reply.strip() or actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        if status == "power-required" and (reply or not powers):
+        if status == "action-required" and (reply or not actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        return RuntimeTurn(status=status, reply=reply, powers=tuple(powers))
+        return RuntimeTurn(status=status, reply=reply, actions=tuple(actions))
 
     def start(self, context: RuntimeContext, message: str) -> RuntimeTurn:
         payload = self._context(context)

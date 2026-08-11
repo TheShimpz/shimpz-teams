@@ -54,15 +54,15 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             allowed_hosts=resolution["allowed_hosts"],
             integrations=integrations,
         )
-        powers = {
-            power["id"]: assistant_registry.PowerSpec(
-                summary=assistant_registry.power_summary(power["id"]),
-                input_schema=power["input_schema"],
-                output_schema=power["output_schema"],
-                integrations=tuple(power["integrations"]),
-                human_requests=tuple(power["human_requests"]),
+        actions = {
+            action["id"]: assistant_registry.ActionSpec(
+                summary=assistant_registry.action_summary(action["id"]),
+                input_schema=action["input_schema"],
+                output_schema=action["output_schema"],
+                integrations=tuple(action["integrations"]),
+                human_requests=tuple(action["human_requests"]),
             )
-            for power in machine_contract["powers"]
+            for action in machine_contract["actions"]
         }
         platforms = tuple(platform.removeprefix("linux/") for platform in resolution["platforms"])
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
@@ -76,7 +76,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             ("org.shimpz.source.digest", resolution["source_digest"]),
         ),
         contract=assistant_registry.AssistantContract(
-            powers=powers,
+            actions=actions,
             integrations=integrations,
             machine_contract=machine_contract,
         ),

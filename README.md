@@ -8,7 +8,7 @@ does not own Brain, Account, Assistant-release, or egress-proxy responsibilities
 
 ## Source organization
 
-- `assistant/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`, `power/`, and `storage/` are
+- `assistant/`, `chat/`, `egress/`, `inference/`, `install/`, `integrations/`, `action/`, and `storage/` are
   profile-neutral Team responsibilities.
 - `core/` contains only cohesive invariants shared by both profiles: strict JSON, HTTP parsing, container identity,
   isolation, and network policy.
@@ -31,7 +31,7 @@ adapter name but never as a child domain owned by Team.
 ## Deletion contract
 
 Team deletion is idempotent and fail-closed. A successful response includes `residue_absent`, naming every
-profile-owned state class proved absent. Hosted covers Brain and Power checkpoints, Assistant containers,
+profile-owned state class proved absent. Hosted covers Brain and Action checkpoints, Assistant containers,
 publication bindings, egress policies, Team files and inference state, integration credentials, networks, the Brain
 container, volumes, database, database role, and the temporary cleanup authority. Local covers the applicable
 subset and also names encrypted chat continuations. A Local Space reset applies the same contract to every owned

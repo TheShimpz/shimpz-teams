@@ -42,9 +42,9 @@ def context(secret: str) -> brain_runtime_client.RuntimeContext:
         assistants=(
             brain_runtime_client.RuntimeAssistant(
                 id="hello-pulse",
-                genesis="Combine the declared greeting Powers into one bounded welcome.",
-                powers=(
-                    brain_runtime_client.RuntimePower(
+                genesis="Combine the declared greeting Actions into one bounded welcome.",
+                actions=(
+                    brain_runtime_client.RuntimeAction(
                         id="hello",
                         summary="Return a greeting.",
                         input_schema={
@@ -81,7 +81,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         return client, connection
 
     def test_start_uses_only_the_fixed_runtime_endpoint_and_private_token(self):
-        client, connection = self.client(_Response({"status": "completed", "reply": "Hello.", "powers": []}))
+        client, connection = self.client(_Response({"status": "completed", "reply": "Hello.", "actions": []}))
 
         result = client.start(context(self.secret), "Hello")
 
@@ -95,21 +95,21 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(payload["assistants"][0]["id"], "hello-pulse")
         self.assertEqual(
             payload["assistants"][0]["genesis"],
-            "Combine the declared greeting Powers into one bounded welcome.",
+            "Combine the declared greeting Actions into one bounded welcome.",
         )
         self.assertTrue(connection.closed)
 
-    def test_power_suspension_is_parsed_without_gaining_execution_authority(self):
+    def test_action_suspension_is_parsed_without_gaining_execution_authority(self):
         client, _connection = self.client(
             _Response(
                 {
-                    "status": "power-required",
+                    "status": "action-required",
                     "reply": "",
-                    "powers": [
+                    "actions": [
                         {
                             "interrupt_id": "interrupt-1",
                             "assistant_id": "hello-pulse",
-                            "power": "hello",
+                            "action": "hello",
                             "input": {"name": "Ada"},
                         }
                     ],
@@ -119,12 +119,12 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         result = client.start(context(self.secret), "Greet Ada")
 
-        self.assertEqual(result.powers[0].power, "hello")
-        self.assertEqual(result.powers[0].assistant_id, "hello-pulse")
-        self.assertEqual(result.powers[0].input, {"name": "Ada"})
+        self.assertEqual(result.actions[0].action, "hello")
+        self.assertEqual(result.actions[0].assistant_id, "hello-pulse")
+        self.assertEqual(result.actions[0].input, {"name": "Ada"})
 
     def test_resume_sends_only_interrupt_results(self):
-        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "powers": []}))
+        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
 
         client.resume(context(self.secret), {"interrupt-1": {"message": "Hello, Ada."}})
 
@@ -172,12 +172,12 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
     def test_malformed_runtime_responses_fail_closed(self):
         invalid = (
-            {"status": "completed", "reply": "", "powers": []},
-            {"status": "completed", "reply": "x" * 60_001, "powers": []},
-            {"status": "completed", "reply": "unsafe\u0000reply", "powers": []},
-            {"status": "completed", "reply": "ok", "powers": [{"power": "hello"}]},
-            {"status": "power-required", "reply": "unexpected", "powers": []},
-            {"status": "unknown", "reply": "ok", "powers": []},
+            {"status": "completed", "reply": "", "actions": []},
+            {"status": "completed", "reply": "x" * 60_001, "actions": []},
+            {"status": "completed", "reply": "unsafe\u0000reply", "actions": []},
+            {"status": "completed", "reply": "ok", "actions": [{"action": "hello"}]},
+            {"status": "action-required", "reply": "unexpected", "actions": []},
+            {"status": "unknown", "reply": "ok", "actions": []},
         )
         for payload in invalid:
             with self.subTest(payload=payload):
@@ -244,18 +244,18 @@ class BrainRuntimeClientTests(unittest.TestCase):
             client.start(context(self.secret), "Hello")
         self.assertTrue(connection.closed)
 
-    def test_root_and_power_identity_response_shapes_fail_closed(self) -> None:
+    def test_root_and_action_identity_response_shapes_fail_closed(self) -> None:
         invalid = (
             [],
-            {"status": "completed", "reply": "ok", "powers": [], "extra": True},
+            {"status": "completed", "reply": "ok", "actions": [], "extra": True},
             {
-                "status": "power-required",
+                "status": "action-required",
                 "reply": "",
-                "powers": [
+                "actions": [
                     {
                         "interrupt_id": "bad interrupt",
                         "assistant_id": "hello-pulse",
-                        "power": "hello",
+                        "action": "hello",
                         "input": {},
                     }
                 ],

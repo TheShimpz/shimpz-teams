@@ -18,9 +18,9 @@ from jsonschema import Draft202012Validator
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hosted_assistant_fixture import app, hosted_controller, hosted_resources, runtime_state
 
+from action import challenges as action_challenges
+from action import human as action_human
 from hosted import container as container_spec
-from power import challenges as power_challenges
-from power import human as power_human
 
 network_policy = hosted_resources.network_policy
 
@@ -243,24 +243,25 @@ class HostedAuthorizationTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.FORBIDDEN)
         self.assertEqual(handler.rfile.tell(), 0)
 
-    def test_power_auth_handle_is_bound_to_the_exact_account_evaluation(self) -> None:
+    def test_action_auth_handle_is_bound_to_the_exact_account_evaluation(self) -> None:
         descriptor = {
             "kind": "auth:second-factor",
             "ordinal": 0,
             "title": "Confirm protected action",
             "description": "Use an enrolled second factor.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        human_request = power_human.validate_request(descriptor, ("auth:second-factor",))
-        requirement = power_challenges.HumanRequirement(
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        human_request = action_human.validate_request(descriptor, ("auth:second-factor",))
+        requirement = action_challenges.HumanRequirement(
             "assistant-1",
             "Assistant One",
-            "protected-power",
-            "Protected power",
+            "protected-action",
+            "Protected action",
             "interrupt-1",
             human_request,
+            "0.4.1",
         )
-        challenges = power_challenges.HumanChallengeStore()
+        challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create(TEAM_ID, requirement, object())
         handle = "A" * 43
         handler = self._handler(("X-Shimpz-Account", "account-session"))
@@ -287,7 +288,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_human_challenges", challenges),
             mock.patch.object(hosted_controller.account_authority, "evaluate", return_value=evidence) as evaluate,
         ):
-            derived, derived_handle = hosted_controller.admission.power_assurance(
+            derived, derived_handle = hosted_controller.admission.action_assurance(
                 "chat-human-submit",
                 {"team_id": TEAM_ID},
                 handler._captured_json_body,

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from power import human
+from action import human
 
 
 def request(kind: str, ordinal: int = 0, **fields: object) -> human.HumanRequest:
@@ -9,7 +9,7 @@ def request(kind: str, ordinal: int = 0, **fields: object) -> human.HumanRequest
         "kind": kind,
         "ordinal": ordinal,
         "title": "Continue safely",
-        "description": "Provide the reviewed value before the Power continues.",
+        "description": "Provide the reviewed value before the Action continues.",
         **fields,
     }
     descriptor["fingerprint"] = human._fingerprint(descriptor)
@@ -72,20 +72,20 @@ class HumanResponseTests(unittest.TestCase):
             min_length=1,
             max_length=64,
         )
-        transcript = human.PowerTranscript("interrupt-1").append(approval, True).append(password, "secret")
+        transcript = human.ActionTranscript("interrupt-1").append(approval, True).append(password, "secret")
 
         self.assertEqual([item["ordinal"] for item in transcript.payloads()], [0, 1])
         self.assertEqual(transcript.protected_values(), {"human-response-1": "secret"})
         with self.assertRaises(human.HumanRequestError):
             transcript.append(request("approval", 2), True)
         with self.assertRaises(human.HumanRequestError):
-            human.PowerTranscript("interrupt-1").append(request("approval", 1), True)
+            human.ActionTranscript("interrupt-1").append(request("approval", 1), True)
 
     def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
-        transcripts: tuple[human.PowerTranscript, ...] = ()
+        transcripts: tuple[human.ActionTranscript, ...] = ()
         for index in range(human.MAX_REQUESTS_PER_TURN):
-            interrupt = f"interrupt-{index // human.MAX_REQUESTS_PER_POWER}"
-            ordinal = index % human.MAX_REQUESTS_PER_POWER
+            interrupt = f"interrupt-{index // human.MAX_REQUESTS_PER_ACTION}"
+            ordinal = index % human.MAX_REQUESTS_PER_ACTION
             transcripts = human.append_response(
                 transcripts,
                 interrupt,

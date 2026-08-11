@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from power import challenges, human
+from action import challenges, human
 
 
 def requirement() -> challenges.HumanRequirement:
@@ -19,6 +19,7 @@ def requirement() -> challenges.HumanRequirement:
         "Publish one DNS record.",
         "interrupt-1",
         human.validate_request(descriptor, ("approval",)),
+        "0.4.1",
     )
 
 

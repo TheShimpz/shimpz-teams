@@ -30,38 +30,38 @@ class AssistantChatContractTests(unittest.TestCase):
         self.assertEqual(set(decoded["files"][0]), {"id", "name", "media_type", "size"})
         self.assertNotIn("must-not-enter-model-context", prompt)
 
-    def test_exact_direct_message_and_power_decisions_are_accepted(self) -> None:
-        direct = '{"kind":"message","message":"Hello","power":"","input":"{}"}'
+    def test_exact_direct_message_and_action_decisions_are_accepted(self) -> None:
+        direct = '{"kind":"message","message":"Hello","action":"","input":"{}"}'
         self.assertEqual(
             assistant_chat.parse_decision(direct, max_message_chars=100, max_input_bytes=100),
             ("message", "Hello", "", {}),
         )
-        power = '{"kind":"power","message":"","power":"hello","input":"{\\"name\\":\\"Ada\\"}"}'
+        action = '{"kind":"action","message":"","action":"hello","input":"{\\"name\\":\\"Ada\\"}"}'
         self.assertEqual(
-            assistant_chat.parse_decision(power, max_message_chars=100, max_input_bytes=100),
-            ("power", "", "hello", {"name": "Ada"}),
+            assistant_chat.parse_decision(action, max_message_chars=100, max_input_bytes=100),
+            ("action", "", "hello", {"name": "Ada"}),
         )
 
     def test_ambient_or_malformed_authority_fails_closed(self) -> None:
         invalid = (
-            '{"kind":"message","message":"Hello","power":"","input":"{}","shell":"id"}',
-            '{"kind":"message","message":"","power":"","input":"{}"}',
-            '{"kind":"message","message":"Hello","power":"shell","input":"{}"}',
-            '{"kind":"power","message":"","power":"../shell","input":"{}"}',
-            '{"kind":"power","message":"","power":"hello","input":"[]"}',
-            '{"kind":"power","message":"explain","power":"hello","input":"{}"}',
+            '{"kind":"message","message":"Hello","action":"","input":"{}","shell":"id"}',
+            '{"kind":"message","message":"","action":"","input":"{}"}',
+            '{"kind":"message","message":"Hello","action":"shell","input":"{}"}',
+            '{"kind":"action","message":"","action":"../shell","input":"{}"}',
+            '{"kind":"action","message":"","action":"hello","input":"[]"}',
+            '{"kind":"action","message":"explain","action":"hello","input":"{}"}',
         )
         for decision in invalid:
             with self.subTest(decision=decision), self.assertRaises(assistant_chat.ChatContractError):
                 assistant_chat.parse_decision(decision, max_message_chars=100, max_input_bytes=100)
 
-    def test_input_and_message_limits_are_enforced_before_power_validation(self) -> None:
-        message = '{"kind":"message","message":"long","power":"","input":"{}"}'
-        power = '{"kind":"power","message":"","power":"hello","input":"{\\"value\\":123}"}'
+    def test_input_and_message_limits_are_enforced_before_action_validation(self) -> None:
+        message = '{"kind":"message","message":"long","action":"","input":"{}"}'
+        action = '{"kind":"action","message":"","action":"hello","input":"{\\"value\\":123}"}'
         with self.assertRaises(assistant_chat.ChatContractError):
             assistant_chat.parse_decision(message, max_message_chars=3, max_input_bytes=100)
         with self.assertRaises(assistant_chat.ChatContractError):
-            assistant_chat.parse_decision(power, max_message_chars=100, max_input_bytes=4)
+            assistant_chat.parse_decision(action, max_message_chars=100, max_input_bytes=4)
 
 
 if __name__ == "__main__":

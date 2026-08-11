@@ -28,7 +28,7 @@ import hosted_assistant_fixture as harness
 app = harness.app
 hosted_chat_api = harness.hosted_chat_api
 hosted_assistants = harness.hosted_assistants
-power_human = hosted_assistants.power_human
+action_human = hosted_assistants.action_human
 assistant_lifecycle = harness.assistant_lifecycle
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_lifecycle = harness.hosted_lifecycle
@@ -71,12 +71,12 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         trusted = harness.HOSTED_SPEC.contract
         self.contract = replace(
             trusted,
-            powers={
-                power_id: replace(
-                    power,
-                    integrations=("cloudflare",) if power_id == "list-zones" else (),
+            actions={
+                action_id: replace(
+                    action,
+                    integrations=("cloudflare",) if action_id == "list-zones" else (),
                 )
-                for power_id, power in trusted.powers.items()
+                for action_id, action in trusted.actions.items()
             },
             integrations={"cloudflare": assistant_registry.IntegrationSpec("cloudflare", SCOPES)},
         )
@@ -122,14 +122,14 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             scopes=SCOPES,
         )
 
-    def test_inventory_is_status_only_and_private_token_reaches_only_declared_power(self) -> None:
+    def test_inventory_is_status_only_and_private_token_reaches_only_declared_action(self) -> None:
         self._connect()
         captured: list[dict[str, object]] = []
         inspected = []
         inspect_memo: dict[str, dict[str, dict]] = {}
         turn_token = "turn-token"
 
-        def rpc(_team_id, _token, _container, _power_id, payload):
+        def rpc(_team_id, _token, _container, _action_id, payload):
             captured.append(payload)
             return {"type": "result", "result": _zones()}
 
@@ -145,14 +145,14 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 _assistant_rpc=rpc,
             ),
         ):
-            result = hosted_assistants._invoke_assistant_power(
-                hosted_assistants.PowerInvocationRequest(
+            result = hosted_assistants._invoke_assistant_action(
+                hosted_assistants.ActionInvocationRequest(
                     team_id=TEAM_ID,
                     token=turn_token,
                     assistant_id=ASSISTANT_ID,
                     contract=self.contract,
                     container=self.container,
-                    power="list-zones",
+                    action="list-zones",
                     payload=ZONE_INPUT,
                     inspect_memo=inspect_memo,
                 )
@@ -181,7 +181,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertNotIn("generation", serialized)
         self.assertEqual(payload["integrations"][0]["status"], "connected")
 
-    def test_fresh_power_evidence_reaches_only_its_immediate_rpc(self) -> None:
+    def test_fresh_action_evidence_reaches_only_its_immediate_rpc(self) -> None:
         turn_token = "-".join(("turn", "token"))
         integration_values = {
             "cloudflare": {
@@ -200,18 +200,18 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             ),
             mock.patch.object(
                 hosted_assistants,
-                "_resolve_power_integrations",
+                "_resolve_action_integrations",
                 side_effect=AssertionError("fresh integration values must not be decrypted again"),
             ),
         ):
-            result = hosted_assistants._invoke_assistant_power(
-                hosted_assistants.PowerInvocationRequest(
+            result = hosted_assistants._invoke_assistant_action(
+                hosted_assistants.ActionInvocationRequest(
                     team_id=TEAM_ID,
                     token=turn_token,
                     assistant_id=ASSISTANT_ID,
                     contract=self.contract,
                     container=self.container,
-                    power="list-zones",
+                    action="list-zones",
                     payload=ZONE_INPUT,
                     validated_assistant=self.active,
                     integration_values=integration_values,
@@ -229,12 +229,12 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             "title": "Publish zone",
             "description": "Publish this reviewed DNS zone.",
         }
-        request["fingerprint"] = power_human._fingerprint(request)
+        request["fingerprint"] = action_human._fingerprint(request)
         contract = replace(
             self.contract,
-            powers={
-                power_id: replace(power, human_requests=("approval",))
-                for power_id, power in self.contract.powers.items()
+            actions={
+                action_id: replace(action, human_requests=("approval",))
+                for action_id, action in self.contract.actions.items()
             },
         )
         active = hosted_assistants._ActiveAssistant(
@@ -250,16 +250,16 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 "_assistant_rpc",
                 return_value={"type": "request", "request": request},
             ),
-            self.assertRaises(power_human.HumanRequestSuspensionError) as caught,
+            self.assertRaises(action_human.HumanRequestSuspensionError) as caught,
         ):
-            hosted_assistants._invoke_assistant_power(
-                hosted_assistants.PowerInvocationRequest(
+            hosted_assistants._invoke_assistant_action(
+                hosted_assistants.ActionInvocationRequest(
                     team_id=TEAM_ID,
                     token=turn_token,
                     assistant_id=ASSISTANT_ID,
                     contract=contract,
                     container=self.container,
-                    power="list-zones",
+                    action="list-zones",
                     payload=ZONE_INPUT,
                     validated_assistant=active,
                     integration_values={},
@@ -281,14 +281,14 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_assistants._invoke_assistant_power(
-                hosted_assistants.PowerInvocationRequest(
+            hosted_assistants._invoke_assistant_action(
+                hosted_assistants.ActionInvocationRequest(
                     team_id=TEAM_ID,
                     token=turn_token,
                     assistant_id=ASSISTANT_ID,
                     contract=self.contract,
                     container=self.container,
-                    power="list-zones",
+                    action="list-zones",
                     payload=ZONE_INPUT,
                 )
             )
@@ -324,7 +324,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
     def test_authorize_and_callback_expose_no_oauth_private_material(self) -> None:
         challenge_store = integration_challenges.IntegrationChallengeStore()
         continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("power-required", "", ()),
+            brain_runtime_client.RuntimeTurn("action-required", "", ()),
             (),
             (),
             0,

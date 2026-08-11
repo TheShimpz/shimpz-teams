@@ -57,8 +57,8 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(local_app.STORAGE_ROOT, Path("/var/lib/shimpz-local/storage"))
         self.assertEqual(local_app.INFERENCE_ROOT, Path("/var/lib/shimpz-local/inference"))
         self.assertEqual(
-            local_app.LOCAL_POWER_JOURNAL_PATH,
-            Path("/var/lib/shimpz-local/power-journal/journal.sqlite3"),
+            local_app.LOCAL_ACTION_JOURNAL_PATH,
+            Path("/var/lib/shimpz-local/action-journal/journal.sqlite3"),
         )
         self.assertEqual(
             local_app.LOCAL_CHAT_CONTINUATIONS_STATE_PATH,
@@ -75,12 +75,12 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
         self.assertFalse(hasattr(spec, "health_path"))
         self.assertFalse(hasattr(spec, "rpc_command"))
-        self.assertEqual(set(spec.powers), {"list-zones", "list-dns-records"})
-        self.assertTrue(all(not hasattr(power, "approval") for power in spec.powers.values()))
-        self.assertTrue(all(power.integrations == ("cloudflare",) for power in spec.powers.values()))
+        self.assertEqual(set(spec.actions), {"list-zones", "list-dns-records"})
+        self.assertTrue(all(not hasattr(action, "approval") for action in spec.actions.values()))
+        self.assertTrue(all(action.integrations == ("cloudflare",) for action in spec.actions.values()))
         self.assertEqual(
-            assistant_registry.validate_power_payload(
-                spec.powers["list-dns-records"],
+            assistant_registry.validate_action_payload(
+                spec.actions["list-dns-records"],
                 "input",
                 {"zone_id": "a" * 32, "page": 1, "per_page": 100},
             ),
@@ -100,12 +100,12 @@ class LocalContractTests(LocalContractCase):
             "pagination": {"page": 1, "per_page": 100, "count": 1, "total_count": 1, "total_pages": 1},
         }
         self.assertEqual(
-            assistant_registry.validate_power_payload(spec.powers["list-zones"], "output", zones),
+            assistant_registry.validate_action_payload(spec.actions["list-zones"], "output", zones),
             zones,
         )
         with self.assertRaises(ValueError):
-            assistant_registry.validate_power_payload(
-                spec.powers["list-zones"],
+            assistant_registry.validate_action_payload(
+                spec.actions["list-zones"],
                 "output",
                 zones | {"access_token": "must-not-cross"},
             )
@@ -115,9 +115,9 @@ class LocalContractTests(LocalContractCase):
             {"zone_id": "../zone", "page": 1, "per_page": 10},
             {"page": 1, "per_page": 10, "access_token": "must-not-cross"},
         ):
-            power = "list-dns-records" if "zone_id" in invalid else "list-zones"
+            action = "list-dns-records" if "zone_id" in invalid else "list-zones"
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                assistant_registry.validate_power_payload(spec.powers[power], "input", invalid)
+                assistant_registry.validate_action_payload(spec.actions[action], "input", invalid)
 
     def test_identifiers_are_strict_and_bounded(self) -> None:
         self.assertEqual(local_app.validate_team_id("demo_team"), "demo_team")
@@ -267,7 +267,7 @@ class LocalContractTests(LocalContractCase):
             detail="updated:0.1.0:0.2.0",
         )
 
-    def test_local_controller_accepts_an_injected_power_journal(self) -> None:
+    def test_local_controller_accepts_an_injected_action_journal(self) -> None:
         image = "127.0.0.1:5000/shimpz/shimpz-cloudflare@sha256:" + "a" * 64
         injected = SimpleNamespace()
         client = SimpleNamespace(
@@ -282,7 +282,7 @@ class LocalContractTests(LocalContractCase):
             SimpleNamespace(),
             local_app.LocalControllerDependencies(
                 brain_runtime=SimpleNamespace(),
-                power_state=injected,
+                action_state=injected,
                 oauth_broker=SimpleNamespace(),
                 oauth_service=SimpleNamespace(),
                 developers=SimpleNamespace(),
@@ -293,7 +293,7 @@ class LocalContractTests(LocalContractCase):
             ),
         )
 
-        self.assertIs(controller.power_state, injected)
+        self.assertIs(controller.action_state, injected)
         self.assertIsInstance(controller.assistant_lifecycle, local_app.AssistantLifecycle)
         self.assertIsInstance(controller.chat_turn_service, local_app.ChatTurnService)
         self.assertEqual(local_app.LocalController.__bases__, (object,))
@@ -329,11 +329,11 @@ class LocalContractTests(LocalContractCase):
         ):
             self.assertFalse(any(name.endswith("Mixin") for name in vars(module)))
         self.assertEqual(
-            local_app.LOCAL_POWER_JOURNAL_PATH,
-            Path("/var/lib/shimpz-local/power-journal/journal.sqlite3"),
+            local_app.LOCAL_ACTION_JOURNAL_PATH,
+            Path("/var/lib/shimpz-local/action-journal/journal.sqlite3"),
         )
 
-    def test_ambiguous_power_rpc_is_fail_stopped_or_permanently_blocked(self) -> None:
+    def test_ambiguous_action_rpc_is_fail_stopped_or_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
         controller._wire_collaborators()
 
@@ -355,9 +355,9 @@ class LocalContractTests(LocalContractCase):
                 raise AssertionError("a proved stop must not be killed")
 
         stopped = Stoppable()
-        controller.assistant_lifecycle._fail_stop_power(stopped)
+        controller.assistant_lifecycle._fail_stop_action(stopped)
         self.assertEqual(stopped.status, "exited")
-        self.assertNotIn(stopped.id, controller.assistant_lifecycle._blocked_power_workloads)
+        self.assertNotIn(stopped.id, controller.assistant_lifecycle._blocked_action_workloads)
 
         class Paused:
             id = "paused"
@@ -378,11 +378,11 @@ class LocalContractTests(LocalContractCase):
                 self.attrs["State"]["Running"] = False
 
         paused = Paused()
-        controller.assistant_lifecycle._fail_stop_power(paused)
+        controller.assistant_lifecycle._fail_stop_action(paused)
         self.assertTrue(paused.killed)
-        self.assertNotIn(paused.id, controller.assistant_lifecycle._blocked_power_workloads)
+        self.assertNotIn(paused.id, controller.assistant_lifecycle._blocked_action_workloads)
 
-    def test_unprovable_power_stop_is_permanently_blocked(self) -> None:
+    def test_unprovable_action_stop_is_permanently_blocked(self) -> None:
         controller = object.__new__(local_app.LocalController)
         controller._wire_collaborators()
 
@@ -400,9 +400,9 @@ class LocalContractTests(LocalContractCase):
 
         ambiguous = Ambiguous()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.assistant_lifecycle._fail_stop_power(ambiguous)
-        self.assertEqual(caught.exception.code, "assistant-power-blocked")
-        self.assertIn(ambiguous.id, controller.assistant_lifecycle._blocked_power_workloads)
+            controller.assistant_lifecycle._fail_stop_action(ambiguous)
+        self.assertEqual(caught.exception.code, "assistant-action-blocked")
+        self.assertIn(ambiguous.id, controller.assistant_lifecycle._blocked_action_workloads)
 
         class Malformed:
             id = "malformed"
@@ -421,8 +421,8 @@ class LocalContractTests(LocalContractCase):
 
         malformed = Malformed()
         with self.assertRaises(local_app.ApiProblem):
-            controller.assistant_lifecycle._fail_stop_power(malformed)
-        self.assertIn(malformed.id, controller.assistant_lifecycle._blocked_power_workloads)
+            controller.assistant_lifecycle._fail_stop_action(malformed)
+        self.assertIn(malformed.id, controller.assistant_lifecycle._blocked_action_workloads)
 
     def test_large_upload_admission_is_single_slot(self) -> None:
         self.assertTrue(local_http._FILE_UPLOAD_SLOTS.acquire(blocking=False))
@@ -520,13 +520,13 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(captured["api_key"], key)
         self.assertNotIn(key, json.dumps(response))
 
-    def test_power_rpc_receives_only_the_spec_v1_invocation(self) -> None:
+    def test_action_rpc_receives_only_the_spec_v1_invocation(self) -> None:
         captured: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
 
-            def rpc(_container, power_id, payload):
-                captured.append((power_id, payload))
+            def rpc(_container, action_id, payload):
+                captured.append((action_id, payload))
                 return {"type": "result", "result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle._rpc = rpc
@@ -550,7 +550,7 @@ class LocalContractTests(LocalContractCase):
         )
         self.assertEqual(response["result"], LOOKUP_RESULT)
 
-    def test_power_output_containing_a_secret_is_blocked_and_redacted(self) -> None:
+    def test_action_output_containing_a_secret_is_blocked_and_redacted(self) -> None:
         raw_secret = TEST_ACCOUNT_ACCESS_TOKEN
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())

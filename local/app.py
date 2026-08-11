@@ -2,7 +2,7 @@
 
 This is intentionally separate from the hosted Team controller.  An empty Team is
 one labeled internal network; its only runnable resources are build-allowlisted,
-digest-pinned first-party Assistants with a fixed Power contract.
+digest-pinned first-party Assistants with a fixed Action contract.
 """
 
 from __future__ import annotations
@@ -23,9 +23,12 @@ from typing import NoReturn
 import docker
 from docker.errors import APIError, DockerException
 
+from action import challenges as action_challenges
+from action import execution as action_execution
+from action import journal as action_journal
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
-from assistant.spec import validate_power_payload
+from assistant.spec import validate_action_payload
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -77,9 +80,6 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
-from power import challenges as power_challenges
-from power import execution as power_execution
-from power import journal as power_journal
 from storage import files as team_storage
 
 IMAGE_LABEL = _LOCAL_IMAGE_LABEL
@@ -91,10 +91,10 @@ log = logging.getLogger("shimpz-team-local")
 LISTEN_PORT = 7077
 STORAGE_ROOT = Path("/var/lib/shimpz-local/storage")
 INFERENCE_ROOT = Path("/var/lib/shimpz-local/inference")
-LOCAL_POWER_JOURNAL_PATH = Path(
+LOCAL_ACTION_JOURNAL_PATH = Path(
     os.environ.get(
-        "SHIMPZ_LOCAL_POWER_JOURNAL_PATH",
-        "/var/lib/shimpz-local/power-journal/journal.sqlite3",
+        "SHIMPZ_LOCAL_ACTION_JOURNAL_PATH",
+        "/var/lib/shimpz-local/action-journal/journal.sqlite3",
     )
 )
 LOCAL_CHAT_CONTINUATIONS_STATE_PATH = Path(
@@ -143,7 +143,7 @@ class ChatTurnDependencies:
     storage: object | None = None
     inference_store: object | None = None
     brain_runtime: object | None = None
-    power_state: object | None = None
+    action_state: object | None = None
     assistant_integrations: object | None = None
     integration_challenges: object | None = None
     human_challenges: object | None = None
@@ -173,7 +173,7 @@ class AssistantLifecycle:
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
-        self._blocked_power_workloads: set[str] = set()
+        self._blocked_action_workloads: set[str] = set()
 
     _rollback_assistant_install = local_assistant_lifecycle._rollback_assistant_install
     _create_assistant_container = local_assistant_lifecycle._create_assistant_container
@@ -212,8 +212,8 @@ class AssistantLifecycle:
     _admit_assistant_allowed_hosts = local_chat_state._admit_assistant_allowed_hosts
 
     _close_exec_stream = staticmethod(local_assistant_rpc._close_exec_stream)
-    _fail_stop_power = local_assistant_rpc._fail_stop_power
-    _power_not_running = staticmethod(local_assistant_rpc._power_not_running)
+    _fail_stop_action = local_assistant_rpc._fail_stop_action
+    _action_not_running = staticmethod(local_assistant_rpc._action_not_running)
     _rpc = local_assistant_rpc._rpc
     _wait_ready = local_assistant_rpc._wait_ready
 
@@ -254,10 +254,10 @@ class ChatTurnService:
         self.storage = dependencies.storage
         self.inference_store = dependencies.inference_store
         self.brain_runtime = dependencies.brain_runtime
-        self.power_state = dependencies.power_state
+        self.action_state = dependencies.action_state
         self.assistant_integrations = dependencies.assistant_integrations
         self.integration_challenges = dependencies.integration_challenges
-        self.human_challenges = dependencies.human_challenges or power_challenges.HumanChallengeStore()
+        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
@@ -266,7 +266,7 @@ class ChatTurnService:
         self._active_chat_guard = threading.Lock()
         self._chat_locks: dict[str, threading.Lock] = {}
         self._active_chat_tokens: dict[str, str] = {}
-        self._active_power_containers: dict[str, tuple[str, object]] = {}
+        self._active_action_containers: dict[str, tuple[str, object]] = {}
         self._cancelled_chat_tokens: set[str] = set()
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
@@ -286,15 +286,15 @@ class ChatTurnService:
             return True
 
     def _cancel_chat_for_destroy(self, team_id: str) -> None:
-        """Prevent another Power and synchronously stop one already executing."""
+        """Prevent another Action and synchronously stop one already executing."""
         with self._active_chat_guard:
             token = self._active_chat_tokens.get(team_id)
             if token is not None:
                 self._cancelled_chat_tokens.add(token)
-            active = self._active_power_containers.get(team_id)
-            active_power = active[1] if token is not None and active is not None and active[0] == token else None
-        if active_power is not None:
-            self.assistant_lifecycle._fail_stop_power(active_power)
+            active = self._active_action_containers.get(team_id)
+            active_action = active[1] if token is not None and active is not None and active[0] == token else None
+        if active_action is not None:
+            self.assistant_lifecycle._fail_stop_action(active_action)
 
     @contextmanager
     def _exclusive_chat_turn(self, team_id: str):
@@ -314,9 +314,9 @@ class ChatTurnService:
             with self._active_chat_guard:
                 if self._active_chat_tokens.get(team_id) == token:
                     self._active_chat_tokens.pop(team_id, None)
-                active = self._active_power_containers.get(team_id)
+                active = self._active_action_containers.get(team_id)
                 if active is not None and active[0] == token:
-                    self._active_power_containers.pop(team_id, None)
+                    self._active_action_containers.pop(team_id, None)
                 self._cancelled_chat_tokens.discard(token)
             lock.release()
 
@@ -328,10 +328,10 @@ class ChatTurnService:
     pending_chat_human = local_chat_human.pending_chat_human
     _expire_human_challenges = local_chat_human._expire_human_challenges
 
-    _invoke_chat_power = local_chat_execution._invoke_chat_power
+    _invoke_chat_action = local_chat_execution._invoke_chat_action
     _chat_identity = staticmethod(local_chat_execution._chat_identity)
     _raise_chat_problem = staticmethod(local_chat_execution._raise_chat_problem)
-    _validate_chat_power = staticmethod(local_chat_execution._validate_chat_power)
+    _validate_chat_action = staticmethod(local_chat_execution._validate_chat_action)
     _require_chat_private_inputs = local_chat_execution._require_chat_private_inputs
     _validate_chat_context = local_chat_execution._validate_chat_context
 
@@ -344,10 +344,10 @@ class ChatTurnService:
     _pause_integration = local_chat_pause._pause_integration
     _pause_human = local_chat_pause._pause_human
 
-    _power_integration_generations = local_chat_private._power_integration_generations
+    _action_integration_generations = local_chat_private._action_integration_generations
     _refresh_oauth_integration = local_chat_private._refresh_oauth_integration
-    _resolve_power_integrations = local_chat_private._resolve_power_integrations
-    _require_power_rpc_envelope = local_chat_private._require_power_rpc_envelope
+    _resolve_action_integrations = local_chat_private._resolve_action_integrations
+    _require_action_rpc_envelope = local_chat_private._require_action_rpc_envelope
     _raise_integration_problem = staticmethod(local_chat_private._raise_integration_problem)
     list_assistant_integrations = local_chat_private.list_assistant_integrations
     start_assistant_integration_authorization = local_chat_private.start_assistant_integration_authorization
@@ -400,10 +400,10 @@ def _account_egress_transport() -> integration_broker.FixedBrokerTransport:
 class LocalControllerDependencies:
     inference_store: inference_config.InferenceConfigStore | None = None
     brain_runtime: brain_runtime_client.BrainRuntimeClient | None = None
-    power_state: power_journal.PowerJournal | None = None
+    action_state: action_journal.ActionJournal | None = None
     assistant_integrations: integration_store.OAuthIntegrationStore | None = None
     integration_challenges: integration_challenges.IntegrationChallengeStore | None = None
-    human_challenges: power_challenges.HumanChallengeStore | None = None
+    human_challenges: action_challenges.HumanChallengeStore | None = None
     oauth_pkce: integration_pkce.OAuthPKCEChallengeStore | None = None
     oauth_broker: integration_broker.OAuthBrokerClient | None = None
     oauth_service: integration_service.BrokeredOAuthIntegrationService | None = None
@@ -421,7 +421,7 @@ class LocalController:
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
 
-    _purge_power_generation = local_team_lifecycle._purge_power_generation
+    _purge_action_generation = local_team_lifecycle._purge_action_generation
     _team_assistant_containers = local_team_lifecycle._team_assistant_containers
     _validate_destroy_containers = local_team_lifecycle._validate_destroy_containers
     _delete_team_conversation = local_team_lifecycle._delete_team_conversation
@@ -452,16 +452,16 @@ class LocalController:
         self.storage = storage
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
-        self.power_state = (
-            dependencies.power_state
-            if dependencies.power_state is not None
-            else power_journal.PowerJournal(LOCAL_POWER_JOURNAL_PATH)
+        self.action_state = (
+            dependencies.action_state
+            if dependencies.action_state is not None
+            else action_journal.ActionJournal(LOCAL_ACTION_JOURNAL_PATH)
         )
         self.assistant_integrations = dependencies.assistant_integrations or integration_store.OAuthIntegrationStore()
         self.integration_challenges = (
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
-        self.human_challenges = dependencies.human_challenges or power_challenges.HumanChallengeStore()
+        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -523,7 +523,7 @@ class LocalController:
                 storage=getattr(self, "storage", None),
                 inference_store=getattr(self, "inference_store", None),
                 brain_runtime=getattr(self, "brain_runtime", None),
-                power_state=getattr(self, "power_state", None),
+                action_state=getattr(self, "action_state", None),
                 assistant_integrations=getattr(self, "assistant_integrations", None),
                 integration_challenges=getattr(self, "integration_challenges", None),
                 human_challenges=getattr(self, "human_challenges", None),
@@ -741,7 +741,7 @@ class LocalController:
                     "id": spec.assistant_id,
                     "title": spec.name,
                     "summary": spec.summary,
-                    "powers": sorted(spec.powers),
+                    "actions": sorted(spec.actions),
                 }
                 for spec in self.registry.catalog()
             ]
@@ -763,37 +763,37 @@ class LocalController:
         self,
         team_id: str,
         assistant_id: str,
-        power: str,
+        action: str,
         payload: object,
         responses: tuple[Mapping[str, object], ...] = (),
         protected_values: Mapping[str, str] | None = None,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
         spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
-        power_spec = spec.powers.get(power)
-        if power_spec is None:
+        action_spec = spec.actions.get(action)
+        if action_spec is None:
             raise ApiProblem(
-                power_execution.UNDECLARED_POWER_STATUS, "Power is not declared", code="power-not-declared"
+                action_execution.UNDECLARED_ACTION_STATUS, "Action is not declared", code="action-not-declared"
             )
         try:
-            safe_payload = validate_power_payload(power_spec, "input", payload)
+            safe_payload = validate_action_payload(action_spec, "input", payload)
         except ValueError as exc:
-            raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc), code="invalid-power-input") from exc
+            raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, str(exc), code="invalid-action-input") from exc
         with self._lock(team_id):
             network = self.assistant_lifecycle._network(team_id)
             container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
             self.assistant_lifecycle._validate_container(container, team_id, spec, network.name)
-            if container.id in self.assistant_lifecycle._blocked_power_workloads:
+            if container.id in self.assistant_lifecycle._blocked_action_workloads:
                 raise ApiProblem(
                     HTTPStatus.SERVICE_UNAVAILABLE,
-                    "Assistant Power execution is blocked until this Assistant is reinstalled",
-                    code="assistant-power-blocked",
+                    "Assistant Action execution is blocked until this Assistant is reinstalled",
+                    code="assistant-action-blocked",
                 )
             container.reload()
             if container.status != "running":
                 raise ApiProblem(HTTPStatus.CONFLICT, "Assistant is not running", code="assistant-not-running")
             with self.chat_turn_service._active_chat_guard:
-                active = self.chat_turn_service._active_power_containers.get(team_id)
+                active = self.chat_turn_service._active_action_containers.get(team_id)
                 frozen_container = active[1] if active is not None else None
             if frozen_container is not None and frozen_container.id != container.id:
                 raise ApiProblem(
@@ -801,77 +801,77 @@ class LocalController:
                     "Team capabilities changed; retry",
                     code="team-context-changed",
                 )
-            integration_values = self.chat_turn_service._resolve_power_integrations(team_id, spec, power)
+            integration_values = self.chat_turn_service._resolve_action_integrations(team_id, spec, action)
             local_audit.record_request(
-                "assistant-power",
+                "assistant-action",
                 result="ok",
                 team_id=team_id,
                 assistant=assistant_id,
-                detail=f"started:{power}",
+                detail=f"started:{action}",
             )
             rpc_payload = {
                 "input": safe_payload,
-                "integrations": power_execution.integration_access_tokens(integration_values),
+                "integrations": action_execution.integration_access_tokens(integration_values),
             }
             if responses:
                 rpc_payload["responses"] = responses
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
-                power,
+                action,
                 rpc_payload,
             )
         except ApiProblem:
             local_audit.record_request(
-                "assistant-power",
+                "assistant-action",
                 result="error",
                 team_id=team_id,
                 assistant=assistant_id,
-                detail=f"failed:{power}",
+                detail=f"failed:{action}",
             )
             raise
         try:
-            projected = power_execution.project_rpc_result(
+            projected = action_execution.project_rpc_result(
                 raw_result,
                 integration_values,
-                lambda value: validate_power_payload(power_spec, "output", value),
-                power_spec.human_requests,
+                lambda value: validate_action_payload(action_spec, "output", value),
+                action_spec.human_requests,
                 protected_values,
             )
-        except power_execution.RpcSecretExposureError:
+        except action_execution.RpcSecretExposureError:
             local_audit.record_request(
-                "assistant-power",
+                "assistant-action",
                 result="error",
                 team_id=team_id,
                 assistant=assistant_id,
-                detail=f"secret-exposure:{power}",
+                detail=f"secret-exposure:{action}",
             )
             raise ApiProblem(
                 HTTPStatus.BAD_GATEWAY,
                 "the Assistant returned an unsafe result",
                 code="assistant-secret-exposure",
             ) from None
-        except power_execution.RpcInvalidResultError as exc:
+        except action_execution.RpcInvalidResultError as exc:
             local_audit.record_request(
-                "assistant-power",
+                "assistant-action",
                 result="error",
                 team_id=team_id,
                 assistant=assistant_id,
-                detail=f"invalid-output:{power}",
+                detail=f"invalid-output:{action}",
             )
             raise ApiProblem(
                 HTTPStatus.BAD_GATEWAY,
                 "the Assistant returned an invalid result",
-                code="invalid-power-output",
+                code="invalid-action-output",
             ) from exc
         local_audit.record_request(
-            "assistant-power",
+            "assistant-action",
             result="ok",
             team_id=team_id,
             assistant=assistant_id,
-            detail=f"completed:{power}",
+            detail=f"completed:{action}",
         )
-        return {"assistant": assistant_id, "power": power, "result": projected}
+        return {"assistant": assistant_id, "action": action, "result": projected}
 
 
 def main() -> int:

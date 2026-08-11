@@ -7,25 +7,25 @@ from pathlib import Path
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from action import challenges as action_challenges
+from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
-from power import challenges as power_challenges
-from power import human as power_human
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 TURN = brain_runtime_client.RuntimeTurn(
-    status="power-required",
+    status="action-required",
     reply="",
-    powers=(
-        brain_runtime_client.PowerRequest(
-            interrupt_id="power-1",
+    actions=(
+        brain_runtime_client.ActionRequest(
+            interrupt_id="action-1",
             assistant_id="demo-assistant",
-            power="publish",
-            input={"message": "private Power input"},
+            action="publish",
+            input={"message": "private Action input"},
         ),
     ),
 )
@@ -35,8 +35,8 @@ def pending() -> local_chat_continuations.PendingLocalChat:
     return local_chat_continuations.PendingLocalChat(
         continuation=chat_orchestrator.ChatContinuation(
             turn=TURN,
-            seen_interrupts=("older-power",),
-            invoked=(chat_orchestrator.InvokedPower("demo-assistant", "lookup"),),
+            seen_interrupts=("older-action",),
+            invoked=(chat_orchestrator.InvokedAction("demo-assistant", "lookup"),),
             round_index=1,
         ),
         assistant_ids=("demo-assistant",),
@@ -94,7 +94,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "title": "Prepare",
             "description": "Prepare the reviewed action.",
         }
-        first["fingerprint"] = power_human._fingerprint(first)
+        first["fingerprint"] = action_human._fingerprint(first)
         current = {
             "kind": "input:text",
             "ordinal": 1,
@@ -106,7 +106,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 255,
         }
-        current["fingerprint"] = power_human._fingerprint(current)
+        current["fingerprint"] = action_human._fingerprint(current)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -115,20 +115,21 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             state.provider,
             state.identity,
             (
-                power_human.PowerTranscript(
-                    "power-1",
-                    (power_human.admit_response(power_human.validate_request(first, ("approval",)), True),),
+                action_human.ActionTranscript(
+                    "action-1",
+                    (action_human.admit_response(action_human.validate_request(first, ("approval",)), True),),
                 ),
             ),
         )
         requirement = (
-            power_challenges.HumanRequirement(
+            action_challenges.HumanRequirement(
                 "demo-assistant",
                 "Demo Assistant",
                 "publish",
                 "Publish a DNS record.",
-                "power-1",
-                power_human.validate_request(current, ("input:text",)),
+                "action-1",
+                action_human.validate_request(current, ("input:text",)),
+                "0.4.1",
             ),
         )
 
@@ -152,7 +153,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 64,
         }
-        secret_request["fingerprint"] = power_human._fingerprint(secret_request)
+        secret_request["fingerprint"] = action_human._fingerprint(secret_request)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -161,11 +162,11 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             state.provider,
             state.identity,
             (
-                power_human.PowerTranscript(
-                    "power-1",
+                action_human.ActionTranscript(
+                    "action-1",
                     (
-                        power_human.admit_response(
-                            power_human.validate_request(secret_request, ("input:password",)), "secret"
+                        action_human.admit_response(
+                            action_human.validate_request(secret_request, ("input:password",)), "secret"
                         ),
                     ),
                 ),
@@ -176,13 +177,14 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             local_chat_continuations.encode(
                 "human",
                 (
-                    power_challenges.HumanRequirement(
+                    action_challenges.HumanRequirement(
                         "demo-assistant",
                         "Demo Assistant",
                         "publish",
                         "Publish a DNS record.",
-                        "power-1",
-                        power_human.validate_request(secret_request, ("input:password",)),
+                        "action-1",
+                        action_human.validate_request(secret_request, ("input:password",)),
+                        "0.4.1",
                     ),
                 ),
                 state,

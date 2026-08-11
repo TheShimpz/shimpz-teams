@@ -165,12 +165,12 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         spec = types.SimpleNamespace(assistant_id="assistant")
         subject.registry.get = lambda *_args: spec
         lifecycle._validate_container = mock.Mock()
-        lifecycle._blocked_power_workloads = {"container"}
+        lifecycle._blocked_action_workloads = {"container"}
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._active_chat_assistants(subject, "team_1", "network")
-        self.assertEqual(caught.exception.code, "assistant-power-blocked")
+        self.assertEqual(caught.exception.code, "assistant-action-blocked")
 
-        lifecycle._blocked_power_workloads = set()
+        lifecycle._blocked_action_workloads = set()
         container.status = "exited"
         self.assertEqual(
             local_chat_state._active_chat_assistants(subject, "team_1", "network"),

@@ -36,7 +36,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "integrations",
                 "a" * 32,
                 1_300,
-                ("assistant/power/image@sha256:" + "b" * 64 + "/0",),
+                ("assistant/action/image@sha256:" + "b" * 64 + "/0",),
                 payload,
             )
             reopened = local_chat_continuation_store.EncryptedContinuationStore(
@@ -65,7 +65,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "integrations",
                 "b" * 32,
                 2_300,
-                ("assistant/power/release/0",),
+                ("assistant/action/release/0",),
                 b'{"integration":"connected"}',
             )
             second = store.put(
@@ -73,7 +73,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "integrations",
                 "c" * 32,
                 2_300,
-                ("assistant/power/release/1",),
+                ("assistant/action/release/1",),
                 b'{"integration":"connected"}',
             )
             self.assertEqual((first.generation, second.generation), (1, 2))
@@ -105,7 +105,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "integrations",
                 "e" * 32,
                 3_001,
-                ("assistant/power/release/0",),
+                ("assistant/action/release/0",),
                 b"{}",
             )
             with self.assertRaises(local_chat_continuation_store.ContinuationNotFoundError):
@@ -128,7 +128,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "human",
                 "e" * 32,
                 3_001,
-                ("assistant/power/release/0",),
+                ("assistant/action/release/0",),
                 b'{"pending":"encrypted"}',
             )
 
@@ -162,7 +162,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                 "integrations",
                 "1" * 32,
                 4_300,
-                ("assistant/power/release/0",),
+                ("assistant/action/release/0",),
                 b"{}",
             )
             with self.assertRaisesRegex(
@@ -174,7 +174,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                     "integrations",
                     "2" * 32,
                     4_300,
-                    ("assistant/power/release/0",),
+                    ("assistant/action/release/0",),
                     b"{}",
                 )
             with self.assertRaises(local_chat_continuation_store.ContinuationStoreError):
@@ -183,7 +183,7 @@ class EncryptedContinuationStoreTests(unittest.TestCase):
                     "input",
                     "3" * 32,
                     4_300,
-                    ("assistant/power/release/0",),
+                    ("assistant/action/release/0",),
                     b"x" * (local_chat_continuation_store.MAX_PLAINTEXT_BYTES + 1),
                 )
 

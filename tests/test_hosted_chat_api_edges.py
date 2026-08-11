@@ -21,7 +21,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
     @staticmethod
     def pending(owner: str = "account_1") -> object:
         return assistants._PendingHostedChat(
-            SimpleNamespace(turn=SimpleNamespace(powers=())),
+            SimpleNamespace(turn=SimpleNamespace(actions=())),
             (),
             (),
             owner,
@@ -69,7 +69,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         ):
             self.assertEqual(token, "token")
             self.assertIs(current, container)
-            state._active_power_container_ids["team_1"] = ("token", "power")
+            state._active_action_container_ids["team_1"] = ("token", "action")
         self.assertNotIn("team_1", state._active_chat_tokens)
 
     def test_chat_and_pending_paths_avoid_duplicate_execution(self) -> None:
@@ -88,12 +88,12 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             self.assertIs(api._chat("team_1", "hello", (), (), self.lease()), pending)
 
         journal = SimpleNamespace(
-            purge_replayable=mock.Mock(side_effect=segment.power_journal.PowerJournalError("failed"))
+            purge_replayable=mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
         )
         with (
             mock.patch.object(api, "_pending_hosted_chat", return_value=None),
             mock.patch.object(api, "_exclusive_chat_turn", exclusive),
-            mock.patch.object(state, "_power_execution_journal", return_value=journal),
+            mock.patch.object(state, "_action_execution_journal", return_value=journal),
             self.assertRaises(state.ApiError),
         ):
             api._chat("team_1", "hello", (), (), self.lease())
@@ -311,21 +311,21 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             self.assertEqual(api._resume_chat_human("team_1", {}, None, self.lease()), {"reply": "human"})
         self.assertIs(resume.call_args.args[-1], api._exclusive_chat_turn)
 
-    def test_stop_power_and_chat_cover_absent_changed_and_running_states(self) -> None:
-        self.assertFalse(api._stop_active_power("team_1", None))
-        with mock.patch.dict(state._active_power_container_ids, {}, clear=True):
-            self.assertFalse(api._stop_active_power("team_1", "token"))
+    def test_stop_action_and_chat_cover_absent_changed_and_running_states(self) -> None:
+        self.assertFalse(api._stop_active_action("team_1", None))
+        with mock.patch.dict(state._active_action_container_ids, {}, clear=True):
+            self.assertFalse(api._stop_active_action("team_1", "token"))
         with (
-            mock.patch.dict(state._active_power_container_ids, {"team_1": ("token", "container")}, clear=True),
+            mock.patch.dict(state._active_action_container_ids, {"team_1": ("token", "container")}, clear=True),
             mock.patch.object(
                 state._docker.containers,
                 "get",
                 side_effect=api.docker.errors.NotFound("missing"),
             ),
         ):
-            self.assertTrue(api._stop_active_power("team_1", "token"))
+            self.assertTrue(api._stop_active_action("team_1", "token"))
         with (
-            mock.patch.dict(state._active_power_container_ids, {"team_1": ("token", "container")}, clear=True),
+            mock.patch.dict(state._active_action_container_ids, {"team_1": ("token", "container")}, clear=True),
             mock.patch.object(
                 state._docker.containers,
                 "get",
@@ -333,15 +333,15 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            api._stop_active_power("team_1", "token")
+            api._stop_active_action("team_1", "token")
 
         assistant_container = object()
         with (
-            mock.patch.dict(state._active_power_container_ids, {"team_1": ("token", "container")}, clear=True),
+            mock.patch.dict(state._active_action_container_ids, {"team_1": ("token", "container")}, clear=True),
             mock.patch.object(state._docker.containers, "get", return_value=assistant_container),
-            mock.patch.object(assistants, "_fail_stop_power") as stop,
+            mock.patch.object(assistants, "_fail_stop_action") as stop,
         ):
-            self.assertTrue(api._stop_active_power("team_1", "token"))
+            self.assertTrue(api._stop_active_action("team_1", "token"))
         stop.assert_called_once_with("team_1", assistant_container)
 
         stopped = SimpleNamespace(id="container", status="stopped", reload=mock.Mock())
@@ -373,7 +373,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=running),
             mock.patch.dict(state._active_chat_tokens, {"team_1": "token"}, clear=True),
             mock.patch.dict(state._active_chat_container_ids, {"team_1": "container"}, clear=True),
-            mock.patch.object(api, "_stop_active_power", return_value=True),
+            mock.patch.object(api, "_stop_active_action", return_value=True),
         ):
             result = api._stop_chat("team_1", self.lease())
         self.assertTrue(result["accepted"])
@@ -386,7 +386,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=running),
             mock.patch.dict(state._active_chat_tokens, {}, clear=True),
             mock.patch.dict(state._active_chat_container_ids, {}, clear=True),
-            mock.patch.object(api, "_stop_active_power", return_value=False),
+            mock.patch.object(api, "_stop_active_action", return_value=False),
         ):
             result = api._stop_chat("team_1", self.lease())
         self.assertFalse(result["accepted"])

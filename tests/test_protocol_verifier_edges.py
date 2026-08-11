@@ -424,12 +424,12 @@ class AssistantInstallVerifierEdgeTests(unittest.TestCase):
             {
                 **base,
                 "integrations": [{"id": "oauth"}, {"id": "oauth"}],
-                "machine_contract": {"powers": []},
+                "machine_contract": {"actions": []},
             },
             {
                 **base,
                 "integrations": [{"id": "oauth"}],
-                "machine_contract": {"powers": []},
+                "machine_contract": {"actions": []},
             },
         )
         for value in mismatch_cases:

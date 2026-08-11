@@ -7,6 +7,7 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
+from action import journal as action_journal
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local.assistant.egress import PROFILE
@@ -24,7 +25,6 @@ from local.validation import ASSISTANT_ID_RE as _ASSISTANT_ID
 from local.validation import MAX_ASSISTANT_ID_LENGTH, MAX_TEAM_ID_LENGTH, validate_team_id
 from local.validation import TEAM_ID_RE as _TEAM_ID
 from local.validation import brain_thread_id as _brain_thread_id
-from power import journal as power_journal
 from storage import files as team_storage
 
 _TEAM_RESIDUE_ABSENCE = frozenset(
@@ -35,7 +35,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "egress_policies",
         "inference_configuration",
         "integration_credentials",
-        "power_checkpoints",
+        "action_checkpoints",
         "publication_bindings",
         "runtime_state",
         "team_networks",
@@ -44,14 +44,14 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
 )
 
 
-def _purge_power_generation(self, generation: str) -> None:
+def _purge_action_generation(self, generation: str) -> None:
     try:
-        self.power_state.purge(generation)
-    except power_journal.PowerJournalError as exc:
+        self.action_state.purge(generation)
+    except action_journal.ActionJournalError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Power execution state could not be deleted",
-            code="power-state-unavailable",
+            "Team Action execution state could not be deleted",
+            code="action-state-unavailable",
         ) from exc
 
 
@@ -91,7 +91,7 @@ def _delete_team_conversation(self, team_id: str, network) -> None:
             "Team conversation state could not be deleted",
             code="brain-runtime-failed",
         ) from exc
-    self._purge_power_generation(network.id)
+    self._purge_action_generation(network.id)
 
 
 def _remove_team_assistants(self, team_id: str, containers: list) -> int:
@@ -115,7 +115,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             ) from exc
         if retired_image_id is not None:
             self.assistant_lifecycle._queue_residue(retired_image_id)
-        self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
+        self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
         self.registry.delete(team_id, assistant_id)
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
@@ -168,7 +168,7 @@ def _remove_team_network(self, network) -> bool:
 def _clear_team_runtime_state(self, team_id: str) -> None:
     with self.chat_turn_service._active_chat_guard:
         token = self.chat_turn_service._active_chat_tokens.pop(team_id, None)
-        self.chat_turn_service._active_power_containers.pop(team_id, None)
+        self.chat_turn_service._active_action_containers.pop(team_id, None)
         if token is not None:
             self.chat_turn_service._cancelled_chat_tokens.discard(token)
 
@@ -193,7 +193,7 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             containers = self._team_assistant_containers(team_id)
             self._validate_destroy_containers(containers, team_id, network)
             self._delete_team_conversation(team_id, network)
-            residue_absent.update(("brain_checkpoints", "power_checkpoints"))
+            residue_absent.update(("brain_checkpoints", "action_checkpoints"))
             removed = self._remove_team_assistants(team_id, containers)
             residue_absent.update(("assistant_containers", "egress_policies", "publication_bindings"))
             storage_removed = self._delete_team_persistence(team_id)
@@ -298,13 +298,13 @@ def _remove_space_resources(
     for network in networks:
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self._delete_team_conversation(team_id, network)
-    absent.update(("brain_checkpoints", "power_checkpoints"))
+    absent.update(("brain_checkpoints", "action_checkpoints"))
     for container in containers:
         retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         container.remove(force=True)
         if retired_image_id is not None:
             self.assistant_lifecycle._queue_residue(retired_image_id)
-        self.assistant_lifecycle._blocked_power_workloads.discard(container.id)
+        self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
     absent.add("assistant_containers")
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)

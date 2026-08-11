@@ -1,4 +1,4 @@
-"""Shared fail-closed Power execution primitives for Hosted and Local."""
+"""Shared fail-closed Action execution primitives for Hosted and Local."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import human as action_human
+from action import journal as action_journal
 from core import strict_json
-from power import human as power_human
-from power import journal as power_journal
 
-# A missing manifest Power is a missing resource; an unavailable connected integration is an unmet
+# A missing manifest Action is a missing resource; an unavailable connected integration is an unmet
 # request precondition. Both Controllers use these statuses so their public contracts cannot drift.
-UNDECLARED_POWER_STATUS = HTTPStatus.NOT_FOUND
+UNDECLARED_ACTION_STATUS = HTTPStatus.NOT_FOUND
 INTEGRATION_PRECONDITION_STATUS = HTTPStatus.PRECONDITION_REQUIRED
 RPC_FAILURE_STATUSES = {
     "timeout": HTTPStatus.GATEWAY_TIMEOUT,
@@ -28,12 +28,12 @@ RPC_FAILURE_STATUSES = {
     "failed": HTTPStatus.BAD_GATEWAY,
 }
 RPC_FAILURE_MESSAGES = {
-    "timeout": ("Assistant Power timed out", "assistant-timeout"),
-    "ambiguous": ("Assistant Power status is ambiguous", "assistant-rpc-failed"),
-    "invalid-result": ("Assistant Power returned an invalid result", "assistant-rpc-failed"),
-    "failed": ("Assistant Power failed", "assistant-rpc-failed"),
+    "timeout": ("Assistant Action timed out", "assistant-timeout"),
+    "ambiguous": ("Assistant Action status is ambiguous", "assistant-rpc-failed"),
+    "invalid-result": ("Assistant Action returned an invalid result", "assistant-rpc-failed"),
+    "failed": ("Assistant Action failed", "assistant-rpc-failed"),
 }
-POWER_COMMAND = "/usr/local/bin/shimpz-power"
+ACTION_COMMAND = "/usr/local/bin/shimpz-action"
 RPC_TIMEOUT_SECONDS = 8
 MAX_RPC_RESPONSE_BYTES = 512 * 1024
 MAX_RPC_REQUEST_BYTES = 512 * 1024
@@ -76,13 +76,13 @@ def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) 
 
 
 def encode_rpc_invocation(
-    power_input: object,
+    action_input: object,
     integrations: Mapping[str, str],
     responses: tuple[Mapping[str, object], ...] = (),
 ) -> bytes:
     """Encode one bounded Spec v1 invocation, adding responses only for replay."""
     invocation: dict[str, object] = {
-        "input": power_input,
+        "input": action_input,
         "integrations": dict(integrations),
     }
     if responses:
@@ -95,23 +95,23 @@ def encode_rpc_invocation(
             separators=(",", ":"),
         ).encode("ascii")
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
-        raise ValueError("Assistant Power invocation is invalid") from exc
+        raise ValueError("Assistant Action invocation is invalid") from exc
     if len(encoded) > MAX_RPC_REQUEST_BYTES:
-        raise ValueError("Assistant Power invocation is too large")
+        raise ValueError("Assistant Action invocation is too large")
     return encoded
 
 
-def power_operation(
+def action_operation(
     request: object,
     assistant_container_id: object,
     assistant_image: object,
     integration_generations: tuple[tuple[str, int], ...] = (),
-) -> power_journal.Operation:
+) -> action_journal.Operation:
     """Fingerprint one normalized request and every immutable private-state generation."""
     if not isinstance(assistant_container_id, str) or not assistant_container_id:
-        raise power_journal.PowerJournalConflictError("Assistant generation is invalid")
+        raise action_journal.ActionJournalConflictError("Assistant generation is invalid")
     if not isinstance(assistant_image, str) or not assistant_image:
-        raise power_journal.PowerJournalConflictError("Assistant generation is invalid")
+        raise action_journal.ActionJournalConflictError("Assistant generation is invalid")
     try:
         encoded = json.dumps(
             {
@@ -120,7 +120,7 @@ def power_operation(
                 "assistant_image": assistant_image,
                 "integration_generations": integration_generations,
                 "input": request.input,
-                "power": request.power,
+                "action": request.action,
             },
             allow_nan=False,
             ensure_ascii=False,
@@ -128,47 +128,47 @@ def power_operation(
             sort_keys=True,
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
-        raise power_journal.PowerJournalConflictError("Power request cannot be fingerprinted") from exc
-    return power_journal.Operation(request.interrupt_id, hashlib.sha256(encoded).hexdigest())
+        raise action_journal.ActionJournalConflictError("Action request cannot be fingerprinted") from exc
+    return action_journal.Operation(request.interrupt_id, hashlib.sha256(encoded).hexdigest())
 
 
 @dataclass(frozen=True, slots=True)
-class PowerBatchStrategy:
+class ActionBatchStrategy:
     binding_identity: Callable[[object], tuple[object, object]]
     execute: Callable[[object, object], object]
     preflight: Callable[[object], object]
     integration_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
 
 
-class PowerBatch:
+class ActionBatch:
     """Bind a Brain suspension to one durable journal batch and immutable workload identities."""
 
     def __init__(
         self,
-        journal: power_journal.PowerJournal | Callable[[], power_journal.PowerJournal],
+        journal: action_journal.ActionJournal | Callable[[], action_journal.ActionJournal],
         generation: str,
         thread_id: str,
         bindings: Mapping[str, object],
-        strategy: PowerBatchStrategy,
+        strategy: ActionBatchStrategy,
     ) -> None:
         self._journal_source = journal
-        self._journal = journal if isinstance(journal, power_journal.PowerJournal) else None
+        self._journal = journal if isinstance(journal, action_journal.ActionJournal) else None
         self._generation = generation
         self._thread_id = thread_id
         self._bindings = bindings
         self._strategy = strategy
-        self._batch: power_journal.Batch | None = None
-        self._operations: dict[str, power_journal.Operation] = {}
+        self._batch: action_journal.Batch | None = None
+        self._operations: dict[str, action_journal.Operation] = {}
         self._executing_here: set[str] = set()
 
-    def _operation_with_evidence(self, request: object) -> tuple[power_journal.Operation, object]:
+    def _operation_with_evidence(self, request: object) -> tuple[action_journal.Operation, object]:
         active = self._bindings.get(request.assistant_id)
         if active is None:
-            raise power_journal.PowerJournalConflictError("Power Assistant is unavailable")
+            raise action_journal.ActionJournalConflictError("Action Assistant is unavailable")
         evidence = self._strategy.preflight(request)
         container_id, image = self._strategy.binding_identity(active)
         return (
-            power_operation(
+            action_operation(
                 request,
                 container_id,
                 image,
@@ -177,12 +177,12 @@ class PowerBatch:
             evidence,
         )
 
-    def _operation(self, request: object) -> power_journal.Operation:
+    def _operation(self, request: object) -> action_journal.Operation:
         return self._operation_with_evidence(request)[0]
 
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
-            raise power_journal.PowerJournalConflictError("Power batch is already prepared")
+            raise action_journal.ActionJournalConflictError("Action batch is already prepared")
         operations = tuple(self._operation(request) for request in requests)
         if self._journal is None:
             self._journal = self._journal_source()
@@ -191,20 +191,20 @@ class PowerBatch:
 
     def invoke(self, request: object) -> object:
         if self._journal is None or self._batch is None:
-            raise power_journal.PowerJournalConflictError("Power batch is not prepared")
+            raise action_journal.ActionJournalConflictError("Action batch is not prepared")
         operation = self._operations.get(request.interrupt_id)
         if operation is None:
-            raise power_journal.PowerJournalConflictError("Power operation is not prepared")
+            raise action_journal.ActionJournalConflictError("Action operation is not prepared")
         current_operation, evidence = self._operation_with_evidence(request)
         if current_operation != operation:
-            raise power_journal.PowerJournalConflictError("Power credential generation changed")
+            raise action_journal.ActionJournalConflictError("Action credential generation changed")
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
             return decision.result
         self._executing_here.add(operation.interrupt_id)
         try:
             result = self._strategy.execute(request, evidence)
-        except power_human.HumanRequestSuspensionError:
+        except action_human.HumanRequestSuspensionError:
             self._journal.suspend(self._batch, operation)
             self._executing_here.discard(operation.interrupt_id)
             raise
@@ -214,10 +214,10 @@ class PowerBatch:
 
     def delivered(self, requests: tuple[object, ...]) -> None:
         if self._journal is None or self._batch is None:
-            raise power_journal.PowerJournalConflictError("Power batch is not prepared")
+            raise action_journal.ActionJournalConflictError("Action batch is not prepared")
         expected = tuple(operation.interrupt_id for operation in self._batch.operations)
         if tuple(request.interrupt_id for request in requests) != expected:
-            raise power_journal.PowerJournalConflictError("Power delivery batch changed")
+            raise action_journal.ActionJournalConflictError("Action delivery batch changed")
         self._journal.delivered(self._batch)
         self._batch = None
         self._operations = {}
@@ -252,7 +252,7 @@ class RpcSecretExposureError(ValueError):
 
 
 class RpcInvalidResultError(ValueError):
-    """An Assistant result failed its reviewed Power schema."""
+    """An Assistant result failed its reviewed Action schema."""
 
 
 def project_rpc_result(
@@ -273,10 +273,10 @@ def project_rpc_result(
     response_type = raw_result.get("type")
     if response_type == "request" and "request" in raw_result:
         try:
-            request = power_human.validate_request(raw_result["request"], human_requests)
-        except power_human.HumanRequestError as exc:
+            request = action_human.validate_request(raw_result["request"], human_requests)
+        except action_human.HumanRequestError as exc:
             raise RpcInvalidResultError from exc
-        raise power_human.HumanRequestSuspensionError(request)
+        raise action_human.HumanRequestSuspensionError(request)
     if response_type != "result" or "result" not in raw_result:
         raise RpcInvalidResultError
     try:
@@ -286,7 +286,7 @@ def project_rpc_result(
 
 
 def decode_rpc_response(raw: bytes) -> dict[str, object]:
-    """Decode one direct Spec v1 Power result."""
+    """Decode one direct Spec v1 Action result."""
     try:
         response = strict_json.loads(raw)
     except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
@@ -378,28 +378,28 @@ def private_generations(metadata: tuple[object, ...]) -> tuple[tuple[str, int], 
     valid = all(getattr(item, "status", None) == "connected" for item in metadata)
     generations = tuple(getattr(item, "generation", None) for item in metadata)
     if not valid or any(type(generation) is not int or generation < 1 for generation in generations):
-        raise power_journal.PowerJournalConflictError("Power integration generation is unavailable")
+        raise action_journal.ActionJournalConflictError("Action integration generation is unavailable")
     return tuple((item.id, generation) for item, generation in zip(metadata, generations, strict=True))
 
 
 def integration_generations(
-    powers: Mapping[str, object],
+    actions: Mapping[str, object],
     integrations: Mapping[str, object],
-    power_id: str,
+    action_id: str,
     metadata: Callable[[dict[str, object]], tuple[object, ...]],
 ) -> tuple[tuple[str, int], ...]:
-    """Read one declared Power's connected integration generations."""
-    power = powers.get(power_id)
-    if power is None:
-        raise power_journal.PowerJournalConflictError("Power integration contract is unavailable")
-    integration_ids = tuple(getattr(power, "integrations", ()))
+    """Read one declared Action's connected integration generations."""
+    action = actions.get(action_id)
+    if action is None:
+        raise action_journal.ActionJournalConflictError("Action integration contract is unavailable")
+    integration_ids = tuple(getattr(action, "integrations", ()))
     declarations = {
         integration_id: integrations[integration_id]
         for integration_id in integration_ids
         if integration_id in integrations
     }
     if len(declarations) != len(integration_ids):
-        raise power_journal.PowerJournalConflictError("Power integration contract is unavailable")
+        raise action_journal.ActionJournalConflictError("Action integration contract is unavailable")
     return private_generations(tuple(metadata(declarations)))
 
 
@@ -409,7 +409,7 @@ def require_rpc_envelope(
     resolve_integrations: Callable[[object, str], Mapping[str, Mapping[str, object]]],
 ) -> Mapping[str, Mapping[str, object]]:
     """Resolve and size-check the exact Spec v1 invocation before journaling."""
-    integrations = resolve_integrations(active, request.power)
+    integrations = resolve_integrations(active, request.action)
     encode_rpc_invocation(
         request.input,
         integration_access_tokens(integrations),

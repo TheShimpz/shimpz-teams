@@ -74,7 +74,7 @@ class DockerFlow:
     audit_volume: str
     storage_volume: str
     inference_volume: str
-    power_journal_volume: str
+    action_journal_volume: str
     publication_volume: str
     continuation_state_volume: str
     continuation_key_volume: str
@@ -135,7 +135,7 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         audit_volume=f"shimpz-local-audit-{unique}",
         storage_volume=f"shimpz-local-storage-{unique}",
         inference_volume=f"shimpz-local-inference-{unique}",
-        power_journal_volume=f"shimpz-local-power-journal-{unique}",
+        action_journal_volume=f"shimpz-local-action-journal-{unique}",
         publication_volume=f"shimpz-local-publication-{unique}",
         continuation_state_volume=f"shimpz-local-continuation-state-{unique}",
         continuation_key_volume=f"shimpz-local-continuation-key-{unique}",

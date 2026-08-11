@@ -5,6 +5,8 @@ from typing import NoReturn
 
 from docker.errors import DockerException
 
+from action import execution as action_execution
+from action import journal as action_journal
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -15,21 +17,19 @@ from local.chat.types import required_active_assistant as _required_active_assis
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
-from power import execution as power_execution
-from power import journal as power_journal
 
 
-def _power_integration_generations(
+def _action_integration_generations(
     self,
     team_id: str,
     active: _ActiveAssistant,
-    power_id: str,
+    action_id: str,
 ) -> tuple[tuple[str, int], ...]:
     try:
-        return power_execution.integration_generations(
-            active.spec.powers,
+        return action_execution.integration_generations(
+            active.spec.actions,
             active.spec.integrations,
-            power_id,
+            action_id,
             lambda declarations: self.assistant_integrations.metadata(
                 team_id,
                 active.spec.assistant_id,
@@ -37,7 +37,7 @@ def _power_integration_generations(
             ),
         )
     except integration_store.OAuthIntegrationStoreError as exc:
-        raise power_journal.PowerJournalConflictError("Power integration state is unavailable") from exc
+        raise action_journal.ActionJournalConflictError("Action integration state is unavailable") from exc
 
 
 def _refresh_oauth_integration(
@@ -55,46 +55,46 @@ def _refresh_oauth_integration(
     )
 
 
-def _resolve_power_integrations(
+def _resolve_action_integrations(
     self,
     team_id: str,
     spec: AssistantSpec,
-    power_id: str,
+    action_id: str,
 ) -> dict[str, dict[str, str]]:
     try:
-        return integration_flow.resolve_power_integrations(
+        return integration_flow.resolve_action_integrations(
             team_id,
             spec,
-            power_id,
+            action_id,
             self.assistant_integrations,
             self._refresh_oauth_integration,
         )
     except integration_flow.IntegrationFlowError as exc:
         raise ApiProblem(
-            power_execution.INTEGRATION_PRECONDITION_STATUS,
+            action_execution.INTEGRATION_PRECONDITION_STATUS,
             "Assistant integration is unavailable",
             code="assistant-integration-unavailable",
         ) from exc
 
 
-def _require_power_rpc_envelope(
+def _require_action_rpc_envelope(
     self,
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
-    request: brain_runtime_client.PowerRequest,
+    request: brain_runtime_client.ActionRequest,
 ) -> object:
     active = _required_active_assistant(bindings, request.assistant_id)
     try:
-        return power_execution.require_rpc_envelope(
+        return action_execution.require_rpc_envelope(
             active,
             request,
-            lambda binding, power_id: self._resolve_power_integrations(team_id, binding.spec, power_id),
+            lambda binding, action_id: self._resolve_action_integrations(team_id, binding.spec, action_id),
         )
     except ValueError as exc:
         raise ApiProblem(
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
-            "Assistant Power input is too large",
-            code="assistant-power-input-too-large",
+            "Assistant Action input is too large",
+            code="assistant-action-input-too-large",
         ) from exc
 
 

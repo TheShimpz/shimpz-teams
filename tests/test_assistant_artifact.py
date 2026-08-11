@@ -83,14 +83,14 @@ class AssistantArtifactTests(unittest.TestCase):
             },
         )
         self.assertFalse(hasattr(spec.contract, "rpc_command"))
-        self.assertEqual(set(spec.contract.powers), {"list-zones", "list-dns-records"})
+        self.assertEqual(set(spec.contract.actions), {"list-zones", "list-dns-records"})
         self.assertEqual(spec.contract.integrations["cloudflare"].provider, "cloudflare")
         self.assertEqual(
             spec.contract.integrations["cloudflare"].scopes,
             ("dns.read", "offline_access", "zone.read"),
         )
-        self.assertTrue(all(power.integrations == ("cloudflare",) for power in spec.contract.powers.values()))
-        self.assertTrue(all(not hasattr(power, "approval") for power in spec.contract.powers.values()))
+        self.assertTrue(all(action.integrations == ("cloudflare",) for action in spec.contract.actions.values()))
+        self.assertTrue(all(not hasattr(action, "approval") for action in spec.contract.actions.values()))
 
     def test_missing_digest_is_pulled_by_the_exact_registry_reference_then_rechecked(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
@@ -126,20 +126,20 @@ class AssistantArtifactTests(unittest.TestCase):
         self.assertEqual(images.gets, [])
         self.assertEqual(images.pulls, [])
 
-    def test_cloudflare_power_input_and_output_contracts_are_closed(self) -> None:
+    def test_cloudflare_action_input_and_output_contracts_are_closed(self) -> None:
         spec = hosted_spec(TEST_IMAGE)
         assert spec.contract is not None
-        power = spec.contract.powers["list-zones"]
+        action = spec.contract.actions["list-zones"]
         request = {"page": 1, "per_page": 25}
-        self.assertEqual(assistant_registry.validate_power_payload(power, "input", request), request)
+        self.assertEqual(assistant_registry.validate_action_payload(action, "input", request), request)
         zones = {
             "zones": [],
             "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
         }
-        self.assertEqual(assistant_registry.validate_power_payload(power, "output", zones), zones)
+        self.assertEqual(assistant_registry.validate_action_payload(action, "output", zones), zones)
         for payload in ({"page": 1, "per_page": 25, "shell": "id"}, {"page": 0, "per_page": 25}, []):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
-                assistant_registry.validate_power_payload(power, "input", payload)
+                assistant_registry.validate_action_payload(action, "input", payload)
 
     def test_docker_lookup_and_pull_failures_are_redacted(self) -> None:
         spec = hosted_spec(TEST_IMAGE)

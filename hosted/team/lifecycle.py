@@ -7,6 +7,7 @@ from http import HTTPStatus
 
 import docker.errors
 
+from action import journal as action_journal
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
@@ -21,7 +22,6 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import bindings as dynamic_assistants
 from integrations import store as integration_store
-from power import journal as power_journal
 from storage import files as team_storage
 
 _TEAM_RESIDUE_ABSENCE = frozenset(
@@ -35,7 +35,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "egress_policies",
         "inference_configuration",
         "integration_credentials",
-        "power_checkpoints",
+        "action_checkpoints",
         "publication_bindings",
         "runtime_state",
         "team_networks",
@@ -429,7 +429,7 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
 
 def _delete_generation_state(team_id: str, container_id: str) -> set[str]:
     if not container_id:
-        return {"brain_checkpoints", "power_checkpoints"}
+        return {"brain_checkpoints", "action_checkpoints"}
     try:
         runtime_state._brain_runtime.delete_thread(hosted_resources._brain_thread_id(team_id, container_id))
     except brain_runtime_client.BrainRuntimeError as exc:
@@ -439,13 +439,13 @@ def _delete_generation_state(team_id: str, container_id: str) -> set[str]:
         ) from exc
     residue_absent = {"brain_checkpoints"}
     try:
-        runtime_state._power_execution_journal().purge(container_id)
-    except power_journal.PowerJournalError as exc:
+        runtime_state._action_execution_journal().purge(container_id)
+    except action_journal.ActionJournalError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Power execution state could not be deleted",
+            "Team Action execution state could not be deleted",
         ) from exc
-    residue_absent.add("power_checkpoints")
+    residue_absent.add("action_checkpoints")
     return residue_absent
 
 

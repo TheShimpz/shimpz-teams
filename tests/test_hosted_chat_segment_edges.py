@@ -48,7 +48,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             ("invalid-continuation", None),
             ("invalid-suspension", None),
             ("context-changed", None),
-            ("journal", segment.power_journal.PowerJournalError("failed")),
+            ("journal", segment.action_journal.ActionJournalError("failed")),
             ("stopped", segment.chat_orchestrator.ChatStoppedError("stopped")),
             ("orchestration", segment.chat_orchestrator.ChatOrchestrationError("failed")),
             ("brain", segment.brain_runtime_client.BrainRuntimeError("failed")),
@@ -59,7 +59,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             segment._raise_hosted_chat_problem("unknown", None)
 
-    def test_private_requirements_current_identity_and_power_require_fresh_state(self) -> None:
+    def test_private_requirements_current_identity_and_action_require_fresh_state(self) -> None:
         with (
             mock.patch.object(
                 segment.integration_flow,
@@ -99,15 +99,15 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         ):
             segment._hosted_chat_current_identity(request, (), config, 1, validation)
 
-        power_request = segment.brain_runtime_client.PowerRequest(
+        action_request = segment.brain_runtime_client.ActionRequest(
             "interrupt",
             "assistant",
-            "power",
+            "action",
             {},
         )
-        execution = segment.HostedPowerExecution("team_1", "token", {}, {})
+        execution = segment.HostedActionExecution("team_1", "token", {}, {})
         with self.assertRaises(state.ApiError):
-            segment._execute_hosted_power(execution, power_request, object(), {}, object())
+            segment._execute_hosted_action(execution, action_request, object(), {}, object())
 
     def test_integration_challenge_pause_and_human_pending_failures(self) -> None:
         challenge = SimpleNamespace(team_id="team_1", requirements=(SimpleNamespace(assistant_id="assistant"),))
@@ -164,9 +164,9 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(
                 state,
-                "_power_execution_journal",
+                "_action_execution_journal",
                 return_value=SimpleNamespace(
-                    purge=mock.Mock(side_effect=segment.power_journal.PowerJournalError("failed"))
+                    purge=mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
                 ),
             ),
             self.assertRaises(state.ApiError),
@@ -192,9 +192,9 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                segment.power_challenges,
+                segment.action_challenges,
                 "challenge_payload",
-                side_effect=segment.power_challenges.HumanChallengeError("changed"),
+                side_effect=segment.action_challenges.HumanChallengeError("changed"),
             ),
             self.assertRaises(state.ApiError),
         ):
@@ -228,7 +228,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             mock.patch.object(
                 state._human_challenges,
                 "create",
-                side_effect=segment.power_challenges.HumanChallengeError("pending"),
+                side_effect=segment.action_challenges.HumanChallengeError("pending"),
             ),
             mock.patch.object(segment, "_purge_hosted_human_pending") as purge,
             self.assertRaises(state.ApiError),
@@ -249,14 +249,15 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         ):
             segment._hosted_segment_response("team_1", "token", invalid_segment, (), (), "account_1")
 
-    def test_segment_callbacks_require_fresh_power_and_human_evidence(self) -> None:
-        power = SimpleNamespace(summary="Power", input_schema={})
-        contract = SimpleNamespace(powers={"power": power})
+    def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
+        action = SimpleNamespace(summary="Action", input_schema={})
+        contract = SimpleNamespace(actions={"action": action})
         active = SimpleNamespace(
             assistant_id="assistant",
             container=SimpleNamespace(id="assistant-container"),
             contract=contract,
             image="image",
+            version="0.4.1",
         )
         config = SimpleNamespace(provider="openai", model="model")
         identity = ("identity",)
@@ -273,7 +274,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         def run_callbacks(strategy, **_kwargs):
             prepared = strategy.prepare()
             execute = prepared.durable_batch._strategy.execute
-            requested = segment.brain_runtime_client.PowerRequest("interrupt", "assistant", "power", {})
+            requested = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
             with self.assertRaises(AssertionError):
                 execute(requested, {})
 
@@ -281,14 +282,14 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             with self.assertRaises(AssertionError):
                 execute(requested, {})
 
-            missing = segment.brain_runtime_client.PowerRequest("interrupt", "missing", "power", {})
+            missing = segment.brain_runtime_client.ActionRequest("interrupt", "missing", "action", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
                 strategy.human_requirement(missing, object())
-            missing_power = segment.brain_runtime_client.PowerRequest("interrupt", "assistant", "missing", {})
+            missing_action = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "missing", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
-                strategy.human_requirement(missing_power, object())
+                strategy.human_requirement(missing_action, object())
             requirement = strategy.human_requirement(requested, object())
-            self.assertEqual(requirement.power_id, "power")
+            self.assertEqual(requirement.action_id, "action")
             return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
 
         with (

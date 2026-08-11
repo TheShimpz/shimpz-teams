@@ -99,7 +99,7 @@ def verify_vectors(document: object, capabilities: list[object]) -> None:
     if document["version"] != 1 or document["capabilities"] != capabilities:
         raise ValueError("identity")
     if document["limits"] != {
-        "requests_per_power": 8,
+        "requests_per_action": 8,
         "options": 32,
         "title_characters": 80,
         "description_characters": 500,

@@ -1,16 +1,16 @@
-"""Local Supervisor responses to Team-owned Power human challenges."""
+"""Local Supervisor responses to Team-owned Action human challenges."""
 
 from __future__ import annotations
 
 from http import HTTPStatus
 
+from action import challenges as action_challenges
+from action import human as action_human
 from chat import progress as chat_progress
 from local.chat.segment import SegmentRequest
 from local.chat.types import PendingLocalChat, ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
-from power import challenges as power_challenges
-from power import human as power_human
 
 
 def pending_chat_human(self, team_id: str) -> dict[str, object]:
@@ -34,7 +34,7 @@ def _resume_body(body: object) -> tuple[object, str, object | None]:
     if not isinstance(body, dict) or body.get("decision") not in {"submit", "deny"}:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Power human response is invalid",
+            "Action human response is invalid",
             code="invalid-body",
         )
     decision = body["decision"]
@@ -42,20 +42,20 @@ def _resume_body(body: object) -> tuple[object, str, object | None]:
     if set(body) != expected:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Power human response is invalid",
+            "Action human response is invalid",
             code="invalid-body",
         )
     return body["challenge_id"], decision, body.get("value")
 
 
-def _pending_challenge(self, team_id: str, challenge_id: object) -> power_challenges.PendingHumanChallenge:
+def _pending_challenge(self, team_id: str, challenge_id: object) -> action_challenges.PendingHumanChallenge:
     try:
         challenge = self.human_challenges.get(team_id, challenge_id)
-    except power_challenges.HumanChallengeNotFoundError as exc:
+    except action_challenges.HumanChallengeNotFoundError as exc:
         _expire_human_challenges(self)
         raise ApiProblem(
             HTTPStatus.CONFLICT,
-            "Power human request expired; retry the message",
+            "Action human request expired; retry the message",
             code="human-request-expired",
         ) from exc
     if not isinstance(challenge.payload, PendingLocalChat):
@@ -64,7 +64,7 @@ def _pending_challenge(self, team_id: str, challenge_id: object) -> power_challe
 
 
 def _validate_pending_context(self, team_id: str, provider: str, challenge: object) -> PendingLocalChat:
-    if not isinstance(challenge, power_challenges.PendingHumanChallenge) or not isinstance(
+    if not isinstance(challenge, action_challenges.PendingHumanChallenge) or not isinstance(
         challenge.payload, PendingLocalChat
     ):
         raise AssertionError("invalid local human continuation")
@@ -94,26 +94,26 @@ def _validate_pending_context(self, team_id: str, provider: str, challenge: obje
 def _admit_human_response(
     self,
     team_id: str,
-    challenge: power_challenges.PendingHumanChallenge,
+    challenge: action_challenges.PendingHumanChallenge,
     pending: PendingLocalChat,
     decision: str,
     value: object | None,
-) -> tuple[power_human.PowerTranscript, ...] | None:
+) -> tuple[action_human.ActionTranscript, ...] | None:
     if decision == "deny":
         self.human_challenges.claim(team_id, challenge.id)
         self._delete_chat_continuation(team_id, challenge.id)
         return None
     try:
-        transcripts = power_human.append_response(
+        transcripts = action_human.append_response(
             pending.transcripts,
             challenge.requirement.interrupt_id,
             challenge.requirement.request,
             value,
         )
-    except power_human.HumanRequestError as exc:
+    except action_human.HumanRequestError as exc:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Power human response does not match its request",
+            "Action human response does not match its request",
             code="invalid-human-response",
         ) from exc
     self.human_challenges.claim(team_id, challenge.id)
@@ -129,7 +129,7 @@ def resume_chat_human(
     api_key: str,
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
-    """Consume one exact Supervisor decision and deterministically replay its Power."""
+    """Consume one exact Supervisor decision and deterministically replay its Action."""
     team_id = validate_team_id(team_id)
     challenge_id, decision, value = _resume_body(body)
     with self._exclusive_chat_turn(team_id) as token:

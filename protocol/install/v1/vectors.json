@@ -75,8 +75,8 @@
             "-c",
             "import signal; signal.pause()"
           ],
-          "power_executable": {
-            "path": "/usr/local/bin/shimpz-power",
+          "action_executable": {
+            "path": "/usr/local/bin/shimpz-action",
             "mode": 365
           },
           "manifest": {
@@ -96,7 +96,7 @@
         "machine_contract_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         "machine_contract": {
           "version": 1,
-          "powers": [
+          "actions": [
             {
               "id": "hello",
               "input_schema": {
@@ -437,7 +437,7 @@
       }
     },
     {
-      "name": "resolve_wrong_power_mode",
+      "name": "resolve_wrong_action_mode",
       "fixture": "resolve_response",
       "valid": false,
       "error": "schema_violation",
@@ -445,7 +445,7 @@
         "op": "set",
         "path": [
           "runtime",
-          "power_executable",
+          "action_executable",
           "mode"
         ],
         "value": 511
@@ -577,7 +577,7 @@
         "op": "set",
         "path": [
           "machine_contract",
-          "powers"
+          "actions"
         ],
         "value": [
           {

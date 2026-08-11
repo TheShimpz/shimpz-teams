@@ -1,7 +1,7 @@
 """Small bounded audit journal that deliberately excludes bodies and credentials.
 
 Events are appended before ``record`` returns. A background group commit synchronizes
-the first unsynced event within a 50 ms target window; a sudden power loss may discard
+the first unsynced event within a 50 ms target window; a sudden action loss may discard
 that window, while process crashes retain the already-written kernel state.
 """
 

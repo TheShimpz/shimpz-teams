@@ -29,10 +29,10 @@ RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
 
 def runtime_resolution() -> dict[str, object]:
     resolution = copy.deepcopy(RESOLUTION)
-    power = resolution["machine_contract"]["powers"][0]
-    power["input_schema"]["additionalProperties"] = False
-    power["output_schema"]["additionalProperties"] = False
-    power["human_requests"] = []
+    action = resolution["machine_contract"]["actions"][0]
+    action["input_schema"]["additionalProperties"] = False
+    action["output_schema"]["additionalProperties"] = False
+    action["human_requests"] = []
     return resolution
 
 
@@ -138,8 +138,8 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(spec.image, RESOLUTION["image_reference"])
         self.assertEqual(spec.archs, ("amd64", "arm64"))
         self.assertEqual(spec.allowed_hosts, ("api.cloudflare.com",))
-        self.assertEqual(tuple(spec.contract.powers), ("hello",))
-        self.assertEqual(spec.contract.powers["hello"].human_requests, ())
+        self.assertEqual(tuple(spec.contract.actions), ("hello",))
+        self.assertEqual(spec.contract.actions["hello"].human_requests, ())
         self.assertEqual(
             spec.required_image_labels,
             (
@@ -150,12 +150,12 @@ class DynamicAssistantStoreTests(unittest.TestCase):
 
     def test_hosted_resolution_preserves_reviewed_human_requests(self) -> None:
         resolution = runtime_resolution()
-        resolution["machine_contract"]["powers"][0]["human_requests"] = ["approval"]
+        resolution["machine_contract"]["actions"][0]["human_requests"] = ["approval"]
         binding = self.store.put("team_1", resolution)
 
         spec = assistant_spec(binding)
 
-        self.assertEqual(spec.contract.powers["hello"].human_requests, ("approval",))
+        self.assertEqual(spec.contract.actions["hello"].human_requests, ("approval",))
 
     def test_unchanged_digest_reuses_validation_without_aliasing_results(self) -> None:
         binding = self.store.put("team_1", runtime_resolution())
@@ -172,8 +172,8 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(canonical.call_count, 1)
         self.assertEqual(first, second)
         self.assertIsNot(first, second)
-        first.contract.powers.pop("hello")
-        self.assertIn("hello", assistant_spec(binding).contract.powers)
+        first.contract.actions.pop("hello")
+        self.assertIn("hello", assistant_spec(binding).contract.actions)
 
     def test_registry_readers_share_the_file_lock(self) -> None:
         expected = self.store.put("team_1", runtime_resolution())

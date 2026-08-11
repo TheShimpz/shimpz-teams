@@ -1,7 +1,7 @@
 """Strict OAuth 2.0 HTTP adapter for core-owned clients.
 
 Only the trusted provider registry may choose endpoints. Assistant manifests,
-browser input, and Power input cannot supply URLs, client credentials, or token
+browser input, and Action input cannot supply URLs, client credentials, or token
 response shapes. Redirects are deliberately not followed.
 """
 

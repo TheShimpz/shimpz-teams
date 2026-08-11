@@ -10,6 +10,8 @@ from unittest import mock
 
 from docker.errors import DockerException, NotFound
 
+from action import execution as action_execution
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from install import icons
 from local import healthcheck as local_healthcheck
@@ -20,8 +22,6 @@ from local.chat import resume as chat_resume
 from local.chat import segment as chat_segment
 from local.chat import types as chat_types
 from local.errors import ApiProblemError
-from power import execution as power_execution
-from power import journal as power_journal
 
 
 class LocalLeafContractTests(unittest.TestCase):
@@ -42,9 +42,9 @@ class LocalLeafContractTests(unittest.TestCase):
             chat_types.required_active_assistant({}, "missing")
         self.assertEqual(caught.exception.code, "assistant-unavailable")
 
-    def test_segment_rejects_changed_power_contract_and_journal_failure(self) -> None:
+    def test_segment_rejects_changed_action_contract_and_journal_failure(self) -> None:
         active = chat_segment._ActiveAssistant(
-            types.SimpleNamespace(assistant_id="helper", name="Helper", powers={}, image="image"),
+            types.SimpleNamespace(assistant_id="helper", name="Helper", actions={}, image="image"),
             "container-id",
         )
         controller = types.SimpleNamespace(
@@ -59,16 +59,16 @@ class LocalLeafContractTests(unittest.TestCase):
             _chat_identity=lambda *_args: ("identity",),
             _active_assistant_genesis=lambda _active: "genesis",
             space_id="local",
-            power_state=mock.Mock(),
+            action_state=mock.Mock(),
             brain_runtime=object(),
-            _validate_chat_power=mock.Mock(),
+            _validate_chat_action=mock.Mock(),
             _require_chat_private_inputs=mock.Mock(return_value=True),
             _chat_cancelled=mock.Mock(return_value=False),
             _validate_chat_context=mock.Mock(),
             _raise_chat_problem=mock.Mock(),
-            _require_power_rpc_envelope=mock.Mock(),
-            _power_integration_generations=mock.Mock(return_value=()),
-            _invoke_chat_power=mock.Mock(),
+            _require_action_rpc_envelope=mock.Mock(),
+            _action_integration_generations=mock.Mock(return_value=()),
+            _invoke_chat_action=mock.Mock(),
         )
         request = chat_segment.SegmentRequest(
             team_id="team_1",
@@ -80,20 +80,20 @@ class LocalLeafContractTests(unittest.TestCase):
             continuation=object(),
         )
 
-        def changed_power(strategy: object, **_kwargs: object) -> object:
+        def changed_action(strategy: object, **_kwargs: object) -> object:
             strategy.prepare()
             return strategy.human_requirement(
-                types.SimpleNamespace(assistant_id="helper", power="missing", interrupt_id="interrupt"),
+                types.SimpleNamespace(assistant_id="helper", action="missing", interrupt_id="interrupt"),
                 object(),
             )
 
         with (
-            mock.patch.object(chat_segment.chat_turn_engine, "run_segment", side_effect=changed_power),
+            mock.patch.object(chat_segment.chat_turn_engine, "run_segment", side_effect=changed_action),
             self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "contract changed"),
         ):
             chat_segment._run_chat_segment_with_metadata(controller, request, None)
 
-        controller.power_state.purge_replayable.side_effect = power_journal.PowerJournalError("unavailable")
+        controller.action_state.purge_replayable.side_effect = action_journal.ActionJournalError("unavailable")
         controller._raise_chat_problem = mock.Mock(side_effect=RuntimeError("mapped journal failure"))
         fresh_request = chat_segment.SegmentRequest(
             team_id="team_1",
@@ -114,11 +114,11 @@ class LocalLeafContractTests(unittest.TestCase):
             chat_segment._run_chat_segment_with_metadata(controller, fresh_request, None)
         controller._raise_chat_problem.assert_called_once()
 
-    def test_stop_chat_cancels_human_generation_and_matching_power(self) -> None:
+    def test_stop_chat_cancels_human_generation_and_matching_action(self) -> None:
         container = object()
         lifecycle = types.SimpleNamespace(
             _network=lambda _team_id: types.SimpleNamespace(id="network-id"),
-            _fail_stop_power=mock.Mock(),
+            _fail_stop_action=mock.Mock(),
         )
         controller = types.SimpleNamespace(
             assistant_lifecycle=lifecycle,
@@ -130,21 +130,21 @@ class LocalLeafContractTests(unittest.TestCase):
             _active_chat_guard=RLock(),
             _active_chat_tokens={"team_1": "token"},
             _cancelled_chat_tokens=set(),
-            _active_power_containers={"team_1": ("token", container)},
+            _active_action_containers={"team_1": ("token", container)},
         )
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertTrue(result["accepted"])
         self.assertTrue(result["confirmed"])
         controller._purge_human_generation.assert_called_once_with("network-id")
-        lifecycle._fail_stop_power.assert_called_once_with(container)
+        lifecycle._fail_stop_action.assert_called_once_with(container)
 
         controller.human_challenges.cancel_team = lambda _team_id: False
-        controller._active_power_containers = {"team_1": ("other-token", container)}
+        controller._active_action_containers = {"team_1": ("other-token", container)}
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertFalse(result["confirmed"])
 
         controller._active_chat_tokens = {}
-        controller._active_power_containers = {}
+        controller._active_action_containers = {}
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertFalse(result["accepted"])
 
@@ -201,24 +201,24 @@ class LocalLeafContractTests(unittest.TestCase):
     def test_assistant_rpc_maps_absence_encoding_and_readiness_states(self) -> None:
         missing = mock.Mock()
         missing.stop.side_effect = NotFound("missing")
-        assistant_rpc._fail_stop_power(types.SimpleNamespace(), missing)
+        assistant_rpc._fail_stop_action(types.SimpleNamespace(), missing)
 
         killed = mock.Mock()
         killed.stop.side_effect = DockerException("stop failed")
         killed.kill.side_effect = NotFound("missing")
-        controller = types.SimpleNamespace(_power_not_running=lambda _container: False)
-        assistant_rpc._fail_stop_power(controller, killed)
+        controller = types.SimpleNamespace(_action_not_running=lambda _container: False)
+        assistant_rpc._fail_stop_action(controller, killed)
 
         absent = mock.Mock()
         absent.reload.side_effect = NotFound("missing")
-        self.assertTrue(assistant_rpc._power_not_running(absent))
+        self.assertTrue(assistant_rpc._action_not_running(absent))
 
         rpc_controller = types.SimpleNamespace()
         with (
-            mock.patch.object(power_execution, "encode_rpc_invocation", side_effect=ValueError("large")),
+            mock.patch.object(action_execution, "encode_rpc_invocation", side_effect=ValueError("large")),
             self.assertRaisesRegex(ApiProblemError, "request is too large"),
         ):
-            assistant_rpc._rpc(rpc_controller, types.SimpleNamespace(), "power", {})
+            assistant_rpc._rpc(rpc_controller, types.SimpleNamespace(), "action", {})
 
         running = mock.Mock(status="running")
         with mock.patch.object(assistant_rpc.time, "monotonic", side_effect=(0, 0)):

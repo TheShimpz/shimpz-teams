@@ -17,7 +17,7 @@
   owns the published Assistant specification while Team admission remains independently fail-closed.
 - Do not create `core/`, `shared/`, `common/`, `utils/`, or `misc/` as a convenience. `core/` is allowed only for
   cohesive Team invariants proven to be shared by Hosted and Local.
-- Prefer a named profile-neutral responsibility such as `chat/`, `egress/`, `inference/`, or `power/` over hiding
+- Prefer a named profile-neutral responsibility such as `chat/`, `egress/`, `inference/`, or `action/` over hiding
   that responsibility in `core/`.
 - Preserve Team isolation, least privilege, fail-closed validation, secret redaction, and exact image-copy closure
   while moving source.

@@ -2,7 +2,7 @@
 
 `local/Dockerfile` packages the single-owner controller installed by `install.shimpz.com`. It is a
 local projection of the shared Team controller domain, not a lifecycle-only Docker wrapper. It owns
-Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Powers,
+Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Actions,
 enforces egress policy, stores Team files and inference selection, and coordinates OAuth Integrations.
 
 The Admin never receives the Docker socket or controller bearer. It mounts the token volume read-only
@@ -37,7 +37,7 @@ failure. It does not remove shared images, the controller container, or unlabele
   `/run/shimpz-local/token`, `10001:10010`, mode `0440`, never environment/argv/log output.
 - Brain bearer/state: the controller writes the dedicated runtime token volume; Brain runtime mounts it
   read-only. Conversation checkpoints stay in the Brain runtime state volume.
-- Persistent controller state: audit, Team storage, inference selection, Power journal, Integration
+- Persistent controller state: audit, Team storage, inference selection, Action journal, Integration
   state/key, chat continuations, and egress policies each use dedicated paths or volumes. Integration
   tokens and continuations are encrypted at rest and never enter metadata-only audit JSONL.
 - Model credentials: Admin supplies `X-Shimpz-Model-Provider` and `X-Shimpz-Model-Api-Key` only on chat
@@ -64,7 +64,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `GET` | `/v1/teams/{team_id}/assistants` | installed Assistant version and status inventory |
 | `POST` | `/v1/teams/{team_id}/assistants` | install one trusted Assistant ID/digest |
 | `DELETE` | `/v1/teams/{team_id}/assistants/{assistant_id}` | uninstall one owned Assistant |
-| `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/powers/{power_id}` | invoke one declared Power directly |
+| `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/actions/{action_id}` | invoke one declared Action directly |
 | `GET` | `/v1/teams/{team_id}/files` | list opaque Team file metadata and quota |
 | `POST` | `/v1/teams/{team_id}/files` | upload one bounded base64 object |
 | `DELETE` | `/v1/teams/{team_id}/files/{opaque_id}` | delete one Team-owned object |
@@ -86,15 +86,15 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 
 Chat accepts only `message`, opaque file IDs, and selected installed Assistant IDs. A Team has at most
 one active/paused turn. Selection and workload identity are revalidated before provider start, each
-Power, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
-executes Powers and resumes the checkpoint.
+Action, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
+executes Actions and resumes the checkpoint.
 
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
-`started`/`finished` records surround actual Team context, model, Power preparation, individual Power, and
-Power-delivery operations. `power-delivery` is the durable acknowledgement and journal retirement after the
-model accepted a Power result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
+`started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and
+Action-delivery operations. `action-delivery` is the durable acknowledgement and journal retirement after the
+model accepted a Action result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
 records carry monotonic elapsed milliseconds;
-Power records also carry their bounded position. One terminal record contains the existing HTTP status and
+Action records also carry their bounded position. One terminal record contains the existing HTTP status and
 response object and remains the only operation result. Progress carries no messages, schemas, arguments,
 results, Assistant identities, provider data, traces, or credentials. A disconnected progress consumer cannot
 change the admitted turn's outcome. `protocol/http/v1/progress.py` owns the exact framing and bounds.
@@ -125,14 +125,14 @@ contains exactly `state`, `claim`, and `session_binding`. All three bodies rejec
 The Team-scoped publication registry binds an Assistant ID to one immutable Developers source digest
 and verified image digest. A missing image may be pulled, then repository digest, signature, provenance,
 and Assistant image labels are revalidated before creation. The fixed adapter
-accepts only declared `POST /v1/powers/{power-id}` routes and its health probe; neither browser input nor
+accepts only declared `POST /v1/actions/{action-id}` routes and its health probe; neither browser input nor
 the Assistant manifest can supply an arbitrary method, URL, command, or container identity.
 
 Assistant containers run as `10001:10001`, with read-only roots, all capabilities dropped,
 `no-new-privileges`, default seccomp, no host mounts or published ports, one Team network, and fixed
-CPU/memory/PID/file-descriptor limits. Each Power input is schema-validated, approval and secret/Integration
+CPU/memory/PID/file-descriptor limits. Each Action input is schema-validated, approval and secret/Integration
 requirements are enforced before dispatch, output is bounded and schema-validated, and durable journal
-state prevents ambiguous retries from silently executing a non-idempotent Power twice.
+state prevents ambiguous retries from silently executing a non-idempotent Action twice.
 
 ## Release binding
 

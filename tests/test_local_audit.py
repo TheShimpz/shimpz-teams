@@ -36,7 +36,7 @@ def _crash_after_acknowledged_audit(path: str, sync_marker: str) -> None:
         Path(sync_marker).write_text("synced", encoding="ascii")
 
     audit.os.fsync = mark_sync
-    _record("assistant-power", result="ok", team_id="team_1")
+    _record("assistant-action", result="ok", team_id="team_1")
     os._exit(0)
 
 
@@ -61,7 +61,7 @@ class LocalAuditTests(unittest.TestCase):
         self.assertEqual(process.exitcode, 0)
         self.assertFalse(marker.exists())
         event = json.loads(self.path.read_bytes())
-        self.assertEqual(event["operation"], "assistant-power")
+        self.assertEqual(event["operation"], "assistant-action")
         self.assertEqual(event["team_id"], "team_1")
 
     def test_multiple_events_share_one_durability_sync(self) -> None:
@@ -103,7 +103,7 @@ class LocalAuditTests(unittest.TestCase):
         self.assertLess(synchronized_at[0] - started, window * 5)
         self.assertEqual(sync.call_count, 1)
 
-    def test_power_loss_model_limits_loss_to_the_current_unsynced_group(self) -> None:
+    def test_action_loss_model_limits_loss_to_the_current_unsynced_group(self) -> None:
         durable_snapshot = b""
         real_fsync = os.fsync
 

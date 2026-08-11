@@ -6,8 +6,8 @@ import json
 
 from local_controller_docker_fixture import DockerFlow
 
+from action import execution as action_execution
 from local.assistant import isolation as local_container_policy
-from power import execution as power_execution
 
 
 class LocalAssistantLifecycleMixin:
@@ -44,7 +44,7 @@ class LocalAssistantLifecycleMixin:
             [
                 {
                     "id": "shimpz-cloudflare",
-                    "powers": ["list-dns-records", "list-zones"],
+                    "actions": ["list-dns-records", "list-zones"],
                     "summary": "Shimpz Cloudflare",
                     "title": "Shimpz Cloudflare",
                 }
@@ -165,16 +165,16 @@ class LocalAssistantLifecycleMixin:
             flow.port,
             flow.token,
             "POST",
-            "/v1/teams/demo_team/assistants/shimpz-cloudflare/powers/list-zones",
+            "/v1/teams/demo_team/assistants/shimpz-cloudflare/actions/list-zones",
             {"page": 1, "per_page": 25},
         )
-        self.assertEqual(account_required, power_execution.INTEGRATION_PRECONDITION_STATUS)
+        self.assertEqual(account_required, action_execution.INTEGRATION_PRECONDITION_STATUS)
         self.assertEqual(missing_account["code"], "assistant-integration-unavailable")
-        unknown_power, _ = self._api(
+        unknown_action, _ = self._api(
             flow.port,
             flow.token,
             "POST",
-            "/v1/teams/demo_team/assistants/shimpz-cloudflare/powers/shell",
+            "/v1/teams/demo_team/assistants/shimpz-cloudflare/actions/shell",
             {},
         )
-        self.assertEqual(unknown_power, 404)
+        self.assertEqual(unknown_action, 404)

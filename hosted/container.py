@@ -17,9 +17,9 @@ from pathlib import PurePosixPath
 import docker
 import docker.types
 
+from action import execution as action_execution
 from assistant.spec import AssistantSpec
 from core.container import network as network_policy
-from power import execution as power_execution
 
 # SHIMPZ_SUFFIX distinguishes resources when multiple Spaces share one host; empty is the primary Space.
 SUFFIX = os.environ.get("SHIMPZ_SUFFIX", "")
@@ -203,7 +203,7 @@ def build_assistant_kwargs(
             "SHIMPZ_ASSISTANT_ID": assistant_id,
             **(proxy_env or {}),
         },
-        "user": power_execution.ASSISTANT_RPC_USER,
+        "user": action_execution.ASSISTANT_RPC_USER,
         "cap_drop": ["ALL"],
         "security_opt": ["no-new-privileges:true", "apparmor=docker-default"],
         "privileged": False,

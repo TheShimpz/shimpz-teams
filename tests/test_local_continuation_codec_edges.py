@@ -8,10 +8,10 @@ from unittest import mock
 
 from test_local_chat_continuations import pending
 
+from action import human as action_human
 from integrations import challenges as integration_challenges
 from local.chat import continuation as continuation
 from local.chat import continuation_store
-from power import human as power_human
 
 
 class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
@@ -56,7 +56,7 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
             continuation._pending_payload(object())
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._transcripts_payload([])
-        duplicate = power_human.PowerTranscript("interrupt")
+        duplicate = action_human.ActionTranscript("interrupt")
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._transcripts_payload((duplicate, duplicate))
 
@@ -106,7 +106,7 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
         integration = integration_challenges.IntegrationRequirement(
             "missing-assistant",
             "Missing",
-            ("power",),
+            ("action",),
             (("integration", "provider", ("scope",)),),
         )
         with self.assertRaises(continuation.ContinuationCodecError):
@@ -114,7 +114,7 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
 
         human = types.SimpleNamespace(
             assistant_id="demo-assistant",
-            power_id="publish",
+            action_id="publish",
             request=object(),
         )
         with self.assertRaises(continuation.ContinuationCodecError):
@@ -163,18 +163,18 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.raw_pending = continuation._pending_payload(pending())
 
-    def test_payload_power_and_brain_continuation_reject_drift(self) -> None:
+    def test_payload_action_and_brain_continuation_reject_drift(self) -> None:
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._decode_payload(b"\xff")
 
         request = {
             "interrupt_id": "interrupt",
             "assistant_id": "assistant",
-            "power": "power",
+            "action": "action",
             "input": [],
         }
         with self.assertRaises(continuation.ContinuationCodecError):
-            continuation._power_request(request)
+            continuation._action_request(request)
 
         raw = copy.deepcopy(self.raw_pending["continuation"])
         raw["seen_interrupts"] = ["duplicate", "duplicate"]
@@ -257,7 +257,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         invalid_integrations = {
             "assistant_id": "assistant",
             "assistant_name": "Assistant",
-            "power_ids": ["power"],
+            "action_ids": ["action"],
             "integrations": [["malformed"]],
         }
         with self.assertRaises(continuation.ContinuationCodecError):
@@ -269,8 +269,8 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         invalid_human = {
             "assistant_id": "assistant",
             "assistant_name": "Assistant",
-            "power_id": "power",
-            "power_summary": "Summary",
+            "action_id": "action",
+            "action_summary": "Summary",
             "interrupt_id": "interrupt",
             "request": {},
         }

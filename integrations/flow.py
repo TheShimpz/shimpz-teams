@@ -1,7 +1,7 @@
 """Closed public and private contracts for Assistant OAuth integrations.
 
 Public projections contain only reviewed intent and bounded integration metadata.
-OAuth tokens remain Controller-owned and are resolved into the exact Power RPC
+OAuth tokens remain Controller-owned and are resolved into the exact Action RPC
 envelope only at the last private boundary before an Assistant invocation.
 """
 
@@ -18,11 +18,11 @@ from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import providers as integration_providers
 
-MAX_BATCH_POWERS = 64
+MAX_BATCH_ACTIONS = 64
 MAX_INTEGRATION_REQUIREMENTS = 64
 MAX_INVENTORY_ASSISTANTS = 64
 MAX_INVENTORY_INTEGRATIONS = 256
-MAX_INTEGRATIONS_PER_POWER = 16
+MAX_INTEGRATIONS_PER_ACTION = 16
 MAX_ACCESS_TOKEN_BYTES = 16 * 1024
 MAX_PUBLIC_TEXT_BYTES = 512
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
@@ -60,7 +60,7 @@ class _IntegrationSpec(Protocol):
     scopes: tuple[str, ...]
 
 
-class _PowerSpec(Protocol):
+class _ActionSpec(Protocol):
     summary: str
     integrations: tuple[str, ...]
 
@@ -68,7 +68,7 @@ class _PowerSpec(Protocol):
 class _AssistantSpec(Protocol):
     assistant_id: str
     name: str
-    powers: Mapping[str, _PowerSpec]
+    actions: Mapping[str, _ActionSpec]
     integrations: Mapping[str, _IntegrationSpec]
 
 
@@ -135,15 +135,15 @@ def _assistant(spec: object) -> _AssistantSpec:
     try:
         assistant_id = spec.assistant_id  # type: ignore[attr-defined]
         name = spec.name  # type: ignore[attr-defined]
-        powers = spec.powers  # type: ignore[attr-defined]
+        actions = spec.actions  # type: ignore[attr-defined]
         integrations = spec.integrations  # type: ignore[attr-defined]
     except (AttributeError, TypeError) as exc:
         raise IntegrationFlowError("Assistant integration contract is unavailable") from exc
     _component_id(assistant_id, "Assistant id")
     _public_text(name, "Assistant name")
-    if not isinstance(powers, Mapping) or not isinstance(integrations, Mapping):
+    if not isinstance(actions, Mapping) or not isinstance(integrations, Mapping):
         raise IntegrationFlowError("Assistant integration contract is unavailable")
-    if len(integrations) > MAX_INTEGRATIONS_PER_POWER:
+    if len(integrations) > MAX_INTEGRATIONS_PER_ACTION:
         raise IntegrationFlowError("Assistant declares too many integrations")
     return spec  # type: ignore[return-value]
 
@@ -168,28 +168,28 @@ def _provider_metadata(provider_id: str) -> tuple[str, str]:
     return name, summary
 
 
-def _power(spec: _AssistantSpec, power_id: object) -> tuple[str, _PowerSpec]:
-    identifier = _component_id(power_id, "Power id")
-    power = spec.powers.get(identifier)
-    if power is None:
-        raise IntegrationFlowError("Power integration contract is unavailable")
+def _action(spec: _AssistantSpec, action_id: object) -> tuple[str, _ActionSpec]:
+    identifier = _component_id(action_id, "Action id")
+    action = spec.actions.get(identifier)
+    if action is None:
+        raise IntegrationFlowError("Action integration contract is unavailable")
     try:
-        summary = power.summary
-        integrations = power.integrations
+        summary = action.summary
+        integrations = action.integrations
     except (AttributeError, TypeError) as exc:
-        raise IntegrationFlowError("Power integration contract is unavailable") from exc
-    _public_text(summary, "Power summary")
+        raise IntegrationFlowError("Action integration contract is unavailable") from exc
+    _public_text(summary, "Action summary")
     if (
         not isinstance(integrations, tuple)
-        or len(integrations) > MAX_INTEGRATIONS_PER_POWER
+        or len(integrations) > MAX_INTEGRATIONS_PER_ACTION
         or len(integrations) != len(set(integrations))
     ):
-        raise IntegrationFlowError("Power integration contract is invalid")
-    return identifier, power
+        raise IntegrationFlowError("Action integration contract is invalid")
+    return identifier, action
 
 
-def _power_name(power_id: str) -> str:
-    return " ".join(part.capitalize() for part in power_id.split("-"))
+def _action_name(action_id: str) -> str:
+    return " ".join(part.capitalize() for part in action_id.split("-"))
 
 
 def _metadata_for(
@@ -241,31 +241,31 @@ def _metadata_for(
 def requirements_for_batch(
     team_id: str,
     bindings: Mapping[str, _ActiveBinding],
-    requests: Sequence[brain_runtime_client.PowerRequest],
+    requests: Sequence[brain_runtime_client.ActionRequest],
     store: _IntegrationStore,
 ) -> tuple[integration_challenges.IntegrationRequirement, ...]:
-    """Return every unusable integration before the first Power may execute."""
+    """Return every unusable integration before the first Action may execute."""
     team = _team_id(team_id)
-    if isinstance(requests, str | bytes) or len(requests) > MAX_BATCH_POWERS:
-        raise IntegrationFlowError("Power batch has too many integration requests")
+    if isinstance(requests, str | bytes) or len(requests) > MAX_BATCH_ACTIONS:
+        raise IntegrationFlowError("Action batch has too many integration requests")
     grouped: dict[str, dict[str, set[str]]] = {}
     specs: dict[str, _AssistantSpec] = {}
     for request in requests:
-        if not isinstance(request, brain_runtime_client.PowerRequest):
-            raise IntegrationFlowError("Power integration request is invalid")
+        if not isinstance(request, brain_runtime_client.ActionRequest):
+            raise IntegrationFlowError("Action integration request is invalid")
         active = bindings.get(request.assistant_id)
         if active is None:
-            raise IntegrationFlowError("Power Assistant is unavailable")
+            raise IntegrationFlowError("Action Assistant is unavailable")
         spec = _assistant(active.spec)
         if request.assistant_id != spec.assistant_id:
-            raise IntegrationFlowError("Power Assistant binding is invalid")
-        power_id, power = _power(spec, request.power)
+            raise IntegrationFlowError("Action Assistant binding is invalid")
+        action_id, action = _action(spec, request.action)
         specs[spec.assistant_id] = spec
-        for integration_id in power.integrations:
+        for integration_id in action.integrations:
             identifier = _component_id(integration_id, "integration id")
             if identifier not in spec.integrations:
-                raise IntegrationFlowError("Power references an undeclared integration")
-            grouped.setdefault(spec.assistant_id, {}).setdefault(identifier, set()).add(power_id)
+                raise IntegrationFlowError("Action references an undeclared integration")
+            grouped.setdefault(spec.assistant_id, {}).setdefault(identifier, set()).add(action_id)
 
     requirements: list[integration_challenges.IntegrationRequirement] = []
     for assistant_id in sorted(grouped):
@@ -281,12 +281,12 @@ def requirements_for_batch(
                 integration_challenges.IntegrationRequirement(
                     assistant_id=assistant_id,
                     assistant_name=spec.name,
-                    power_ids=tuple(sorted(grouped[assistant_id][integration_id])),
+                    action_ids=tuple(sorted(grouped[assistant_id][integration_id])),
                     integrations=((identifier, provider, scopes),),
                 )
             )
             if len(requirements) > MAX_INTEGRATION_REQUIREMENTS:
-                raise IntegrationFlowError("Power batch requires too many Assistant integrations")
+                raise IntegrationFlowError("Action batch requires too many Assistant integrations")
     return tuple(requirements)
 
 
@@ -315,7 +315,7 @@ def challenge_payload(
     challenge: integration_challenges.PendingIntegrationChallenge,
     bindings: Mapping[str, _ActiveBinding],
 ) -> dict[str, object]:
-    """Project one pending turn without Power input, OAuth state, or token material."""
+    """Project one pending turn without Action input, OAuth state, or token material."""
     if (
         not isinstance(challenge, integration_challenges.PendingIntegrationChallenge)
         or not 1 <= len(challenge.requirements) <= MAX_INTEGRATION_REQUIREMENTS
@@ -335,20 +335,20 @@ def challenge_payload(
         declaration = spec.integrations.get(integration_id)
         if declaration is None or _intent(integration_id, declaration) != (integration_id, provider, scopes):
             raise IntegrationFlowError("integration challenge declaration changed")
-        powers: list[dict[str, str]] = []
-        for power_id in requirement.power_ids:
-            identifier, power = _power(spec, power_id)
-            if integration_id not in power.integrations:
-                raise IntegrationFlowError("integration challenge Power changed")
-            powers.append(
+        actions: list[dict[str, str]] = []
+        for action_id in requirement.action_ids:
+            identifier, action = _action(spec, action_id)
+            if integration_id not in action.integrations:
+                raise IntegrationFlowError("integration challenge Action changed")
+            actions.append(
                 {
                     "id": identifier,
-                    "name": _power_name(identifier),
-                    "summary": str(_public_text(power.summary, "Power summary")),
+                    "name": _action_name(identifier),
+                    "summary": str(_public_text(action.summary, "Action summary")),
                 }
             )
-        if not powers or len(powers) != len({item["id"] for item in powers}):
-            raise IntegrationFlowError("integration challenge Power list is invalid")
+        if not actions or len(actions) != len({item["id"] for item in actions}):
+            raise IntegrationFlowError("integration challenge Action list is invalid")
         name, summary = _provider_metadata(provider)
         requirements.append(
             {
@@ -359,7 +359,7 @@ def challenge_payload(
                 "name": name,
                 "summary": summary,
                 "scopes": list(scopes),
-                "powers": powers,
+                "actions": actions,
             }
         )
     payload: dict[str, object] = {
@@ -441,25 +441,25 @@ def inventory_payload(
     return payload
 
 
-def resolve_power_integrations(
+def resolve_action_integrations(
     team_id: str,
     spec: _AssistantSpec,
-    power_id: str,
+    action_id: str,
     store: _IntegrationStore,
     refresh_callback: RefreshCallback,
 ) -> dict[str, dict[str, str]]:
-    """Resolve only one Power's declared access tokens into its private envelope."""
+    """Resolve only one Action's declared access tokens into its private envelope."""
     team = _team_id(team_id)
     safe_spec = _assistant(spec)
-    _, power = _power(safe_spec, power_id)
+    _, action = _action(safe_spec, action_id)
     if not callable(refresh_callback):
         raise IntegrationFlowError("OAuth refresh callback is invalid")
     resolved: dict[str, dict[str, str]] = {}
-    for raw_integration_id in power.integrations:
+    for raw_integration_id in action.integrations:
         integration_id = _component_id(raw_integration_id, "integration id")
         declaration = safe_spec.integrations.get(integration_id)
         if declaration is None:
-            raise IntegrationFlowError("Power references an undeclared integration")
+            raise IntegrationFlowError("Action references an undeclared integration")
         _, provider, scopes = _intent(integration_id, declaration)
         try:
             access_token = store.resolve(

@@ -6,6 +6,9 @@ from contextlib import nullcontext
 from http import HTTPStatus
 from unittest import mock
 
+from action import challenges as action_challenges
+from action import human as action_human
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
@@ -15,9 +18,6 @@ from local.chat import api as local_chat_api
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
 from local.chat.types import PendingLocalChat, ResponseRequest
-from power import challenges as power_challenges
-from power import human as power_human
-from power import journal as power_journal
 
 
 def _pending(*, provider: str = "openai", identity: tuple[object, ...] = ("identity",)) -> PendingLocalChat:
@@ -30,8 +30,8 @@ def _pending(*, provider: str = "openai", identity: tuple[object, ...] = ("ident
     )
 
 
-def _challenge(payload: object) -> power_challenges.PendingHumanChallenge:
-    return power_challenges.PendingHumanChallenge(
+def _challenge(payload: object) -> action_challenges.PendingHumanChallenge:
+    return action_challenges.PendingHumanChallenge(
         id="challenge",
         team_id="team_1",
         expires_at=10,
@@ -81,7 +81,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
     def test_pending_challenge_maps_expiration_and_rejects_foreign_payload(self) -> None:
         subject = types.SimpleNamespace(
             human_challenges=types.SimpleNamespace(
-                get=mock.Mock(side_effect=power_challenges.HumanChallengeNotFoundError("expired")),
+                get=mock.Mock(side_effect=action_challenges.HumanChallengeNotFoundError("expired")),
                 drain_expired=lambda: (),
             )
         )
@@ -127,9 +127,9 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                power_human,
+                action_human,
                 "append_response",
-                side_effect=power_human.HumanRequestError("invalid"),
+                side_effect=action_human.HumanRequestError("invalid"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
@@ -339,19 +339,19 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             _active_chat_guard=nullcontext(),
             _active_chat_tokens={"team_1": "token"},
             _cancelled_chat_tokens=set(),
-            _active_power_containers={},
+            _active_action_containers={},
             _chat_cancelled=lambda _token: False,
         )
 
-    def test_power_invocation_rejects_generation_and_turn_drift(self) -> None:
+    def test_action_invocation_rejects_generation_and_turn_drift(self) -> None:
         request = types.SimpleNamespace(
             assistant_id="assistant",
-            power="power",
+            action="action",
             input={},
         )
         subject = self._invocation_subject()
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_execution._invoke_chat_power(
+            local_chat_execution._invoke_chat_action(
                 subject,
                 "team_1",
                 "token",
@@ -362,7 +362,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
 
         subject._active_chat_tokens["team_1"] = "different"
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_power(
+            local_chat_execution._invoke_chat_action(
                 subject,
                 "team_1",
                 "token",
@@ -373,12 +373,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         subject = self._invocation_subject()
 
         def replace_active(*_args):
-            subject._active_power_containers["team_1"] = ("new-token", object())
+            subject._active_action_containers["team_1"] = ("new-token", object())
             return {"result": "ok"}
 
         subject.assistant_lifecycle.invoke.side_effect = replace_active
         self.assertEqual(
-            local_chat_execution._invoke_chat_power(
+            local_chat_execution._invoke_chat_action(
                 subject,
                 "team_1",
                 "token",
@@ -387,7 +387,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             ),
             "ok",
         )
-        self.assertEqual(subject._active_power_containers["team_1"][0], "new-token")
+        self.assertEqual(subject._active_action_containers["team_1"][0], "new-token")
 
         subject = self._invocation_subject()
         subject.assistant_lifecycle.invoke.side_effect = local_app.ApiProblem(
@@ -397,7 +397,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         subject._chat_cancelled = lambda _token: True
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_power(
+            local_chat_execution._invoke_chat_action(
                 subject,
                 "team_1",
                 "token",
@@ -408,7 +408,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         subject = self._invocation_subject()
         subject._chat_cancelled = lambda _token: True
         with self.assertRaises(chat_orchestrator.ChatStoppedError):
-            local_chat_execution._invoke_chat_power(
+            local_chat_execution._invoke_chat_action(
                 subject,
                 "team_1",
                 "token",
@@ -421,7 +421,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
             ("invalid-continuation", None, "internal-error"),
             ("invalid-suspension", None, "internal-error"),
             ("context-changed", None, "team-context-changed"),
-            ("journal", power_journal.PowerJournalError("failed"), "power-state-unavailable"),
+            ("journal", action_journal.ActionJournalError("failed"), "action-state-unavailable"),
             ("stopped", chat_orchestrator.ChatStoppedError("stopped"), "chat-stopped"),
             (
                 "orchestration",
@@ -438,24 +438,24 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             local_chat_execution._raise_chat_problem("unknown", None)
 
-    def test_power_contract_and_integration_errors_are_mapped(self) -> None:
-        active = types.SimpleNamespace(spec=types.SimpleNamespace(powers={}))
+    def test_action_contract_and_integration_errors_are_mapped(self) -> None:
+        active = types.SimpleNamespace(spec=types.SimpleNamespace(actions={}))
         bindings = {"assistant": active}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_execution._validate_chat_power(bindings, "assistant", "missing", {})
-        self.assertEqual(caught.exception.code, "invalid-power-input")
+            local_chat_execution._validate_chat_action(bindings, "assistant", "missing", {})
+        self.assertEqual(caught.exception.code, "invalid-action-input")
 
-        active.spec.powers["power"] = object()
+        active.spec.actions["action"] = object()
         with (
             mock.patch.object(
                 local_chat_execution,
-                "validate_power_payload",
+                "validate_action_payload",
                 side_effect=ValueError("invalid payload"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            local_chat_execution._validate_chat_power(bindings, "assistant", "power", {})
-        self.assertEqual(caught.exception.code, "invalid-power-input")
+            local_chat_execution._validate_chat_action(bindings, "assistant", "action", {})
+        self.assertEqual(caught.exception.code, "invalid-action-input")
 
         requirements = chat_turn_engine.SegmentRequirements()
         subject = types.SimpleNamespace(assistant_integrations=object())

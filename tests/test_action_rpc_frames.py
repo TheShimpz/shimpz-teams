@@ -1,4 +1,4 @@
-"""Adversarial frame contracts for hosted and local Assistant Power RPC."""
+"""Adversarial frame contracts for hosted and local Assistant Action RPC."""
 
 from __future__ import annotations
 
@@ -21,14 +21,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from hosted_assistant_fixture import hosted_assistants, runtime_state
 
+from action import execution as action_execution
+from action import human as action_human
+from action import journal as action_journal
 from hosted import container as container_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy
 from local.assistant import rpc as local_assistant_rpc
-from power import execution as power_execution
-from power import human as power_human
-from power import journal as power_journal
 
 
 def _frame(stream_id: int, payload: bytes) -> bytes:
@@ -58,7 +58,7 @@ def _socket_bytes(payload: bytes, *, pieces: tuple[int, ...] = ()):
         writer.close()
 
 
-class PowerRpcFrameTests(unittest.TestCase):
+class ActionRpcFrameTests(unittest.TestCase):
     def setUp(self) -> None:
         self.local = object.__new__(local_app.LocalController)
         self.local._wire_collaborators()
@@ -66,16 +66,16 @@ class PowerRpcFrameTests(unittest.TestCase):
     def test_split_stdout_and_stderr_frames_are_read_exactly(self) -> None:
         payload = _frame(1, b'{"ok":') + _frame(2, b"warning") + _frame(1, b"true}")
         with _socket_bytes(payload, pieces=(1, 2, 5, 3, 7)) as hosted_socket:
-            stdout, stderr = power_execution.read_rpc_frames(
+            stdout, stderr = action_execution.read_rpc_frames(
                 hosted_socket,
                 time.monotonic() + 1,
-                power_execution.MAX_RPC_RESPONSE_BYTES,
+                action_execution.MAX_RPC_RESPONSE_BYTES,
             )
         with _socket_bytes(payload, pieces=(4, 1, 6, 2)) as local_socket:
-            local_stdout, local_stderr = power_execution.read_rpc_frames(
+            local_stdout, local_stderr = action_execution.read_rpc_frames(
                 local_socket,
                 time.monotonic() + 1,
-                power_execution.MAX_RPC_RESPONSE_BYTES,
+                action_execution.MAX_RPC_RESPONSE_BYTES,
             )
 
         self.assertEqual(stdout, b'{"ok":true}')
@@ -85,7 +85,7 @@ class PowerRpcFrameTests(unittest.TestCase):
 
     def test_rpc_response_accepts_only_a_direct_spec_v1_object(self) -> None:
         self.assertEqual(
-            power_execution.decode_rpc_response(b'{"ok":true}'),
+            action_execution.decode_rpc_response(b'{"ok":true}'),
             {"ok": True},
         )
         for invalid in (
@@ -93,13 +93,13 @@ class PowerRpcFrameTests(unittest.TestCase):
             b'{"value":NaN}',
             b"[]",
         ):
-            with self.subTest(invalid=invalid), self.assertRaises(power_execution.RpcExchangeError):
-                power_execution.decode_rpc_response(invalid)
+            with self.subTest(invalid=invalid), self.assertRaises(action_execution.RpcExchangeError):
+                action_execution.decode_rpc_response(invalid)
 
     def test_rpc_failure_kinds_share_one_http_status_table(self) -> None:
         self.assertEqual(
             {
-                kind: power_execution.rpc_failure_status(kind)
+                kind: action_execution.rpc_failure_status(kind)
                 for kind in ("timeout", "ambiguous", "invalid-result", "failed")
             },
             {
@@ -110,36 +110,36 @@ class PowerRpcFrameTests(unittest.TestCase):
             },
         )
         with self.assertRaisesRegex(AssertionError, "unknown RPC failure"):
-            power_execution.rpc_failure_status("unknown")
+            action_execution.rpc_failure_status("unknown")
         with self.assertRaisesRegex(AssertionError, "unknown RPC failure"):
-            power_execution.rpc_failure_message("unknown")
+            action_execution.rpc_failure_message("unknown")
 
     def test_rpc_invocation_and_operation_inputs_are_bounded(self) -> None:
         with self.assertRaisesRegex(ValueError, "envelope"):
-            power_execution.integration_access_tokens({"cloud": {"type": "invalid", "access_token": "token"}})
+            action_execution.integration_access_tokens({"cloud": {"type": "invalid", "access_token": "token"}})
         with self.assertRaisesRegex(ValueError, "invocation"):
-            power_execution.encode_rpc_invocation({"value": object()}, {})
+            action_execution.encode_rpc_invocation({"value": object()}, {})
         with (
-            mock.patch.object(power_execution, "MAX_RPC_REQUEST_BYTES", 1),
+            mock.patch.object(action_execution, "MAX_RPC_REQUEST_BYTES", 1),
             self.assertRaisesRegex(ValueError, "too large"),
         ):
-            power_execution.encode_rpc_invocation({}, {})
+            action_execution.encode_rpc_invocation({}, {})
 
-        request = brain_runtime_client.PowerRequest("interrupt", "assistant", "power", {})
+        request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         for container_id, image in (("", "image"), ("container", "")):
             with (
                 self.subTest(container_id=container_id, image=image),
-                self.assertRaises(power_journal.PowerJournalConflictError),
+                self.assertRaises(action_journal.ActionJournalConflictError),
             ):
-                power_execution.power_operation(request, container_id, image)
+                action_execution.action_operation(request, container_id, image)
         malformed = SimpleNamespace(
             assistant_id="assistant",
-            power="power",
+            action="action",
             interrupt_id="interrupt",
             input=object(),
         )
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "fingerprinted"):
-            power_execution.power_operation(malformed, "container", "image")
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "fingerprinted"):
+            action_execution.action_operation(malformed, "container", "image")
 
     def test_local_readiness_requires_only_a_running_prebuilt_container(self) -> None:
         container = SimpleNamespace(status="running", reload=lambda: None)
@@ -149,8 +149,8 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         self.local.assistant_lifecycle._rpc.assert_not_called()
 
-    def test_private_generation_helpers_apply_one_power_contract(self) -> None:
-        powers = {
+    def test_private_generation_helpers_apply_one_action_contract(self) -> None:
+        actions = {
             "lookup": SimpleNamespace(integrations=("cloud",)),
         }
         integration_metadata = mock.Mock(
@@ -158,8 +158,8 @@ class PowerRpcFrameTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            power_execution.integration_generations(
-                powers,
+            action_execution.integration_generations(
+                actions,
                 {"cloud": "declaration"},
                 "lookup",
                 integration_metadata,
@@ -167,36 +167,36 @@ class PowerRpcFrameTests(unittest.TestCase):
             (("cloud", 5),),
         )
         integration_metadata.assert_called_once_with({"cloud": "declaration"})
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "integration contract"):
-            power_execution.integration_generations(powers, {}, "lookup", integration_metadata)
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "integration contract"):
-            power_execution.integration_generations(powers, {}, "missing", integration_metadata)
-        with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "generation"):
-            power_execution.private_generations((SimpleNamespace(id="cloud", status="missing", generation=0),))
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "integration contract"):
+            action_execution.integration_generations(actions, {}, "lookup", integration_metadata)
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "integration contract"):
+            action_execution.integration_generations(actions, {}, "missing", integration_metadata)
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation"):
+            action_execution.private_generations((SimpleNamespace(id="cloud", status="missing", generation=0),))
 
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
-        projected = power_execution.project_rpc_result(
+        projected = action_execution.project_rpc_result(
             {"type": "result", "result": {"ok": True}},
             {"cloud": {"access_token": "private"}},
             lambda value: value,
         )
         self.assertEqual(projected, {"ok": True})
 
-        with self.assertRaises(power_execution.RpcSecretExposureError):
-            power_execution.project_rpc_result(
+        with self.assertRaises(action_execution.RpcSecretExposureError):
+            action_execution.project_rpc_result(
                 {"type": "result", "result": {"echo": "private"}},
                 {"cloud": {"access_token": "private"}},
                 lambda value: value,
             )
-        with self.assertRaises(power_execution.RpcInvalidResultError):
-            power_execution.project_rpc_result(
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
                 {"type": "result", "result": {"invalid": True}},
                 {},
                 lambda _value: (_ for _ in ()).throw(ValueError("invalid")),
             )
         for invalid in ([], {"type": "unknown", "result": None}):
-            with self.subTest(invalid=invalid), self.assertRaises(power_execution.RpcInvalidResultError):
-                power_execution.project_rpc_result(invalid, {}, lambda value: value)
+            with self.subTest(invalid=invalid), self.assertRaises(action_execution.RpcInvalidResultError):
+                action_execution.project_rpc_result(invalid, {}, lambda value: value)
 
     def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
         request = {
@@ -205,10 +205,10 @@ class PowerRpcFrameTests(unittest.TestCase):
             "title": "Publish zone",
             "description": "Publish this reviewed DNS zone.",
         }
-        request["fingerprint"] = power_human._fingerprint(request)
+        request["fingerprint"] = action_human._fingerprint(request)
 
-        with self.assertRaises(power_human.HumanRequestSuspensionError) as suspended:
-            power_execution.project_rpc_result(
+        with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
+            action_execution.project_rpc_result(
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
@@ -216,8 +216,8 @@ class PowerRpcFrameTests(unittest.TestCase):
             )
         self.assertEqual(suspended.exception.request.payload(), request)
 
-        with self.assertRaises(power_execution.RpcInvalidResultError):
-            power_execution.project_rpc_result(
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
@@ -225,14 +225,14 @@ class PowerRpcFrameTests(unittest.TestCase):
             )
 
     def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
-        initial = power_execution.encode_rpc_invocation({}, {})
+        initial = action_execution.encode_rpc_invocation({}, {})
         response = {
             "kind": "approval",
             "ordinal": 0,
             "fingerprint": "a" * 64,
             "value": True,
         }
-        replay = power_execution.encode_rpc_invocation({}, {}, (response,))
+        replay = action_execution.encode_rpc_invocation({}, {}, (response,))
 
         self.assertEqual(initial, b'{"input":{},"integrations":{}}')
         self.assertEqual(
@@ -246,7 +246,7 @@ class PowerRpcFrameTests(unittest.TestCase):
         oversized = struct.pack(
             ">BxxxL",
             1,
-            power_execution.MAX_RPC_RESPONSE_BYTES + 2,
+            action_execution.MAX_RPC_RESPONSE_BYTES + 2,
         )
         cases = (
             b"\x01\x00\x00",
@@ -258,34 +258,34 @@ class PowerRpcFrameTests(unittest.TestCase):
         for payload in cases:
             with self.subTest(payload=payload):
                 with _socket_bytes(payload) as hosted_socket, self.assertRaises(ValueError):
-                    power_execution.read_rpc_frames(
+                    action_execution.read_rpc_frames(
                         hosted_socket,
                         time.monotonic() + 1,
-                        power_execution.MAX_RPC_RESPONSE_BYTES,
+                        action_execution.MAX_RPC_RESPONSE_BYTES,
                     )
                 with _socket_bytes(payload) as local_socket, self.assertRaises(ValueError):
-                    power_execution.read_rpc_frames(
+                    action_execution.read_rpc_frames(
                         local_socket,
                         time.monotonic() + 1,
-                        power_execution.MAX_RPC_RESPONSE_BYTES,
+                        action_execution.MAX_RPC_RESPONSE_BYTES,
                     )
 
     def test_clean_eof_is_the_only_empty_success(self) -> None:
         with _socket_bytes(b"") as hosted_socket:
             self.assertEqual(
-                power_execution.read_rpc_frames(
+                action_execution.read_rpc_frames(
                     hosted_socket,
                     time.monotonic() + 1,
-                    power_execution.MAX_RPC_RESPONSE_BYTES,
+                    action_execution.MAX_RPC_RESPONSE_BYTES,
                 ),
                 (b"", b""),
             )
         with _socket_bytes(b"") as local_socket:
             self.assertEqual(
-                power_execution.read_rpc_frames(
+                action_execution.read_rpc_frames(
                     local_socket,
                     time.monotonic() + 1,
-                    power_execution.MAX_RPC_RESPONSE_BYTES,
+                    action_execution.MAX_RPC_RESPONSE_BYTES,
                 ),
                 (b"", b""),
             )
@@ -304,12 +304,12 @@ class PowerRpcFrameTests(unittest.TestCase):
             exec_start=lambda *_args, **_kwargs: stream,
             exec_inspect=lambda *_args, **_kwargs: {"ExitCode": 0},
         )
-        strategy = power_execution.RpcExchangeStrategy(
+        strategy = action_execution.RpcExchangeStrategy(
             api=api,
             user="10001:10001",
             workdir=container_spec.CONTAINER_TMP,
             timeout=0.5,
-            maximum=power_execution.MAX_RPC_REQUEST_BYTES,
+            maximum=action_execution.MAX_RPC_REQUEST_BYTES,
             transport_errors=(),
             fail_stop=lambda: None,
             cancelled=lambda _error: None,
@@ -317,8 +317,8 @@ class PowerRpcFrameTests(unittest.TestCase):
         )
 
         start = time.monotonic()
-        with self.assertRaises(power_execution.RpcExchangeError) as caught:
-            power_execution.rpc_exchange(
+        with self.assertRaises(action_execution.RpcExchangeError) as caught:
+            action_execution.rpc_exchange(
                 "cid",
                 ["/bin/true"],
                 b"x" * (512 * 1024),
@@ -333,12 +333,12 @@ class PowerRpcFrameTests(unittest.TestCase):
         class TransportError(RuntimeError):
             pass
 
-        def strategy(api: object) -> tuple[power_execution.RpcExchangeStrategy, mock.Mock, mock.Mock, mock.Mock]:
+        def strategy(api: object) -> tuple[action_execution.RpcExchangeStrategy, mock.Mock, mock.Mock, mock.Mock]:
             fail_stop = mock.Mock()
             cancelled = mock.Mock()
             close = mock.Mock()
             return (
-                power_execution.RpcExchangeStrategy(
+                action_execution.RpcExchangeStrategy(
                     api=api,
                     user="10001:10001",
                     workdir=container_spec.CONTAINER_TMP,
@@ -360,8 +360,8 @@ class PowerRpcFrameTests(unittest.TestCase):
             exec_start=lambda *_args, **_kwargs: stream,
         )
         current, fail_stop, cancelled, close = strategy(api)
-        with self.assertRaises(power_execution.RpcExchangeError) as failed:
-            power_execution.rpc_exchange("container", ["command"], b"request", current)
+        with self.assertRaises(action_execution.RpcExchangeError) as failed:
+            action_execution.rpc_exchange("container", ["command"], b"request", current)
         self.assertEqual(failed.exception.kind, "failed")
         fail_stop.assert_called_once_with()
         cancelled.assert_called_once()
@@ -385,11 +385,11 @@ class PowerRpcFrameTests(unittest.TestCase):
             current, fail_stop, cancelled, close = strategy(api)
             with (
                 self.subTest(expected=expected),
-                mock.patch.object(power_execution, "_write_all"),
-                mock.patch.object(power_execution, "read_rpc_frames", return_value=(b"", b"")),
-                self.assertRaises(power_execution.RpcExchangeError) as caught,
+                mock.patch.object(action_execution, "_write_all"),
+                mock.patch.object(action_execution, "read_rpc_frames", return_value=(b"", b"")),
+                self.assertRaises(action_execution.RpcExchangeError) as caught,
             ):
-                power_execution.rpc_exchange(
+                action_execution.rpc_exchange(
                     "container",
                     ["command"],
                     b"request",
@@ -411,11 +411,11 @@ class PowerRpcFrameTests(unittest.TestCase):
         api.exec_inspect.return_value = {"ExitCode": 0}
         current, fail_stop, cancelled, close = strategy(api)
         with (
-            mock.patch.object(power_execution, "_write_all"),
-            mock.patch.object(power_execution, "read_rpc_frames", return_value=(b'{"ok":true}', b"")),
+            mock.patch.object(action_execution, "_write_all"),
+            mock.patch.object(action_execution, "read_rpc_frames", return_value=(b'{"ok":true}', b"")),
         ):
             self.assertEqual(
-                power_execution.rpc_exchange("container", ["command"], b"request", current),
+                action_execution.rpc_exchange("container", ["command"], b"request", current),
                 {"ok": True},
             )
         fail_stop.assert_not_called()
@@ -429,7 +429,7 @@ class PowerRpcFrameTests(unittest.TestCase):
         fail_stop = mock.Mock()
         cancelled = mock.Mock()
         close = mock.Mock()
-        strategy = power_execution.RpcExchangeStrategy(
+        strategy = action_execution.RpcExchangeStrategy(
             api=api,
             user="10001:10001",
             workdir=container_spec.CONTAINER_TMP,
@@ -440,8 +440,8 @@ class PowerRpcFrameTests(unittest.TestCase):
             cancelled=cancelled,
             close_stream=close,
         )
-        with self.assertRaises(power_execution.RpcExchangeError) as unavailable:
-            power_execution.rpc_exchange("container", ["command"], b"request", strategy)
+        with self.assertRaises(action_execution.RpcExchangeError) as unavailable:
+            action_execution.rpc_exchange("container", ["command"], b"request", strategy)
         self.assertEqual(unavailable.exception.kind, "failed")
         fail_stop.assert_called_once_with()
         cancelled.assert_called_once()
@@ -455,19 +455,19 @@ class PowerRpcFrameTests(unittest.TestCase):
                 "oversized",
             ),
         ):
-            power_execution.read_rpc_frames(raw_socket, time.monotonic() + 1, 3)
+            action_execution.read_rpc_frames(raw_socket, time.monotonic() + 1, 3)
         reader, writer = socket.socketpair()
         self.addCleanup(reader.close)
         self.addCleanup(writer.close)
         with self.assertRaises(TimeoutError):
-            power_execution._read_exact(reader, 1, time.monotonic() - 1)
+            action_execution._read_exact(reader, 1, time.monotonic() - 1)
 
         response = mock.Mock()
-        power_execution.close_exec_stream(SimpleNamespace(_response=response))
+        action_execution.close_exec_stream(SimpleNamespace(_response=response))
         response.close.assert_called_once_with()
 
-    def test_both_power_batch_adapters_reject_the_same_generation_drift(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
+    def test_both_action_batch_adapters_reject_the_same_generation_drift(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
         generation = [1]
         execute = mock.Mock(return_value={"ok": True})
         image = "example.invalid/assistant@sha256:" + "a" * 64
@@ -485,14 +485,14 @@ class PowerRpcFrameTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for index, (binding, identity) in enumerate(bindings):
                 with self.subTest(adapter=index):
-                    journal = power_journal.PowerJournal(Path(directory) / f"journal-{index}.sqlite3")
+                    journal = action_journal.ActionJournal(Path(directory) / f"journal-{index}.sqlite3")
                     self.addCleanup(journal.close)
-                    batch = power_execution.PowerBatch(
+                    batch = action_execution.ActionBatch(
                         journal,
                         "generation-1",
                         "thread-1",
                         {"assistant": binding},
-                        power_execution.PowerBatchStrategy(
+                        action_execution.ActionBatchStrategy(
                             identity,
                             execute,
                             lambda _request: None,
@@ -503,14 +503,14 @@ class PowerRpcFrameTests(unittest.TestCase):
                     batch.prepare((request,))
                     generation[0] = 2
                     with self.assertRaisesRegex(
-                        power_journal.PowerJournalConflictError,
-                        "Power credential generation changed",
+                        action_journal.ActionJournalConflictError,
+                        "Action credential generation changed",
                     ):
                         batch.invoke(request)
         execute.assert_not_called()
 
-    def test_power_batch_passes_only_the_invoke_time_preflight_evidence(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
+    def test_action_batch_passes_only_the_invoke_time_preflight_evidence(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
         evidence: list[dict[str, int]] = []
 
@@ -521,14 +521,14 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         execute = mock.Mock(return_value={"ok": True})
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            batch = power_execution.PowerBatch(
+            batch = action_execution.ActionBatch(
                 journal,
                 "generation-1",
                 "thread-1",
                 {"assistant": binding},
-                power_execution.PowerBatchStrategy(
+                action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
                     execute,
                     preflight,
@@ -542,40 +542,40 @@ class PowerRpcFrameTests(unittest.TestCase):
         self.assertEqual(evidence, [{"sequence": 1}, {"sequence": 2}])
         execute.assert_called_once_with(request, evidence[1])
 
-    def test_power_batch_rejects_unprepared_duplicate_and_changed_delivery(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {})
-        unknown = brain_runtime_client.PowerRequest("interrupt-2", "assistant", "lookup", {})
+    def test_action_batch_rejects_unprepared_duplicate_and_changed_delivery(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {})
+        unknown = brain_runtime_client.ActionRequest("interrupt-2", "assistant", "lookup", {})
         binding = SimpleNamespace(container_id="container", spec=SimpleNamespace(image="image"))
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
-            batch = power_execution.PowerBatch(
+            batch = action_execution.ActionBatch(
                 journal,
                 "generation",
                 "thread",
                 {"assistant": binding},
-                power_execution.PowerBatchStrategy(
+                action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
                     lambda _request, _evidence: {"ok": True},
                     lambda _request: None,
                 ),
             )
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "not prepared"):
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not prepared"):
                 batch.invoke(request)
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "not prepared"):
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "not prepared"):
                 batch.delivered((request,))
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "unavailable"):
-                batch.prepare((brain_runtime_client.PowerRequest("interrupt", "missing", "lookup", {}),))
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "unavailable"):
+                batch.prepare((brain_runtime_client.ActionRequest("interrupt", "missing", "lookup", {}),))
             batch.prepare((request,))
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "already prepared"):
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "already prepared"):
                 batch.prepare((request,))
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "operation is not prepared"):
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "operation is not prepared"):
                 batch.invoke(unknown)
-            with self.assertRaisesRegex(power_journal.PowerJournalConflictError, "delivery batch changed"):
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "delivery batch changed"):
                 batch.delivered((unknown,))
 
     def test_valid_human_suspension_is_the_only_retryable_execution(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {"query": "safe"})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
         descriptor = {
             "kind": "approval",
@@ -583,21 +583,21 @@ class PowerRpcFrameTests(unittest.TestCase):
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        suspension = power_human.HumanRequestSuspensionError(
-            power_human.validate_request(descriptor, ("approval",)),
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        suspension = action_human.HumanRequestSuspensionError(
+            action_human.validate_request(descriptor, ("approval",)),
         )
 
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             execute = mock.Mock(side_effect=[suspension, {"ok": True}])
-            batch = power_execution.PowerBatch(
+            batch = action_execution.ActionBatch(
                 journal,
                 "generation-1",
                 "thread-1",
                 {"assistant": binding},
-                power_execution.PowerBatchStrategy(
+                action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
                     execute,
                     lambda _request: None,
@@ -605,23 +605,23 @@ class PowerRpcFrameTests(unittest.TestCase):
             )
             batch.prepare((request,))
 
-            with self.assertRaises(power_human.HumanRequestSuspensionError):
+            with self.assertRaises(action_human.HumanRequestSuspensionError):
                 batch.invoke(request)
             self.assertEqual(batch.invoke(request), {"ok": True})
 
     def test_terminal_abandonment_resets_a_lazy_journal_only_after_exact_deletion(self) -> None:
-        request = brain_runtime_client.PowerRequest("interrupt-1", "assistant", "lookup", {})
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
         with tempfile.TemporaryDirectory() as directory:
-            journal = power_journal.PowerJournal(Path(directory) / "journal.sqlite3")
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
             self.addCleanup(journal.close)
             journal_source = mock.Mock(return_value=journal)
-            batch = power_execution.PowerBatch(
+            batch = action_execution.ActionBatch(
                 journal_source,
                 "generation-1",
                 "thread-1",
                 {"assistant": binding},
-                power_execution.PowerBatchStrategy(
+                action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
                     lambda _request, _evidence: (_ for _ in ()).throw(RuntimeError("terminal failure")),
                     lambda _request: None,
@@ -638,22 +638,22 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         journal_source.assert_called_once_with()
 
-    def test_power_resolution_failures_have_identical_statuses(self) -> None:
-        local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", powers={}, integrations={})
+    def test_action_resolution_failures_have_identical_statuses(self) -> None:
+        local_spec = SimpleNamespace(assistant_id="assistant", name="Assistant", actions={}, integrations={})
 
         hosted_active = SimpleNamespace(
             assistant_id="assistant",
-            contract=SimpleNamespace(powers={}, integrations={}),
+            contract=SimpleNamespace(actions={}, integrations={}),
         )
         self.local.assistant_integrations = object()
         with self.assertRaises(runtime_state.ApiError) as hosted_integration:
-            hosted_assistants._resolve_power_integrations("team_1", hosted_active, "missing")
+            hosted_assistants._resolve_action_integrations("team_1", hosted_active, "missing")
         with self.assertRaises(local_app.ApiProblem) as local_integration:
-            self.local.chat_turn_service._resolve_power_integrations("team_1", local_spec, "missing")
+            self.local.chat_turn_service._resolve_action_integrations("team_1", local_spec, "missing")
         self.assertEqual(
             hosted_integration.exception.status,
             local_integration.exception.status,
-            power_execution.INTEGRATION_PRECONDITION_STATUS,
+            action_execution.INTEGRATION_PRECONDITION_STATUS,
         )
 
     def test_hosted_exchange_fail_stops_on_malformed_frame(self) -> None:
@@ -668,9 +668,9 @@ class PowerRpcFrameTests(unittest.TestCase):
             container = SimpleNamespace(id="assistant-container")
             with (
                 mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=api)),
-                mock.patch.object(hosted_assistants, "_fail_stop_power", fail_stop),
+                mock.patch.object(hosted_assistants, "_fail_stop_action", fail_stop),
                 mock.patch.object(
-                    hosted_assistants.power_execution,
+                    hosted_assistants.action_execution,
                     "encode_rpc_invocation",
                     return_value=b"request",
                 ),
@@ -680,7 +680,7 @@ class PowerRpcFrameTests(unittest.TestCase):
                     hosted_assistants.AssistantRpcRequest(
                         team_id="team_1",
                         container=container,
-                        power_id="test",
+                        action_id="test",
                         payload={"input": {}, "integrations": {}},
                         token=None,
                     )
@@ -688,7 +688,7 @@ class PowerRpcFrameTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
         fail_stop.assert_called_once_with("team_1", container)
-        self.assertEqual(create.call_args.args[1], [power_execution.POWER_COMMAND, "test"])
+        self.assertEqual(create.call_args.args[1], [action_execution.ACTION_COMMAND, "test"])
         self.assertEqual(create.call_args.kwargs["workdir"], container_spec.CONTAINER_TMP)
 
     def test_local_exchange_fail_stops_on_malformed_frame(self) -> None:
@@ -702,10 +702,10 @@ class PowerRpcFrameTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.client = SimpleNamespace(api=api)
             controller._wire_collaborators()
-            controller.assistant_lifecycle._fail_stop_power = mock.Mock()
+            controller.assistant_lifecycle._fail_stop_action = mock.Mock()
             with (
                 mock.patch.object(
-                    local_assistant_rpc.power_execution,
+                    local_assistant_rpc.action_execution,
                     "encode_rpc_invocation",
                     return_value=b"request",
                 ),
@@ -718,15 +718,15 @@ class PowerRpcFrameTests(unittest.TestCase):
                 )
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
-        controller.assistant_lifecycle._fail_stop_power.assert_called_once()
-        self.assertEqual(create.call_args.args[1], [power_execution.POWER_COMMAND, "test"])
+        controller.assistant_lifecycle._fail_stop_action.assert_called_once()
+        self.assertEqual(create.call_args.args[1], [action_execution.ACTION_COMMAND, "test"])
         self.assertEqual(create.call_args.kwargs["workdir"], local_assistant_rpc.ASSISTANT_WORKDIR)
 
     def test_local_exchange_carries_replay_responses_only_when_present(self) -> None:
         fake = SimpleNamespace(
             client=SimpleNamespace(api=object()),
             _close_exec_stream=lambda _stream: None,
-            _fail_stop_power=lambda _container: None,
+            _fail_stop_action=lambda _container: None,
         )
         response = {
             "kind": "approval",
@@ -735,9 +735,9 @@ class PowerRpcFrameTests(unittest.TestCase):
             "value": True,
         }
         with (
-            mock.patch.object(local_assistant_rpc.power_execution, "rpc_exchange", return_value={"ok": True}),
+            mock.patch.object(local_assistant_rpc.action_execution, "rpc_exchange", return_value={"ok": True}),
             mock.patch.object(
-                local_assistant_rpc.power_execution,
+                local_assistant_rpc.action_execution,
                 "encode_rpc_invocation",
                 return_value=b"request",
             ) as encode,
@@ -761,15 +761,15 @@ class PowerRpcFrameTests(unittest.TestCase):
         request = hosted_assistants.AssistantRpcRequest(
             team_id="team_1",
             container=SimpleNamespace(id="assistant-container"),
-            power_id="test",
+            action_id="test",
             payload={"input": {}, "integrations": {}, "responses": (response,)},
             token=None,
         )
         with (
             mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
-            mock.patch.object(hosted_assistants.power_execution, "rpc_exchange", return_value={"ok": True}),
+            mock.patch.object(hosted_assistants.action_execution, "rpc_exchange", return_value={"ok": True}),
             mock.patch.object(
-                hosted_assistants.power_execution,
+                hosted_assistants.action_execution,
                 "encode_rpc_invocation",
                 return_value=b"request",
             ) as encode,
@@ -784,16 +784,16 @@ class RpcMessageParity(unittest.TestCase):
         request = hosted_assistants.AssistantRpcRequest(
             team_id="t",
             container=SimpleNamespace(id="c"),
-            power_id="p",
+            action_id="p",
             payload={"input": {}, "integrations": {}},
             token=None,
         )
         with (
             mock.patch.object(runtime_state, "_docker", SimpleNamespace(api=object())),
             mock.patch.object(
-                hosted_assistants.power_execution,
+                hosted_assistants.action_execution,
                 "rpc_exchange",
-                side_effect=hosted_assistants.power_execution.RpcExchangeError(kind),
+                side_effect=hosted_assistants.action_execution.RpcExchangeError(kind),
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
@@ -804,14 +804,14 @@ class RpcMessageParity(unittest.TestCase):
         fake = SimpleNamespace(
             client=SimpleNamespace(api=object()),
             _close_exec_stream=lambda _stream: None,
-            _fail_stop_power=lambda _container: None,
-            _blocked_power_workloads=set(),
+            _fail_stop_action=lambda _container: None,
+            _blocked_action_workloads=set(),
         )
         with (
             mock.patch.object(
-                local_assistant_rpc.power_execution,
+                local_assistant_rpc.action_execution,
                 "rpc_exchange",
-                side_effect=local_assistant_rpc.power_execution.RpcExchangeError(kind),
+                side_effect=local_assistant_rpc.action_execution.RpcExchangeError(kind),
             ),
             self.assertRaises(local_assistant_rpc.ApiProblem) as caught,
         ):
@@ -825,15 +825,15 @@ class RpcMessageParity(unittest.TestCase):
 
     def test_same_message_per_kind(self):
         self.assertEqual(
-            set(power_execution.RPC_FAILURE_MESSAGES),
-            set(power_execution.RPC_FAILURE_STATUSES),
+            set(action_execution.RPC_FAILURE_MESSAGES),
+            set(action_execution.RPC_FAILURE_STATUSES),
         )
         self.assertEqual(
-            power_execution.ASSISTANT_RPC_USER,
+            action_execution.ASSISTANT_RPC_USER,
             local_container_policy.ASSISTANT_UID,
         )
         for kind in ("timeout", "ambiguous", "invalid-result", "failed"):
-            canonical = power_execution.rpc_failure_message(kind)[0]
+            canonical = action_execution.rpc_failure_message(kind)[0]
             self.assertEqual(self._hosted(kind), canonical)
             self.assertEqual(self._local(kind), canonical)
 

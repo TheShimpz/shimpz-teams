@@ -4,7 +4,7 @@ Team owns the closed identifiers, payload projections, and WebSocket frame bound
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
 `websocket.py` validates the bounded `shimpz.chat.v4` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
-Local Team chat. A Power occurrence carries only its canonical reviewed Assistant and Power
+Local Team chat. A Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
 advisory; only the single terminal record determines the operation outcome. A missing, repeated,
 malformed, oversized, or out-of-order record fails closed at the consumer without widening Team
@@ -20,7 +20,7 @@ actual request kind and tighter bounds; the Team revalidates it authoritatively.
 verification, and the signed Local assertion binds the successful assurance to the same challenge.
 In Hosted, the browser completes the requested Account ceremony, receives one opaque Account-issued
 handle, and submits it as `value` over the chat surface; Store relays it unmodified. Team only
-pattern-admits and forwards that credential to Account, then replaces it with `true` before Power
+pattern-admits and forwards that credential to Account, then replaces it with `true` before Action
 resumption after Account consumes it successfully. Handle issuance, freshness, binding, one-use
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
@@ -37,7 +37,7 @@ The internal Team bearer is machine authority only for the one-use OAuth callbac
 never substitutes for human Account or Supervisor evidence. In Local, Admin emits one short-lived
 Ed25519 assertion in `X-Shimpz-Supervisor` after validating its current browser session; Team binds
 it to the canonical request and consumes it once while retaining an independent machine bearer.
-For an authentication-gated Power response, that same signed, one-use assertion may carry one
+For an authentication-gated Action response, that same signed, one-use assertion may carry one
 `assurance` binding containing only the exact reviewed `auth:*` kind and pending challenge ID.
 Team requires that binding for the matching authentication challenge and rejects it on every
 non-authentication request. Credential and factor material never cross this protocol.

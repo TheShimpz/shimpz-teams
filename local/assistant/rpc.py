@@ -7,27 +7,27 @@ from pathlib import Path
 
 from docker.errors import DockerException, NotFound
 
+from action import execution as action_execution
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
-from power import execution as power_execution
 
 HEALTH_TIMEOUT_SECONDS = 15
 ASSISTANT_WORKDIR = str(Path("/") / "tmp")
 
 
 def _close_exec_stream(stream) -> None:
-    power_execution.close_exec_stream(stream)
+    action_execution.close_exec_stream(stream)
 
 
-def _fail_stop_power(self, container) -> None:
-    """Stop, then kill if needed, and prove an ambiguous local Power cannot keep running."""
+def _fail_stop_action(self, container) -> None:
+    """Stop, then kill if needed, and prove an ambiguous local Action cannot keep running."""
     try:
         container.stop(timeout=3)
     except NotFound:
         return
     except DockerException:
         pass
-    if self._power_not_running(container):
+    if self._action_not_running(container):
         return
     try:
         container.kill()
@@ -35,17 +35,17 @@ def _fail_stop_power(self, container) -> None:
         return
     except DockerException:
         pass
-    if self._power_not_running(container):
+    if self._action_not_running(container):
         return
-    self._blocked_power_workloads.add(container.id)
+    self._blocked_action_workloads.add(container.id)
     raise ApiProblem(
         HTTPStatus.SERVICE_UNAVAILABLE,
-        "Assistant Power termination could not be proved; reinstall the Assistant",
-        code="assistant-power-blocked",
+        "Assistant Action termination could not be proved; reinstall the Assistant",
+        code="assistant-action-blocked",
     )
 
 
-def _power_not_running(container) -> bool:
+def _action_not_running(container) -> bool:
     try:
         container.reload()
     except NotFound:
@@ -59,11 +59,11 @@ def _power_not_running(container) -> bool:
 def _rpc(
     self,
     container,
-    power_id: str,
+    action_id: str,
     payload: dict,
 ) -> object:
     try:
-        encoded = power_execution.encode_rpc_invocation(
+        encoded = action_execution.encode_rpc_invocation(
             payload["input"],
             payload["integrations"],
             payload.get("responses", ()),
@@ -80,25 +80,25 @@ def _rpc(
             self._close_exec_stream(stream)
 
     try:
-        return power_execution.rpc_exchange(
+        return action_execution.rpc_exchange(
             container.id,
-            [power_execution.POWER_COMMAND, power_id],
+            [action_execution.ACTION_COMMAND, action_id],
             encoded,
-            power_execution.RpcExchangeStrategy(
+            action_execution.RpcExchangeStrategy(
                 api=self.client.api,
-                user=power_execution.ASSISTANT_RPC_USER,
+                user=action_execution.ASSISTANT_RPC_USER,
                 workdir=ASSISTANT_WORKDIR,
-                timeout=power_execution.RPC_TIMEOUT_SECONDS,
-                maximum=power_execution.MAX_RPC_RESPONSE_BYTES,
+                timeout=action_execution.RPC_TIMEOUT_SECONDS,
+                maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                 transport_errors=(DockerException,),
-                fail_stop=lambda: self._fail_stop_power(container),
+                fail_stop=lambda: self._fail_stop_action(container),
                 cancelled=lambda _exc: None,
                 close_stream=close_stream,
             ),
         )
-    except power_execution.RpcExchangeError as exc:
-        message, code = power_execution.rpc_failure_message(exc.kind)
-        status = power_execution.rpc_failure_status(exc.kind)
+    except action_execution.RpcExchangeError as exc:
+        message, code = action_execution.rpc_failure_message(exc.kind)
+        status = action_execution.rpc_failure_status(exc.kind)
         raise ApiProblem(status, message, code=code) from exc
 
 

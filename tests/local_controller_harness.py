@@ -13,6 +13,7 @@ sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
 
+from action import execution as action_execution
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
@@ -22,7 +23,6 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from power import execution as power_execution
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -85,10 +85,10 @@ class LocalContractCase(unittest.TestCase):
             inference_config.normalize("openai", "gpt-5.5"),
         )
         controller.brain_runtime = runtime
-        controller.power_state = local_app.power_journal.PowerJournal(
-            Path(directory) / "power-journal" / "journal.sqlite3"
+        controller.action_state = local_app.action_journal.ActionJournal(
+            Path(directory) / "action-journal" / "journal.sqlite3"
         )
-        self.addCleanup(controller.power_state.close)
+        self.addCleanup(controller.action_state.close)
         controller.assistant_integrations = integration_store.OAuthIntegrationStore(
             Path(directory) / "assistant-integrations" / "state" / "integrations.json",
             Path(directory) / "assistant-integrations" / "key" / "aes256.key",
@@ -137,7 +137,7 @@ class LocalContractCase(unittest.TestCase):
             ActiveAssistant(controller.registry["shimpz-cloudflare"], container.id, container),
         )
         controller.assistant_lifecycle._active_assistant_genesis = lambda _active: (
-            "Use only the declared Cloudflare Powers."
+            "Use only the declared Cloudflare Actions."
         )
         controller.chat_turn_service._restore_all_chat_continuations()
         return controller
@@ -184,7 +184,7 @@ class LocalContractCase(unittest.TestCase):
                 "Config": {
                     "Labels": labels,
                     "Image": OUTDATED_ASSISTANT_IMAGE,
-                    "User": power_execution.ASSISTANT_RPC_USER,
+                    "User": action_execution.ASSISTANT_RPC_USER,
                     "Env": [],
                 },
                 "HostConfig": {

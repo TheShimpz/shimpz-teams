@@ -7,7 +7,7 @@ import unittest
 from assistant import genesis as assistant_genesis
 
 
-def manifest(genesis: str = "Use only the declared Powers.") -> bytes:
+def manifest(genesis: str = "Use only the declared Actions.") -> bytes:
     return f"""
 [shimpz]
 spec = 1

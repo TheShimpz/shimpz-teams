@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import NoReturn
 
+from action import human as action_human
+from action import journal as action_journal
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
@@ -13,8 +15,6 @@ from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from integrations import store as integration_store
-from power import human as power_human
-from power import journal as power_journal
 
 CHAT_PAUSED_STATUSES = frozenset({"human-required", "integrations-required"})
 
@@ -61,14 +61,14 @@ class SegmentStrategy:
 
     runtime: object
     prepare: Callable[[], PreparedSegment]
-    validate_power: Callable
+    validate_action: Callable
     pause_for_private_inputs: Callable[[tuple[object, ...], SegmentRequirements], bool]
     cancelled: Callable[[], bool]
     validate_context: Callable[[], None]
     raise_problem: Callable[[str, BaseException | None], None]
-    human_requirement: Callable[[object, power_human.HumanRequest], object] = lambda _power, _request: (
+    human_requirement: Callable[[object, action_human.HumanRequest], object] = lambda _action, _request: (
         _ for _ in ()
-    ).throw(chat_orchestrator.ChatOrchestrationError("Power human requests are unavailable"))
+    ).throw(chat_orchestrator.ChatOrchestrationError("Action human requests are unavailable"))
     finalize: Callable[[], None] = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
@@ -105,7 +105,7 @@ class IntegrationResumeAdmission:
 
 
 _DRIVE_ERRORS = (
-    power_journal.PowerJournalError,
+    action_journal.ActionJournalError,
     chat_orchestrator.ChatStoppedError,
     chat_orchestrator.ChatOrchestrationError,
     brain_runtime_client.BrainRuntimeError,
@@ -177,7 +177,7 @@ def run_segment(
     except Exception as exc:
         try:
             segment.durable_batch.abandon_uncertain()
-        except power_journal.PowerJournalError as abandonment_error:
+        except action_journal.ActionJournalError as abandonment_error:
             strategy.raise_problem("drive-error", abandonment_error)
             raise AssertionError("chat error adapter returned") from abandonment_error
         if isinstance(exc, _DRIVE_ERRORS):
@@ -202,14 +202,14 @@ def drive(
     continuation: chat_orchestrator.ChatContinuation | None = None,
     requirements: SegmentRequirements,
 ) -> chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension:
-    """Run or resume one turn with the same durable Power hooks on both Controllers."""
+    """Run or resume one turn with the same durable Action hooks on both Controllers."""
 
     def pause_before_batch(requests: tuple[object, ...]) -> bool:
         return strategy.pause_for_private_inputs(requests, requirements)
 
     orchestration = chat_orchestrator.ChatStrategy(
-        validate_power=strategy.validate_power,
-        invoke_power=segment.durable_batch.invoke,
+        validate_action=strategy.validate_action,
+        invoke_action=segment.durable_batch.invoke,
         prepare_batch=segment.durable_batch.prepare,
         batch_delivered=segment.durable_batch.delivered,
         pause_before_batch=pause_before_batch,
@@ -232,7 +232,7 @@ def drive(
             orchestration,
         )
     if isinstance(outcome, chat_orchestrator.ChatHumanSuspension):
-        requirements.human = (strategy.human_requirement(outcome.power, outcome.request),)
+        requirements.human = (strategy.human_requirement(outcome.action, outcome.request),)
     return outcome
 
 

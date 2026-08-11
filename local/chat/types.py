@@ -3,11 +3,11 @@
 from dataclasses import dataclass
 from http import HTTPStatus
 
+from action import human as action_human
 from chat import turn as chat_turn_engine
 from local.chat import continuation as local_chat_continuations
 from local.errors import ApiProblemError
 from local.install.runtime import AssistantSpec
-from power import human as power_human
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +28,7 @@ class ResponseRequest:
     assistant_ids: tuple[str, ...]
     file_ids: tuple[str, ...]
     provider: str
-    transcripts: tuple[power_human.PowerTranscript, ...] = ()
+    transcripts: tuple[action_human.ActionTranscript, ...] = ()
 
 
 def required_active_assistant(

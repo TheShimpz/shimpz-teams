@@ -1,4 +1,4 @@
-"""Deterministic Team-owned loop between LangGraph suspensions and Assistant Powers."""
+"""Deterministic Team-owned loop between LangGraph suspensions and Assistant Actions."""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from action import human as action_human
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
-from power import human as power_human
 
-MAX_POWER_ROUNDS = 8
+MAX_ACTION_ROUNDS = 8
 
 
 class ChatOrchestrationError(RuntimeError):
@@ -22,15 +22,15 @@ class ChatStoppedError(ChatOrchestrationError):
 
 
 @dataclass(frozen=True, slots=True)
-class InvokedPower:
+class InvokedAction:
     assistant_id: str
-    power: str
+    action: str
 
 
 @dataclass(frozen=True, slots=True)
 class ChatOutcome:
     reply: str
-    powers: tuple[InvokedPower, ...]
+    actions: tuple[InvokedAction, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,37 +39,37 @@ class ChatContinuation:
 
     turn: brain_runtime_client.RuntimeTurn
     seen_interrupts: tuple[str, ...]
-    invoked: tuple[InvokedPower, ...]
+    invoked: tuple[InvokedAction, ...]
     round_index: int
 
 
 @dataclass(frozen=True, slots=True)
 class ChatSuspension:
     continuation: ChatContinuation
-    requests: tuple[brain_runtime_client.PowerRequest, ...]
+    requests: tuple[brain_runtime_client.ActionRequest, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class ChatHumanSuspension:
-    """A validated Power request paused without returning anything to the Brain."""
+    """A validated Action request paused without returning anything to the Brain."""
 
     continuation: ChatContinuation
-    power: brain_runtime_client.PowerRequest
-    request: power_human.HumanRequest
+    action: brain_runtime_client.ActionRequest
+    request: action_human.HumanRequest
 
 
-PowerInvoker = Callable[[brain_runtime_client.PowerRequest], object]
-PowerValidator = Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]]
-BatchHook = Callable[[tuple[brain_runtime_client.PowerRequest, ...]], None]
-BatchPause = Callable[[tuple[brain_runtime_client.PowerRequest, ...]], bool]
+ActionInvoker = Callable[[brain_runtime_client.ActionRequest], object]
+ActionValidator = Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]]
+BatchHook = Callable[[tuple[brain_runtime_client.ActionRequest, ...]], None]
+BatchPause = Callable[[tuple[brain_runtime_client.ActionRequest, ...]], bool]
 CancellationCheck = Callable[[], bool]
 ContextCheck = Callable[[], None]
 
 
 @dataclass(frozen=True, slots=True)
 class ChatStrategy:
-    validate_power: PowerValidator
-    invoke_power: PowerInvoker
+    validate_action: ActionValidator
+    invoke_action: ActionInvoker
     prepare_batch: BatchHook = lambda _batch: None
     batch_delivered: BatchHook = lambda _batch: None
     pause_before_batch: BatchPause = lambda _batch: False
@@ -79,35 +79,35 @@ class ChatStrategy:
 
 
 def _validate_batch(
-    requests: tuple[brain_runtime_client.PowerRequest, ...],
-    declared: Mapping[tuple[str, str], brain_runtime_client.RuntimePower],
-    validate_power: PowerValidator,
-) -> tuple[brain_runtime_client.PowerRequest, ...]:
+    requests: tuple[brain_runtime_client.ActionRequest, ...],
+    declared: Mapping[tuple[str, str], brain_runtime_client.RuntimeAction],
+    validate_action: ActionValidator,
+) -> tuple[brain_runtime_client.ActionRequest, ...]:
     """Validate a complete suspension before allowing its first side effect."""
     if not requests:
-        raise ChatOrchestrationError("Brain suspended without a Power request")
+        raise ChatOrchestrationError("Brain suspended without an Action request")
 
     seen_interrupts: set[str] = set()
-    contracts: list[tuple[brain_runtime_client.PowerRequest, brain_runtime_client.RuntimePower]] = []
+    contracts: list[tuple[brain_runtime_client.ActionRequest, brain_runtime_client.RuntimeAction]] = []
     for request in requests:
-        power = declared.get((request.assistant_id, request.power))
-        if power is None:
-            raise ChatOrchestrationError("Brain requested an undeclared Power contract")
+        action = declared.get((request.assistant_id, request.action))
+        if action is None:
+            raise ChatOrchestrationError("Brain requested an undeclared Action contract")
         if request.interrupt_id in seen_interrupts:
-            raise ChatOrchestrationError("Brain repeated a Power interrupt id")
+            raise ChatOrchestrationError("Brain repeated an Action interrupt id")
         seen_interrupts.add(request.interrupt_id)
-        contracts.append((request, power))
+        contracts.append((request, action))
 
-    validated: list[brain_runtime_client.PowerRequest] = []
-    for request, power in contracts:
-        safe_input = validate_power(request.assistant_id, power.id, request.input)
+    validated: list[brain_runtime_client.ActionRequest] = []
+    for request, action in contracts:
+        safe_input = validate_action(request.assistant_id, action.id, request.input)
         if not isinstance(safe_input, Mapping):
-            raise ChatOrchestrationError("Power validator returned an invalid input contract")
+            raise ChatOrchestrationError("Action validator returned an invalid input contract")
         validated.append(
-            brain_runtime_client.PowerRequest(
+            brain_runtime_client.ActionRequest(
                 interrupt_id=request.interrupt_id,
                 assistant_id=request.assistant_id,
-                power=power.id,
+                action=action.id,
                 input=dict(safe_input),
             )
         )
@@ -123,24 +123,24 @@ def _drive(
     turn = continuation.turn
     invoked = list(continuation.invoked)
     seen_interrupts = set(continuation.seen_interrupts)
-    declared = {(assistant.id, power.id): power for assistant in context.assistants for power in assistant.powers}
+    declared = {(assistant.id, action.id): action for assistant in context.assistants for action in assistant.actions}
 
-    for _round in range(continuation.round_index, MAX_POWER_ROUNDS + 1):
+    for _round in range(continuation.round_index, MAX_ACTION_ROUNDS + 1):
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "completed":
             with strategy.progress.span("team-context"):
                 strategy.validate_context()
-            return ChatOutcome(reply=turn.reply, powers=tuple(invoked))
-        if _round == MAX_POWER_ROUNDS:
-            raise ChatOrchestrationError("Brain exceeded the Power round limit")
+            return ChatOutcome(reply=turn.reply, actions=tuple(invoked))
+        if _round == MAX_ACTION_ROUNDS:
+            raise ChatOrchestrationError("Brain exceeded the Action round limit")
 
-        with strategy.progress.span("power-preparation"):
+        with strategy.progress.span("action-preparation"):
             strategy.validate_context()
-            batch = _validate_batch(turn.powers, declared, strategy.validate_power)
+            batch = _validate_batch(turn.actions, declared, strategy.validate_action)
             batch_interrupts = {request.interrupt_id for request in batch}
             if not seen_interrupts.isdisjoint(batch_interrupts):
-                raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
+                raise ChatOrchestrationError("Brain repeated an Action interrupt across rounds")
             if strategy.pause_before_batch(batch):
                 return ChatSuspension(
                     continuation=ChatContinuation(
@@ -153,7 +153,7 @@ def _drive(
                 )
             strategy.prepare_batch(batch)
         results: dict[str, object] = {}
-        batch_invoked: list[InvokedPower] = []
+        batch_invoked: list[InvokedAction] = []
         checkpoint = ChatContinuation(
             turn=turn,
             seen_interrupts=tuple(sorted(seen_interrupts)),
@@ -165,28 +165,28 @@ def _drive(
                 raise ChatStoppedError("chat turn stopped")
             strategy.validate_context()
             with strategy.progress.span(
-                "power",
+                "action",
                 index=index,
                 total=len(batch),
                 assistant_id=request.assistant_id,
-                power=request.power,
+                action=request.action,
             ):
                 try:
-                    result = strategy.invoke_power(request)
-                except power_human.HumanRequestSuspensionError as exc:
+                    result = strategy.invoke_action(request)
+                except action_human.HumanRequestSuspensionError as exc:
                     return ChatHumanSuspension(checkpoint, request, exc.request)
             results[request.interrupt_id] = result
-            batch_invoked.append(InvokedPower(assistant_id=request.assistant_id, power=request.power))
+            batch_invoked.append(InvokedAction(assistant_id=request.assistant_id, action=request.action))
 
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)
         with strategy.progress.span("model"):
             resumed = runtime.resume(context, results)
-        if resumed.status == "power-required" and not seen_interrupts.isdisjoint(
-            request.interrupt_id for request in resumed.powers
+        if resumed.status == "action-required" and not seen_interrupts.isdisjoint(
+            request.interrupt_id for request in resumed.actions
         ):
-            raise ChatOrchestrationError("Brain repeated a Power interrupt across rounds")
-        with strategy.progress.span("power-delivery"):
+            raise ChatOrchestrationError("Brain repeated an Action interrupt across rounds")
+        with strategy.progress.span("action-delivery"):
             strategy.batch_delivered(batch)
         invoked.extend(batch_invoked)
         turn = resumed
@@ -200,7 +200,7 @@ def run_until_pause(
     message: str,
     strategy: ChatStrategy,
 ) -> ChatOutcome | ChatSuspension | ChatHumanSuspension:
-    """Start a turn and optionally pause before an all-or-nothing Power batch."""
+    """Start a turn and optionally pause before an all-or-nothing Action batch."""
     if strategy.cancelled():
         raise ChatStoppedError("chat turn stopped")
     strategy.validate_context()
@@ -235,7 +235,7 @@ def run(
     message: str,
     strategy: ChatStrategy,
 ) -> ChatOutcome:
-    """Run a bounded turn; every model-requested Power returns through Controller validation."""
+    """Run a bounded turn; every model-requested Action returns through Controller validation."""
     outcome = run_until_pause(
         runtime,
         context,

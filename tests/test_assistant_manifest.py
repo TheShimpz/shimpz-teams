@@ -55,7 +55,7 @@ def manifest(
         f'summary = "{summary}"\n'
         f"creators = {creators}\n"
         f'github = "{github}"\n'
-        'genesis = "Use the available Powers."\n'
+        'genesis = "Use the available Actions."\n'
         "\n[network]\n"
         f"allowed_hosts = [{hosts}]\n\n{integrations}"
     ).encode()
@@ -201,7 +201,7 @@ class AssistantManifestTests(unittest.TestCase):
     def test_unsupported_manifest_fields_fail_closed(self) -> None:
         unsupported = (
             b"schema_version = 2\n",
-            b'[powers.lookup]\nsummary = "Lookup."\n',
+            b'[actions.lookup]\nsummary = "Lookup."\n',
             b'[secrets.token]\nname = "Token"\nsummary = "Old."\n',
             b'[integrations.cloudflare]\nprovider = "cloudflare"\nscopes = ["zone.read"]\n',
         )
@@ -236,7 +236,7 @@ class AssistantManifestTests(unittest.TestCase):
             manifest().replace(b"spec = 1", b"spec = 4"),
             manifest().replace(b'id = "fixture-assistant"', b'id = "Invalid"'),
             manifest().replace(b'version = "0.1.0"', b'version = "v1"'),
-            manifest().replace(b'genesis = "Use the available Powers."', b'genesis = ""'),
+            manifest().replace(b'genesis = "Use the available Actions."', b'genesis = ""'),
             manifest(name=" Leading"),
             manifest(summary="line\nbreak"),
             manifest(creators="[]"),
@@ -355,12 +355,12 @@ class AssistantManifestTests(unittest.TestCase):
             reviewed.machine_contract,
         )
         self.assertEqual(
-            set(reviewed.machine_contract["powers"][0]),
+            set(reviewed.machine_contract["actions"][0]),
             {"id", "input_schema", "output_schema", "integrations", "human_requests"},
         )
 
         foreign = json.loads(raw)
-        foreign["powers"][0]["integrations"] = ["github"]
+        foreign["actions"][0]["integrations"] = ["github"]
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.parse_machine_contract(json.dumps(foreign).encode(), reviewed.integrations)
 
@@ -375,9 +375,9 @@ class AssistantManifestTests(unittest.TestCase):
 
         self.assertEqual(
             validator_class.call_count,
-            sum(len(assistant.powers) for assistant in catalog.values()) * 2,
+            sum(len(assistant.actions) for assistant in catalog.values()) * 2,
         )
-        validator = reviewed.power_validators["list-zones"]["input"]
+        validator = reviewed.action_validators["list-zones"]["input"]
         with (
             mock.patch.object(assistant_manifest, "_machine_schema") as canonicalize,
             mock.patch.object(assistant_manifest, "Draft202012Validator") as construct,
@@ -392,11 +392,11 @@ class AssistantManifestTests(unittest.TestCase):
     def test_machine_contract_loader_rejects_malformed_schema_and_oversized_artifact(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         malformed = json.loads(json.dumps(reviewed.machine_contract))
-        malformed["powers"][0]["input_schema"] = {"type": "not-a-json-schema-type"}
+        malformed["actions"][0]["input_schema"] = {"type": "not-a-json-schema-type"}
 
         for raw in (
             json.dumps(malformed).encode(),
-            b'{"version":1,"version":1,"powers":[]}',
+            b'{"version":1,"version":1,"actions":[]}',
             b"x" * (assistant_manifest.MAX_CONTRACT_BYTES + 1),
         ):
             with self.subTest(size=len(raw)), self.assertRaises(assistant_manifest.ManifestError):
@@ -407,10 +407,10 @@ class AssistantManifestTests(unittest.TestCase):
         open_contracts = []
         for schema_name in ("input_schema", "output_schema"):
             contract = json.loads(json.dumps(reviewed.machine_contract))
-            contract["powers"][0][schema_name].pop("additionalProperties")
+            contract["actions"][0][schema_name].pop("additionalProperties")
             open_contracts.append((schema_name, contract))
         nested = json.loads(json.dumps(reviewed.machine_contract))
-        nested["powers"][0]["output_schema"]["properties"]["pagination"].pop("additionalProperties")
+        nested["actions"][0]["output_schema"]["properties"]["pagination"].pop("additionalProperties")
         open_contracts.append(("nested output schema", nested))
 
         for label, contract in open_contracts:
@@ -427,17 +427,17 @@ class AssistantManifestTests(unittest.TestCase):
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
 
         typeless = json.loads(json.dumps(reviewed.machine_contract))
-        typeless["powers"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
+        typeless["actions"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "must close every object"):
             assistant_manifest.parse_machine_contract(json.dumps(typeless).encode(), reviewed.integrations)
 
         boolean = json.loads(json.dumps(reviewed.machine_contract))
-        boolean["powers"][0]["input_schema"]["properties"]["page"] = True
+        boolean["actions"][0]["input_schema"]["properties"]["page"] = True
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.parse_machine_contract(json.dumps(boolean).encode(), reviewed.integrations)
 
         literals = json.loads(json.dumps(reviewed.machine_contract))
-        literals["powers"][0]["input_schema"]["properties"].update(
+        literals["actions"][0]["input_schema"]["properties"].update(
             {
                 "flag": {"type": "boolean", "enum": [True, False]},
                 "choice": {"enum": [True, False]},
@@ -447,7 +447,7 @@ class AssistantManifestTests(unittest.TestCase):
         parsed = assistant_manifest.parse_machine_contract(json.dumps(literals).encode(), reviewed.integrations)
 
         self.assertEqual(
-            parsed["powers"][0]["input_schema"]["properties"]["flag"],
+            parsed["actions"][0]["input_schema"]["properties"]["flag"],
             {"type": "boolean", "enum": [True, False]},
         )
 
@@ -474,7 +474,7 @@ class AssistantManifestTests(unittest.TestCase):
         self.assertEqual(container.reads, 1)
 
         drifted = json.loads(raw)
-        drifted["powers"][0]["id"] = "other"
+        drifted["actions"][0]["id"] = "other"
         with self.assertRaises(assistant_manifest.ManifestError):
             cache.get(container, reviewed.integrations, drifted)
 
@@ -511,19 +511,19 @@ class AssistantManifestTests(unittest.TestCase):
         valid = json.loads(json.dumps(reviewed.machine_contract))
         variants = []
         variants.append({})
-        variants.append({"version": 1, "powers": []})
-        malformed_power = json.loads(json.dumps(valid))
-        malformed_power["powers"][0]["extra"] = True
-        variants.append(malformed_power)
+        variants.append({"version": 1, "actions": []})
+        malformed_action = json.loads(json.dumps(valid))
+        malformed_action["actions"][0]["extra"] = True
+        variants.append(malformed_action)
         duplicated = json.loads(json.dumps(valid))
-        duplicated["powers"].append(json.loads(json.dumps(duplicated["powers"][0])))
+        duplicated["actions"].append(json.loads(json.dumps(duplicated["actions"][0])))
         variants.append(duplicated)
         invalid_human = json.loads(json.dumps(valid))
-        invalid_human["powers"][0]["human_requests"] = ["invalid"]
+        invalid_human["actions"][0]["human_requests"] = ["invalid"]
         variants.append(invalid_human)
         unused_integration = json.loads(json.dumps(valid))
-        for power in unused_integration["powers"]:
-            power["integrations"] = []
+        for action in unused_integration["actions"]:
+            action["integrations"] = []
         variants.append(unused_integration)
         for contract in variants:
             with self.subTest(contract=contract), self.assertRaises(assistant_manifest.ManifestError):

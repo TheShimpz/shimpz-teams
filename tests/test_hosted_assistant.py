@@ -36,7 +36,7 @@ assistant_registry = assistant_lifecycle.assistant_registry
 network_policy = hosted_resources.network_policy
 integration_store = runtime_state.integration_store
 integration_http = runtime_state.integration_http
-power_journal = runtime_state.power_journal
+action_journal = runtime_state.action_journal
 hosted_egress_policy = assistant_lifecycle.egress_policy
 dynamic_assistants = assistant_lifecycle.dynamic_assistants
 
@@ -367,7 +367,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
             mock.patch.object(
                 assistant_lifecycle,
                 "_require_assistant_genesis",
-                return_value="Use reviewed Powers.",
+                return_value="Use reviewed Actions.",
             ),
         ):
             self.assertEqual(
@@ -656,10 +656,10 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
             (Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1" / "vectors.json").read_bytes()
         )
         resolution = copy.deepcopy(vectors["fixtures"]["resolve_response"]["value"])
-        power = resolution["machine_contract"]["powers"][0]
-        power["input_schema"]["additionalProperties"] = False
-        power["output_schema"]["additionalProperties"] = False
-        power["human_requests"] = []
+        action = resolution["machine_contract"]["actions"][0]
+        action["input_schema"]["additionalProperties"] = False
+        action["output_schema"]["additionalProperties"] = False
+        action["human_requests"] = []
         return resolution
 
     def test_dynamic_resolution_is_team_scoped_and_digest_bound(self) -> None:

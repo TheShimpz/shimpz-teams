@@ -21,7 +21,7 @@ state = harness.runtime_state
 
 TEAM_ID = "team_1"
 ASSISTANT_ID = "shimpz-cloudflare"
-POWER_ID = "list-zones"
+ACTION_ID = "list-zones"
 CONTRACT = harness.HOSTED_SPEC.contract
 TURN_TOKEN = "-".join(("turn", "token"))
 
@@ -44,6 +44,7 @@ def _active(container=None, contract=CONTRACT):
         contract,
         container or _container(),
         harness.HOSTED_SPEC.image,
+        "0.4.1",
     )
 
 
@@ -51,8 +52,8 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
         state._active_chat_tokens.clear()
         state._cancelled_chat_tokens.clear()
-        state._active_power_container_ids.clear()
-        state._blocked_power_workloads.clear()
+        state._active_action_container_ids.clear()
+        state._blocked_action_workloads.clear()
 
     def tearDown(self) -> None:
         self.setUp()
@@ -64,12 +65,12 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
 
         self.assertEqual(spec.assistant_id, ASSISTANT_ID)
         self.assertEqual(spec.name, "Shimpz Cloudflare")
-        self.assertIn(POWER_ID, spec.powers)
+        self.assertIn(ACTION_ID, spec.actions)
         self.assertEqual(bindings[ASSISTANT_ID].spec, spec)
-        self.assertEqual(assistants._hosted_power_identity(active), (active.container.id, active.image))
+        self.assertEqual(assistants._hosted_action_identity(active), (active.container.id, active.image))
 
         active.container.attrs = {"Config": {"Image": "runtime:image"}}
-        self.assertEqual(assistants._hosted_power_identity(active), (active.container.id, "runtime:image"))
+        self.assertEqual(assistants._hosted_action_identity(active), (active.container.id, "runtime:image"))
 
     def test_installed_assistant_rejects_absent_blocked_and_invalid_identity(self) -> None:
         with (
@@ -81,7 +82,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(absent.exception.status, HTTPStatus.CONFLICT)
 
         container = _container()
-        state._blocked_power_workloads.add((TEAM_ID, container.id))
+        state._blocked_action_workloads.add((TEAM_ID, container.id))
         with (
             mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, harness.HOSTED_SPEC)),
             self.assertRaises(state.ApiError) as blocked,
@@ -89,7 +90,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             assistants._installed_assistant(TEAM_ID, ASSISTANT_ID, candidate=container)
         self.assertEqual(blocked.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
 
-        state._blocked_power_workloads.clear()
+        state._blocked_action_workloads.clear()
         with (
             mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, harness.HOSTED_SPEC)),
             mock.patch.object(assistants.network_policy, "assistant_identity_valid", return_value=False),
@@ -142,7 +143,11 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 "_team_assistant_containers",
                 return_value=[unlabeled, unresolved, stopped],
             ),
-            mock.patch.object(lifecycle, "_dynamic_binding_snapshot", return_value={}),
+            mock.patch.object(
+                lifecycle,
+                "_dynamic_binding_snapshot",
+                return_value={ASSISTANT_ID: SimpleNamespace(resolution={"assistant_version": "0.4.1"})},
+            ),
             mock.patch.object(lifecycle, "_egress_store", return_value=object()),
             mock.patch.object(lifecycle, "_resolve_team_assistant", side_effect=resolve),
         ):
@@ -163,7 +168,11 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         second = _container(id="2")
         with (
             mock.patch.object(lifecycle, "_team_assistant_containers", return_value=[first, second]),
-            mock.patch.object(lifecycle, "_dynamic_binding_snapshot", return_value={}),
+            mock.patch.object(
+                lifecycle,
+                "_dynamic_binding_snapshot",
+                return_value={ASSISTANT_ID: SimpleNamespace(resolution={"assistant_version": "0.4.1"})},
+            ),
             mock.patch.object(lifecycle, "_egress_store", return_value=object()),
             mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, harness.HOSTED_SPEC)),
             mock.patch.object(
@@ -191,23 +200,23 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         with self.assertRaises(state.ApiError):
             assistants._select_team_assistants((active,), ("missing",))
 
-    def test_active_power_registration_release_cancellation_and_fail_stop(self) -> None:
+    def test_active_action_registration_release_cancellation_and_fail_stop(self) -> None:
         container = _container()
         with self.assertRaises(state.ApiError):
-            assistants._register_active_power(TEAM_ID, "wrong", container)
+            assistants._register_active_action(TEAM_ID, "wrong", container)
         state._active_chat_tokens[TEAM_ID] = "token"
-        assistants._register_active_power(TEAM_ID, "token", container)
-        self.assertEqual(state._active_power_container_ids[TEAM_ID], ("token", container.id))
+        assistants._register_active_action(TEAM_ID, "token", container)
+        self.assertEqual(state._active_action_container_ids[TEAM_ID], ("token", container.id))
         with self.assertRaises(state.ApiError):
-            assistants._register_active_power(TEAM_ID, "token", container)
-        assistants._release_active_power(TEAM_ID, "other", container.id)
-        self.assertIn(TEAM_ID, state._active_power_container_ids)
-        assistants._release_optional_power(TEAM_ID, "token", container.id)
-        self.assertNotIn(TEAM_ID, state._active_power_container_ids)
-        assistants._register_optional_power(TEAM_ID, "token", container)
-        assistants._release_optional_power(TEAM_ID, "token", container.id)
-        assistants._register_optional_power(TEAM_ID, None, container)
-        assistants._release_optional_power(TEAM_ID, None, container.id)
+            assistants._register_active_action(TEAM_ID, "token", container)
+        assistants._release_active_action(TEAM_ID, "other", container.id)
+        self.assertIn(TEAM_ID, state._active_action_container_ids)
+        assistants._release_optional_action(TEAM_ID, "token", container.id)
+        self.assertNotIn(TEAM_ID, state._active_action_container_ids)
+        assistants._register_optional_action(TEAM_ID, "token", container)
+        assistants._release_optional_action(TEAM_ID, "token", container.id)
+        assistants._register_optional_action(TEAM_ID, None, container)
+        assistants._release_optional_action(TEAM_ID, None, container.id)
 
         state._cancelled_chat_tokens.add("cancelled")
         with self.assertRaises(state.ApiError):
@@ -215,20 +224,20 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         assistants._raise_if_rpc_cancelled(None)
 
         with mock.patch.object(resources, "_fail_stop_team") as stopped:
-            assistants._fail_stop_power(TEAM_ID, container)
+            assistants._fail_stop_action(TEAM_ID, container)
         stopped.assert_called_once_with(container, timeout=3)
         with (
             mock.patch.object(resources, "_fail_stop_team", side_effect=state.ApiError(503, "failed")),
             self.assertRaises(state.ApiError),
         ):
-            assistants._fail_stop_power(TEAM_ID, container)
-        self.assertIn((TEAM_ID, container.id), state._blocked_power_workloads)
+            assistants._fail_stop_action(TEAM_ID, container)
+        self.assertIn((TEAM_ID, container.id), state._blocked_action_workloads)
 
     def test_rpc_wrapper_maps_encoding_exchange_and_stream_close_failures(self) -> None:
         container = _container()
-        invalid = assistants.AssistantRpcRequest(TEAM_ID, container, POWER_ID, {}, None)
+        invalid = assistants.AssistantRpcRequest(TEAM_ID, container, ACTION_ID, {}, None)
         with (
-            mock.patch.object(assistants.power_execution, "encode_rpc_invocation", side_effect=ValueError("large")),
+            mock.patch.object(assistants.action_execution, "encode_rpc_invocation", side_effect=ValueError("large")),
             self.assertRaises(state.ApiError) as encoded,
         ):
             assistants._assistant_rpc_exchange(invalid)
@@ -237,14 +246,14 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         request = assistants.AssistantRpcRequest(
             TEAM_ID,
             container,
-            POWER_ID,
+            ACTION_ID,
             {"input": {}, "integrations": {}},
             None,
         )
-        exchange_error = assistants.power_execution.RpcExchangeError("failed")
+        exchange_error = assistants.action_execution.RpcExchangeError("failed")
         with (
             mock.patch.object(state, "_docker", SimpleNamespace(api=object())),
-            mock.patch.object(assistants.power_execution, "rpc_exchange", side_effect=exchange_error),
+            mock.patch.object(assistants.action_execution, "rpc_exchange", side_effect=exchange_error),
             self.assertRaises(state.ApiError),
         ):
             assistants._assistant_rpc_exchange(request)
@@ -256,17 +265,17 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants._close_exec_stream(stream)
 
         with mock.patch.object(assistants, "_assistant_rpc_exchange", return_value={"ok": True}) as exchange:
-            self.assertEqual(assistants._assistant_rpc(TEAM_ID, "token", container, POWER_ID, {}), {"ok": True})
+            self.assertEqual(assistants._assistant_rpc(TEAM_ID, "token", container, ACTION_ID, {}), {"ok": True})
         self.assertEqual(exchange.call_args.args[0].token, "token")
 
     def test_integration_generation_refresh_resolution_and_envelope_failures(self) -> None:
         active = _active()
         store_error = assistants.integration_store.OAuthIntegrationStoreError("state")
         with (
-            mock.patch.object(assistants.power_execution, "integration_generations", side_effect=store_error),
-            self.assertRaises(assistants.power_journal.PowerJournalConflictError),
+            mock.patch.object(assistants.action_execution, "integration_generations", side_effect=store_error),
+            self.assertRaises(assistants.action_journal.ActionJournalConflictError),
         ):
-            assistants._power_integration_generations(TEAM_ID, active, POWER_ID)
+            assistants._action_integration_generations(TEAM_ID, active, ACTION_ID)
 
         http_error = assistants.integration_http.OAuthHTTPError("provider", "failed")
         with (
@@ -277,19 +286,19 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
 
         flow_error = assistants.integration_flow.IntegrationFlowError("contract")
         with (
-            mock.patch.object(assistants.integration_flow, "resolve_power_integrations", side_effect=flow_error),
+            mock.patch.object(assistants.integration_flow, "resolve_action_integrations", side_effect=flow_error),
             self.assertRaises(state.ApiError),
         ):
-            assistants._resolve_power_integrations(TEAM_ID, active, POWER_ID)
+            assistants._resolve_action_integrations(TEAM_ID, active, ACTION_ID)
 
         request = SimpleNamespace(assistant_id="missing")
         with self.assertRaises(state.ApiError):
-            assistants._require_hosted_power_rpc_envelope(TEAM_ID, {}, request)
+            assistants._require_hosted_action_rpc_envelope(TEAM_ID, {}, request)
         with (
-            mock.patch.object(assistants.power_execution, "require_rpc_envelope", side_effect=ValueError("large")),
+            mock.patch.object(assistants.action_execution, "require_rpc_envelope", side_effect=ValueError("large")),
             self.assertRaises(state.ApiError) as envelope,
         ):
-            assistants._require_hosted_power_rpc_envelope(
+            assistants._require_hosted_action_rpc_envelope(
                 TEAM_ID,
                 {ASSISTANT_ID: active},
                 SimpleNamespace(assistant_id=ASSISTANT_ID),
@@ -348,7 +357,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             specs = assistants._installed_assistant_specs(TEAM_ID)
         self.assertEqual(tuple(spec.assistant_id for spec in specs), (ASSISTANT_ID,))
 
-    def test_power_invocation_maps_contract_change_rpc_and_projection_failures(self) -> None:
+    def test_action_invocation_maps_contract_change_rpc_and_projection_failures(self) -> None:
         container = _container()
         active = _active(container)
         base = {
@@ -357,41 +366,41 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             "assistant_id": ASSISTANT_ID,
             "contract": CONTRACT,
             "container": container,
-            "power": POWER_ID,
+            "action": ACTION_ID,
             "payload": {"page": 1, "per_page": 25},
             "validated_assistant": active,
             "integration_values": {},
         }
-        for power in (None, "INVALID", "missing"):
-            with self.subTest(power=power), self.assertRaises(state.ApiError):
-                assistants._invoke_assistant_power(assistants.PowerInvocationRequest(**(base | {"power": power})))
+        for action in (None, "INVALID", "missing"):
+            with self.subTest(action=action), self.assertRaises(state.ApiError):
+                assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**(base | {"action": action})))
 
         with self.assertRaises(state.ApiError):
-            assistants._invoke_assistant_power(
-                assistants.PowerInvocationRequest(**(base | {"payload": {"page": 0, "per_page": 25}}))
+            assistants._invoke_assistant_action(
+                assistants.ActionInvocationRequest(**(base | {"payload": {"page": 0, "per_page": 25}}))
             )
 
         changed = replace(active, assistant_id="changed")
         with self.assertRaises(state.ApiError):
-            assistants._invoke_assistant_power(
-                assistants.PowerInvocationRequest(**(base | {"validated_assistant": changed}))
+            assistants._invoke_assistant_action(
+                assistants.ActionInvocationRequest(**(base | {"validated_assistant": changed}))
             )
 
         for error, expected_message in (
             (state.ApiError(503, "rpc"), "rpc"),
-            (assistants.power_execution.RpcSecretExposureError("secret"), "exposed protected data"),
-            (assistants.power_execution.RpcInvalidResultError("invalid"), "invalid result"),
+            (assistants.action_execution.RpcSecretExposureError("secret"), "exposed protected data"),
+            (assistants.action_execution.RpcInvalidResultError("invalid"), "invalid result"),
         ):
             patches = [mock.patch.object(assistants, "_assistant_rpc", return_value={})]
             if isinstance(error, state.ApiError):
                 patches = [mock.patch.object(assistants, "_assistant_rpc", side_effect=error)]
             else:
-                patches.append(mock.patch.object(assistants.power_execution, "project_rpc_result", side_effect=error))
+                patches.append(mock.patch.object(assistants.action_execution, "project_rpc_result", side_effect=error))
             with contextlib.ExitStack() as stack:
                 for current in patches:
                     stack.enter_context(current)
                 with self.assertRaises(state.ApiError) as caught:
-                    assistants._invoke_assistant_power(assistants.PowerInvocationRequest(**base))
+                    assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
             self.assertIn(expected_message, caught.exception.message)
 
         transcript = SimpleNamespace(
@@ -401,22 +410,22 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         )
         with (
             mock.patch.object(assistants, "_assistant_rpc", return_value={"type": "result"}) as rpc,
-            mock.patch.object(assistants.power_execution, "project_rpc_result", return_value={"ok": True}),
+            mock.patch.object(assistants.action_execution, "project_rpc_result", return_value={"ok": True}),
         ):
-            result = assistants._invoke_assistant_power(
-                assistants.PowerInvocationRequest(**(base | {"transcript": transcript}))
+            result = assistants._invoke_assistant_action(
+                assistants.ActionInvocationRequest(**(base | {"transcript": transcript}))
             )
         self.assertEqual(result["result"], {"ok": True})
         self.assertEqual(rpc.call_args.args[-1]["responses"], ({"approved": True},))
 
-    def test_power_payload_file_and_storage_errors_are_normalized(self) -> None:
+    def test_action_payload_file_and_storage_errors_are_normalized(self) -> None:
         active = _active()
         with self.assertRaises(state.ApiError):
-            assistants._validate_assistant_power_input({}, ASSISTANT_ID, POWER_ID, {})
+            assistants._validate_assistant_action_input({}, ASSISTANT_ID, ACTION_ID, {})
         with self.assertRaises(state.ApiError):
-            assistants._validate_assistant_power_input({ASSISTANT_ID: active}, ASSISTANT_ID, "missing", {})
+            assistants._validate_assistant_action_input({ASSISTANT_ID: active}, ASSISTANT_ID, "missing", {})
         with self.assertRaises(ValueError):
-            assistants._validate_power_payload(CONTRACT, "missing", {}, output=False)
+            assistants._validate_action_payload(CONTRACT, "missing", {}, output=False)
 
         self.assertEqual(assistants._validate_chat_file_ids(None), [])
         for value in ("invalid", [object()] * (assistants.MAX_CHAT_FILES + 1)):

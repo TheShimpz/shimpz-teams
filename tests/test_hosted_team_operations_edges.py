@@ -173,7 +173,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
     def test_generation_state_deletion_contains_brain_and_journal_failures(self) -> None:
         self.assertEqual(
             lifecycle._delete_generation_state(TEAM_ID, ""),
-            {"brain_checkpoints", "power_checkpoints"},
+            {"brain_checkpoints", "action_checkpoints"},
         )
         with (
             mock.patch.object(
@@ -186,21 +186,21 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             lifecycle._delete_generation_state(TEAM_ID, RUNTIME_ID)
 
         journal = mock.Mock()
-        journal.purge.side_effect = lifecycle.power_journal.PowerJournalError("journal")
+        journal.purge.side_effect = lifecycle.action_journal.ActionJournalError("journal")
         with (
             mock.patch.object(state._brain_runtime, "delete_thread"),
-            mock.patch.object(state, "_power_execution_journal", return_value=journal),
+            mock.patch.object(state, "_action_execution_journal", return_value=journal),
             self.assertRaises(state.ApiError),
         ):
             lifecycle._delete_generation_state(TEAM_ID, RUNTIME_ID)
         journal.purge.side_effect = None
         with (
             mock.patch.object(state._brain_runtime, "delete_thread"),
-            mock.patch.object(state, "_power_execution_journal", return_value=journal),
+            mock.patch.object(state, "_action_execution_journal", return_value=journal),
         ):
             self.assertEqual(
                 lifecycle._delete_generation_state(TEAM_ID, RUNTIME_ID),
-                {"brain_checkpoints", "power_checkpoints"},
+                {"brain_checkpoints", "action_checkpoints"},
             )
 
     def test_destroy_revalidates_cleanup_anchor_and_stops_running_runtime(self) -> None:

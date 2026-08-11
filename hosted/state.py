@@ -15,6 +15,8 @@ from pathlib import Path
 
 import docker
 
+from action import challenges as action_challenges
+from action import journal as action_journal
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from hosted import container as container_spec
@@ -30,8 +32,6 @@ from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
-from power import challenges as power_challenges
-from power import journal as power_journal
 from storage import files as team_storage
 
 ALL_INTERFACES = str(ipaddress.IPv4Address(0))
@@ -83,10 +83,10 @@ HTTP_CONNECTION_TIMEOUT_SECONDS = _positive_int_env("SHIMPZ_TEAM_HTTP_CONNECTION
 ASSISTANT_EGRESS_POLICY_DIR = Path(os.environ.get("SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR", "/assistant-egress-policy"))
 ASSISTANT_EGRESS_POLICY_GID = 10017
 TEAM_STORAGE_ROOT = Path("/var/lib/team/storage")
-POWER_JOURNAL_PATH = Path(
+ACTION_JOURNAL_PATH = Path(
     os.environ.get(
-        "SHIMPZ_TEAM_POWER_JOURNAL_PATH",
-        "/var/lib/team/power-journal/journal.sqlite3",
+        "SHIMPZ_TEAM_ACTION_JOURNAL_PATH",
+        "/var/lib/team/action-journal/journal.sqlite3",
     )
 )
 ASSISTANT_INTEGRATION_STATE_PATH = Path(
@@ -133,8 +133,8 @@ _chat_locks: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValu
 _active_chat_guard = threading.Lock()
 _active_chat_tokens: dict[str, str] = {}
 _active_chat_container_ids: dict[str, str] = {}
-_active_power_container_ids: dict[str, tuple[str, str]] = {}
-_blocked_power_workloads: set[tuple[str, str]] = set()
+_active_action_container_ids: dict[str, tuple[str, str]] = {}
+_blocked_action_workloads: set[tuple[str, str]] = set()
 _cancelled_chat_tokens: set[str] = set()
 # Docker inventory and slow provisioning run outside this lock. The generation detects snapshot churn.
 _capacity_lock = threading.Lock()
@@ -142,8 +142,8 @@ _capacity_reservations: dict[str, object] = {}
 _capacity_generation = 0
 _storage_lock = threading.Lock()
 _storage_instance: team_storage.TeamStorage | None = None
-_power_journal_lock = threading.Lock()
-_power_journal_instance: power_journal.PowerJournal | None = None
+_action_journal_lock = threading.Lock()
+_action_journal_instance: action_journal.ActionJournal | None = None
 _brain_runtime = brain_runtime_client.BrainRuntimeClient()
 _assistant_genesis_cache = assistant_genesis.GenesisCache()
 _assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
@@ -153,7 +153,7 @@ _assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_KEY_PATH,
 )
 _integration_challenges = integration_challenges.IntegrationChallengeStore()
-_human_challenges = power_challenges.HumanChallengeStore()
+_human_challenges = action_challenges.HumanChallengeStore()
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
 _assistant_icons = assistant_icons.AssistantIconStore(DYNAMIC_ASSISTANT_PATH.parent / "icons")
 _integration_pkce = integration_pkce.OAuthPKCEChallengeStore()
@@ -248,13 +248,13 @@ def _storage() -> team_storage.TeamStorage:
         return _storage_instance
 
 
-def _power_execution_journal() -> power_journal.PowerJournal:
-    """Open the private journal only when a Power batch or generation needs it."""
-    global _power_journal_instance
-    with _power_journal_lock:
-        if _power_journal_instance is None:
-            _power_journal_instance = power_journal.PowerJournal(POWER_JOURNAL_PATH)
-        return _power_journal_instance
+def _action_execution_journal() -> action_journal.ActionJournal:
+    """Open the private journal only when an Action batch or generation needs it."""
+    global _action_journal_instance
+    with _action_journal_lock:
+        if _action_journal_instance is None:
+            _action_journal_instance = action_journal.ActionJournal(ACTION_JOURNAL_PATH)
+        return _action_journal_instance
 
 
 def _initialize_developers_integration() -> None:
@@ -315,10 +315,10 @@ def _clear_team_id_runtime_state(team_id: str) -> None:
     with _active_chat_guard:
         token = _active_chat_tokens.pop(team_id, None)
         _active_chat_container_ids.pop(team_id, None)
-        _active_power_container_ids.pop(team_id, None)
-        for blocked in tuple(_blocked_power_workloads):
+        _active_action_container_ids.pop(team_id, None)
+        for blocked in tuple(_blocked_action_workloads):
             if blocked[0] == team_id:
-                _blocked_power_workloads.discard(blocked)
+                _blocked_action_workloads.discard(blocked)
         if token is not None:
             _cancelled_chat_tokens.discard(token)
 

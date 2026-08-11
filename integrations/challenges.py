@@ -24,7 +24,7 @@ class IntegrationChallengeNotFoundError(IntegrationChallengeError):
 class IntegrationRequirement:
     assistant_id: str
     assistant_name: str
-    power_ids: tuple[str, ...]
+    action_ids: tuple[str, ...]
     integrations: tuple[tuple[str, str, tuple[str, ...]], ...]
 
 

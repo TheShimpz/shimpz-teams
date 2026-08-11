@@ -8,9 +8,9 @@ import re
 PHASES = frozenset(
     {
         "model",
-        "power",
-        "power-delivery",
-        "power-preparation",
+        "action",
+        "action-delivery",
+        "action-preparation",
         "team-context",
     }
 )
@@ -18,10 +18,10 @@ STATES = frozenset({"started", "finished"})
 MAX_EVENTS = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
 MAX_ASSISTANT_ID_CHARS = 40
-MAX_POWER_ID_CHARS = 80
+MAX_ACTION_ID_CHARS = 80
 IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-# Exact compact JSON size of the largest valid finished Power progress record, including newline.
-MAX_PROGRESS_LINE_BYTES = 261
+# Exact compact JSON size of the largest valid finished Action progress record, including newline.
+MAX_PROGRESS_LINE_BYTES = 263
 MAX_LINE_BYTES = 256 * 1024
 MAX_STREAM_BYTES = MAX_EVENTS * MAX_PROGRESS_LINE_BYTES + MAX_LINE_BYTES
 
@@ -66,8 +66,8 @@ def canonical_event(value: object) -> dict[str, object]:
     expected = {"seq", "phase", "state"}
     if state == "finished":
         expected.add("elapsed_ms")
-    if phase == "power":
-        expected.update({"assistant_id", "index", "power", "total"})
+    if phase == "action":
+        expected.update({"assistant_id", "index", "action", "total"})
     if set(value) != expected:
         raise ProgressContractError("invalid progress event fields")
     event: dict[str, object] = {
@@ -82,15 +82,15 @@ def canonical_event(value: object) -> dict[str, object]:
             maximum=MAX_ELAPSED_MS,
             label="progress duration",
         )
-    if phase == "power":
-        total = _integer(value["total"], minimum=1, maximum=512, label="Power count")
+    if phase == "action":
+        total = _integer(value["total"], minimum=1, maximum=512, label="Action count")
         event["assistant_id"] = _identifier(
             value["assistant_id"],
             maximum=MAX_ASSISTANT_ID_CHARS,
             label="Assistant id",
         )
-        event["index"] = _integer(value["index"], minimum=1, maximum=total, label="Power index")
-        event["power"] = _identifier(value["power"], maximum=MAX_POWER_ID_CHARS, label="Power id")
+        event["index"] = _integer(value["index"], minimum=1, maximum=total, label="Action index")
+        event["action"] = _identifier(value["action"], maximum=MAX_ACTION_ID_CHARS, label="Action id")
         event["total"] = total
     return event
 

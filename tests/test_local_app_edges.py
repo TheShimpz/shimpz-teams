@@ -33,8 +33,8 @@ class LocalChatServiceEdgeTests(unittest.TestCase):
             lock.release()
 
         with service._exclusive_chat_turn("team_1") as token:
-            service._active_power_containers["team_1"] = (token, object())
-        self.assertNotIn("team_1", service._active_power_containers)
+            service._active_action_containers["team_1"] = (token, object())
+        self.assertNotIn("team_1", service._active_action_containers)
 
     def test_allowed_host_admission_delegates_to_assistant_lifecycle(self) -> None:
         service = local_app.ChatTurnService(local_app.ChatTurnDependencies())
@@ -58,7 +58,7 @@ class LocalControllerConstructionEdgeTests(unittest.TestCase):
         dependencies = local_app.LocalControllerDependencies(
             inference_store=object(),
             brain_runtime=object(),
-            power_state=object(),
+            action_state=object(),
             assistant_integrations=object(),
             integration_challenges=object(),
             human_challenges=object(),
@@ -265,10 +265,10 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             assistant_id="assistant",
             name="Assistant",
             summary="Summary",
-            powers={"b": object(), "a": object()},
+            actions={"b": object(), "a": object()},
         )
         controller.registry = types.SimpleNamespace(catalog=lambda: (spec,))
-        self.assertEqual(controller.list_registry()["assistants"][0]["powers"], ["a", "b"])
+        self.assertEqual(controller.list_registry()["assistants"][0]["actions"], ["a", "b"])
 
         controller.client.ping.return_value = False
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -283,58 +283,58 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
-        power_spec = types.SimpleNamespace(human_requests=())
-        spec = types.SimpleNamespace(powers={"power": power_spec})
+        action_spec = types.SimpleNamespace(human_requests=())
+        spec = types.SimpleNamespace(actions={"action": action_spec})
         container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         controller.assistant_lifecycle = types.SimpleNamespace(
             _resolve=lambda *_args: spec,
             _network=lambda _team_id: types.SimpleNamespace(name="network"),
             _assistant_container=lambda *_args: container,
             _validate_container=mock.Mock(),
-            _blocked_power_workloads=set(),
+            _blocked_action_workloads=set(),
             _rpc=mock.Mock(return_value={"result": "raw"}),
         )
         controller.chat_turn_service = types.SimpleNamespace(
             _active_chat_guard=nullcontext(),
-            _active_power_containers={},
-            _resolve_power_integrations=lambda *_args: {},
+            _active_action_containers={},
+            _resolve_action_integrations=lambda *_args: {},
         )
         return controller, spec, container
 
     def test_invoke_rejects_contract_runtime_and_rpc_failures(self) -> None:
         controller, spec, container = self.controller()
-        spec.powers = {}
+        spec.actions = {}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.invoke("team_1", "assistant", "power", {})
-        self.assertEqual(caught.exception.code, "power-not-declared")
+            controller.invoke("team_1", "assistant", "action", {})
+        self.assertEqual(caught.exception.code, "action-not-declared")
 
-        spec.powers = {"power": types.SimpleNamespace(human_requests=())}
+        spec.actions = {"action": types.SimpleNamespace(human_requests=())}
         with (
             mock.patch.object(
                 local_app,
-                "validate_power_payload",
+                "validate_action_payload",
                 side_effect=ValueError("invalid"),
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            controller.invoke("team_1", "assistant", "power", {})
-        self.assertEqual(caught.exception.code, "invalid-power-input")
+            controller.invoke("team_1", "assistant", "action", {})
+        self.assertEqual(caught.exception.code, "invalid-action-input")
 
-        controller.assistant_lifecycle._blocked_power_workloads.add("container")
+        controller.assistant_lifecycle._blocked_action_workloads.add("container")
         with (
-            mock.patch.object(local_app, "validate_power_payload", return_value={}),
+            mock.patch.object(local_app, "validate_action_payload", return_value={}),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            controller.invoke("team_1", "assistant", "power", {})
-        self.assertEqual(caught.exception.code, "assistant-power-blocked")
+            controller.invoke("team_1", "assistant", "action", {})
+        self.assertEqual(caught.exception.code, "assistant-action-blocked")
 
-        controller.assistant_lifecycle._blocked_power_workloads.clear()
+        controller.assistant_lifecycle._blocked_action_workloads.clear()
         container.status = "exited"
         with (
-            mock.patch.object(local_app, "validate_power_payload", return_value={}),
+            mock.patch.object(local_app, "validate_action_payload", return_value={}),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            controller.invoke("team_1", "assistant", "power", {})
+            controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(caught.exception.code, "assistant-not-running")
 
         container.status = "running"
@@ -344,43 +344,43 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             code="assistant-rpc-failed",
         )
         with (
-            mock.patch.object(local_app, "validate_power_payload", return_value={}),
+            mock.patch.object(local_app, "validate_action_payload", return_value={}),
             mock.patch.object(local_app.local_audit, "record_request"),
             self.assertRaises(local_app.ApiProblem),
         ):
-            controller.invoke("team_1", "assistant", "power", {}, ({"value": True},))
+            controller.invoke("team_1", "assistant", "action", {}, ({"value": True},))
 
     def test_invoke_maps_projection_failures_and_returns_valid_result(self) -> None:
         controller, _spec, _container = self.controller()
         failures = (
-            (local_app.power_execution.RpcSecretExposureError("unsafe"), "assistant-secret-exposure"),
-            (local_app.power_execution.RpcInvalidResultError("invalid"), "invalid-power-output"),
+            (local_app.action_execution.RpcSecretExposureError("unsafe"), "assistant-secret-exposure"),
+            (local_app.action_execution.RpcInvalidResultError("invalid"), "invalid-action-output"),
         )
         for failure, expected_code in failures:
             with (
                 self.subTest(expected_code=expected_code),
-                mock.patch.object(local_app, "validate_power_payload", return_value={}),
+                mock.patch.object(local_app, "validate_action_payload", return_value={}),
                 mock.patch.object(
-                    local_app.power_execution,
+                    local_app.action_execution,
                     "project_rpc_result",
                     side_effect=failure,
                 ),
                 mock.patch.object(local_app.local_audit, "record_request"),
                 self.assertRaises(local_app.ApiProblem) as caught,
             ):
-                controller.invoke("team_1", "assistant", "power", {})
+                controller.invoke("team_1", "assistant", "action", {})
             self.assertEqual(caught.exception.code, expected_code)
 
         with (
-            mock.patch.object(local_app, "validate_power_payload", return_value={}),
+            mock.patch.object(local_app, "validate_action_payload", return_value={}),
             mock.patch.object(
-                local_app.power_execution,
+                local_app.action_execution,
                 "project_rpc_result",
                 return_value={"ok": True},
             ),
             mock.patch.object(local_app.local_audit, "record_request"),
         ):
-            result = controller.invoke("team_1", "assistant", "power", {})
+            result = controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(result["result"], {"ok": True})
 
 

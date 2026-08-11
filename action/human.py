@@ -1,4 +1,4 @@
-"""Closed validation for one reviewed Power human-request suspension."""
+"""Closed validation for one reviewed Action human-request suspension."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-MAX_REQUESTS_PER_POWER = 8
+MAX_REQUESTS_PER_ACTION = 8
 MAX_REQUESTS_PER_TURN = 16
 LENGTH_KINDS = {
     "input:text": 4096,
@@ -52,7 +52,7 @@ class HumanRequestSuspensionError(RuntimeError):
     """Control signal raised only after a request passes Team admission."""
 
     def __init__(self, request: HumanRequest) -> None:
-        super().__init__("Assistant Power requested human input")
+        super().__init__("Assistant Action requested human input")
         self.request = request
 
 
@@ -81,19 +81,19 @@ class HumanResponse:
 
 
 @dataclass(frozen=True, slots=True)
-class PowerTranscript:
-    """Bounded replay responses for one immutable Brain Power interrupt."""
+class ActionTranscript:
+    """Bounded replay responses for one immutable Brain Action interrupt."""
 
     interrupt_id: str
     responses: tuple[HumanResponse, ...] = ()
 
-    def append(self, request: HumanRequest, value: object) -> PowerTranscript:
+    def append(self, request: HumanRequest, value: object) -> ActionTranscript:
         """Admit the next exact response and return an immutable transcript."""
-        if len(self.responses) >= MAX_REQUESTS_PER_POWER or request.ordinal != len(self.responses):
-            raise HumanRequestError("Assistant Power human request sequence is invalid")
+        if len(self.responses) >= MAX_REQUESTS_PER_ACTION or request.ordinal != len(self.responses):
+            raise HumanRequestError("Assistant Action human request sequence is invalid")
         if any(response.secret for response in self.responses):
-            raise HumanRequestError("Assistant Power requested input after a secret response")
-        return PowerTranscript(
+            raise HumanRequestError("Assistant Action requested input after a secret response")
+        return ActionTranscript(
             interrupt_id=self.interrupt_id,
             responses=(*self.responses, admit_response(request, value)),
         )
@@ -112,22 +112,22 @@ class PowerTranscript:
 
 
 def transcript_for(
-    transcripts: tuple[PowerTranscript, ...],
+    transcripts: tuple[ActionTranscript, ...],
     interrupt_id: str,
-) -> PowerTranscript:
+) -> ActionTranscript:
     """Resolve one interrupt transcript while rejecting ambiguous duplicate state."""
     matching = tuple(item for item in transcripts if item.interrupt_id == interrupt_id)
     if len(matching) > 1:
-        raise HumanRequestError("Power human transcript is ambiguous")
-    return matching[0] if matching else PowerTranscript(interrupt_id)
+        raise HumanRequestError("Action human transcript is ambiguous")
+    return matching[0] if matching else ActionTranscript(interrupt_id)
 
 
 def append_response(
-    transcripts: tuple[PowerTranscript, ...],
+    transcripts: tuple[ActionTranscript, ...],
     interrupt_id: str,
     request: HumanRequest,
     value: object,
-) -> tuple[PowerTranscript, ...]:
+) -> tuple[ActionTranscript, ...]:
     """Append one response while enforcing the Team-wide turn budget."""
     if sum(len(item.responses) for item in transcripts) >= MAX_REQUESTS_PER_TURN:
         raise HumanRequestError("Team turn exceeded its human request limit")
@@ -141,7 +141,7 @@ def append_response(
 def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanRequest:
     """Validate one request and bind its advertised fingerprint to canonical bytes."""
     if not isinstance(value, dict) or "fingerprint" not in value:
-        raise HumanRequestError("Assistant Power human request is invalid")
+        raise HumanRequestError("Assistant Action human request is invalid")
     request = dict(value)
     fingerprint = request.pop("fingerprint")
     error = _request_error(request)
@@ -153,10 +153,10 @@ def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanReque
         or not isinstance(fingerprint, str)
         or len(fingerprint) != 64
     ):
-        raise HumanRequestError("Assistant Power human request is invalid")
+        raise HumanRequestError("Assistant Action human request is invalid")
     expected = _fingerprint(request)
     if not hmac.compare_digest(fingerprint, expected):
-        raise HumanRequestError("Assistant Power human request fingerprint is invalid")
+        raise HumanRequestError("Assistant Action human request fingerprint is invalid")
     framed = {**request, "fingerprint": fingerprint}
     return HumanRequest(
         kind=kind,
@@ -232,7 +232,7 @@ def _canonical(value: object) -> bytes:
             separators=(",", ":"),
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
-        raise HumanRequestError("Assistant Power human request is invalid") from exc
+        raise HumanRequestError("Assistant Action human request is invalid") from exc
 
 
 def _request_error(request: object) -> str | None:
@@ -243,7 +243,7 @@ def _request_error(request: object) -> str | None:
     if (
         not isinstance(kind, str)
         or type(ordinal) is not int
-        or not 0 <= ordinal < MAX_REQUESTS_PER_POWER
+        or not 0 <= ordinal < MAX_REQUESTS_PER_ACTION
         or not _text(request.get("title"), 80)
         or not _text(request.get("description"), 500)
     ):

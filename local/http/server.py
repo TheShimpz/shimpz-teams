@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from docker.errors import DockerException
 
+from action import human as action_human
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from core.http import stdlib
@@ -24,7 +25,6 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
-from power import human as power_human
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -721,7 +721,7 @@ class Handler(BaseHTTPRequestHandler):
         if operation == "assistant-invoke":
             return (
                 HTTPStatus.OK,
-                controller.invoke(team_id, assistant_id, route.params["power_id"], self._body()),
+                controller.invoke(team_id, assistant_id, route.params["action_id"], self._body()),
                 operation,
                 team_id,
                 assistant_id,
@@ -810,7 +810,7 @@ class Handler(BaseHTTPRequestHandler):
         if (
             challenge is None
             or challenge.id != challenge_id
-            or challenge.requirement.request.kind not in power_human.AUTH_KINDS
+            or challenge.requirement.request.kind not in action_human.AUTH_KINDS
         ):
             return None
         return {

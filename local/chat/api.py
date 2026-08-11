@@ -150,7 +150,7 @@ def resume_chat_integrations(
                 return chat_turn_engine.IntegrationResumeContext(
                     self._chat_identity(*current),
                     bindings,
-                    pending.continuation.turn.powers,
+                    pending.continuation.turn.actions,
                 )
 
             admission = chat_turn_engine.admit_integration_resume(

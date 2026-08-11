@@ -415,7 +415,7 @@ CONTROLLER_ROUTES = (
     ),
     _controller_route(
         "POST",
-        "/v1/teams/:team_id/assistants/:assistant_id/powers/:power_id",
+        "/v1/teams/:team_id/assistants/:assistant_id/actions/:action_id",
         "assistant-invoke",
         _LOCAL_CONTROLLER_ONLY,
     ),

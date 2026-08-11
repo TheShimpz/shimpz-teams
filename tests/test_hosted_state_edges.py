@@ -13,8 +13,8 @@ class HostedStateEdgeTests(unittest.TestCase):
         self.saved = {
             "active_tokens": dict(state._active_chat_tokens),
             "active_containers": dict(state._active_chat_container_ids),
-            "active_powers": dict(state._active_power_container_ids),
-            "blocked": set(state._blocked_power_workloads),
+            "active_actions": dict(state._active_action_container_ids),
+            "blocked": set(state._blocked_action_workloads),
             "cancelled": set(state._cancelled_chat_tokens),
             "storage": state._storage_instance,
         }
@@ -24,10 +24,10 @@ class HostedStateEdgeTests(unittest.TestCase):
         state._active_chat_tokens.update(self.saved["active_tokens"])
         state._active_chat_container_ids.clear()
         state._active_chat_container_ids.update(self.saved["active_containers"])
-        state._active_power_container_ids.clear()
-        state._active_power_container_ids.update(self.saved["active_powers"])
-        state._blocked_power_workloads.clear()
-        state._blocked_power_workloads.update(self.saved["blocked"])
+        state._active_action_container_ids.clear()
+        state._active_action_container_ids.update(self.saved["active_actions"])
+        state._blocked_action_workloads.clear()
+        state._blocked_action_workloads.update(self.saved["blocked"])
         state._cancelled_chat_tokens.clear()
         state._cancelled_chat_tokens.update(self.saved["cancelled"])
         state._storage_instance = self.saved["storage"]
@@ -97,12 +97,12 @@ class HostedStateEdgeTests(unittest.TestCase):
     def test_terminal_state_cleanup_and_commit_cover_cancelled_and_active_turns(self) -> None:
         state._active_chat_tokens["team_1"] = "token"
         state._active_chat_container_ids["team_1"] = "container"
-        state._active_power_container_ids["team_1"] = ("token", "power")
-        state._blocked_power_workloads.update({("team_1", "power"), ("team_2", "power")})
+        state._active_action_container_ids["team_1"] = ("token", "action")
+        state._blocked_action_workloads.update({("team_1", "action"), ("team_2", "action")})
         state._cancelled_chat_tokens.add("token")
         state._clear_team_id_runtime_state("team_1")
         self.assertNotIn("team_1", state._active_chat_tokens)
-        self.assertEqual(state._blocked_power_workloads, {("team_2", "power")})
+        self.assertEqual(state._blocked_action_workloads, {("team_2", "action")})
         self.assertNotIn("token", state._cancelled_chat_tokens)
         state._clear_team_id_runtime_state("missing")
 

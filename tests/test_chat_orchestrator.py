@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import unittest
 
+from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
-from power import human as power_human
 
 
-def context(*powers: brain_runtime_client.RuntimePower) -> brain_runtime_client.RuntimeContext:
+def context(*actions: brain_runtime_client.RuntimeAction) -> brain_runtime_client.RuntimeContext:
     return brain_runtime_client.RuntimeContext(
         thread_id="team:assistant:conversation",
         team_name="Marketing",
         assistants=(
             brain_runtime_client.RuntimeAssistant(
                 id="hello-pulse",
-                genesis="Compose the declared greeting Power into one bounded welcome.",
-                powers=powers
+                genesis="Compose the declared greeting Action into one bounded welcome.",
+                actions=actions
                 or (
-                    brain_runtime_client.RuntimePower(
+                    brain_runtime_client.RuntimeAction(
                         id="hello",
                         summary="Return a greeting.",
                         input_schema={"type": "object", "additionalProperties": False},
@@ -32,53 +32,53 @@ def context(*powers: brain_runtime_client.RuntimePower) -> brain_runtime_client.
 
 
 def completed(reply: str = "Done") -> brain_runtime_client.RuntimeTurn:
-    return brain_runtime_client.RuntimeTurn(status="completed", reply=reply, powers=())
+    return brain_runtime_client.RuntimeTurn(status="completed", reply=reply, actions=())
 
 
 def suspended(
-    power: str = "hello",
+    action: str = "hello",
     *,
     assistant_id: str = "hello-pulse",
     interrupt_id: str = "interrupt-1",
 ) -> brain_runtime_client.RuntimeTurn:
     return brain_runtime_client.RuntimeTurn(
-        status="power-required",
+        status="action-required",
         reply="",
-        powers=(
-            brain_runtime_client.PowerRequest(
+        actions=(
+            brain_runtime_client.ActionRequest(
                 interrupt_id=interrupt_id,
                 assistant_id=assistant_id,
-                power=power,
+                action=action,
                 input={"name": "Ada"},
             ),
         ),
     )
 
 
-def suspension(*requests: brain_runtime_client.PowerRequest) -> brain_runtime_client.RuntimeTurn:
-    return brain_runtime_client.RuntimeTurn(status="power-required", reply="", powers=requests)
+def suspension(*requests: brain_runtime_client.ActionRequest) -> brain_runtime_client.RuntimeTurn:
+    return brain_runtime_client.RuntimeTurn(status="action-required", reply="", actions=requests)
 
 
-def power_batch(round_index: int, count: int) -> brain_runtime_client.RuntimeTurn:
+def action_batch(round_index: int, count: int) -> brain_runtime_client.RuntimeTurn:
     return suspension(
         *(
-            brain_runtime_client.PowerRequest(
-                interrupt_id=f"interrupt-{round_index}-{power_index}",
+            brain_runtime_client.ActionRequest(
+                interrupt_id=f"interrupt-{round_index}-{action_index}",
                 assistant_id="hello-pulse",
-                power="hello",
-                input={"name": f"Ada {power_index}"},
+                action="hello",
+                input={"name": f"Ada {action_index}"},
             )
-            for power_index in range(count)
+            for action_index in range(count)
         )
     )
 
 
-def accept_input(_assistant: str, _power: str, payload):
+def accept_input(_assistant: str, _action: str, payload):
     return payload
 
 
-def strategy(validate_power, invoke_power, **hooks):
-    return chat_orchestrator.ChatStrategy(validate_power, invoke_power, **hooks)
+def strategy(validate_action, invoke_action, **hooks):
+    return chat_orchestrator.ChatStrategy(validate_action, invoke_action, **hooks)
 
 
 class FakeRuntime:
@@ -95,41 +95,41 @@ class FakeRuntime:
 
 
 class ChatOrchestratorTests(unittest.TestCase):
-    def test_human_request_pauses_without_resuming_the_brain_or_running_later_powers(self):
-        first = suspended(interrupt_id="first").powers[0]
-        second = suspended(interrupt_id="second").powers[0]
+    def test_human_request_pauses_without_resuming_the_brain_or_running_later_actions(self):
+        first = suspended(interrupt_id="first").actions[0]
+        second = suspended(interrupt_id="second").actions[0]
         descriptor = {
             "kind": "approval",
             "ordinal": 0,
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        admitted = power_human.validate_request(descriptor, ("approval",))
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        admitted = action_human.validate_request(descriptor, ("approval",))
         invoked = []
 
         def invoke(request):
             invoked.append(request.interrupt_id)
             if request.interrupt_id == "first":
-                raise power_human.HumanRequestSuspensionError(admitted)
+                raise action_human.HumanRequestSuspensionError(admitted)
             return {"ok": True}
 
         runtime = FakeRuntime([suspension(first, second), completed()])
         outcome = chat_orchestrator.run_until_pause(
             runtime,
             context(),
-            "Use both Powers",
+            "Use both Actions",
             strategy(accept_input, invoke),
         )
 
         self.assertIsInstance(outcome, chat_orchestrator.ChatHumanSuspension)
-        self.assertEqual(outcome.power.interrupt_id, "first")
+        self.assertEqual(outcome.action.interrupt_id, "first")
         self.assertEqual(outcome.request, admitted)
         self.assertEqual(outcome.continuation.round_index, 0)
         self.assertEqual(invoked, ["first"])
         self.assertEqual(runtime.resumes, [])
 
-    def test_direct_reply_never_invokes_a_power(self):
+    def test_direct_reply_never_invokes_a_action(self):
         invoked = []
 
         outcome = chat_orchestrator.run(
@@ -138,15 +138,15 @@ class ChatOrchestratorTests(unittest.TestCase):
             "Hello",
             strategy(
                 accept_input,
-                lambda request: invoked.append((request.assistant_id, request.power, request.input)),
+                lambda request: invoked.append((request.assistant_id, request.action, request.input)),
             ),
         )
 
         self.assertEqual(outcome.reply, "Hello")
-        self.assertEqual(outcome.powers, ())
+        self.assertEqual(outcome.actions, ())
         self.assertEqual(invoked, [])
 
-    def test_power_result_is_returned_to_the_model_before_the_final_reply(self):
+    def test_action_result_is_returned_to_the_model_before_the_final_reply(self):
         runtime = FakeRuntime([suspended(), completed("Hello, Ada.")])
         invoked = []
 
@@ -157,7 +157,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             strategy(
                 accept_input,
                 lambda request: (
-                    invoked.append((request.assistant_id, request.power, request.input)) or {"message": "Hello, Ada."}
+                    invoked.append((request.assistant_id, request.action, request.input)) or {"message": "Hello, Ada."}
                 ),
             ),
         )
@@ -166,14 +166,14 @@ class ChatOrchestratorTests(unittest.TestCase):
         self.assertEqual(runtime.resumes, [{"interrupt-1": {"message": "Hello, Ada."}}])
         self.assertEqual(outcome.reply, "Hello, Ada.")
         self.assertEqual(
-            outcome.powers,
-            (chat_orchestrator.InvokedPower(assistant_id="hello-pulse", power="hello"),),
+            outcome.actions,
+            (chat_orchestrator.InvokedAction(assistant_id="hello-pulse", action="hello"),),
         )
 
     def test_pause_happens_after_full_validation_and_before_any_side_effect(self):
         requests = (
-            suspended(interrupt_id="first").powers[0],
-            suspended(interrupt_id="second").powers[0],
+            suspended(interrupt_id="first").actions[0],
+            suspended(interrupt_id="second").actions[0],
         )
         runtime = FakeRuntime([suspension(*requests), completed("Finished")])
         events = []
@@ -181,9 +181,9 @@ class ChatOrchestratorTests(unittest.TestCase):
         progress = chat_orchestrator.run_until_pause(
             runtime,
             context(),
-            "Use the Powers",
+            "Use the Actions",
             strategy(
-                lambda assistant, power, payload: events.append(("validate", assistant, power)) or payload,
+                lambda assistant, action, payload: events.append(("validate", assistant, action)) or payload,
                 lambda request: events.append(("invoke", request.interrupt_id)) or {"ok": True},
                 prepare_batch=lambda batch: events.append(("prepare", len(batch))),
                 pause_before_batch=lambda batch: events.append(("pause", len(batch))) or True,
@@ -222,10 +222,10 @@ class ChatOrchestratorTests(unittest.TestCase):
         progress = chat_orchestrator.run_until_pause(
             runtime,
             context(),
-            "Use one Power",
+            "Use one Action",
             strategy(
                 accept_input,
-                lambda _request: self.fail("Power must not run before secrets are available"),
+                lambda _request: self.fail("Action must not run before secrets are available"),
                 pause_before_batch=lambda _batch: True,
             ),
         )
@@ -237,15 +237,15 @@ class ChatOrchestratorTests(unittest.TestCase):
                 context(),
                 progress.continuation,
                 strategy(
-                    lambda _assistant, _power, _payload: (_ for _ in ()).throw(
+                    lambda _assistant, _action, _payload: (_ for _ in ()).throw(
                         chat_orchestrator.ChatOrchestrationError("context changed")
                     ),
-                    lambda _request: self.fail("drifted Power must not run"),
+                    lambda _request: self.fail("drifted Action must not run"),
                 ),
             )
         self.assertEqual(runtime.resumes, [])
 
-    def test_multiple_power_rounds_remain_bounded_and_controller_brokered(self):
+    def test_multiple_action_rounds_remain_bounded_and_controller_brokered(self):
         runtime = FakeRuntime(
             [
                 suspended(interrupt_id="one"),
@@ -261,10 +261,10 @@ class ChatOrchestratorTests(unittest.TestCase):
             strategy(accept_input, lambda _request: {"message": "ok"}),
         )
 
-        self.assertEqual([item.power for item in outcome.powers], ["hello", "hello"])
+        self.assertEqual([item.action for item in outcome.actions], ["hello", "hello"])
         self.assertEqual(len(runtime.resumes), 2)
 
-    def test_repeated_suspension_cannot_replay_a_completed_power(self):
+    def test_repeated_suspension_cannot_replay_a_completed_action(self):
         repeated = suspended(interrupt_id="same-interrupt")
         runtime = FakeRuntime([repeated, repeated])
         invoked = []
@@ -277,7 +277,7 @@ class ChatOrchestratorTests(unittest.TestCase):
                 strategy(
                     accept_input,
                     lambda request: (
-                        invoked.append((request.assistant_id, request.power, request.input)) or {"message": "ok"}
+                        invoked.append((request.assistant_id, request.action, request.input)) or {"message": "ok"}
                     ),
                 ),
             )
@@ -285,7 +285,7 @@ class ChatOrchestratorTests(unittest.TestCase):
         self.assertEqual(invoked, [("hello-pulse", "hello", {"name": "Ada"})])
         self.assertEqual(len(runtime.resumes), 1)
 
-    def test_undeclared_power_fails_before_invocation(self):
+    def test_undeclared_action_fails_before_invocation(self):
         invoked = []
         with self.assertRaises(chat_orchestrator.ChatOrchestrationError):
             chat_orchestrator.run(
@@ -294,7 +294,7 @@ class ChatOrchestratorTests(unittest.TestCase):
                 "Do it",
                 strategy(
                     accept_input,
-                    lambda request: invoked.append((request.assistant_id, request.power, request.input)),
+                    lambda request: invoked.append((request.assistant_id, request.action, request.input)),
                 ),
             )
         self.assertEqual(invoked, [])
@@ -311,9 +311,9 @@ class ChatOrchestratorTests(unittest.TestCase):
             )
         self.assertEqual(runtime.resumes, [])
 
-    def test_power_round_limit_stops_an_unbounded_model_loop(self):
+    def test_action_round_limit_stops_an_unbounded_model_loop(self):
         turns = [
-            suspended(interrupt_id=f"interrupt-{index}") for index in range(chat_orchestrator.MAX_POWER_ROUNDS + 1)
+            suspended(interrupt_id=f"interrupt-{index}") for index in range(chat_orchestrator.MAX_ACTION_ROUNDS + 1)
         ]
 
         with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "round limit"):
@@ -324,8 +324,8 @@ class ChatOrchestratorTests(unittest.TestCase):
                 strategy(accept_input, lambda _request: {"message": "ok"}),
             )
 
-    def test_two_assistants_can_own_the_same_local_power_id(self):
-        shared = brain_runtime_client.RuntimePower(
+    def test_two_assistants_can_own_the_same_local_action_id(self):
+        shared = brain_runtime_client.RuntimeAction(
             id="lookup",
             summary="Look up data.",
             input_schema={"type": "object"},
@@ -357,11 +357,11 @@ class ChatOrchestratorTests(unittest.TestCase):
             "Find Berlin's weather",
             strategy(
                 accept_input,
-                lambda request: invoked.append((request.assistant_id, request.power, request.input)) or {"ok": True},
+                lambda request: invoked.append((request.assistant_id, request.action, request.input)) or {"ok": True},
             ),
         )
 
-        self.assertEqual([item.assistant_id for item in outcome.powers], ["places", "weather"])
+        self.assertEqual([item.assistant_id for item in outcome.actions], ["places", "weather"])
         self.assertEqual([item[:2] for item in invoked], [("places", "lookup"), ("weather", "lookup")])
 
     def test_context_is_revalidated_around_every_side_effect_and_resume(self):
@@ -383,20 +383,20 @@ class ChatOrchestratorTests(unittest.TestCase):
 
     def test_context_validation_count_preserves_every_security_boundary(self):
         shapes = (
-            ("no Powers", (), False, 2),
-            ("one Power", (1,), False, 5),
-            ("four Powers in one batch", (4,), False, 8),
-            ("four single-Power rounds", (1, 1, 1, 1), False, 14),
-            ("eight Powers in one batch", (8,), False, 12),
-            ("eight single-Power rounds", (1, 1, 1, 1, 1, 1, 1, 1), False, 26),
-            ("one Power with one pause", (1,), True, 6),
+            ("no Actions", (), False, 2),
+            ("one Action", (1,), False, 5),
+            ("four Actions in one batch", (4,), False, 8),
+            ("four single-Action rounds", (1, 1, 1, 1), False, 14),
+            ("eight Actions in one batch", (8,), False, 12),
+            ("eight single-Action rounds", (1, 1, 1, 1, 1, 1, 1, 1), False, 26),
+            ("one Action with one pause", (1,), True, 6),
         )
         for name, batch_sizes, pause, expected in shapes:
             with self.subTest(shape=name):
                 validations: list[str] = []
                 runtime = FakeRuntime(
                     [
-                        *(power_batch(round_index, count) for round_index, count in enumerate(batch_sizes)),
+                        *(action_batch(round_index, count) for round_index, count in enumerate(batch_sizes)),
                         completed(),
                     ]
                 )
@@ -426,8 +426,8 @@ class ChatOrchestratorTests(unittest.TestCase):
                 self.assertEqual(len(validations), expected)
 
     def test_invalid_later_request_prevents_every_batch_side_effect(self):
-        first = suspended(interrupt_id="first").powers[0]
-        invalid = suspended("shell", interrupt_id="second").powers[0]
+        first = suspended(interrupt_id="first").actions[0]
+        invalid = suspended("shell", interrupt_id="second").actions[0]
         invoked = []
 
         with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "undeclared"):
@@ -437,27 +437,27 @@ class ChatOrchestratorTests(unittest.TestCase):
                 "Run the batch",
                 strategy(
                     accept_input,
-                    lambda request: invoked.append((request.assistant_id, request.power, request.input)),
+                    lambda request: invoked.append((request.assistant_id, request.action, request.input)),
                 ),
             )
 
         self.assertEqual(invoked, [])
 
     def test_every_batch_input_is_validated_before_the_first_side_effect(self):
-        hello = context().assistants[0].powers[0]
-        lookup = brain_runtime_client.RuntimePower(
+        hello = context().assistants[0].actions[0]
+        lookup = brain_runtime_client.RuntimeAction(
             id="lookup",
             summary="Look up data.",
             input_schema={"type": "object"},
         )
-        first = suspended(interrupt_id="first").powers[0]
-        second = suspended("lookup", interrupt_id="second").powers[0]
+        first = suspended(interrupt_id="first").actions[0]
+        second = suspended("lookup", interrupt_id="second").actions[0]
         validated = []
         invoked = []
 
-        def validate(assistant, power, payload):
-            validated.append((assistant, power, payload))
-            if power == "lookup":
+        def validate(assistant, action, payload):
+            validated.append((assistant, action, payload))
+            if action == "lookup":
                 raise ValueError("invalid lookup input")
             return payload
 
@@ -468,7 +468,7 @@ class ChatOrchestratorTests(unittest.TestCase):
                 "Run the batch",
                 strategy(
                     validate,
-                    lambda request: invoked.append((request.assistant_id, request.power, request.input)),
+                    lambda request: invoked.append((request.assistant_id, request.action, request.input)),
                 ),
             )
 
@@ -483,7 +483,7 @@ class ChatOrchestratorTests(unittest.TestCase):
                 events.append(("resume", results))
                 return super().resume(context, results)
 
-        def normalize(_assistant, _power, _payload):
+        def normalize(_assistant, _action, _payload):
             return {"name": "Normalized"}
 
         def prepare(batch):

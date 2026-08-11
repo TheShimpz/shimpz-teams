@@ -119,22 +119,23 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             allowed_hosts=binding.resolution["allowed_hosts"],
             integrations=integrations,
         )
-        powers = {
-            power["id"]: assistant_registry.PowerSpec(
-                summary=assistant_registry.power_summary(power["id"]),
-                input_schema=power["input_schema"],
-                output_schema=power["output_schema"],
-                integrations=tuple(power["integrations"]),
-                human_requests=tuple(power["human_requests"]),
+        actions = {
+            action["id"]: assistant_registry.ActionSpec(
+                summary=assistant_registry.action_summary(action["id"]),
+                input_schema=action["input_schema"],
+                output_schema=action["output_schema"],
+                integrations=tuple(action["integrations"]),
+                human_requests=tuple(action["human_requests"]),
             )
-            for power in machine_contract["powers"]
+            for action in machine_contract["actions"]
         }
         return AssistantSpec(
             assistant_id=binding.assistant_id,
+            version=str(binding.resolution["assistant_version"]),
             name=str(binding.resolution["name"]),
             summary=str(binding.resolution["name"]),
             image=str(binding.resolution["image_reference"]),
-            powers=powers,
+            actions=actions,
             allowed_hosts=reviewed.allowed_hosts,
             required_image_labels=(
                 ("org.shimpz.assistant.id", binding.assistant_id),

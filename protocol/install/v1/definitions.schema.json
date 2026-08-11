@@ -211,7 +211,7 @@
         }
       }
     },
-    "power": {
+    "action": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -266,18 +266,18 @@
       "additionalProperties": false,
       "required": [
         "version",
-        "powers"
+        "actions"
       ],
       "properties": {
         "version": {
           "const": 1
         },
-        "powers": {
+        "actions": {
           "type": "array",
           "minItems": 1,
           "maxItems": 128,
           "items": {
-            "$ref": "#/$defs/power"
+            "$ref": "#/$defs/action"
           }
         }
       }
@@ -307,7 +307,7 @@
         "user",
         "interpreter",
         "entrypoint",
-        "power_executable",
+        "action_executable",
         "manifest",
         "machine_contract",
         "read_only_root",
@@ -343,7 +343,7 @@
           ],
           "items": false
         },
-        "power_executable": {
+        "action_executable": {
           "allOf": [
             {
               "$ref": "#/$defs/runtimeFile"
@@ -351,7 +351,7 @@
             {
               "properties": {
                 "path": {
-                  "const": "/usr/local/bin/shimpz-power"
+                  "const": "/usr/local/bin/shimpz-action"
                 },
                 "mode": {
                   "const": 365

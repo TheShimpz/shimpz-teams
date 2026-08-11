@@ -49,14 +49,14 @@ _LIST_DNS_OUTPUT = {
 
 
 def assistant_spec(image: str) -> AssistantSpec:
-    powers = {
-        "list-zones": assistant_registry.PowerSpec(
+    actions = {
+        "list-zones": assistant_registry.ActionSpec(
             summary="List zones",
             input_schema=_PAGE,
             output_schema=_LIST_ZONES_OUTPUT,
             integrations=("cloudflare",),
         ),
-        "list-dns-records": assistant_registry.PowerSpec(
+        "list-dns-records": assistant_registry.ActionSpec(
             summary="List DNS records",
             input_schema=_DNS_PAGE,
             output_schema=_LIST_DNS_OUTPUT,
@@ -71,10 +71,11 @@ def assistant_spec(image: str) -> AssistantSpec:
     }
     return AssistantSpec(
         assistant_id="shimpz-cloudflare",
+        version="0.4.1",
         name="Shimpz Cloudflare",
         summary="Cloudflare test fixture",
         image=image,
-        powers=powers,
+        actions=actions,
         allowed_hosts=("api.cloudflare.com",),
         required_image_labels=(
             ("org.shimpz.assistant.id", "shimpz-cloudflare"),
@@ -83,15 +84,15 @@ def assistant_spec(image: str) -> AssistantSpec:
         integrations=integrations,
         machine_contract={
             "version": 1,
-            "powers": [
+            "actions": [
                 {
-                    "id": power_id,
-                    "input_schema": dict(power.input_schema),
-                    "output_schema": dict(power.output_schema),
-                    "integrations": list(power.integrations),
-                    "human_requests": list(power.human_requests),
+                    "id": action_id,
+                    "input_schema": dict(action.input_schema),
+                    "output_schema": dict(action.output_schema),
+                    "integrations": list(action.integrations),
+                    "human_requests": list(action.human_requests),
                 }
-                for power_id, power in sorted(powers.items())
+                for action_id, action in sorted(actions.items())
             ],
         },
     )
@@ -108,7 +109,7 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
             ("org.shimpz.source.digest", "sha256:" + ("c" * 64)),
         ),
         contract=assistant_registry.AssistantContract(
-            powers=local.powers,
+            actions=local.actions,
             integrations=local.integrations,
             machine_contract=local.machine_contract,
         ),

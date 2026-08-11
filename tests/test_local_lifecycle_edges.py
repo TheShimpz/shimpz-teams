@@ -60,7 +60,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         lifecycle = types.SimpleNamespace(
             _retired_image_id=lambda _container: None,
-            _blocked_power_workloads=set(),
+            _blocked_action_workloads=set(),
             _remove_assistant_policy_if_needed=mock.Mock(),
             _queue_residue=mock.Mock(),
             sweep_residues=mock.Mock(),
@@ -91,7 +91,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         registry = TestPublicationRegistry({"own": own_spec, "other": object()})
         registry.identities = lambda: {("other_team", "other"), ("team_1", "own")}
         lifecycle = types.SimpleNamespace(
-            _blocked_power_workloads=set(),
+            _blocked_action_workloads=set(),
             _remove_assistant_policy_if_needed=mock.Mock(),
             sweep_residues=mock.Mock(),
         )
@@ -232,7 +232,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             _delete_team_conversation=lambda *_args: events.append("conversation-delete"),
             assistant_lifecycle=types.SimpleNamespace(
                 _retired_image_id=lambda _container: None,
-                _blocked_power_workloads=set(),
+                _blocked_action_workloads=set(),
                 _queue_residue=mock.Mock(),
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),

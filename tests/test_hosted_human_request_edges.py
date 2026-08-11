@@ -11,8 +11,8 @@ human = harness.hosted_chat_human
 segment = harness.hosted_chat_segment
 state = harness.runtime_state
 assistants = harness.hosted_assistants
-power_challenges = segment.power_challenges
-power_human = segment.power_human
+action_challenges = segment.action_challenges
+action_human = segment.action_human
 
 
 class HostedHumanRequestEdgeTests(unittest.TestCase):
@@ -60,7 +60,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             mock.patch.object(
                 state._human_challenges,
                 "get",
-                side_effect=power_challenges.HumanChallengeNotFoundError("missing"),
+                side_effect=action_challenges.HumanChallengeNotFoundError("missing"),
             ),
             mock.patch.object(human, "_expire_challenges") as expire,
             self.assertRaises(state.ApiError),
@@ -125,9 +125,9 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
         )
         with (
             mock.patch.object(
-                power_human,
+                action_human,
                 "append_response",
-                side_effect=power_human.HumanRequestError("invalid"),
+                side_effect=action_human.HumanRequestError("invalid"),
             ),
             self.assertRaises(state.ApiError),
         ):

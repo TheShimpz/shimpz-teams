@@ -131,7 +131,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 mock.patch.object(
                     publication_registry.assistant_manifest,
                     "canonical_machine_contract",
-                    return_value={"powers": []},
+                    return_value={"actions": []},
                 ),
                 self.assertRaisesRegex(bindings.DynamicAssistantError, "runtime contract"),
             ):

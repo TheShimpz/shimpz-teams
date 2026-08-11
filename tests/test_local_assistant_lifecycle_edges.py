@@ -23,7 +23,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _assistant_genesis_cache=cache,
             _assistant_allowed_hosts_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_machine_contract_cache=types.SimpleNamespace(discard=mock.Mock()),
-            _fail_stop_power=mock.Mock(),
+            _fail_stop_action=mock.Mock(),
             _release_assistant_egress=mock.Mock(),
         )
 

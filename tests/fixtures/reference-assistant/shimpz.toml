@@ -10,7 +10,7 @@ genesis = """
 Use this Assistant only to inspect Cloudflare zones and DNS records.
 
 Call list-zones to discover available zones. Call list-dns-records only with a zone_id returned by
-list-zones. Start with page 1 and a small per_page. These Powers are read-only: never claim that a DNS
+list-zones. Start with page 1 and a small per_page. These Actions are read-only: never claim that a DNS
 record or zone was changed, and never ask the user to paste OAuth credentials.
 """
 

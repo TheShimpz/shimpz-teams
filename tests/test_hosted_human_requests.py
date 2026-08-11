@@ -1,4 +1,4 @@
-"""Hosted Owner-facing Power human-request suspension boundaries."""
+"""Hosted Owner-facing Action human-request suspension boundaries."""
 
 from __future__ import annotations
 
@@ -16,21 +16,21 @@ runtime_state = harness.runtime_state
 brain_runtime_client = runtime_state.brain_runtime_client
 chat_orchestrator = hosted_chat_segment.chat_orchestrator
 chat_turn_engine = hosted_chat_segment.chat_turn_engine
-power_challenges = hosted_chat_segment.power_challenges
-power_human = hosted_chat_segment.power_human
+action_challenges = hosted_chat_segment.action_challenges
+action_human = hosted_chat_segment.action_human
 
 
 class HostedHumanRequestTests(unittest.TestCase):
     @staticmethod
-    def _request(kind: str) -> power_human.HumanRequest:
+    def _request(kind: str) -> action_human.HumanRequest:
         descriptor = {
             "kind": kind,
             "ordinal": 0,
             "title": "Confirm action",
             "description": "Confirm this reviewed action.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        return power_human.validate_request(descriptor, (kind,))
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        return action_human.validate_request(descriptor, (kind,))
 
     @staticmethod
     def _pending(continuation, transcripts=()) -> object:
@@ -50,16 +50,16 @@ class HostedHumanRequestTests(unittest.TestCase):
             "title": "Publish zone",
             "description": "Publish this reviewed DNS zone.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        request = power_human.validate_request(descriptor, ("approval",))
-        power = brain_runtime_client.PowerRequest(
-            "power-1",
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        request = action_human.validate_request(descriptor, ("approval",))
+        action = brain_runtime_client.ActionRequest(
+            "action-1",
             "shimpz-cloudflare",
             "list-zones",
             {"page": 1, "per_page": 25},
         )
         continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("power-required", "", (power,)),
+            brain_runtime_client.RuntimeTurn("action-required", "", (action,)),
             (),
             (),
             0,
@@ -67,20 +67,21 @@ class HostedHumanRequestTests(unittest.TestCase):
         segment = chat_turn_engine.SegmentResult(
             "Marketing",
             ("container-1", "account_1", "Marketing"),
-            chat_orchestrator.ChatHumanSuspension(continuation, power, request),
+            chat_orchestrator.ChatHumanSuspension(continuation, action, request),
             (),
             (
-                power_challenges.HumanRequirement(
+                action_challenges.HumanRequirement(
                     "shimpz-cloudflare",
                     "Shimpz Cloudflare",
                     "list-zones",
                     "List zones",
-                    "power-1",
+                    "action-1",
                     request,
+                    "0.4.1",
                 ),
             ),
         )
-        challenges = power_challenges.HumanChallengeStore()
+        challenges = action_challenges.HumanChallengeStore()
 
         with (
             mock.patch.object(runtime_state, "_human_challenges", challenges),
@@ -105,15 +106,16 @@ class HostedHumanRequestTests(unittest.TestCase):
         request = self._request("auth:second-factor")
         continuation = SimpleNamespace()
         pending = self._pending(continuation)
-        requirement = power_challenges.HumanRequirement(
+        requirement = action_challenges.HumanRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             "publish-zone",
             "Publish zone",
-            "power-1",
+            "action-1",
             request,
+            "0.4.1",
         )
-        challenges = power_challenges.HumanChallengeStore()
+        challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
 
         with mock.patch.object(runtime_state, "_human_challenges", challenges):
@@ -140,28 +142,29 @@ class HostedHumanRequestTests(unittest.TestCase):
 
     def test_resume_replays_only_the_admitted_boolean_auth_result(self) -> None:
         request = self._request("auth:reauth")
-        power = brain_runtime_client.PowerRequest(
-            "power-1",
+        action = brain_runtime_client.ActionRequest(
+            "action-1",
             "shimpz-cloudflare",
             "publish-zone",
             {},
         )
         continuation = chat_orchestrator.ChatContinuation(
-            brain_runtime_client.RuntimeTurn("power-required", "", (power,)),
+            brain_runtime_client.RuntimeTurn("action-required", "", (action,)),
             (),
             (),
             0,
         )
         pending = self._pending(continuation)
-        requirement = power_challenges.HumanRequirement(
+        requirement = action_challenges.HumanRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             "publish-zone",
             "Publish zone",
-            "power-1",
+            "action-1",
             request,
+            "0.4.1",
         )
-        challenges = power_challenges.HumanChallengeStore()
+        challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
         lease = SimpleNamespace(owner="account_1")
 
@@ -201,21 +204,22 @@ class HostedHumanRequestTests(unittest.TestCase):
     def test_lifecycle_change_cancels_challenge_and_purges_replayable_state(self) -> None:
         request = self._request("approval")
         pending = self._pending(SimpleNamespace())
-        requirement = power_challenges.HumanRequirement(
+        requirement = action_challenges.HumanRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
             "publish-zone",
             "Publish zone",
-            "power-1",
+            "action-1",
             request,
+            "0.4.1",
         )
-        challenges = power_challenges.HumanChallengeStore()
+        challenges = action_challenges.HumanChallengeStore()
         challenges.create("team_1", requirement, pending)
         journal = mock.Mock()
 
         with (
             mock.patch.object(runtime_state, "_human_challenges", challenges),
-            mock.patch.object(runtime_state, "_power_execution_journal", return_value=journal),
+            mock.patch.object(runtime_state, "_action_execution_journal", return_value=journal),
         ):
             cancelled = hosted_chat_lifecycle.cancel_replayable_human("team_1", "container-1")
 

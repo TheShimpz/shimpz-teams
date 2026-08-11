@@ -1,10 +1,11 @@
-"""Local chat Power execution and context validation operations."""
+"""Local chat Action execution and context validation operations."""
 
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import NoReturn
 
-from assistant.spec import validate_power_payload
+from action import journal as action_journal
+from assistant.spec import validate_action_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
@@ -14,19 +15,18 @@ from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
-from power import journal as power_journal
 
 
-def _invoke_chat_power(
+def _invoke_chat_action(
     self,
     team_id: str,
     token: str,
-    power_request: brain_runtime_client.PowerRequest,
+    action_request: brain_runtime_client.ActionRequest,
     frozen_container_id: str,
     responses: tuple[Mapping[str, object], ...] = (),
     protected_values: Mapping[str, str] | None = None,
 ) -> object:
-    assistant_id = power_request.assistant_id
+    assistant_id = action_request.assistant_id
     with self._lock(team_id):
         spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         network = self.assistant_lifecycle._network(team_id)
@@ -42,17 +42,17 @@ def _invoke_chat_power(
             if (
                 self._active_chat_tokens.get(team_id) != token
                 or token in self._cancelled_chat_tokens
-                or team_id in self._active_power_containers
+                or team_id in self._active_action_containers
             ):
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped")
-            self._active_power_containers[team_id] = (token, container)
+            self._active_action_containers[team_id] = (token, container)
     try:
         if responses:
             invocation = self.assistant_lifecycle.invoke(
                 team_id,
                 assistant_id,
-                power_request.power,
-                power_request.input,
+                action_request.action,
+                action_request.input,
                 responses,
                 protected_values,
             )
@@ -60,8 +60,8 @@ def _invoke_chat_power(
             invocation = self.assistant_lifecycle.invoke(
                 team_id,
                 assistant_id,
-                power_request.power,
-                power_request.input,
+                action_request.action,
+                action_request.input,
             )
     except ApiProblem:
         if self._chat_cancelled(token):
@@ -69,9 +69,9 @@ def _invoke_chat_power(
         raise
     finally:
         with self._active_chat_guard:
-            active = self._active_power_containers.get(team_id)
+            active = self._active_action_containers.get(team_id)
             if active is not None and active[0] == token:
-                self._active_power_containers.pop(team_id, None)
+                self._active_action_containers.pop(team_id, None)
     if self._chat_cancelled(token):
         raise chat_orchestrator.ChatStoppedError("chat turn stopped")
     return invocation["result"]
@@ -106,11 +106,11 @@ def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
             "Team capabilities changed; retry",
             code="team-context-changed",
         )
-    if isinstance(exc, power_journal.PowerJournalError):
+    if isinstance(exc, action_journal.ActionJournalError):
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
-            "Team Power execution state is unavailable",
-            code="power-state-unavailable",
+            "Team Action execution state is unavailable",
+            code="action-state-unavailable",
         ) from exc
     if isinstance(exc, chat_orchestrator.ChatStoppedError):
         raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped") from exc
@@ -129,27 +129,27 @@ def _raise_chat_problem(reason: str, exc: BaseException | None) -> NoReturn:
     raise AssertionError(f"unknown local chat failure: {reason}")
 
 
-def _validate_chat_power(
+def _validate_chat_action(
     bindings: dict[str, _ActiveAssistant],
     assistant_id: str,
-    power: str,
+    action: str,
     payload: object,
 ) -> object:
     active = _required_active_assistant(bindings, assistant_id)
-    power_spec = active.spec.powers.get(power)
-    if power_spec is None:
+    action_spec = active.spec.actions.get(action)
+    if action_spec is None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "the Power has no declared input contract",
-            code="invalid-power-input",
+            "the Action has no declared input contract",
+            code="invalid-action-input",
         )
     try:
-        return validate_power_payload(power_spec, "input", payload)
+        return validate_action_payload(action_spec, "input", payload)
     except ValueError as exc:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             str(exc),
-            code="invalid-power-input",
+            code="invalid-action-input",
         ) from exc
 
 
@@ -157,7 +157,7 @@ def _require_chat_private_inputs(
     self,
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
-    requests: tuple[brain_runtime_client.PowerRequest, ...],
+    requests: tuple[brain_runtime_client.ActionRequest, ...],
     requirements: chat_turn_engine.SegmentRequirements,
 ) -> bool:
     try:

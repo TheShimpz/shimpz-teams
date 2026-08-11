@@ -1,1 +1,1 @@
-"""Hosted Assistant installation lifecycle and Power runtime."""
+"""Hosted Assistant installation lifecycle and Action runtime."""

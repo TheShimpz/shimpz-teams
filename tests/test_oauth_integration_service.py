@@ -67,7 +67,7 @@ def requirement(
     return integration_challenges.IntegrationRequirement(
         assistant_id=assistant,
         assistant_name=assistant,
-        power_ids=("list-zones",),
+        action_ids=("list-zones",),
         integrations=(("cloudflare", provider, scopes),),
     )
 
@@ -462,13 +462,13 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
         malformed_requirement = integration_challenges.IntegrationRequirement(
             assistant_id="assistant",
             assistant_name="Assistant",
-            power_ids=("power",),
+            action_ids=("action",),
             integrations=(),
         )
         malformed_integration = integration_challenges.IntegrationRequirement(
             assistant_id="assistant",
             assistant_name="Assistant",
-            power_ids=("power",),
+            action_ids=("action",),
             integrations=(("invalid",),),
         )
         duplicate = requirement("assistant")

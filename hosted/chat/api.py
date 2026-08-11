@@ -48,7 +48,7 @@ def _exclusive_chat_turn(team_id: str, lease: hosted_resources._AuthorizationLea
         with runtime_state._active_chat_guard:
             runtime_state._active_chat_tokens.pop(team_id, None)
             runtime_state._active_chat_container_ids.pop(team_id, None)
-            runtime_state._active_power_container_ids.pop(team_id, None)
+            runtime_state._active_action_container_ids.pop(team_id, None)
             runtime_state._cancelled_chat_tokens.discard(token)
         lock.release()
 
@@ -71,11 +71,11 @@ def _chat(
         if pending is not None:
             return pending
         try:
-            runtime_state._power_execution_journal().purge_replayable(container.id)
-        except hosted_chat_segment.power_journal.PowerJournalError as exc:
+            runtime_state._action_execution_journal().purge_replayable(container.id)
+        except hosted_chat_segment.action_journal.ActionJournalError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "Team Power execution state is unavailable",
+                "Team Action execution state is unavailable",
             ) from exc
         return hosted_chat_segment._chat_in_turn(
             team_id,
@@ -299,7 +299,7 @@ def _resume_chat_integrations(
             return chat_turn_engine.IntegrationResumeContext(
                 current_identity,
                 hosted_assistants._integration_bindings(bindings),
-                pending.continuation.turn.powers,
+                pending.continuation.turn.actions,
             )
 
         admission = chat_turn_engine.admit_integration_resume(
@@ -372,11 +372,11 @@ def _resume_chat_human(
     )
 
 
-def _stop_active_power(team_id: str, token: str | None) -> bool:
+def _stop_active_action(team_id: str, token: str | None) -> bool:
     if token is None:
         return False
     with runtime_state._active_chat_guard:
-        active = runtime_state._active_power_container_ids.get(team_id)
+        active = runtime_state._active_action_container_ids.get(team_id)
     if active is None or active[0] != token:
         return False
     try:
@@ -385,14 +385,14 @@ def _stop_active_power(team_id: str, token: str | None) -> bool:
         return True
     except docker.errors.DockerException as exc:
         raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE, "active Assistant Power could not be inspected"
+            HTTPStatus.SERVICE_UNAVAILABLE, "active Assistant Action could not be inspected"
         ) from exc
-    hosted_assistants._fail_stop_power(team_id, assistant_container)
+    hosted_assistants._fail_stop_action(team_id, assistant_container)
     return True
 
 
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
-    """Cancel one Controller-owned turn and fail-stop a Power already executing."""
+    """Cancel one Controller-owned turn and fail-stop an Action already executing."""
     integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
     human_cancelled = hosted_chat_human.cancel_pending(team_id)
     with runtime_state._lock_for(team_id):
@@ -408,14 +408,14 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
                 raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
             if token is not None:
                 runtime_state._cancelled_chat_tokens.add(token)
-        power_stopped = _stop_active_power(team_id, token)
+        action_stopped = _stop_active_action(team_id, token)
     accepted = token is not None or integration_cancelled or human_cancelled
     return {
         "team_id": team_id,
         "requested": accepted,
         "accepted": accepted,
-        # An executing Power is synchronously terminated. A provider HTTP request is only marked
-        # cancelled; its result is discarded before any subsequent Power or terminal reply.
-        "confirmed": power_stopped,
+        # An executing Action is synchronously terminated. A provider HTTP request is only marked
+        # cancelled; its result is discarded before any subsequent Action or terminal reply.
+        "confirmed": action_stopped,
         "forced_restart": False,
     }

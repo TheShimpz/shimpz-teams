@@ -16,6 +16,8 @@ sys.path.insert(0, str(TESTS))
 
 import hosted_assistant_fixture as hosted_harness
 
+from action import human as action_human
+from action import journal as action_journal
 from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -26,8 +28,6 @@ from local.chat import segment as local_chat_segment
 from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
-from power import human as power_human
-from power import journal as power_journal
 
 hosted_app = hosted_harness.app
 
@@ -39,9 +39,9 @@ def _context() -> brain_runtime_client.RuntimeContext:
         assistants=(
             brain_runtime_client.RuntimeAssistant(
                 id="assistant",
-                genesis="Use the declared Power.",
-                powers=(
-                    brain_runtime_client.RuntimePower(
+                genesis="Use the declared Action.",
+                actions=(
+                    brain_runtime_client.RuntimeAction(
                         id="lookup",
                         summary="Look up one value.",
                         input_schema={"type": "object"},
@@ -59,13 +59,13 @@ class _Runtime:
     @staticmethod
     def start(_context, _message):
         return brain_runtime_client.RuntimeTurn(
-            status="power-required",
+            status="action-required",
             reply="",
-            powers=(
-                brain_runtime_client.PowerRequest(
+            actions=(
+                brain_runtime_client.ActionRequest(
                     interrupt_id="interrupt-1",
                     assistant_id="assistant",
-                    power="lookup",
+                    action="lookup",
                     input={"query": "Ada"},
                 ),
             ),
@@ -79,7 +79,7 @@ class _Batch:
 
     @staticmethod
     def invoke(_request):
-        raise AssertionError("a suspended Power must not be invoked")
+        raise AssertionError("a suspended Action must not be invoked")
 
     @staticmethod
     def delivered(_requests) -> None:
@@ -90,7 +90,7 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller = object.__new__(local_app.LocalController)
     controller.space_id = "local-space"
     controller.brain_runtime = SimpleNamespace()
-    controller.power_state = SimpleNamespace(purge_replayable=lambda _generation: False)
+    controller.action_state = SimpleNamespace(purge_replayable=lambda _generation: False)
     controller._lock = lambda _team_id: contextlib.nullcontext()
     controller.storage = SimpleNamespace(
         metadata=lambda _team_id, _files, _connection=None: [],
@@ -101,15 +101,15 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller.assistant_lifecycle._network = lambda _team_id: SimpleNamespace(id="a" * 64, name="team-network")
     controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: "Team"
     controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network_name: (local_active,)
-    controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use the declared Power."
+    controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use the declared Action."
 
     def local_private_inputs(_team_id, _bindings, _requests, requirements) -> bool:
         requirements.integrations = ("integration-required",)
         return True
 
     controller.chat_turn_service._require_chat_private_inputs = local_private_inputs
-    controller.chat_turn_service._require_power_rpc_envelope = lambda *_args: events.append("preflight")
-    controller.chat_turn_service._power_integration_generations = lambda *_args: events.append("integrations") or ()
+    controller.chat_turn_service._require_action_rpc_envelope = lambda *_args: events.append("preflight")
+    controller.chat_turn_service._action_integration_generations = lambda *_args: events.append("integrations") or ()
     controller.chat_turn_service._chat_cancelled = lambda _token: False
     controller.chat_turn_service._validate_chat_context = lambda *_args: None
     controller.chat_turn_service._raise_chat_problem = lambda reason, _exc: fail(reason)
@@ -122,7 +122,7 @@ def _context_contract(prepared) -> tuple[object, ...]:
         (
             assistant.id,
             assistant.genesis,
-            tuple((power.id, power.summary, power.input_schema) for power in assistant.powers),
+            tuple((action.id, action.summary, action.input_schema) for action in assistant.actions),
         )
         for assistant in context.assistants
     )
@@ -135,10 +135,10 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             "kind": "approval",
             "ordinal": 0,
             "title": "Continue",
-            "description": "Continue the reviewed Power operation.",
+            "description": "Continue the reviewed Action operation.",
         }
-        descriptor["fingerprint"] = power_human._fingerprint(descriptor)
-        admitted = power_human.validate_request(descriptor, ("approval",))
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        admitted = action_human.validate_request(descriptor, ("approval",))
 
         class Batch:
             @staticmethod
@@ -147,7 +147,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
             @staticmethod
             def invoke(_request):
-                raise power_human.HumanRequestSuspensionError(admitted)
+                raise action_human.HumanRequestSuspensionError(admitted)
 
             @staticmethod
             def delivered(_requests) -> None:
@@ -156,17 +156,17 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         strategy = chat_turn_engine.SegmentStrategy(
             runtime=_Runtime(),
             prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
-            validate_power=lambda _assistant, _power, payload: payload,
+            validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=lambda _requests, _requirements: False,
             cancelled=lambda: False,
             validate_context=lambda: None,
             raise_problem=lambda reason, _exc: self.fail(reason),
-            human_requirement=lambda power, request: (power.interrupt_id, request.fingerprint),
+            human_requirement=lambda action, request: (action.interrupt_id, request.fingerprint),
         )
 
         result = chat_turn_engine.run_segment(
             strategy,
-            message="Run the Power",
+            message="Run the Action",
             continuation=None,
             expected_identity=("identity",),
         )
@@ -193,7 +193,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 [],
                 _Batch(),
             ),
-            validate_power=lambda _assistant, _power, payload: payload,
+            validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=private_inputs,
             cancelled=lambda: False,
             validate_context=lambda: None,
@@ -260,7 +260,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         strategy = chat_turn_engine.SegmentStrategy(
             runtime=_Runtime(),
             prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
-            validate_power=lambda _assistant, _power, payload: payload,
+            validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=lambda _requests, _requirements: False,
             cancelled=lambda: False,
             validate_context=lambda: None,
@@ -270,7 +270,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Assistant RPC failed"):
             chat_turn_engine.run_segment(
                 strategy,
-                message="Run the Power",
+                message="Run the Action",
                 continuation=None,
                 expected_identity=("identity",),
             )
@@ -295,12 +295,12 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
             @staticmethod
             def abandon_uncertain() -> None:
-                raise power_journal.PowerJournalError("journal unavailable")
+                raise action_journal.ActionJournalError("journal unavailable")
 
         strategy = chat_turn_engine.SegmentStrategy(
             runtime=_Runtime(),
             prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
-            validate_power=lambda _assistant, _power, payload: payload,
+            validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=lambda _requests, _requirements: False,
             cancelled=lambda: False,
             validate_context=lambda: None,
@@ -310,7 +310,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "chat error adapter returned"):
             chat_turn_engine.run_segment(
                 strategy,
-                message="Run the Power",
+                message="Run the Action",
                 continuation=None,
                 expected_identity=("identity",),
             )
@@ -404,14 +404,14 @@ class SharedChatTurnEngineTest(unittest.TestCase):
     def test_hosted_and_local_controllers_build_equivalent_real_segment_strategies(self) -> None:
         assistant_id = "shimpz-cloudflare"
         declared_contract = hosted_harness.HOSTED_SPEC.contract
-        declared_power = declared_contract.powers["list-zones"]
-        hosted_power = assistant_registry.PowerSpec(
-            declared_power.summary,
-            declared_power.input_schema,
-            declared_power.output_schema,
+        declared_action = declared_contract.actions["list-zones"]
+        hosted_action = assistant_registry.ActionSpec(
+            declared_action.summary,
+            declared_action.input_schema,
+            declared_action.output_schema,
         )
         hosted_contract = assistant_registry.AssistantContract(
-            {"list-zones": hosted_power},
+            {"list-zones": hosted_action},
             {},
         )
         assistant_container = SimpleNamespace(id="b" * 64)
@@ -421,18 +421,19 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             assistant_container,
         )
 
-        local_power = assistant_registry.PowerSpec(
-            declared_power.summary,
-            dict(declared_power.input_schema),
-            dict(declared_power.output_schema),
+        local_action = assistant_registry.ActionSpec(
+            declared_action.summary,
+            dict(declared_action.input_schema),
+            dict(declared_action.output_schema),
             (),
         )
         local_spec = AssistantSpec(
             assistant_id=assistant_id,
+            version="0.4.1",
             name="Assistant",
             summary="Test Assistant",
             image="example.invalid/assistant@sha256:" + ("c" * 64),
-            powers={"list-zones": local_power},
+            actions={"list-zones": local_action},
             allowed_hosts=(),
             required_image_labels=(
                 ("org.shimpz.assistant.id", assistant_id),
@@ -443,7 +444,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         request = SimpleNamespace(
             interrupt_id="interrupt-1",
             assistant_id=assistant_id,
-            power="list-zones",
+            action="list-zones",
             input={"page": 1, "per_page": 25},
         )
         config = inference_config.InferenceConfig("openai", "gpt-test")
@@ -468,14 +469,14 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 _active_team_assistants=lambda _team_id: (hosted_active,),
                 _model_credential=lambda _owner, _provider, *_args: ("test-key", 7),
                 _require_model_credential_current=lambda *_args: hosted_events.append("model"),
-                _require_hosted_power_rpc_envelope=lambda *_args: hosted_events.append("preflight"),
-                _hosted_power_identity=lambda _active: (assistant_container.id, local_spec.image),
-                _power_integration_generations=lambda *_args: hosted_events.append("integrations") or (),
+                _require_hosted_action_rpc_envelope=lambda *_args: hosted_events.append("preflight"),
+                _hosted_action_identity=lambda _active: (assistant_container.id, local_spec.image),
+                _action_integration_generations=lambda *_args: hosted_events.append("integrations") or (),
             ),
             mock.patch.object(
                 hosted_harness.assistant_lifecycle,
                 "_require_assistant_genesis",
-                return_value="Use the declared Power.",
+                return_value="Use the declared Action.",
             ),
             mock.patch.object(
                 hosted_harness.hosted_chat_segment,
@@ -510,7 +511,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 )
             )
             hosted_strategy, hosted_prepared, _, _ = captures["hosted"]
-            hosted_validation_result = hosted_strategy.validate_power(assistant_id, "list-zones", request.input)
+            hosted_validation_result = hosted_strategy.validate_action(assistant_id, "list-zones", request.input)
             hosted_prepared.durable_batch._operation(request)
             hosted_strategy.finalize()
 
@@ -540,7 +541,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         self.assertTrue(local_paused)
         self.assertEqual(
             hosted_validation_result,
-            local_strategy.validate_power(assistant_id, "list-zones", request.input),
+            local_strategy.validate_action(assistant_id, "list-zones", request.input),
         )
 
         local_prepared.durable_batch._operation(request)

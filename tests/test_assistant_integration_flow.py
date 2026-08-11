@@ -12,7 +12,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
-from assistant.spec import IntegrationSpec, PowerSpec
+from assistant.spec import ActionSpec, IntegrationSpec
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -80,17 +80,18 @@ def _spec() -> AssistantSpec:
     write_scopes = ("dns.read", "offline_access", "zone.read")
     return AssistantSpec(
         assistant_id="cloudflare-assistant",
+        version="0.4.1",
         name="Cloudflare Assistant",
         summary="test",
         image="example.invalid/x@sha256:" + ("a" * 64),
-        powers={
-            "read-profile": PowerSpec(
+        actions={
+            "read-profile": ActionSpec(
                 "Read one external profile.",
                 {},
                 {},
                 ("cloudflare-read",),
             ),
-            "publish-post": PowerSpec(
+            "publish-post": ActionSpec(
                 "Publish one approved external update.",
                 {},
                 {},
@@ -109,18 +110,19 @@ def _spec() -> AssistantSpec:
     )
 
 
-def _request(power: str, interrupt_id: str) -> brain_runtime_client.PowerRequest:
-    return brain_runtime_client.PowerRequest(interrupt_id, "cloudflare-assistant", power, {})
+def _request(action: str, interrupt_id: str) -> brain_runtime_client.ActionRequest:
+    return brain_runtime_client.ActionRequest(interrupt_id, "cloudflare-assistant", action, {})
 
 
 def _cloudflare_spec() -> AssistantSpec:
     return AssistantSpec(
         assistant_id="shimpz-cloudflare",
+        version="0.4.1",
         name="Shimpz Cloudflare",
         summary="test",
         image="example.invalid/cloudflare@sha256:" + ("b" * 64),
-        powers={
-            "list-zones": PowerSpec(
+        actions={
+            "list-zones": ActionSpec(
                 "List a bounded page of Cloudflare zones and domains.",
                 {},
                 {},
@@ -142,7 +144,7 @@ def _cloudflare_spec() -> AssistantSpec:
 
 
 class AssistantIntegrationFlowTests(unittest.TestCase):
-    def test_batch_collects_every_unusable_integration_before_any_power(self) -> None:
+    def test_batch_collects_every_unusable_integration_before_any_action(self) -> None:
         expiry = int(time.time()) + 3600
         spec = _spec()
         store = _Store(
@@ -176,7 +178,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         )
 
         self.assertEqual(len(requirements), 1)
-        self.assertEqual(requirements[0].power_ids, ("publish-post",))
+        self.assertEqual(requirements[0].action_ids, ("publish-post",))
         self.assertEqual(
             requirements[0].integrations,
             (("cloudflare-write", "cloudflare", ("dns.read", "offline_access", "zone.read")),),
@@ -248,7 +250,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                         "its reviewed Cloudflare permissions."
                     ),
                     "scopes": ["dns.read", "offline_access", "zone.read"],
-                    "powers": [
+                    "actions": [
                         {
                             "id": "publish-post",
                             "name": "Publish Post",
@@ -296,7 +298,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                         "its reviewed Cloudflare permissions."
                     ),
                     "scopes": ["dns.read", "dns.write", "offline_access", "zone.read"],
-                    "powers": [
+                    "actions": [
                         {
                             "id": "list-zones",
                             "name": "List Zones",
@@ -351,13 +353,13 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         for forbidden in ("access_token", "refresh_token", "must-never-be-public", "generation"):
             self.assertNotIn(forbidden, encoded)
 
-    def test_private_resolution_returns_only_the_selected_power_integration(self) -> None:
+    def test_private_resolution_returns_only_the_selected_action_integration(self) -> None:
         spec = _spec()
         token = "-".join(("private", "access", "token", "123456"))
         store = _Store({}, {("cloudflare-assistant", "cloudflare-write"): token})
         refresh_calls: list[tuple[str, tuple[str, ...], str, str | None]] = []
 
-        integrations = integration_flow.resolve_power_integrations(
+        integrations = integration_flow.resolve_action_integrations(
             "team_1",
             spec,
             "publish-post",
@@ -411,7 +413,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
         invalid_token_store = _Store({}, {("cloudflare-assistant", "cloudflare-read"): "short"})
         with self.assertRaises(integration_flow.IntegrationFlowError):
-            integration_flow.resolve_power_integrations(
+            integration_flow.resolve_action_integrations(
                 "team_1",
                 spec,
                 "read-profile",
@@ -433,12 +435,14 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
         for spec in (
             object(),
-            SimpleNamespace(assistant_id="assistant", name="Assistant", powers=[], integrations={}),
+            SimpleNamespace(assistant_id="assistant", name="Assistant", actions=[], integrations={}),
             SimpleNamespace(
                 assistant_id="assistant",
                 name="Assistant",
-                powers={},
-                integrations={str(index): object() for index in range(integration_flow.MAX_INTEGRATIONS_PER_POWER + 1)},
+                actions={},
+                integrations={
+                    str(index): object() for index in range(integration_flow.MAX_INTEGRATIONS_PER_ACTION + 1)
+                },
             ),
         ):
             with self.subTest(spec=spec), self.assertRaises(integration_flow.IntegrationFlowError):
@@ -456,19 +460,19 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         ):
             integration_flow._provider_metadata("foreign")
 
-    def test_power_and_metadata_inventory_shapes_fail_closed(self) -> None:
+    def test_action_and_metadata_inventory_shapes_fail_closed(self) -> None:
         spec = _spec()
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "unavailable"):
-            integration_flow._power(spec, "missing")
+            integration_flow._action(spec, "missing")
         malformed = SimpleNamespace(summary="Summary")
-        for power in (
+        for action in (
             malformed,
             SimpleNamespace(summary="Summary", integrations=[]),
             SimpleNamespace(summary="Summary", integrations=("one", "one")),
         ):
-            candidate = SimpleNamespace(powers={"power": power})
-            with self.subTest(power=power), self.assertRaises(integration_flow.IntegrationFlowError):
-                integration_flow._power(candidate, "power")
+            candidate = SimpleNamespace(actions={"action": action})
+            with self.subTest(action=action), self.assertRaises(integration_flow.IntegrationFlowError):
+                integration_flow._action(candidate, "action")
 
         declarations = {"cloudflare-read": spec.integrations["cloudflare-read"]}
         flow_error = integration_flow.IntegrationFlowError("direct")
@@ -545,7 +549,7 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                 integration_flow.requirements_for_batch("team_1", bindings, requests, valid_store)
 
         undeclared = _spec()
-        undeclared.powers["read-profile"] = PowerSpec("Read.", {}, {}, ("missing",))
+        undeclared.actions["read-profile"] = ActionSpec("Read.", {}, {}, ("missing",))
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "undeclared"):
             integration_flow.requirements_for_batch(
                 "team_1",
@@ -625,20 +629,20 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "declaration changed"):
             integration_flow.challenge_payload(valid, {"cloudflare-assistant": _Active(changed_declaration)})
 
-        changed_power = _spec()
-        changed_power.powers["publish-post"] = PowerSpec("Publish.", {}, {}, ())
-        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "Power changed"):
-            integration_flow.challenge_payload(valid, {"cloudflare-assistant": _Active(changed_power)})
+        changed_action = _spec()
+        changed_action.actions["publish-post"] = ActionSpec("Publish.", {}, {}, ())
+        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "Action changed"):
+            integration_flow.challenge_payload(valid, {"cloudflare-assistant": _Active(changed_action)})
 
-        duplicate_power = replace(requirement, power_ids=("publish-post", "publish-post"))
+        duplicate_action = replace(requirement, action_ids=("publish-post", "publish-post"))
         duplicate = integration_challenges.PendingIntegrationChallenge(
             valid.id,
             valid.team_id,
             valid.expires_at,
-            (duplicate_power,),
+            (duplicate_action,),
             object(),
         )
-        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "Power list"):
+        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "Action list"):
             integration_flow.challenge_payload(duplicate, {"cloudflare-assistant": _Active(spec)})
 
     def test_inventory_and_private_resolution_edges_fail_closed(self) -> None:
@@ -684,12 +688,12 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             integration_flow.inventory_payload("team_1", [spec], _Store(missing_rows))
 
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "callback is invalid"):
-            integration_flow.resolve_power_integrations("team_1", spec, "read-profile", _Store({}), None)
+            integration_flow.resolve_action_integrations("team_1", spec, "read-profile", _Store({}), None)
 
         undeclared = _spec()
-        undeclared.powers["read-profile"] = PowerSpec("Read.", {}, {}, ("missing",))
+        undeclared.actions["read-profile"] = ActionSpec("Read.", {}, {}, ("missing",))
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "undeclared"):
-            integration_flow.resolve_power_integrations(
+            integration_flow.resolve_action_integrations(
                 "team_1",
                 undeclared,
                 "read-profile",
@@ -706,11 +710,11 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
                     "access token is invalid",
                 ),
             ):
-                integration_flow.resolve_power_integrations("team_1", spec, "read-profile", store, lambda *_: None)
+                integration_flow.resolve_action_integrations("team_1", spec, "read-profile", store, lambda *_: None)
 
         store = SimpleNamespace(resolve=mock.Mock(side_effect=OSError("offline")))
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "could not be resolved"):
-            integration_flow.resolve_power_integrations("team_1", spec, "read-profile", store, lambda *_: None)
+            integration_flow.resolve_action_integrations("team_1", spec, "read-profile", store, lambda *_: None)
 
 
 if __name__ == "__main__":
