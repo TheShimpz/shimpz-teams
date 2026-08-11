@@ -135,6 +135,33 @@ def _assurance(value: object) -> dict[str, str]:
     return {"kind": kind, "challenge_id": challenge_id}
 
 
+def _identity(value: dict[str, object]) -> tuple[str, str]:
+    subject = value["sub"]
+    nonce = value["jti"]
+    if not isinstance(subject, str) or _HEX_32.fullmatch(subject) is None:
+        raise SupervisorAssertionError("invalid Supervisor subject")
+    if not isinstance(nonce, str) or _HEX_32.fullmatch(nonce) is None:
+        raise SupervisorAssertionError("invalid Supervisor assertion nonce")
+    return subject, nonce
+
+
+def _target(value: dict[str, object]) -> tuple[str, str]:
+    method = value["method"]
+    path = value["path"]
+    if not isinstance(method, str) or method not in _METHODS:
+        raise SupervisorAssertionError("invalid assertion method")
+    if (
+        not isinstance(path, str)
+        or len(path.encode("ascii", "ignore")) != len(path)
+        or len(path) > 512
+        or _PATH.fullmatch(path) is None
+        or "//" in path
+        or path.endswith("/")
+    ):
+        raise SupervisorAssertionError("invalid assertion path")
+    return method, path
+
+
 def canonical_claims(value: object) -> dict[str, object]:
     """Return one closed canonical assertion claim set."""
     if not isinstance(value, dict):
@@ -155,29 +182,12 @@ def canonical_claims(value: object) -> dict[str, object]:
         raise SupervisorAssertionError("invalid Supervisor assertion claims")
     if type(value["v"]) is not int or value["v"] != 1 or value["aud"] != ASSERTION_AUDIENCE:
         raise SupervisorAssertionError("unsupported Supervisor assertion")
-    subject = value["sub"]
-    nonce = value["jti"]
-    if not isinstance(subject, str) or _HEX_32.fullmatch(subject) is None:
-        raise SupervisorAssertionError("invalid Supervisor subject")
-    if not isinstance(nonce, str) or _HEX_32.fullmatch(nonce) is None:
-        raise SupervisorAssertionError("invalid Supervisor assertion nonce")
+    subject, nonce = _identity(value)
     issued_at = _integer(value["iat"], label="assertion issued time")
     expires_at = _integer(value["exp"], label="assertion expiry")
     if not 1 <= expires_at - issued_at <= ASSERTION_MAX_TTL_SECONDS:
         raise SupervisorAssertionError("invalid Supervisor assertion lifetime")
-    method = value["method"]
-    path = value["path"]
-    if not isinstance(method, str) or method not in _METHODS:
-        raise SupervisorAssertionError("invalid assertion method")
-    if (
-        not isinstance(path, str)
-        or len(path.encode("ascii", "ignore")) != len(path)
-        or len(path) > 512
-        or _PATH.fullmatch(path) is None
-        or "//" in path
-        or path.endswith("/")
-    ):
-        raise SupervisorAssertionError("invalid assertion path")
+    method, path = _target(value)
     result: dict[str, object] = {
         "v": 1,
         "aud": ASSERTION_AUDIENCE,
