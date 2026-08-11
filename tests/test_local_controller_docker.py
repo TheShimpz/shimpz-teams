@@ -640,13 +640,13 @@ class DockerFlowTests(
         self.assertEqual(
             destroyed["residue_absent"],
             [
+                "action_checkpoints",
                 "assistant_containers",
                 "brain_checkpoints",
                 "chat_continuations",
                 "egress_policies",
                 "inference_configuration",
                 "integration_credentials",
-                "action_checkpoints",
                 "publication_bindings",
                 "runtime_state",
                 "team_networks",
@@ -715,13 +715,13 @@ class DockerFlowTests(
         self.assertEqual(
             reset["residue_absent"],
             [
+                "action_checkpoints",
                 "assistant_containers",
                 "brain_checkpoints",
                 "chat_continuations",
                 "egress_policies",
                 "inference_configuration",
                 "integration_credentials",
-                "action_checkpoints",
                 "publication_bindings",
                 "runtime_state",
                 "team_networks",
