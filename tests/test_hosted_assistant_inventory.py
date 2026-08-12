@@ -77,6 +77,34 @@ class HostedAssistantInventoryTests(unittest.TestCase):
         for member in members.values():
             member.reload.assert_not_called()
 
+    def test_active_assistant_requires_a_published_version(self) -> None:
+        candidate = types.SimpleNamespace(
+            id="container-assistant",
+            labels={"team.assistant": "assistant"},
+            status="running",
+            reload=mock.Mock(),
+        )
+        with (
+            mock.patch.object(assistant_lifecycle, "_team_assistant_containers", return_value=[candidate]),
+            mock.patch.object(
+                assistant_lifecycle,
+                "_resolve_team_assistant",
+                return_value=("assistant", HOSTED_SPEC),
+            ),
+            mock.patch.object(
+                assistant_lifecycle,
+                "_dynamic_binding_snapshot",
+                return_value={"assistant": types.SimpleNamespace(resolution={})},
+            ),
+            mock.patch.object(
+                hosted_assistants,
+                "_installed_assistant",
+                return_value=("assistant", HOSTED_SPEC.contract, candidate),
+            ),
+            self.assertRaisesRegex(runtime_state.ApiError, "valid version"),
+        ):
+            hosted_assistants._active_team_assistants("team_1")
+
 
 if __name__ == "__main__":
     unittest.main()

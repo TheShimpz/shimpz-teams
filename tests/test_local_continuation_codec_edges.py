@@ -273,6 +273,7 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             "action_summary": "Summary",
             "interrupt_id": "interrupt",
             "request": {},
+            "assistant_version": "0.4.2",
         }
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._human_requirement(invalid_human)
@@ -303,6 +304,19 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             continuation.decode(stored)
 
         body["schema"] = 1
+        stored = continuation_store.StoredContinuation(
+            "team_1",
+            "integrations",
+            "a" * 32,
+            2_000,
+            1,
+            ("binding",),
+            json.dumps(body).encode(),
+        )
+        with self.assertRaises(continuation.ContinuationCodecError):
+            continuation.decode(stored)
+
+        body["schema"] = 2
         body["kind"] = "unknown"
         stored = continuation_store.StoredContinuation(
             "team_1",
