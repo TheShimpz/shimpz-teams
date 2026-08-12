@@ -47,7 +47,7 @@ environment variables, logs, generated artifacts, or the Brain.
 A capability-declared request is `{"type":"request","request":{...}}`, with one closed request kind,
 ordinal, canonical fingerprint, and bounded inert copy. Team accepts it only for the exact reviewed Action,
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
-response transcript. A Action failure returns no partial result or private diagnostic.
+response transcript. An Action failure returns no partial result or private diagnostic.
 
 The fingerprint is lowercase SHA-256 over the request object before its `fingerprint` member is added. Its
 preimage is UTF-8 JSON with object keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted

@@ -92,7 +92,7 @@ executes Actions and resumes the checkpoint.
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
 `started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and
 Action-delivery operations. `action-delivery` is the durable acknowledgement and journal retirement after the
-model accepted a Action result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
+model accepted an Action result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
 records carry monotonic elapsed milliseconds;
 Action records also carry their bounded position. One terminal record contains the existing HTTP status and
 response object and remains the only operation result. Progress carries no messages, schemas, arguments,

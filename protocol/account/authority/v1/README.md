@@ -22,14 +22,14 @@ Team accepts the evidence only on the same synchronous connection and enforces
 a short monotonic round trip.
 
 A Hosted `chat-human-submit` binding may additionally carry the exact
-`assurance` class and Power challenge ID. Only that operation accepts it, and
+`assurance` class and Action challenge ID. Only that operation accepts it, and
 its parameters must include the exact Team ID. The matching request carries a
 43-character opaque `assurance_handle` produced by one fresh Account password,
 TOTP, or UV-required WebAuthn ceremony. Account consumes the memory-only handle
 once and returns only the same `{kind, challenge_id}` evidence. Handles are
 bound to the exact active Account session, Team, challenge, and assurance kind,
 expire after a fixed 300 seconds, and disappear on Account restart. Recovery
-codes never produce Power assurance. Factor material and the opaque handle are
+codes never produce Action assurance. Factor material and the opaque handle are
 never returned to Team as authority evidence or written to an audit.
 
 Every response, including a denial, is a JSON object with an explicit body

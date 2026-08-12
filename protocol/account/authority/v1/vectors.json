@@ -65,7 +65,7 @@
       "binding_digest": "8a598b06c5326f6a1d520bdf2bda0228ea65b216b5895a8e6a6645f465736b12"
     },
     {
-      "name": "request-bound Power phishing-resistant assurance",
+      "name": "request-bound Action phishing-resistant assurance",
       "binding": {
         "method": "POST",
         "operation": "chat-human-submit",
