@@ -181,10 +181,6 @@ class ApiError(Exception):
         self.message = message
 
 
-class _UnsupportedAssistantRpcPathError(RuntimeError):
-    """The fixed Assistant RPC adapter rejected a path it does not implement."""
-
-
 class _FixedWindowRateLimiter:
     """Thread-safe fixed-window admission with deterministic time injection for contract tests."""
 
