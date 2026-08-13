@@ -667,6 +667,14 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
             integration_flow.inventory_payload("team_1", [replace(spec, version="latest")], _Store({}))
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "summary is invalid"):
             integration_flow.inventory_payload("team_1", [replace(spec, summary=" summary")], _Store({}))
+        incomplete = SimpleNamespace(
+            assistant_id=spec.assistant_id,
+            name=spec.name,
+            actions=spec.actions,
+            integrations=spec.integrations,
+        )
+        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "contract is unavailable"):
+            integration_flow.inventory_payload("team_1", [incomplete], _Store({}))
         spec_without_integrations = replace(spec, integrations={})
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "inventory is invalid"):
             integration_flow.inventory_payload(

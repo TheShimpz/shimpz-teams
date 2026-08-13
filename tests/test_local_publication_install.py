@@ -191,6 +191,22 @@ class LocalPublicationInstallTests(unittest.TestCase):
             registry.get_versioned("team_1", binding.assistant_id)
         store.get.assert_called_once_with("team_1", binding.assistant_id)
 
+    def test_catalog_selects_the_latest_bound_publication(self) -> None:
+        older = _runtime_resolution()
+        newer = copy.deepcopy(older)
+        newer["assistant_version"] = "0.2.0"
+        newer["source_digest"] = f"sha256:{'9' * 64}"
+        store = mock.Mock()
+        store.snapshot.return_value = (
+            binding_from_resolution("team_2", newer),
+            binding_from_resolution("team_1", older),
+        )
+
+        catalog = PublicationRegistry(store).catalog()
+
+        self.assertEqual(len(catalog), 1)
+        self.assertEqual(catalog[0].version, "0.2.0")
+
     def test_controller_routes_a_newer_bound_publication_through_update(self) -> None:
         current = _runtime_resolution()
         successor = copy.deepcopy(current)
