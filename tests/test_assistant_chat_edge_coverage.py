@@ -81,6 +81,7 @@ class AssistantContractEdgeCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "direction"):
             assistant_spec.validate_action_payload(action, "sideways", {})
 
+
 class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
     def test_invalid_suspension_batches_fail_before_invocation(self) -> None:
         duplicate = _request("duplicate")

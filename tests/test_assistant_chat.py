@@ -30,5 +30,6 @@ class AssistantChatContractTests(unittest.TestCase):
         self.assertEqual(set(decoded["files"][0]), {"id", "name", "media_type", "size"})
         self.assertNotIn("must-not-enter-model-context", prompt)
 
+
 if __name__ == "__main__":
     unittest.main()
