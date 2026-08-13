@@ -56,7 +56,6 @@ def build_inbox_tar(filename: str, data: bytes) -> bytes:
 POSTGRES_CONTAINER = network_policy.POSTGRES_CONTAINER
 
 TEAM_PREFIX = network_policy.TEAM_PREFIX
-NET_PREFIX = network_policy.CORE_NETWORK_PREFIX
 
 # Per-team envelope. The hard cap is charged in full against team's global/owner
 # admission budget before Docker provisioning begins; the lower cgroup reservation is only runtime
