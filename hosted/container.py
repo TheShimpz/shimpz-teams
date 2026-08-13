@@ -9,9 +9,7 @@ filesystem, browser, or application authority. Inference runs in the separate La
 
 from __future__ import annotations
 
-import io
 import os
-import tarfile
 from pathlib import PurePosixPath
 
 import docker
@@ -34,21 +32,6 @@ IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
 RUNTIME = "runsc"
 RUNTIME_PATH = network_policy.TEAM_RUNTIME_PATH
 CONTAINER_TMP = str(PurePosixPath("/") / "tmp")
-
-
-def build_inbox_tar(filename: str, data: bytes) -> bytes:
-    """A single-file tar for put_archive into the team's workspace inbox.
-
-    Owned by the runtime user (uid/gid 1000 = abc) so the workload can read and clean it up.
-    """
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        info = tarfile.TarInfo(name=filename)
-        info.size = len(data)
-        info.mode = 0o644
-        info.uid = info.gid = 1000
-        tar.addfile(info, io.BytesIO(data))
-    return buf.getvalue()
 
 
 # Shared-service identities are suffix-aware. PostgreSQL and installed Assistants live on the Team core
@@ -101,18 +84,6 @@ def team_container_name(team_id: str) -> str:
 
 def team_network_name(team_id: str) -> str:
     return network_policy.network_name(team_id, network_policy.CORE_KIND)
-
-
-def team_network_labels(team_id: str, kind: str) -> dict[str, str]:
-    return network_policy.network_labels(team_id, kind)
-
-
-def team_config_volume(team_id: str) -> str:
-    return network_policy.volume_name(team_id, network_policy.CONFIG_VOLUME_KIND)
-
-
-def team_workspace_volume(team_id: str) -> str:
-    return network_policy.volume_name(team_id, network_policy.WORKSPACE_VOLUME_KIND)
 
 
 def team_db_project(team_id: str) -> str:
