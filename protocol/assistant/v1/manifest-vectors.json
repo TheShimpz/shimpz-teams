@@ -32,6 +32,16 @@
       "manifest": "[shimpz]\nspec = 1\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
     },
     {
+      "name": "summary_with_leading_space",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \" Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
+      "name": "name_with_control_character",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello\\u007fWorld\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n"
+    },
+    {
       "name": "unknown_shimpz_field",
       "valid": false,
       "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\nundeclared = true\n\n[network]\nallowed_hosts = []\n"
