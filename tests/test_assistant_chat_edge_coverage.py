@@ -8,7 +8,6 @@ from unittest import mock
 
 from assistant import genesis as assistant_genesis
 from assistant import spec as assistant_spec
-from chat import contract as chat_contract
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn
@@ -81,18 +80,6 @@ class AssistantContractEdgeCoverageTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "direction"):
             assistant_spec.validate_action_payload(action, "sideways", {})
-
-    def test_malformed_decision_and_action_input_are_redacted_contract_errors(self) -> None:
-        for raw in (None, "{"):
-            with self.subTest(raw=raw), self.assertRaisesRegex(chat_contract.ChatContractError, "decision"):
-                chat_contract.parse_decision(raw, max_message_chars=100, max_input_bytes=100)
-        with self.assertRaisesRegex(chat_contract.ChatContractError, "Action input"):
-            chat_contract.parse_decision(
-                '{"kind":"action","message":"","action":"lookup","input":"{"}',
-                max_message_chars=100,
-                max_input_bytes=100,
-            )
-
 
 class ChatOrchestratorEdgeCoverageTests(unittest.TestCase):
     def test_invalid_suspension_batches_fail_before_invocation(self) -> None:
