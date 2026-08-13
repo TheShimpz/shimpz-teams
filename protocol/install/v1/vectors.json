@@ -53,6 +53,7 @@
         "version": 1,
         "assistant_id": "hello-world",
         "name": "Hello World",
+        "summary": "Complete one reviewed greeting Action.",
         "assistant_version": "0.1.0",
         "creators": [
           "@creator"
@@ -352,6 +353,18 @@
         "op": "remove",
         "path": [
           "icon_digest"
+        ]
+      }
+    },
+    {
+      "name": "resolve_without_summary",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "summary"
         ]
       }
     },

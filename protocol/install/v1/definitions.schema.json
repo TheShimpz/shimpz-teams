@@ -467,6 +467,7 @@
         "version",
         "assistant_id",
         "name",
+        "summary",
         "assistant_version",
         "creators",
         "source_digest",
@@ -497,6 +498,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
         },
         "assistant_version": {
           "$ref": "#/$defs/semanticVersion"

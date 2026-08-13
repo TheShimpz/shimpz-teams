@@ -38,8 +38,9 @@ digest, request ID, and idempotency key before Team invokes its
 existing ownership authorization.
 
 Resolve returns only an unblocked, installable publication. It contains a full
-digest image reference, the SHA-256 digest of the canonical `icon.png`, and the
-complete `assistant-direct-v1` envelope. The binary icon is fetched from
+digest image reference, the published Assistant name and summary, the SHA-256
+digest of the canonical `icon.png`, and the complete `assistant-direct-v1`
+envelope. The binary icon is fetched from
 Developers by exact `source_digest` and accepted only when its digest matches;
 it is never embedded in resolution JSON or supplied by an authored URL. Modes
 are JSON integers: `365` is octal `0555`, and `292` is octal `0444`. No port,

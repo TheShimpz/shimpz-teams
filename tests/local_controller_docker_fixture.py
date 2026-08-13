@@ -291,6 +291,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
         {
             "assistant_id": "shimpz-cloudflare",
             "name": "Shimpz Cloudflare",
+            "summary": "Safely manage Cloudflare DNS records through OAuth.",
             "assistant_version": "0.1.0",
             "creators": ["@roxygens"],
             "source_digest": flow.source_digest,

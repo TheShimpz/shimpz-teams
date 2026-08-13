@@ -96,6 +96,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             binding = registry.binding("team_1", spec.assistant_id)
             assert binding is not None
             self.assertEqual(registry.spec(binding), spec)
+            self.assertEqual(spec.summary, resolution["summary"])
             self.assertEqual(registry.all(), (spec,))
 
             successor = copy.deepcopy(resolution)

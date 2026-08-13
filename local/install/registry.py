@@ -133,7 +133,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             assistant_id=binding.assistant_id,
             version=str(binding.resolution["assistant_version"]),
             name=str(binding.resolution["name"]),
-            summary=str(binding.resolution["name"]),
+            summary=str(binding.resolution["summary"]),
             image=str(binding.resolution["image_reference"]),
             actions=actions,
             allowed_hosts=reviewed.allowed_hosts,
