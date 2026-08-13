@@ -890,24 +890,6 @@ class OAuthIntegrationStore:
             self._write_state(state)
             return True
 
-    def delete_integration(
-        self,
-        team_id: object,
-        assistant_id: object,
-        integration_id: object,
-    ) -> bool:
-        team = _team_id(team_id)
-        assistant = _component_id(assistant_id, "Assistant id")
-        integration = _component_id(integration_id, "integration id")
-        with self._lock:
-            state = self._read_state_for_update()
-            records = _PRIVATE_STATE.records(state, team, assistant, create=False)
-            removed = records.pop(integration, None) is not None
-            if removed:
-                _PRIVATE_STATE.prune_empty_records(state, team, assistant)
-                self._write_state(state)
-            return removed
-
     def revoke_then_delete(
         self,
         team_id: object,

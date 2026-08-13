@@ -163,7 +163,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             cached = store._state_cache
             self.assertIsNotNone(cached)
 
-            self.assertTrue(store.delete_integration("team_1", "shimpz-cloudflare", "cloudflare"))
+            self.assertTrue(store.delete_assistant("team_1", "shimpz-cloudflare"))
 
             if cached is None:
                 self.fail("metadata read did not populate the state cache")
@@ -559,7 +559,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
             self.assertFalse(store.retain_declared("team_1", "first-assistant", {"cloudflare": object()}))
             self.assertTrue(store.retain_declared("team_1", "first-assistant", {}))
-            self.assertFalse(store.delete_integration("team_1", "first-assistant", "cloudflare"))
+            self.assertFalse(store.delete_assistant("team_1", "first-assistant"))
             self.assertEqual(
                 store.metadata("team_1", "second-assistant", DECLARATIONS)[0].status,
                 "connected",
@@ -846,7 +846,7 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
                 )
 
             def delete_during_revocation(*_tokens: object) -> None:
-                store.delete_integration("team_1", "assistant", "integration")
+                store.delete_assistant("team_1", "assistant")
 
             with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "changed during revocation"):
                 store.revoke_then_delete(
