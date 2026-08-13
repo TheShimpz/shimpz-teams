@@ -24,16 +24,6 @@ from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 
-LOOKUP_INPUT = {"page": 1, "per_page": 25}
-LOOKUP_RESULT = {
-    "zones": [],
-    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
-}
-DNS_INPUT = {"zone_id": "a" * 32, "page": 1, "per_page": 25}
-DNS_RESULT = {
-    "records": [],
-    "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
-}
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
 CURRENT_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "b" * 64
