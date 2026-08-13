@@ -369,6 +369,32 @@
       }
     },
     {
+      "name": "resolve_with_untrimmed_summary",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "summary"
+        ],
+        "value": " Complete one reviewed greeting Action."
+      }
+    },
+    {
+      "name": "resolve_with_control_in_name",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "name"
+        ],
+        "value": "Hello\u007fWorld"
+      }
+    },
+    {
       "name": "resolve_mutable_image",
       "fixture": "resolve_response",
       "valid": false,
