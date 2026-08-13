@@ -27,6 +27,7 @@ MAX_ACCESS_TOKEN_BYTES = 16 * 1024
 MAX_PUBLIC_TEXT_BYTES = 512
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
+_SEMANTIC_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _FORBIDDEN_PUBLIC_FIELDS = frozenset(
     {
         "access_token",
@@ -67,7 +68,9 @@ class _ActionSpec(Protocol):
 
 class _AssistantSpec(Protocol):
     assistant_id: str
+    version: str
     name: str
+    summary: str
     actions: Mapping[str, _ActionSpec]
     integrations: Mapping[str, _IntegrationSpec]
 
@@ -410,6 +413,14 @@ def inventory_payload(
     seen: set[str] = set()
     for raw_spec in sorted(assistants, key=lambda item: item.assistant_id):
         spec = _assistant(raw_spec)
+        try:
+            version = spec.version
+            summary = spec.summary
+        except (AttributeError, TypeError) as exc:
+            raise IntegrationFlowError("Assistant integration contract is unavailable") from exc
+        if not isinstance(version, str) or _SEMANTIC_VERSION.fullmatch(version) is None:
+            raise IntegrationFlowError("Assistant version is invalid")
+        _public_text(summary, "Assistant summary")
         if spec.assistant_id in seen:
             raise IntegrationFlowError("Assistant integration inventory is invalid")
         seen.add(spec.assistant_id)
@@ -418,16 +429,18 @@ def inventory_payload(
         for integration_id in sorted(declarations):
             item = metadata[integration_id]
             identifier, provider, scopes = _intent(integration_id, declarations[integration_id])
-            name, summary = _provider_metadata(provider)
+            name, provider_summary = _provider_metadata(provider)
             status = "expired" if item.status == "refresh-required" else item.status
             listing.append(
                 {
                     "assistant_id": spec.assistant_id,
                     "assistant_name": spec.name,
+                    "assistant_version": version,
+                    "assistant_summary": summary,
                     "id": identifier,
                     "provider": provider,
                     "name": name,
-                    "summary": summary,
+                    "summary": provider_summary,
                     "scopes": list(scopes),
                     "status": status,
                     "integration": _integration_payload(item.integration),

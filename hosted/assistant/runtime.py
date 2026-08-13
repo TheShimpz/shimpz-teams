@@ -49,6 +49,7 @@ class _ActiveAssistant:
     container: object
     image: str = ""
     version: str = ""
+    summary: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +57,9 @@ class _HostedAssistantSpec:
     """Small adapter for the closed integration contract."""
 
     assistant_id: str
+    version: str
     name: str
+    summary: str
     actions: dict[str, object]
     integrations: dict[str, assistant_registry.IntegrationSpec]
 
@@ -88,7 +91,9 @@ class _PendingHostedChat:
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
     return _HostedAssistantSpec(
         assistant_id=active.assistant_id,
+        version=active.version,
         name=active.contract.name,
+        summary=active.summary,
         actions={
             action_id: _HostedActionSpec(
                 tuple(getattr(action, "integrations", ())),
@@ -208,7 +213,7 @@ def _active_team_assistants(team_id: str) -> tuple[_ActiveAssistant, ...]:
         version = dynamic_bindings[current_id].resolution.get("assistant_version")
         if not isinstance(version, str) or not version:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant has no valid version")
-        active.append(_ActiveAssistant(current_id, contract, container, spec.image, version))
+        active.append(_ActiveAssistant(current_id, contract, container, spec.image, version, spec.summary))
     active.sort(key=lambda item: item.assistant_id)
     return tuple(active)
 
@@ -475,7 +480,18 @@ def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]
         if assistant_id in seen:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "duplicate installed Assistant identity")
         seen.add(assistant_id)
-        specs.append(_hosted_integration_spec(_ActiveAssistant(assistant_id, assistant_spec.contract, container)))
+        specs.append(
+            _hosted_integration_spec(
+                _ActiveAssistant(
+                    assistant_id,
+                    assistant_spec.contract,
+                    container,
+                    assistant_spec.image,
+                    assistant_spec.version,
+                    assistant_spec.summary,
+                )
+            )
+        )
     return tuple(specs)
 
 

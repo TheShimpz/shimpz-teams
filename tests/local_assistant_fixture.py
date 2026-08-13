@@ -101,6 +101,8 @@ def assistant_spec(image: str) -> AssistantSpec:
 def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
     local = assistant_spec(image)
     return assistant_registry.AssistantSpec(
+        version=local.version,
+        summary=local.summary,
         image=image,
         allowed_hosts=local.allowed_hosts,
         archs=("amd64", "arm64"),

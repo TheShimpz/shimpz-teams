@@ -68,6 +68,8 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid") from exc
     return assistant_registry.AssistantSpec(
+        version=resolution["assistant_version"],
+        summary=resolution["summary"],
         image=resolution["image_reference"],
         allowed_hosts=reviewed.allowed_hosts,
         archs=platforms,

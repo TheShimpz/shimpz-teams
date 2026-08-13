@@ -45,6 +45,8 @@ class AssistantContract:
 
 @dataclass(frozen=True, slots=True)
 class AssistantSpec:
+    version: str
+    summary: str
     image: str
     allowed_hosts: tuple[str, ...]
     archs: tuple[str, ...]

@@ -86,6 +86,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             self.contract,
             self.container,
             harness.HOSTED_SPEC.image,
+            harness.HOSTED_SPEC.version,
+            harness.HOSTED_SPEC.summary,
         )
 
     def _connect(self) -> None:
@@ -180,6 +182,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertNotIn("refresh-token", serialized)
         self.assertNotIn("generation", serialized)
         self.assertEqual(payload["integrations"][0]["status"], "connected")
+        self.assertEqual(payload["integrations"][0]["assistant_version"], "0.4.1")
+        self.assertEqual(payload["integrations"][0]["assistant_summary"], "Cloudflare test fixture")
 
     def test_fresh_action_evidence_reaches_only_its_immediate_rpc(self) -> None:
         turn_token = "-".join(("turn", "token"))

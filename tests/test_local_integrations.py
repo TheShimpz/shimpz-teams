@@ -187,6 +187,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 {
                     "assistant_id": "shimpz-cloudflare",
                     "assistant_name": "Shimpz Cloudflare",
+                    "assistant_version": "0.4.1",
+                    "assistant_summary": "Cloudflare test fixture",
                     "id": "cloudflare",
                     "provider": "cloudflare",
                     "name": "Cloudflare",

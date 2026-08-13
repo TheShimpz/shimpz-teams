@@ -45,6 +45,7 @@ def _active(container=None, contract=CONTRACT):
         container or _container(),
         harness.HOSTED_SPEC.image,
         "0.4.1",
+        harness.HOSTED_SPEC.summary,
     )
 
 

@@ -341,6 +341,8 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
         self.assertEqual(set(payload), {"integrations"})
         self.assertEqual(payload["integrations"][0]["status"], "missing")
         self.assertEqual(payload["integrations"][1]["status"], "expired")
+        self.assertEqual(payload["integrations"][0]["assistant_version"], "0.4.1")
+        self.assertEqual(payload["integrations"][0]["assistant_summary"], "test")
         self.assertEqual(
             payload["integrations"][1]["integration"],
             {"id": "123", "name": "Juliano", "username": "juliano"},
@@ -661,6 +663,10 @@ class AssistantIntegrationFlowTests(unittest.TestCase):
 
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "too large"):
             integration_flow.inventory_payload("team_1", "assistants", _Store({}))
+        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "version is invalid"):
+            integration_flow.inventory_payload("team_1", [replace(spec, version="latest")], _Store({}))
+        with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "summary is invalid"):
+            integration_flow.inventory_payload("team_1", [replace(spec, summary=" summary")], _Store({}))
         spec_without_integrations = replace(spec, integrations={})
         with self.assertRaisesRegex(integration_flow.IntegrationFlowError, "inventory is invalid"):
             integration_flow.inventory_payload(
