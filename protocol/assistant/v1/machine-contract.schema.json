@@ -58,11 +58,16 @@
         },
         "human_requests": {
           "type": "array",
-          "maxItems": 11,
+          "maxItems": 8,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/humanRequestCapability"
-          }
+          },
+          "contains": {
+            "enum": ["approval", "auth:password", "auth:totp", "auth:passkey"]
+          },
+          "minContains": 0,
+          "maxContains": 1
         }
       }
     },
@@ -76,9 +81,9 @@
         "input:select",
         "input:choice",
         "input:choices",
-        "auth:reauth",
-        "auth:second-factor",
-        "auth:phishing-resistant"
+        "auth:password",
+        "auth:totp",
+        "auth:passkey"
       ]
     }
   }

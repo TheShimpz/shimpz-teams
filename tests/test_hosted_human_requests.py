@@ -103,7 +103,7 @@ class HostedHumanRequestTests(unittest.TestCase):
         self.assertEqual(pending.payload.owner, "account_1")
 
     def test_auth_response_requires_exact_account_assurance(self) -> None:
-        request = self._request("auth:second-factor")
+        request = self._request("auth:totp")
         continuation = SimpleNamespace()
         pending = self._pending(continuation)
         requirement = action_challenges.HumanRequirement(
@@ -133,7 +133,7 @@ class HostedHumanRequestTests(unittest.TestCase):
                 pending,
                 "submit",
                 "opaque-account-handle",
-                {"kind": "auth:second-factor", "challenge_id": challenge.id},
+                {"kind": "auth:totp", "challenge_id": challenge.id},
             )
 
         self.assertIsNone(denied)
@@ -141,7 +141,7 @@ class HostedHumanRequestTests(unittest.TestCase):
         self.assertIsNone(challenges.current("team_1"))
 
     def test_resume_replays_only_the_admitted_boolean_auth_result(self) -> None:
-        request = self._request("auth:reauth")
+        request = self._request("auth:password")
         action = brain_runtime_client.ActionRequest(
             "action-1",
             "shimpz-cloudflare",
@@ -190,7 +190,7 @@ class HostedHumanRequestTests(unittest.TestCase):
                     "decision": "submit",
                     "value": "opaque-account-handle",
                 },
-                {"kind": "auth:reauth", "challenge_id": challenge.id},
+                {"kind": "auth:password", "challenge_id": challenge.id},
                 lease,
                 exclusive,
             )

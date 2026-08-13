@@ -18,7 +18,7 @@ def request(kind: str, ordinal: int = 0, **fields: object) -> human.HumanRequest
 
 class HumanResponseTests(unittest.TestCase):
     def test_approval_and_auth_require_success(self) -> None:
-        for kind in ("approval", "auth:reauth", "auth:second-factor", "auth:phishing-resistant"):
+        for kind in human.AUTHORIZATION_KINDS:
             with self.subTest(kind=kind):
                 current = request(kind)
                 self.assertTrue(human.admit_response(current, True).value)
@@ -78,6 +78,8 @@ class HumanResponseTests(unittest.TestCase):
         self.assertEqual(transcript.protected_values(), {"human-response-1": "secret"})
         with self.assertRaises(human.HumanRequestError):
             transcript.append(request("approval", 2), True)
+        with self.assertRaisesRegex(human.HumanRequestError, "authorization more than once"):
+            human.ActionTranscript("interrupt-1").append(approval, True).append(request("auth:password", 1), True)
         with self.assertRaises(human.HumanRequestError):
             human.ActionTranscript("interrupt-1").append(request("approval", 1), True)
 
@@ -86,17 +88,38 @@ class HumanResponseTests(unittest.TestCase):
         for index in range(human.MAX_REQUESTS_PER_TURN):
             interrupt = f"interrupt-{index // human.MAX_REQUESTS_PER_ACTION}"
             ordinal = index % human.MAX_REQUESTS_PER_ACTION
+            current = request(
+                "input:text",
+                ordinal,
+                label="Value",
+                required=True,
+                placeholder=None,
+                min_length=1,
+                max_length=8,
+            )
             transcripts = human.append_response(
                 transcripts,
                 interrupt,
-                request("approval", ordinal),
-                True,
+                current,
+                "value",
             )
 
         self.assertEqual(len(transcripts), 2)
         self.assertEqual(len(human.transcript_for(transcripts, "interrupt-1").responses), 8)
         with self.assertRaises(human.HumanRequestError):
-            human.append_response(transcripts, "interrupt-2", request("approval"), True)
+            human.append_response(
+                transcripts,
+                "interrupt-2",
+                request(
+                    "input:text",
+                    label="Value",
+                    required=True,
+                    placeholder=None,
+                    min_length=1,
+                    max_length=8,
+                ),
+                "value",
+            )
         with self.assertRaises(human.HumanRequestError):
             human.transcript_for((*transcripts, transcripts[0]), "interrupt-0")
 

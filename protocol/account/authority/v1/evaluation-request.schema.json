@@ -96,7 +96,7 @@
       "required": ["kind", "challenge_id"],
       "properties": {
         "kind": {
-          "enum": ["auth:reauth", "auth:second-factor", "auth:phishing-resistant"]
+          "enum": ["auth:password", "auth:totp", "auth:passkey"]
         },
         "challenge_id": {
           "type": "string",

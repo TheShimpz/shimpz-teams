@@ -25,6 +25,7 @@ from docker.errors import APIError, DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import human as action_human
 from action import journal as action_journal
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
@@ -837,6 +838,9 @@ class LocalController:
                 lambda value: validate_action_payload(action_spec, "output", value),
                 action_spec.human_requests,
                 protected_values,
+                authorization_requested=any(
+                    response.get("kind") in action_human.AUTHORIZATION_KINDS for response in responses
+                ),
             )
         except action_execution.RpcSecretExposureError:
             local_audit.record_request(

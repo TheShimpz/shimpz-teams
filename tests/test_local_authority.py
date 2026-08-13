@@ -201,7 +201,7 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
 
     def test_human_assurance_is_required_exactly_when_signed(self) -> None:
         assurance = {
-            "kind": "auth:reauth",
+            "kind": "auth:password",
             "challenge_id": "2" * 32,
         }
         claims = _claims(assurance=assurance)

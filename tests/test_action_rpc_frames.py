@@ -221,6 +221,15 @@ class ActionRpcFrameTests(unittest.TestCase):
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
+                ("approval",),
+                authorization_requested=True,
+            )
+
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
+                {"type": "request", "request": request},
+                {},
+                lambda value: value,
                 (),
             )
 

@@ -521,6 +521,9 @@ class AssistantManifestTests(unittest.TestCase):
         invalid_human = json.loads(json.dumps(valid))
         invalid_human["actions"][0]["human_requests"] = ["invalid"]
         variants.append(invalid_human)
+        multiple_authorizations = json.loads(json.dumps(valid))
+        multiple_authorizations["actions"][0]["human_requests"] = ["approval", "auth:password"]
+        variants.append(multiple_authorizations)
         unused_integration = json.loads(json.dumps(valid))
         for action in unused_integration["actions"]:
             action["integrations"] = []

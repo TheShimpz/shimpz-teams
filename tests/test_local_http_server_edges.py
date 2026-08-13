@@ -418,7 +418,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
 
         challenge = SimpleNamespace(
             id="a" * 32,
-            requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:reauth")),
+            requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:password")),
         )
         service = SimpleNamespace(
             _expire_human_challenges=mock.Mock(),

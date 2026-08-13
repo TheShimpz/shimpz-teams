@@ -9,9 +9,9 @@
     "input:select",
     "input:choice",
     "input:choices",
-    "auth:reauth",
-    "auth:second-factor",
-    "auth:phishing-resistant"
+    "auth:password",
+    "auth:totp",
+    "auth:passkey"
   ],
   "limits": {
     "requests_per_action": 8,
@@ -226,6 +226,16 @@
       "responses": []
     },
     {
+      "name": "reject_multiple_authorizations",
+      "valid": false,
+      "error": "authorization_once",
+      "requests": [
+        {"kind": "approval", "ordinal": 0, "title": "Approve", "description": "Approve the reviewed action."},
+        {"kind": "auth:password", "ordinal": 1, "title": "Authorize", "description": "Authorize the reviewed action with your password."}
+      ],
+      "responses": []
+    },
+    {
       "name": "reject_kind_mismatch",
       "valid": false,
       "error": "response_match",
@@ -233,7 +243,7 @@
         {"kind": "approval", "ordinal": 0, "title": "Publish", "description": "Publish the reviewed record."}
       ],
       "responses": [
-        {"kind": "auth:reauth", "ordinal": 0, "fingerprint": "6a533263d5d930dc0afe867a44b85c3a757d0a9f1b58e19fe2fb04e61f779779", "value": true}
+        {"kind": "auth:password", "ordinal": 0, "fingerprint": "6a533263d5d930dc0afe867a44b85c3a757d0a9f1b58e19fe2fb04e61f779779", "value": true}
       ]
     },
     {

@@ -37,9 +37,9 @@ DEFAULT_CACHE_ENTRIES = 256
 HUMAN_REQUEST_KINDS = frozenset(
     {
         "approval",
-        "auth:phishing-resistant",
-        "auth:reauth",
-        "auth:second-factor",
+        "auth:passkey",
+        "auth:password",
+        "auth:totp",
         "input:choice",
         "input:choices",
         "input:password",
@@ -49,6 +49,7 @@ HUMAN_REQUEST_KINDS = frozenset(
         "input:textarea",
     }
 )
+AUTHORIZATION_REQUEST_KINDS = frozenset({"approval", "auth:passkey", "auth:password", "auth:totp"})
 _ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
@@ -368,9 +369,10 @@ def canonical_machine_contract(
         human_requests = raw_action["human_requests"]
         if (
             not isinstance(human_requests, list)
-            or len(human_requests) > len(HUMAN_REQUEST_KINDS)
+            or len(human_requests) > 8
             or len(human_requests) != len(set(human_requests))
             or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
+            or sum(kind in AUTHORIZATION_REQUEST_KINDS for kind in human_requests) > 1
         ):
             raise ManifestError("Assistant machine contract Action human requests are invalid")
         actions.append(

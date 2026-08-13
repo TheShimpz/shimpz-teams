@@ -635,6 +635,37 @@
       }
     },
     {
+      "name": "resolve_machine_contract_multiple_authorizations",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "human_requests": [
+              "approval",
+              "auth:password"
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "resolve_missing_integration_intent",
       "fixture": "resolve_response",
       "valid": false,

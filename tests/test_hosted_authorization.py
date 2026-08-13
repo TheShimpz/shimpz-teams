@@ -245,13 +245,13 @@ class HostedAuthorizationTests(unittest.TestCase):
 
     def test_action_auth_handle_is_bound_to_the_exact_account_evaluation(self) -> None:
         descriptor = {
-            "kind": "auth:second-factor",
+            "kind": "auth:totp",
             "ordinal": 0,
             "title": "Confirm protected action",
             "description": "Use an enrolled second factor.",
         }
         descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        human_request = action_human.validate_request(descriptor, ("auth:second-factor",))
+        human_request = action_human.validate_request(descriptor, ("auth:totp",))
         requirement = action_challenges.HumanRequirement(
             "assistant-1",
             "Assistant One",
@@ -275,7 +275,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             "chat-human-submit",
             {"team_id": TEAM_ID},
         )
-        assurance = {"kind": "auth:second-factor", "challenge_id": challenge.id}
+        assurance = {"kind": "auth:totp", "challenge_id": challenge.id}
         evidence = hosted_controller.account_authority.Evaluation(
             "a" * 32,
             False,

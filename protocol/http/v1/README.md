@@ -16,7 +16,7 @@ not part of this wire protocol.
 `deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
 bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
 actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
-`auth:reauth`, the browser submits the password only to Admin, Admin replaces it with `true` after
+`auth:password`, the browser submits the password only to Admin, Admin replaces it with `true` after
 verification, and the signed Local assertion binds the successful assurance to the same challenge.
 In Hosted, the browser completes the requested Account ceremony, receives one opaque Account-issued
 handle, and submits it as `value` over the chat surface; Store relays it unmodified. Team only

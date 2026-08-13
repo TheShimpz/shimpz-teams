@@ -14,7 +14,8 @@ LENGTH_KINDS = {
     "input:phone": 64,
 }
 CHOICE_KINDS = {"input:select", "input:choice"}
-AUTH_KINDS = {"auth:reauth", "auth:second-factor", "auth:phishing-resistant"}
+AUTH_KINDS = {"auth:password", "auth:totp", "auth:passkey"}
+AUTHORIZATION_KINDS = {"approval", *AUTH_KINDS}
 
 
 def fingerprint(request: object) -> str:
@@ -54,6 +55,8 @@ def transcript_error(requests: object, responses: object) -> str | None:
     if prefix_error is not None or not isinstance(requests, list) or not isinstance(responses, list):
         return prefix_error
     password_positions = [index for index, item in enumerate(requests) if item["kind"] == "input:password"]
+    if sum(item["kind"] in AUTHORIZATION_KINDS for item in requests) > 1:
+        return "authorization_once"
     if password_positions and password_positions != [len(requests) - 1]:
         return "secret_last"
     if len(responses) != len(requests):

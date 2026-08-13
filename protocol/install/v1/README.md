@@ -54,6 +54,12 @@ Controller fetches both trust artifacts and verifies them with Cosign against
 the full executable image digest. Missing, unavailable, invalid, or
 inconsistent trust material fails closed.
 
+Each declared Action admits at most one authorization capability: `approval`,
+`auth:password`, `auth:totp`, or `auth:passkey`. Input requests remain
+independent. An authentication ceremony both proves the named mechanism and
+authorizes the exact challenge, so it is never combined with `approval` for the
+same Action.
+
 ## Golden vectors
 
 `vectors.json` contains reusable fixtures and positive and negative cases for

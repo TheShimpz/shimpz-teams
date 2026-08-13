@@ -24,9 +24,9 @@ _MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\
 _METHODS = frozenset({"DELETE", "GET", "POST", "PUT"})
 ASSURANCE_KINDS = frozenset(
     {
-        "auth:reauth",
-        "auth:second-factor",
-        "auth:phishing-resistant",
+        "auth:password",
+        "auth:totp",
+        "auth:passkey",
     }
 )
 

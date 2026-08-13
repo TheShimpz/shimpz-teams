@@ -52,7 +52,7 @@ def _assurance_binding() -> dict[str, object]:
         "params": {"team_id": "team_1"},
         "query": {},
         "body": {"kind": "json", "length": 128, "sha256": "d" * 64},
-        "assurance": {"kind": "auth:second-factor", "challenge_id": "e" * 32},
+        "assurance": {"kind": "auth:totp", "challenge_id": "e" * 32},
     }
 
 
@@ -102,7 +102,7 @@ class _AccountHandler(BaseHTTPRequestHandler):
         elif session == "extra":
             response["token"] = "protected"
         elif session == "assurance-mismatch":
-            response["assurance"] = {"kind": "auth:reauth", "challenge_id": "f" * 32}
+            response["assurance"] = {"kind": "auth:password", "challenge_id": "f" * 32}
         body = json.dumps(response, separators=(",", ":")).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")

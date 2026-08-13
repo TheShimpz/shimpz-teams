@@ -30,6 +30,8 @@ pre-build. `shimpz.contract.json` is build output and does not belong in an Assi
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
 capabilities declared by that Action. An undeclared capability never acquires a prompt channel.
+An Action declares at most one authorization capability: plain `approval` or exactly one of
+`auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, every nested object schema
@@ -57,9 +59,11 @@ without a general numeric canonicalizer. `human-request-vectors.json` freezes re
 semantic request constraints, and replay transcript failures that JSON Schema cannot express alone.
 
 Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state;
-`password` input is memory-only, protected from result echo, and must be the final request. A request after
-observing an Integration token is invalid. Denial, cancellation, expiry, unsupported assurance, transcript
-divergence, and undeclared capability all block the Action without returning control to Assistant code.
+`password` input is memory-only, protected from result echo, and must be the final request. Authentication both
+proves the named mechanism and authorizes the exact challenge whose copy the human submits. One logical Action may
+resolve at most one authorization request. A request after observing an Integration token is invalid. Denial,
+cancellation, expiry, unsupported authentication, transcript divergence, and undeclared capability all block the
+Action without returning control to Assistant code.
 There are no authored HTTP servers or compatibility envelopes.
 
 Public prompt copy must be trimmed, printable Unicode and must not contain control, bidi override/isolate, or

@@ -261,6 +261,8 @@ def project_rpc_result(
     validate: Callable[[object], object],
     human_requests: tuple[str, ...] = (),
     protected_values: Mapping[str, str] | None = None,
+    *,
+    authorization_requested: bool = False,
 ) -> object:
     """Reject private echoes, validate one tagged result, or raise one admitted suspension."""
     secrets = protected_rpc_values(integrations_by_id)
@@ -276,6 +278,8 @@ def project_rpc_result(
             request = action_human.validate_request(raw_result["request"], human_requests)
         except action_human.HumanRequestError as exc:
             raise RpcInvalidResultError from exc
+        if authorization_requested and request.kind in action_human.AUTHORIZATION_KINDS:
+            raise RpcInvalidResultError
         raise action_human.HumanRequestSuspensionError(request)
     if response_type != "result" or "result" not in raw_result:
         raise RpcInvalidResultError

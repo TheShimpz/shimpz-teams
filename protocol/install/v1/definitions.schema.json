@@ -241,8 +241,18 @@
         },
         "human_requests": {
           "type": "array",
-          "maxItems": 11,
+          "maxItems": 8,
           "uniqueItems": true,
+          "contains": {
+            "enum": [
+              "approval",
+              "auth:password",
+              "auth:totp",
+              "auth:passkey"
+            ]
+          },
+          "minContains": 0,
+          "maxContains": 1,
           "items": {
             "enum": [
               "approval",
@@ -253,9 +263,9 @@
               "input:select",
               "input:choice",
               "input:choices",
-              "auth:reauth",
-              "auth:second-factor",
-              "auth:phishing-resistant"
+              "auth:password",
+              "auth:totp",
+              "auth:passkey"
             ]
           }
         }

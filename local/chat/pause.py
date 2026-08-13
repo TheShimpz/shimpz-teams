@@ -100,7 +100,7 @@ def _pause_human(
         return self._terminal_human_failure(team_id, token, payload, "request-invalid")
     if any(response.secret for transcript in payload.transcripts for response in transcript.responses):
         return self._terminal_human_failure(team_id, token, payload, "secret-must-be-last")
-    if outcome.request.kind in action_human.AUTH_KINDS - {"auth:reauth"}:
+    if outcome.request.kind in action_human.AUTH_KINDS - {"auth:password"}:
         return self._terminal_human_failure(team_id, token, payload, "authentication-unavailable")
     try:
         challenge = self.human_challenges.create(team_id, requirements[0], payload)

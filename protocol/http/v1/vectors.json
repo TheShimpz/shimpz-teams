@@ -22,7 +22,7 @@
           "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
         },
         "assurance": {
-          "kind": "auth:reauth",
+          "kind": "auth:password",
           "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
       }

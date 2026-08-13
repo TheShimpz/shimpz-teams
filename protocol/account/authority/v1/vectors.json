@@ -65,7 +65,7 @@
       "binding_digest": "8a598b06c5326f6a1d520bdf2bda0228ea65b216b5895a8e6a6645f465736b12"
     },
     {
-      "name": "request-bound Action phishing-resistant assurance",
+      "name": "request-bound Action passkey authentication",
       "binding": {
         "method": "POST",
         "operation": "chat-human-submit",
@@ -77,11 +77,11 @@
           "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "assurance": {
-          "kind": "auth:phishing-resistant",
+          "kind": "auth:passkey",
           "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
       },
-      "binding_digest": "0f0cef4a67d661bec12b15541e517980a59c3d1933001a7d7819efde774b4acf"
+      "binding_digest": "1712c11b8f7bb1b0fa8edbfa6c9bf8c6af4b1052cb5e9b88b7d5a6e08cdbc973"
     }
   ]
 }

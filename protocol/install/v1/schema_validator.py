@@ -14,11 +14,14 @@ SUPPORTED_KEYWORDS = {
     "additionalProperties",
     "allOf",
     "const",
+    "contains",
     "enum",
     "items",
     "maxItems",
+    "maxContains",
     "maxLength",
     "minItems",
+    "minContains",
     "minLength",
     "minimum",
     "not",
@@ -57,7 +60,7 @@ def check_schema(
         _check_schema_list(schema.get(keyword), documents, current_id, f"{path}.{keyword}")
     for keyword in ("$defs", "properties"):
         _check_schema_map(schema.get(keyword), documents, current_id, f"{path}.{keyword}")
-    for keyword in ("additionalProperties", "items", "not"):
+    for keyword in ("additionalProperties", "contains", "items", "not"):
         child = schema.get(keyword)
         if child is not None:
             check_schema(child, documents, current_id, f"{path}.{keyword}")
@@ -242,6 +245,18 @@ def _validate_array(
         raise SchemaViolationError(f"{path}: too many items")
     if schema.get("uniqueItems") is True and len({_canonical(item) for item in value}) != len(value):
         raise SchemaViolationError(f"{path}: duplicate items")
+    contained = schema.get("contains")
+    if contained is not None:
+        matches = sum(
+            _accepts(contained, item, documents, current_id, f"{path}[{index}]")
+            for index, item in enumerate(value)
+        )
+        minimum_contains = schema.get("minContains", 1)
+        maximum_contains = schema.get("maxContains")
+        if isinstance(minimum_contains, int) and matches < minimum_contains:
+            raise SchemaViolationError(f"{path}: too few matching items")
+        if isinstance(maximum_contains, int) and matches > maximum_contains:
+            raise SchemaViolationError(f"{path}: too many matching items")
     prefix = schema.get("prefixItems", [])
     items = schema.get("items", {})
     for index, item in enumerate(value):

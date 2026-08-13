@@ -111,7 +111,7 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         )
         subject._terminal_human_failure.assert_called_with("team_1", "token", secret_payload, "secret-must-be-last")
 
-        auth_request = types.SimpleNamespace(kind="auth:second-factor")
+        auth_request = types.SimpleNamespace(kind="auth:totp")
         auth_outcome = types.SimpleNamespace(request=auth_request)
         auth_requirement = types.SimpleNamespace(request=auth_request)
         local_chat_pause._pause_human(

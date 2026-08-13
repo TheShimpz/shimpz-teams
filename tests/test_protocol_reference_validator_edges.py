@@ -75,7 +75,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
 
         requests = (
             _approval(),
-            _approval(kind="auth:reauth"),
+            _approval(kind="auth:password"),
             _text_request(),
             _text_request(kind="input:textarea", max_length=16000),
             _text_request(kind="input:password", max_length=1024),
@@ -126,7 +126,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             ([_text_request(kind="input:password"), _approval(ordinal=1)], [], "secret_last"),
             ([approval], [], "response_count"),
             ([approval], [{}], "response_shape"),
-            ([approval], [_response(approval, True, kind="auth:reauth")], "response_match"),
+            ([approval], [_response(approval, True, kind="auth:password")], "response_match"),
             ([approval], [_response(approval, True, fingerprint="bad")], "response_match"),
             ([approval], [_response(approval, False)], "response_value"),
             ([select], [_response(select, "a")], None),

@@ -241,7 +241,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         ).encode()
         challenge = SimpleNamespace(
             id=challenge_id,
-            requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:reauth")),
+            requirement=SimpleNamespace(request=SimpleNamespace(kind="auth:password")),
         )
         service = SimpleNamespace(
             _expire_human_challenges=mock.Mock(),
@@ -270,7 +270,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
         self.assertEqual(
             verify.call_args.kwargs["request"].assurance,
-            {"kind": "auth:reauth", "challenge_id": challenge_id},
+            {"kind": "auth:password", "challenge_id": challenge_id},
         )
         service._expire_human_challenges.assert_called_once_with()
 

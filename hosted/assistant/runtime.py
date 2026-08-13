@@ -588,6 +588,9 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             lambda value: _validate_action_payload(contract, action, value, output=True),
             tuple(contract.actions[action].human_requests),
             transcript.protected_values(),
+            authorization_requested=any(
+                response.kind in action_human.AUTHORIZATION_KINDS for response in transcript.responses
+            ),
         )
     except action_execution.RpcSecretExposureError:
         audit.log(

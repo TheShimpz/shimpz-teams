@@ -241,7 +241,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             def resume(self, _context, _results):
                 raise AssertionError("unavailable authentication must stop the turn")
 
-        for kind in sorted(action_human.AUTH_KINDS - {"auth:reauth"}):
+        for kind in sorted(action_human.AUTH_KINDS - {"auth:password"}):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
                 descriptor = {
                     "kind": kind,
@@ -286,13 +286,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 raise AssertionError("reauthentication must pause before Action replay")
 
         descriptor = {
-            "kind": "auth:reauth",
+            "kind": "auth:password",
             "ordinal": 0,
             "title": "Confirm identity",
             "description": "Confirm current identity before continuing.",
         }
         descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("auth:reauth",))
+        admitted = action_human.validate_request(descriptor, ("auth:password",))
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
@@ -311,7 +311,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
 
             self.assertEqual(response["status"], "human-required")
-            self.assertEqual(response["request"]["kind"], "auth:reauth")
+            self.assertEqual(response["request"]["kind"], "auth:password")
             self.assertIsNotNone(controller.chat_turn_service.human_challenges.current("team_1"))
             self.assertIsNotNone(controller.chat_turn_service.chat_continuations.current("team_1"))
 
@@ -328,13 +328,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return brain_runtime_client.RuntimeTurn("completed", "Recovered", ())
 
         descriptor = {
-            "kind": "auth:reauth",
+            "kind": "auth:password",
             "ordinal": 0,
             "title": "Confirm identity",
             "description": "Confirm current identity before continuing.",
         }
         descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("auth:reauth",))
+        admitted = action_human.validate_request(descriptor, ("auth:password",))
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())

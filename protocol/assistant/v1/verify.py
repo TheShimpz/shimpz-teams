@@ -73,7 +73,14 @@ if outcomes != {False, True}:
 human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())
 declared_capabilities = machine["$defs"]["humanRequestCapability"].get("enum")
-if not isinstance(declared_capabilities, list):
+human_requests = machine["$defs"]["action"]["properties"]["human_requests"]
+authorization_capabilities = ["approval", "auth:password", "auth:totp", "auth:passkey"]
+if (
+    not isinstance(declared_capabilities, list)
+    or human_requests.get("contains", {}).get("enum") != authorization_capabilities
+    or human_requests.get("minContains") != 0
+    or human_requests.get("maxContains") != 1
+):
     fail("Assistant human-request vectors are invalid")
 try:
     verify_human_vectors(human, declared_capabilities)

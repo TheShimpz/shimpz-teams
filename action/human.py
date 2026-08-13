@@ -19,11 +19,12 @@ LENGTH_KINDS = {
 CHOICE_KINDS = frozenset({"input:select", "input:choice"})
 AUTH_KINDS = frozenset(
     {
-        "auth:reauth",
-        "auth:second-factor",
-        "auth:phishing-resistant",
+        "auth:password",
+        "auth:totp",
+        "auth:passkey",
     }
 )
+AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
 _BASE_FIELDS = frozenset({"kind", "ordinal", "title", "description"})
 
 
@@ -93,6 +94,10 @@ class ActionTranscript:
             raise HumanRequestError("Assistant Action human request sequence is invalid")
         if any(response.secret for response in self.responses):
             raise HumanRequestError("Assistant Action requested input after a secret response")
+        if request.kind in AUTHORIZATION_KINDS and any(
+            response.kind in AUTHORIZATION_KINDS for response in self.responses
+        ):
+            raise HumanRequestError("Assistant Action requested authorization more than once")
         return ActionTranscript(
             interrupt_id=self.interrupt_id,
             responses=(*self.responses, admit_response(request, value)),

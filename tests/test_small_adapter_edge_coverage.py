@@ -346,7 +346,7 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
             mock.patch.object(
                 admission.runtime_state._human_challenges,
                 "get",
-                return_value=self._challenge("auth:reauth"),
+                return_value=self._challenge("auth:password"),
             ),
             self.assertRaises(admission.runtime_state.ApiError) as raised,
         ):
