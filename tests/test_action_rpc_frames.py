@@ -643,6 +643,8 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         hosted_active = SimpleNamespace(
             assistant_id="assistant",
+            version="1.0.0",
+            summary="Assistant test fixture.",
             contract=SimpleNamespace(name="Assistant", actions={}, integrations={}),
         )
         self.local.assistant_integrations = object()
