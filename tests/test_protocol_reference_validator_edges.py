@@ -378,6 +378,7 @@ class SchemaReferenceEdgeTests(unittest.TestCase):
             ({"type": "array", "minItems": 2}, []),
             ({"type": "array", "maxItems": 1}, [1, 2]),
             ({"type": "array", "uniqueItems": True}, [1, 1]),
+            ({"type": "array", "contains": {"type": "string"}, "minContains": 2}, ["one", 2]),
             ({"type": "string", "minLength": 2}, "a"),
             ({"type": "string", "maxLength": 1}, "ab"),
             ({"type": "string", "pattern": "^a$"}, "b"),
