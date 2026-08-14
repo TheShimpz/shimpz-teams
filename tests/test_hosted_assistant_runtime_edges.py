@@ -404,10 +404,15 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                     assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
             self.assertIn(expected_message, caught.exception.message)
 
-        transcript = SimpleNamespace(
-            responses=(object(),),
-            payloads=lambda: ({"approved": True},),
-            protected_values=lambda: (),
+        response = assistants.action_human.HumanResponse(
+            kind="input:text",
+            ordinal=0,
+            fingerprint="0" * 64,
+            value="approved",
+        )
+        transcript = assistants.action_human.ActionTranscript(
+            interrupt_id="interrupt",
+            responses=(response,),
         )
         with (
             mock.patch.object(assistants, "_assistant_rpc", return_value={"type": "result"}) as rpc,
@@ -417,7 +422,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants.ActionInvocationRequest(**(base | {"transcript": transcript}))
             )
         self.assertEqual(result["result"], {"ok": True})
-        self.assertEqual(rpc.call_args.args[-1]["responses"], ({"approved": True},))
+        self.assertEqual(rpc.call_args.args[-1]["responses"], (response.payload(),))
 
     def test_action_payload_file_and_storage_errors_are_normalized(self) -> None:
         active = _active()
