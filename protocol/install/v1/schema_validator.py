@@ -248,8 +248,7 @@ def _validate_array(
     contained = schema.get("contains")
     if contained is not None:
         matches = sum(
-            _accepts(contained, item, documents, current_id, f"{path}[{index}]")
-            for index, item in enumerate(value)
+            _accepts(contained, item, documents, current_id, f"{path}[{index}]") for index, item in enumerate(value)
         )
         minimum_contains = schema.get("minContains", 1)
         maximum_contains = schema.get("maxContains")
