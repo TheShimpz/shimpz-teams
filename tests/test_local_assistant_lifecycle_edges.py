@@ -148,6 +148,10 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             authorize_start=authorize,
         )
         authorize.assert_called_once_with()
+        self.assertEqual(
+            subject.client.containers.create.call_args.kwargs["log_config"],
+            {"Type": "none", "Config": {}},
+        )
 
     @staticmethod
     def _replacement_subject() -> types.SimpleNamespace:

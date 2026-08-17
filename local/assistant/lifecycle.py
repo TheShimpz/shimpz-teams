@@ -156,7 +156,7 @@ def _create_assistant_container(
                 )
             ],
             restart_policy={"Name": "no"},
-            log_config=LogConfig(type=LogConfig.types.JSON, config={"max-size": "1m", "max-file": "2"}),
+            log_config=LogConfig(type=LogConfig.types.NONE),
         )
         container.reload()
         if container.attrs.get("Image") != image.id:

@@ -197,8 +197,8 @@ class LocalContractCase(unittest.TestCase):
                     "AutoRemove": False,
                     "RestartPolicy": {"Name": "no"},
                     "LogConfig": {
-                        "Type": "json-file",
-                        "Config": {"max-file": "2", "max-size": "1m"},
+                        "Type": "none",
+                        "Config": {},
                     },
                     "PortBindings": None,
                     "Binds": None,

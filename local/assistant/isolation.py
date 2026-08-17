@@ -90,8 +90,8 @@ def inspect_profile(
         or host.get("Sysctls") not in (None, {})
         or host.get("AutoRemove") is not False
         or (host.get("RestartPolicy") or {}).get("Name") not in {"", "no"}
-        or (host.get("LogConfig") or {}).get("Type") != "json-file"
-        or (host.get("LogConfig") or {}).get("Config") != {"max-file": "2", "max-size": "1m"}
+        or (host.get("LogConfig") or {}).get("Type") != "none"
+        or (host.get("LogConfig") or {}).get("Config") != {}
         or host.get("PortBindings") not in (None, {})
         or host.get("Binds") not in (None, [])
         or host.get("Devices") not in (None, [])
