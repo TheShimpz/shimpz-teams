@@ -173,7 +173,7 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
     && chown shimpzteam:shimpzassistant-egress-policy /assistant-egress-policy \
-    && chmod 0770 /assistant-egress-policy
+    && chmod 0750 /assistant-egress-policy
 
 USER shimpzteam
 EXPOSE 7077

@@ -84,8 +84,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.policy_root = Path(self.directory.name) / "policy"
-        self.policy_root.mkdir(mode=0o770)
-        self.policy_root.chmod(0o770)
+        self.policy_root.mkdir(mode=0o750)
+        self.policy_root.chmod(0o750)
         self.proxy = _Proxy("local-space")
         self.network = _Network(self.proxy)
         self.controller = object.__new__(local_app.LocalController)

@@ -124,7 +124,7 @@ class EgressPolicyStore:
         if (
             not stat.S_ISDIR(metadata.st_mode)
             or metadata.st_gid != self.policy_gid
-            or stat.S_IMODE(metadata.st_mode) != 0o770
+            or stat.S_IMODE(metadata.st_mode) != 0o750
         ):
             raise EgressPolicyDriftError("egress policy storage metadata drifted")
         return self.root

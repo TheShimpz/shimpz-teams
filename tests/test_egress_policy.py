@@ -14,8 +14,8 @@ class SharedEgressPolicyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary_directory.name) / "policies"
-        self.root.mkdir(mode=0o770)
-        self.root.chmod(0o770)
+        self.root.mkdir(mode=0o750)
+        self.root.chmod(0o750)
         self.store = egress_policy.EgressPolicyStore(self.root, os.getgid(), "localhost")
 
     def tearDown(self) -> None:
@@ -31,8 +31,8 @@ class SharedEgressPolicyTests(unittest.TestCase):
                 ("local", "127.0.0.1,localhost"),
             ):
                 root = Path(directory) / name
-                root.mkdir(mode=0o770)
-                root.chmod(0o770)
+                root.mkdir(mode=0o750)
+                root.chmod(0o750)
                 store = egress_policy.EgressPolicyStore(root, os.getgid(), no_proxy)
                 token = store.token("space\0team_1\0assistant", create=True)
                 self.assertIsNotNone(token)
@@ -106,7 +106,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
         self.root.chmod(0o700)
         with self.assertRaises(egress_policy.EgressPolicyDriftError):
             self.store.token("identity", create=False)
-        self.root.chmod(0o770)
+        self.root.chmod(0o750)
         with self.assertRaises(egress_policy.EgressPolicyDriftError):
             self.store.token("", create=False)
 

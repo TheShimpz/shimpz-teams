@@ -479,7 +479,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
 
         require_runtime = mock.Mock(side_effect=lambda: events.append("runtime"))
         with tempfile.TemporaryDirectory() as directory:
-            Path(directory).chmod(0o770)
+            Path(directory).chmod(0o750)
             with (
                 mock.patch.multiple(
                     runtime_state,
@@ -544,7 +544,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
     def test_existing_policy_bytes_must_match_the_admitted_hosts(self) -> None:
         hosts = ("api.open-meteo.com", "geocoding-api.open-meteo.com")
         with tempfile.TemporaryDirectory() as directory:
-            Path(directory).chmod(0o770)
+            Path(directory).chmod(0o750)
             with mock.patch.multiple(
                 runtime_state,
                 ASSISTANT_EGRESS_POLICY_DIR=Path(directory),
@@ -567,7 +567,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         hosts = ("api.open-meteo.com",)
         with tempfile.TemporaryDirectory() as directory:
             policy_root = Path(directory)
-            policy_root.chmod(0o770)
+            policy_root.chmod(0o750)
             with (
                 mock.patch.multiple(
                     runtime_state,

@@ -100,7 +100,7 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzassistant-egress-policy /var/lib/shimpz-local/assistant-egress && \
-    chmod 0770 /var/lib/shimpz-local/assistant-egress && \
+    chmod 0750 /var/lib/shimpz-local/assistant-egress && \
     chmod 0700 /var/log/shimpz-local /var/lib/shimpz-local/storage /var/lib/shimpz-local/inference \
         /var/lib/shimpz-local/action-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
