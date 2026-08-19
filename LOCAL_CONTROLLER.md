@@ -136,7 +136,7 @@ state prevents ambiguous retries from silently executing a non-idempotent Action
 
 ## Release binding
 
-The controller image contains no Assistant release. An Owner selects an exact `assistant_id` and
+The controller image contains no Assistant release. The Local Supervisor selects an exact `assistant_id` and
 `source_digest` from the Store; the controller resolves that publication from Developers, verifies its
 artifact, persists the Team binding, and re-resolves the same digest immediately before start. First-party
 Assistants use this same flow from their independent repositories.
