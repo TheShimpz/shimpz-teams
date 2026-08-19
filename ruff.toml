@@ -32,7 +32,6 @@ convention = "pep257"
 # Nested product tests may assert and use explicit synthetic credentials, but do not receive a
 # blanket exemption from subprocess, network, temporary-path, or swallowed-exception checks.
 "tests/**" = ["S101", "S105"]
-"app.py" = ["BLE001"]
 "local/app.py" = ["N815", "N818", "S104"]
 # These exact no-mock integration tests execute fixed Docker argv and reach only loopback fixtures.
 "tests/test_local_controller_docker.py" = ["S108", "S310", "S603", "S607"]
