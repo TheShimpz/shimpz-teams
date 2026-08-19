@@ -1,6 +1,6 @@
 # Assistant Spec v1
 
-Developers owns this language-neutral contract shared by Shimpz Genesis, language SDKs, Team
+Developers owns this language-neutral contract shared by the SDK contract generator, language SDKs, Team
 admission, and Assistant publishers. Version 1 is the only supported Assistant Spec.
 
 ## Authored source
@@ -19,9 +19,9 @@ Every Creator entry is the canonical Account-owned handle: `@` followed by the 3
 lowercase username using only letters, digits, and internal dashes.
 `manifest-vectors.json` freezes complete positive and negative manifests across schema, publication,
 Team admission, and SDK implementations. `manifest-id-vectors.json` retains the focused portable-ID
-boundary. Each implementation runs the vectors independently. Shimpz Genesis also enforces
-invariants that JSON Schema cannot express cleanly, including public host validation, stable SemVer,
-and whitespace rules. Unknown fields and unsupported Spec versions fail closed.
+boundary. Each implementation runs the vectors independently. The SDK contract generator also enforces invariants
+that JSON Schema cannot express cleanly, including public host validation, stable SemVer, and whitespace rules.
+Unknown fields and unsupported Spec versions fail closed.
 
 ## Generated contract
 
