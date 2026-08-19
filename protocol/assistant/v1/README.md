@@ -5,7 +5,7 @@ admission, and Assistant publishers. Version 1 is the only supported Assistant S
 
 ## Authored source
 
-An Assistant repository contains `shimpz.toml`, `pyproject.toml`, and a required `actions/` directory.
+An Assistant repository contains `icon.png`, `shimpz.toml`, `pyproject.toml`, and a required `actions/` directory.
 Each direct `actions/*.py` file defines exactly one `@action async def run`. The filename is the Action
 id after replacing underscores with hyphens. `lib/` and `tests/` are optional author-owned code.
 
