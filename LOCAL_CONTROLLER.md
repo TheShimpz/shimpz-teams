@@ -1,6 +1,6 @@
 # Local Team controller v1
 
-`local/Dockerfile` packages the single-owner controller installed by `install.shimpz.com`. It is a
+`local/Dockerfile` packages the single-owner controller in the Local Space applied by the release-bound CLI. It is a
 local projection of the shared Team controller domain, not a lifecycle-only Docker wrapper. It owns
 Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Actions,
 enforces egress policy, stores Team files and inference selection, and coordinates OAuth Integrations.
@@ -68,7 +68,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `GET` | `/v1/teams/{team_id}/files` | list opaque Team file metadata and quota |
 | `POST` | `/v1/teams/{team_id}/files` | upload one bounded base64 object |
 | `DELETE` | `/v1/teams/{team_id}/files/{opaque_id}` | delete one Team-owned object |
-| `DELETE` | `/v1/space` | installer reset of every exactly owned resource |
+| `DELETE` | `/v1/space` | Team cleanup for an authenticated Space reset |
 
 Team storage allows at most 100 MiB of payload, 256 files, and 25 MiB per upload. Storage is not mounted
 into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limits are transactional.

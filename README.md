@@ -14,8 +14,8 @@ does not own Brain, Account, Assistant-release, or egress-proxy responsibilities
   isolation, and network policy.
 - `hosted/` owns the Hosted entrypoint, state, authority, audit, validation, token, and container construction.
   Its `assistant/`, `chat/`, `http/`, `install/`, and `team/` children separate runtime responsibilities.
-- `local/` owns the Local entrypoint, state, audit, validation, token, labels, and lifecycle used by
-  `install.shimpz.com`. Its `assistant/`, `chat/`, `http/`, and `install/` children express the same profile
+- `local/` owns the Local entrypoint, state, audit, validation, token, labels, and lifecycle used by the Local Space
+  applied by the release-bound CLI. Its `assistant/`, `chat/`, `http/`, and `install/` children express the same profile
   ownership without sharing materially different controller code with Hosted.
 - `install/` owns profile-neutral publication verification and binding; `hosted/install/` owns Hosted-only
   authorization and materialization adapters.
