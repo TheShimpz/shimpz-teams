@@ -93,11 +93,11 @@ The two mutating chat routes return one bounded chunked `application/x-ndjson` s
 `started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and
 Action-delivery operations. `action-delivery` is the durable acknowledgement and journal retirement after the
 model accepted an Action result batch. The final `team-context` occurrence revalidates Team capabilities. Finished
-records carry monotonic elapsed milliseconds;
-Action records also carry their bounded position. One terminal record contains the existing HTTP status and
-response object and remains the only operation result. Progress carries no messages, schemas, arguments,
-results, Assistant identities, provider data, traces, or credentials. A disconnected progress consumer cannot
-change the admitted turn's outcome. `protocol/http/v1/progress.py` owns the exact framing and bounds.
+records carry monotonic elapsed milliseconds; Action records also carry the canonical `assistant_id` and `action`
+identifier pair plus their bounded position. One terminal record contains the existing HTTP status and response
+object and remains the only operation result. Progress carries no messages, schemas, arguments, results, provider
+data, traces, or credentials. A disconnected progress consumer cannot change the admitted turn's outcome.
+`protocol/http/v1/progress.py` owns the exact framing and bounds.
 
 The former 1.2–1.6k twin-Controller LOC reduction target is intentionally dropped: security-sensitive
 decisions are now shared, while extracting the remaining runtime-preparation wiring would add more
