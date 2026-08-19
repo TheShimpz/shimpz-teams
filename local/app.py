@@ -1,8 +1,8 @@
 """Minimal Docker controller for one locally owned Shimpz Space.
 
 This is intentionally separate from the hosted Team controller.  An empty Team is
-one labeled internal network; its only runnable resources are build-allowlisted,
-digest-pinned first-party Assistants with a fixed Action contract.
+one labeled internal network; its only runnable resources are installed,
+digest-pinned published Assistants with declared Action contracts.
 """
 
 from __future__ import annotations
