@@ -200,6 +200,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         self.assertEqual(handler._fixed_route(["v1", "assistants"])[2], "registry-list")
         handler.command = "DELETE"
+        self.assertIsNone(handler._fixed_route(["v1", "space", "unknown"]))
         with mock.patch.object(authority, "require_supervisor_absent"):
             self.assertEqual(handler._fixed_route(["v1", "space", "bootstrap"])[2], "space-bootstrap-reset")
         self.assertEqual(handler._fixed_route(["v1", "space"])[2], "space-reset")
