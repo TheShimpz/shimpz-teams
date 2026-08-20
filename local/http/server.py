@@ -37,9 +37,7 @@ MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
 MAX_PATH_BYTES = 512
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
-_MACHINE_ONLY_OPERATIONS = frozenset(
-    {"health", "space-bootstrap-reset", "assistant-integration-complete"}
-)
+_MACHINE_ONLY_OPERATIONS = frozenset({"health", "space-bootstrap-reset", "assistant-integration-complete"})
 _JSON_BODY_LIMITS = {
     "assistant-install": MAX_BODY_BYTES,
     "assistant-integration-authorize": MAX_BODY_BYTES,
@@ -310,9 +308,7 @@ class Handler(BaseHTTPRequestHandler):
             "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
         }
 
-    def _space_reset_route(
-        self, parts: list[str]
-    ) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
+    def _space_reset_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
         if self.command != "DELETE" or parts[:2] != ["v1", "space"]:
             return None
         if parts == ["v1", "space"]:
