@@ -58,6 +58,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | --- | --- | --- |
 | `GET` | `/healthz` | authenticated process/registry health |
 | `GET` | `/v1/assistants` | trusted installable Assistant registry |
+| `DELETE` | `/v1/space/bootstrap` | Team cleanup before Supervisor establishment; machine bearer plus independent key-absence proof |
 | `GET` | `/v1/teams` | running Team inventory |
 | `POST` | `/v1/teams/{team_id}/create` | idempotently create a named Team network/state |
 | `DELETE` | `/v1/teams/{team_id}` | idempotently remove its Assistants and owned state |

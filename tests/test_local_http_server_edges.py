@@ -200,6 +200,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         self.assertEqual(handler._fixed_route(["v1", "assistants"])[2], "registry-list")
         handler.command = "DELETE"
+        with mock.patch.object(authority, "require_supervisor_absent"):
+            self.assertEqual(handler._fixed_route(["v1", "space", "bootstrap"])[2], "space-bootstrap-reset")
         self.assertEqual(handler._fixed_route(["v1", "space"])[2], "space-reset")
         handler.command = "POST"
         handler._body = mock.Mock(return_value={})
@@ -208,6 +210,22 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._body.return_value = {"state": "s", "claim": "c", "session_binding": "b"}
         self.assertEqual(handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])[1], {"connected": True})
         self.assertIsNone(handler._fixed_route(["other"]))
+
+    def test_bootstrap_reset_maps_supervisor_state_before_cleanup(self) -> None:
+        controller = self.controller()
+        handler = self.handler(method="DELETE", controller=controller)
+        for error, code in (
+            (authority.SupervisorEstablishedError("configured"), "supervisor-established"),
+            (authority.SupervisorUnavailableError("unsafe"), "supervisor-unavailable"),
+        ):
+            with (
+                self.subTest(code=code),
+                mock.patch.object(authority, "require_supervisor_absent", side_effect=error),
+                self.assertRaises(ApiProblemError) as caught,
+            ):
+                handler._fixed_route(["v1", "space", "bootstrap"])
+            self.assertEqual(caught.exception.code, code)
+        controller.reset_space.assert_not_called()
 
         self.assertIsNone(handler._file_route(["other"]))
         handler.command = "GET"
@@ -409,6 +427,27 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         ):
             self.assertIsNone(handler._authorized_route(server._RequestAudit()))
         handler._send_icon.assert_called_once_with(b"png")
+
+    def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
+        controller = HandlerRouteEdgeTests.controller()
+        handler = self.handler(method="DELETE", path="/v1/space/bootstrap", controller=controller)
+        handler._resolved_route = mock.Mock(
+            return_value=(
+                ["v1", "space", "bootstrap"],
+                self.route("space-bootstrap-reset"),
+            )
+        )
+        handler._capture_body = mock.Mock(return_value={"kind": "none"})
+        with (
+            mock.patch.object(authority, "require_supervisor_absent"),
+            mock.patch.object(authority, "verify") as verify,
+            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+        ):
+            result = handler._authorized_route(server._RequestAudit())
+
+        self.assertEqual(result[2], "space-bootstrap-reset")
+        verify.assert_not_called()
+        controller.reset_space.assert_called_once_with()
 
     def test_human_assurance_rejects_every_mismatch(self) -> None:
         handler = self.handler(controller=SimpleNamespace())

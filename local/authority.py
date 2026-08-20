@@ -41,6 +41,10 @@ class SupervisorUnavailableError(RuntimeError):
     """Local Supervisor evidence could not be evaluated safely."""
 
 
+class SupervisorEstablishedError(RuntimeError):
+    """A valid Local Supervisor identity already exists."""
+
+
 @dataclass(frozen=True, slots=True)
 class Evidence:
     """Attributable human evidence accepted for one exact Local request."""
@@ -111,28 +115,23 @@ def credential_state(headers: Message) -> str:
     return "assertion_present"
 
 
-def _public_key() -> Ed25519PublicKey:
-    descriptor = -1
-    try:
-        expected_gid = grp.getgrnam(PUBLIC_KEY_GROUP).gr_gid
-        descriptor = os.open(PUBLIC_KEY_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or metadata.st_gid != expected_gid
-            or stat.S_IMODE(metadata.st_mode) != 0o440
-            or not 1 <= metadata.st_size <= 512
-        ):
-            raise OSError("invalid Local Supervisor public-key metadata")
-        raw = os.read(descriptor, 513)
-    except (KeyError, OSError) as exc:
-        raise SupervisorUnavailableError("Local Supervisor public key is unavailable") from exc
-    finally:
-        with suppress(OSError):
-            os.close(descriptor)
+def _read_public_key(descriptor: int, expected_gid: int) -> bytes:
+    metadata = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or metadata.st_gid != expected_gid
+        or stat.S_IMODE(metadata.st_mode) != 0o440
+        or not 1 <= metadata.st_size <= 512
+    ):
+        raise OSError("invalid Local Supervisor public-key metadata")
+    raw = os.read(descriptor, 513)
     if len(raw) != metadata.st_size:
-        raise SupervisorUnavailableError("Local Supervisor public key is unavailable")
+        raise OSError("truncated Local Supervisor public key")
+    return raw
+
+
+def _parse_public_key(raw: bytes) -> Ed25519PublicKey:
     try:
         key = load_pem_public_key(raw)
     except ValueError as exc:
@@ -140,6 +139,69 @@ def _public_key() -> Ed25519PublicKey:
     if not isinstance(key, Ed25519PublicKey):
         raise SupervisorUnavailableError("Local Supervisor public key is invalid")
     return key
+
+
+def _public_key() -> Ed25519PublicKey:
+    descriptor = -1
+    try:
+        expected_gid = grp.getgrnam(PUBLIC_KEY_GROUP).gr_gid
+        descriptor = os.open(PUBLIC_KEY_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        raw = _read_public_key(descriptor, expected_gid)
+    except (KeyError, OSError) as exc:
+        raise SupervisorUnavailableError("Local Supervisor public key is unavailable") from exc
+    finally:
+        with suppress(OSError):
+            os.close(descriptor)
+    return _parse_public_key(raw)
+
+
+def _public_key_directory(expected_gid: int) -> int:
+    descriptor = os.open(
+        PUBLIC_KEY_FILE.parent,
+        os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY,
+    )
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISDIR(metadata.st_mode)
+            or metadata.st_gid != expected_gid
+            or stat.S_IMODE(metadata.st_mode) != 0o2770
+        ):
+            raise OSError("invalid Local Supervisor public-key directory")
+    except OSError:
+        with suppress(OSError):
+            os.close(descriptor)
+        raise
+    return descriptor
+
+
+def require_supervisor_absent() -> None:
+    """Require safe proof that no Local Supervisor identity has been established."""
+    directory_descriptor = -1
+    key_descriptor = -1
+    try:
+        expected_gid = grp.getgrnam(PUBLIC_KEY_GROUP).gr_gid
+        directory_descriptor = _public_key_directory(expected_gid)
+        try:
+            key_descriptor = os.open(
+                PUBLIC_KEY_FILE.name,
+                os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=directory_descriptor,
+            )
+        except FileNotFoundError:
+            return
+        raw = _read_public_key(key_descriptor, expected_gid)
+    except SupervisorUnavailableError:
+        raise
+    except (KeyError, OSError) as exc:
+        raise SupervisorUnavailableError("Local Supervisor state is unavailable") from exc
+    finally:
+        with suppress(OSError):
+            os.close(key_descriptor)
+        with suppress(OSError):
+            os.close(directory_descriptor)
+    _parse_public_key(raw)
+    raise SupervisorEstablishedError("Local Supervisor is already established")
 
 
 def _encode_segment(value: bytes) -> str:

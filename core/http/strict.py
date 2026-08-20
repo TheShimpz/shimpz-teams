@@ -332,7 +332,14 @@ class ControllerRouteMatch:
 
     @property
     def group(self) -> str | None:
-        fixed = {"health", "registry-list", "team-list", "space-reset", "assistant-integration-complete"}
+        fixed = {
+            "health",
+            "registry-list",
+            "team-list",
+            "space-bootstrap-reset",
+            "space-reset",
+            "assistant-integration-complete",
+        }
         if self.operation in fixed:
             return "fixed"
         if self.operation in {"team-create", "team-destroy"}:
@@ -400,6 +407,7 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/restart", "team-restart", _HOSTED_CONTROLLER_ONLY),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/assistants", "assistant-list"),
     _controller_route(

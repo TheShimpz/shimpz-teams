@@ -253,12 +253,47 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         self.public_key_path.chmod(0o440)
         with self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"):
             authority._public_key()
-
         with (
             mock.patch.object(authority, "load_pem_public_key", return_value=object()),
             self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"),
         ):
             authority._public_key()
+
+    def test_bootstrap_reset_requires_safe_proof_that_supervisor_is_absent(self) -> None:
+        self.public_key_path.parent.chmod(0o2770)
+        self.public_key_path.unlink()
+        authority.require_supervisor_absent()
+
+        self.public_key_path.write_bytes(
+            self.private_key.public_key().public_bytes(
+                Encoding.PEM,
+                PublicFormat.SubjectPublicKeyInfo,
+            )
+        )
+        self.public_key_path.chmod(0o440)
+        with self.assertRaisesRegex(authority.SupervisorEstablishedError, "already established"):
+            authority.require_supervisor_absent()
+
+        self.public_key_path.chmod(0o600)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "state is unavailable"):
+            authority.require_supervisor_absent()
+
+    def test_bootstrap_reset_rejects_unsafe_directory_and_key_entries(self) -> None:
+        self.public_key_path.unlink()
+        self.public_key_path.parent.chmod(0o700)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "state is unavailable"):
+            authority.require_supervisor_absent()
+
+        self.public_key_path.parent.chmod(0o2770)
+        self.public_key_path.symlink_to("missing.pem")
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "state is unavailable"):
+            authority.require_supervisor_absent()
+
+        self.public_key_path.unlink()
+        self.public_key_path.write_bytes(b"not a public key")
+        self.public_key_path.chmod(0o440)
+        with self.assertRaisesRegex(authority.SupervisorUnavailableError, "key is invalid"):
+            authority.require_supervisor_absent()
 
     def test_segments_and_claim_shapes_must_be_canonical(self) -> None:
         for encoded in ("é", "a=", "!", "AB"):

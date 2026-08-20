@@ -60,6 +60,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 "/v1/teams/team_1/assistant-integrations/challenges/challenge-1/authorize",
                 "assistant-integration-cancel",
             ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "DELETE",
+                "/v1/space/bootstrap",
+                "space-bootstrap-reset",
+            ),
         )
         for profile, method, path, operation in cases:
             with self.subTest(profile=profile, path=path):

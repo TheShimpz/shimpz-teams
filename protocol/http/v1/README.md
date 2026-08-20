@@ -33,8 +33,10 @@ verifies the icon digest again at read time, returns exactly `image/png`, and ma
 In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-Account`
 header containing the current opaque Account session. Team binds the canonical route, parameters,
 query, and exact request-body evidence before synchronously asking Account to evaluate that session.
-The internal Team bearer is machine authority only for the one-use OAuth callback continuation; it
-never substitutes for human Account or Supervisor evidence. In Local, Admin emits one short-lived
+The internal Team bearer is machine authority only for the one-use OAuth callback continuation and
+the Local bootstrap reset. The bootstrap reset is admitted only while Team independently verifies
+that the Supervisor key directory is safe and the Supervisor public key is absent; after identity
+establishment it fails closed and never substitutes for human Supervisor evidence. In Local, Admin emits one short-lived
 Ed25519 assertion in `X-Shimpz-Supervisor` after validating its current browser session; Team binds
 it to the canonical request and consumes it once while retaining an independent machine bearer.
 For an authentication-gated Action response, that same signed, one-use assertion may carry one
