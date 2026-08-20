@@ -191,8 +191,6 @@ def require_supervisor_absent() -> None:
         except FileNotFoundError:
             return
         raw = _read_public_key(key_descriptor, expected_gid)
-    except SupervisorUnavailableError:
-        raise
     except (KeyError, OSError) as exc:
         raise SupervisorUnavailableError("Local Supervisor state is unavailable") from exc
     finally:
