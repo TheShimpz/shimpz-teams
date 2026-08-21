@@ -56,7 +56,8 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def _evidence() -> authority.Evidence:
         return authority.Evidence(
             supervisor_id="a" * 32,
-            session_digest="b" * 64,
+            authority_kind="session",
+            authority_digest="b" * 64,
             assertion_id="c" * 32,
             expires_at=2_200_000_015,
         )
@@ -122,6 +123,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
                 body={"kind": "none", "length": 0, "sha256": contract.EMPTY_SHA256},
                 model=None,
                 assurance=None,
+                authority_kinds=frozenset({"session"}),
             ),
         )
         self.assertEqual(request_audit.principal_id, "a" * 32)

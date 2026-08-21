@@ -779,6 +779,11 @@ class Handler(BaseHTTPRequestHandler):
                     body=body,
                     model=model,
                     assurance=assurance,
+                    authority_kinds=(
+                        frozenset({"session", "host-reset"})
+                        if route.operation == "space-reset"
+                        else frozenset({"session"})
+                    ),
                 ),
             )
         except local_authority.SupervisorDeniedError as exc:

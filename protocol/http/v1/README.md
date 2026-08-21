@@ -37,8 +37,10 @@ The internal Team bearer is machine authority only for the one-use OAuth callbac
 the Local bootstrap reset. The bootstrap reset is admitted only while Team independently verifies
 that the Supervisor key directory is safe and the Supervisor public key is absent; after identity
 establishment it fails closed and never substitutes for human Supervisor evidence. In Local, Admin emits one short-lived
-Ed25519 assertion in `X-Shimpz-Supervisor` after validating its current browser session; Team binds
-it to the canonical request and consumes it once while retaining an independent machine bearer.
+Ed25519 assertion in `X-Shimpz-Supervisor` after validating either its current browser session or the exact
+password-and-host-capability reset authority. Its `authority` claim distinguishes `session` from `host-reset`, and
+Team admits `host-reset` only on exact Space reset. Team binds the assertion to the canonical request and consumes
+it once while retaining an independent machine bearer.
 For an authentication-gated Action response, that same signed, one-use assertion may carry one
 `assurance` binding containing only the exact reviewed `auth:*` kind and pending challenge ID.
 Team requires that binding for the matching authentication challenge and rejects it on every

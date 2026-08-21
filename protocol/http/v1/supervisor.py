@@ -29,6 +29,7 @@ ASSURANCE_KINDS = frozenset(
         "auth:passkey",
     }
 )
+AUTHORITY_KINDS = frozenset({"session", "host-reset"})
 
 
 class SupervisorAssertionError(ValueError):
@@ -170,7 +171,8 @@ def canonical_claims(value: object) -> dict[str, object]:
         "v",
         "aud",
         "sub",
-        "session_sha256",
+        "authority",
+        "authority_sha256",
         "jti",
         "iat",
         "exp",
@@ -192,7 +194,8 @@ def canonical_claims(value: object) -> dict[str, object]:
         "v": 1,
         "aud": ASSERTION_AUDIENCE,
         "sub": subject,
-        "session_sha256": _digest(value["session_sha256"], label="session digest"),
+        "authority": value["authority"],
+        "authority_sha256": _digest(value["authority_sha256"], label="authority digest"),
         "jti": nonce,
         "iat": issued_at,
         "exp": expires_at,
@@ -200,6 +203,8 @@ def canonical_claims(value: object) -> dict[str, object]:
         "path": path,
         "body": _body(value["body"]),
     }
+    if result["authority"] not in AUTHORITY_KINDS:
+        raise SupervisorAssertionError("invalid Supervisor authority kind")
     if "model" in value:
         result["model"] = _model(value["model"])
     if "assurance" in value:

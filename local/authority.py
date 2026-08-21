@@ -50,7 +50,8 @@ class Evidence:
     """Attributable human evidence accepted for one exact Local request."""
 
     supervisor_id: str
-    session_digest: str
+    authority_kind: str
+    authority_digest: str
     assertion_id: str
     expires_at: int
 
@@ -64,6 +65,7 @@ class RequestBinding:
     body: dict[str, object]
     model: dict[str, str] | None
     assurance: dict[str, str] | None
+    authority_kinds: frozenset[str]
 
 
 class ReplayGuard:
@@ -284,7 +286,12 @@ def verify(
         "body": request.body,
     }
     actual = {field: claims[field] for field in expected}
-    if actual != expected or claims.get("model") != request.model or claims.get("assurance") != request.assurance:
+    if (
+        actual != expected
+        or claims.get("model") != request.model
+        or claims.get("assurance") != request.assurance
+        or claims.get("authority") not in request.authority_kinds
+    ):
         raise SupervisorDeniedError("Local Supervisor assertion does not match the request")
     guard = _REPLAY_GUARD if replay_guard is None else replay_guard
     assertion_id = claims["jti"]
@@ -293,7 +300,8 @@ def verify(
     guard.consume(assertion_id, expires_at, now=current)
     return Evidence(
         supervisor_id=str(claims["sub"]),
-        session_digest=str(claims["session_sha256"]),
+        authority_kind=str(claims["authority"]),
+        authority_digest=str(claims["authority_sha256"]),
         assertion_id=assertion_id,
         expires_at=expires_at,
     )

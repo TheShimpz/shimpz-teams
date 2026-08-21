@@ -35,7 +35,8 @@ def _claims(**overrides: object) -> dict[str, object]:
         "v": 1,
         "aud": contract.ASSERTION_AUDIENCE,
         "sub": "a" * 32,
-        "session_sha256": hashlib.sha256(b"local-session").hexdigest(),
+        "authority": "session",
+        "authority_sha256": hashlib.sha256(b"local-session").hexdigest(),
         "jti": "b" * 32,
         "iat": NOW,
         "exp": NOW + contract.ASSERTION_MAX_TTL_SECONDS,
@@ -61,6 +62,7 @@ def _binding(**overrides: object) -> authority.RequestBinding:
         "body": BODY,
         "model": None,
         "assurance": None,
+        "authority_kinds": frozenset({"session"}),
     }
     value.update(overrides)
     return authority.RequestBinding(**value)
@@ -108,7 +110,8 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
         )
 
         self.assertEqual(evidence.supervisor_id, "a" * 32)
-        self.assertEqual(evidence.session_digest, hashlib.sha256(b"local-session").hexdigest())
+        self.assertEqual(evidence.authority_kind, "session")
+        self.assertEqual(evidence.authority_digest, hashlib.sha256(b"local-session").hexdigest())
         with self.assertRaisesRegex(authority.SupervisorDeniedError, "replayed"):
             authority.verify(
                 headers,
@@ -174,6 +177,26 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 replay_guard=authority.ReplayGuard(),
                 now=NOW + contract.ASSERTION_MAX_TTL_SECONDS + 1,
             )
+
+    def test_host_reset_authority_is_admitted_only_by_the_explicit_reset_binding(self) -> None:
+        claims = _claims(authority="host-reset")
+        headers = self._headers(claims)
+
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "does not match"):
+            authority.verify(
+                headers,
+                request=_binding(),
+                replay_guard=authority.ReplayGuard(),
+                now=NOW,
+            )
+
+        evidence = authority.verify(
+            headers,
+            request=_binding(authority_kinds=frozenset({"session", "host-reset"})),
+            replay_guard=authority.ReplayGuard(),
+            now=NOW,
+        )
+        self.assertEqual(evidence.authority_kind, "host-reset")
 
     def test_replay_capacity_and_public_key_metadata_fail_closed(self) -> None:
         guard = authority.ReplayGuard(capacity=1)

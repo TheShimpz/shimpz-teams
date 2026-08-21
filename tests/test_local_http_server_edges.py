@@ -343,7 +343,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
 class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     @staticmethod
     def evidence() -> authority.Evidence:
-        return authority.Evidence("a" * 32, "b" * 64, "c" * 32, 2_200_000_000)
+        return authority.Evidence("a" * 32, "session", "b" * 64, "c" * 32, 2_200_000_000)
 
     def test_stream_submit_failure_and_non_stream_guard(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
