@@ -609,9 +609,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
     def test_startup_isolates_an_unavailable_binding_store(self) -> None:
         subject = types.SimpleNamespace(
             registry=types.SimpleNamespace(
-                identities=mock.Mock(
-                    side_effect=local_app.bindings.DynamicAssistantError("unavailable")
-                )
+                identities=mock.Mock(side_effect=local_app.bindings.DynamicAssistantError("unavailable"))
             ),
             install_assistant=mock.Mock(),
         )

@@ -558,7 +558,7 @@ def resume_assistants(self) -> None:
     for team_id, assistant_id in identities:
         try:
             self.install_assistant(team_id, assistant_id)
-        except (ApiProblem, bindings.DynamicAssistantError, RuntimeError, DockerException):
+        except ApiProblem, bindings.DynamicAssistantError, RuntimeError, DockerException:
             log.exception(
                 "Assistant startup recovery deferred for %s/%s",
                 team_id,
