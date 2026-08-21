@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase
+from local_controller_harness import LocalContractCase, TestPublicationRegistry
 
 from assistant import spec as assistant_registry
 from inference import config as inference_config
@@ -256,7 +256,6 @@ class LocalContractTests(LocalContractCase):
         )
 
     def test_local_controller_accepts_an_injected_action_journal(self) -> None:
-        image = "127.0.0.1:5000/shimpz/shimpz-cloudflare@sha256:" + "a" * 64
         injected = SimpleNamespace()
         client = SimpleNamespace(
             info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
@@ -266,7 +265,7 @@ class LocalContractTests(LocalContractCase):
         controller = local_app.LocalController(
             client,
             "local-space",
-            self._registry(image),
+            TestPublicationRegistry(),
             SimpleNamespace(),
             local_app.LocalControllerDependencies(
                 brain_runtime=SimpleNamespace(),

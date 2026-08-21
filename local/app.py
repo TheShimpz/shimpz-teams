@@ -192,6 +192,7 @@ class AssistantLifecycle:
     update_assistant = local_assistant_lifecycle.update_assistant
     _recover_update_target = local_assistant_lifecycle._recover_update_target
     recover_updates = local_assistant_lifecycle.recover_updates
+    resume_assistants = local_assistant_lifecycle.resume_assistants
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
 
     _assistant_filters = local_assistant_resources._assistant_filters
@@ -498,6 +499,7 @@ class LocalController:
         self._wire_collaborators()
         self.assistant_lifecycle._reconcile_egress_proxy_attachments()
         self.assistant_lifecycle.recover_updates()
+        self.assistant_lifecycle.resume_assistants()
         self.chat_turn_service._restore_all_chat_continuations()
 
     def _wire_collaborators(self) -> None:

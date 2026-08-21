@@ -549,6 +549,23 @@ def recover_updates(self) -> None:
     self.sweep_residues()
 
 
+def resume_assistants(self) -> None:
+    try:
+        identities = sorted(self.registry.identities())
+    except bindings.DynamicAssistantError:
+        log.exception("Assistant startup recovery deferred: binding store is unavailable")
+        return
+    for team_id, assistant_id in identities:
+        try:
+            self.install_assistant(team_id, assistant_id)
+        except (ApiProblem, bindings.DynamicAssistantError, RuntimeError, DockerException):
+            log.exception(
+                "Assistant startup recovery deferred for %s/%s",
+                team_id,
+                assistant_id,
+            )
+
+
 @_serialize_against_local_team_chat
 def install_assistant(
     self,

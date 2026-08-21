@@ -578,6 +578,48 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject._queue_residue.assert_called_once_with("image-2")
         subject.sweep_residues.assert_called_once_with()
 
+    def test_startup_resumes_every_bound_assistant_and_isolates_failures(self) -> None:
+        problem = local_app.ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "unavailable",
+            code="docker-unavailable",
+        )
+        subject = types.SimpleNamespace(
+            registry=types.SimpleNamespace(
+                identities=lambda: {
+                    ("team_2", "second"),
+                    ("team_1", "failed"),
+                    ("team_1", "first"),
+                }
+            ),
+            install_assistant=mock.Mock(side_effect=[problem, None, None]),
+        )
+
+        assistant_lifecycle.resume_assistants(subject)
+
+        self.assertEqual(
+            subject.install_assistant.call_args_list,
+            [
+                mock.call("team_1", "failed"),
+                mock.call("team_1", "first"),
+                mock.call("team_2", "second"),
+            ],
+        )
+
+    def test_startup_isolates_an_unavailable_binding_store(self) -> None:
+        subject = types.SimpleNamespace(
+            registry=types.SimpleNamespace(
+                identities=mock.Mock(
+                    side_effect=local_app.bindings.DynamicAssistantError("unavailable")
+                )
+            ),
+            install_assistant=mock.Mock(),
+        )
+
+        assistant_lifecycle.resume_assistants(subject)
+
+        subject.install_assistant.assert_not_called()
+
 
 class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
     def test_install_starts_stopped_current_assistant_with_authorization(self) -> None:

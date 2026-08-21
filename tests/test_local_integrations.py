@@ -113,7 +113,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 networks=SimpleNamespace(list=lambda **_kwargs: []),
             ),
             "local-space",
-            self._registry(),
+            TestPublicationRegistry(),
             SimpleNamespace(),
             local_app.LocalControllerDependencies(
                 inference_store=SimpleNamespace(),
@@ -254,7 +254,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     networks=SimpleNamespace(list=lambda **_kwargs: []),
                 ),
                 "local-space",
-                self._registry(),
+                TestPublicationRegistry(),
                 SimpleNamespace(),
                 local_app.LocalControllerDependencies(
                     inference_store=SimpleNamespace(),
