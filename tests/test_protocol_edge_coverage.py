@@ -228,6 +228,7 @@ class SupervisorEdgeCoverageTests(unittest.TestCase):
             {"v": 2},
             {"sub": "bad"},
             {"jti": "bad"},
+            {"authority": "invalid"},
             {"exp": 2_200_000_016},
             {"method": "PATCH"},
             {"path": "/bad/"},
