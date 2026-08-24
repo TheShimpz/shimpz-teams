@@ -2,7 +2,7 @@
 
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
-`websocket.py` validates the bounded `shimpz.chat.v4` frame primitives and redacts unsafe errors.
+`websocket.py` validates the bounded `shimpz.chat.v5` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
@@ -12,7 +12,7 @@ authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
-`shimpz.chat.v4` adds the Local Admin's exact `human-response` client frame. It binds a `submit` or
+`shimpz.chat.v5` retains the Local Admin's exact `human-response` client frame. It binds a `submit` or
 `deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
 bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
 actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
@@ -24,6 +24,12 @@ pattern-admits and forwards that credential to Account, then replaces it with `t
 resumption after Account consumes it successfully. Handle issuance, freshness, binding, one-use
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
+
+Local Admin may also emit the exact `assistant-install` lifecycle. A `proposed` event carries only
+bounded public display metadata and a socket-scoped proposal id; later `installing`, `installed`,
+`cancelled`, `expired`, or `failed` events correlate that proposal. The browser never sends the proposal
+id or a source digest. A later ordinary `chat` message is interpreted by Admin against the pending
+proposal before any installation is submitted to Team.
 
 An authenticated Supervisor may read the canonical PNG for one installed Assistant from
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
