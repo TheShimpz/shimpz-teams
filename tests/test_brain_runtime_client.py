@@ -147,6 +147,123 @@ class BrainRuntimeClientTests(unittest.TestCase):
         )
         self.assertTrue(connection.closed)
 
+    def test_action_labels_use_the_stateless_endpoint_and_exact_id_order(self):
+        client, connection = self.client(
+            _Response(
+                {
+                    "labels": [
+                        {"id": "get-zone", "label": "Consultar zona DNS"},
+                        {"id": "list-zones", "label": "Listar zonas DNS"},
+                    ]
+                }
+            )
+        )
+
+        labels = client.action_labels(
+            provider="openai",
+            model="gpt-5.6-terra",
+            api_key=self.secret,
+            language_exemplar="Quero listar minhas zonas DNS",
+            action_ids=("list-zones", "get-zone"),
+        )
+
+        self.assertEqual(
+            labels,
+            (
+                brain_runtime_client.RuntimeActionLabel("list-zones", "Listar zonas DNS"),
+                brain_runtime_client.RuntimeActionLabel("get-zone", "Consultar zona DNS"),
+            ),
+        )
+        method, path, raw_body, headers = connection.requests[0]
+        self.assertEqual((method, path), ("POST", "/v1/action-labels"))
+        self.assertEqual(headers["Authorization"], f"Bearer {self.token}")
+        self.assertEqual(
+            json.loads(raw_body),
+            {
+                "provider": {"provider": "openai", "model": "gpt-5.6-terra", "api_key": self.secret},
+                "language_exemplar": "Quero listar minhas zonas DNS",
+                "actions": ["list-zones", "get-zone"],
+            },
+        )
+
+    def test_action_label_requests_and_responses_fail_closed(self):
+        valid = {
+            "labels": [
+                {"id": "list-zones", "label": "Listar zonas DNS"},
+                {"id": "get-zone", "label": "Consultar zona DNS"},
+            ]
+        }
+        invalid_responses = (
+            {**valid, "extra": True},
+            {"labels": valid["labels"][:1]},
+            {"labels": [*valid["labels"], {"id": "extra", "label": "Extra"}]},
+            {"labels": [{"id": "list-zones", "label": "Mesmo"}, {"id": "get-zone", "label": "Mesmo"}]},
+            {
+                "labels": [
+                    {"id": "list-zones", "label": "é"},
+                    {"id": "get-zone", "label": "e\u0301"},
+                ]
+            },
+            {
+                "labels": [
+                    {"id": "list-zones", "label": "Listar\nzona"},
+                    {"id": "get-zone", "label": "Consultar zona"},
+                ]
+            },
+        )
+        for payload in invalid_responses:
+            with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client, _connection = self.client(_Response(payload))
+                client.action_labels(
+                    provider="openai",
+                    model="gpt-5.6-terra",
+                    api_key=self.secret,
+                    language_exemplar="Liste minhas zonas",
+                    action_ids=("list-zones", "get-zone"),
+                )
+
+        duplicate_raw = (
+            b'{"labels":[],"labels":['
+            b'{"id":"list-zones","label":"Listar zonas DNS"},'
+            b'{"id":"get-zone","label":"Consultar zona DNS"}'
+            b"]}"
+        )
+        client, _connection = self.client(_Response({}, raw=duplicate_raw))
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.action_labels(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                language_exemplar="Liste minhas zonas",
+                action_ids=("list-zones", "get-zone"),
+            )
+
+        invalid_requests = (
+            {"provider": "other"},
+            {"api_key": "bad\0secret"},
+            {"api_key": "x" * (16 * 1024 + 1)},
+            {"language_exemplar": ""},
+            {"language_exemplar": " surrounding "},
+            {"language_exemplar": "hidden\0instruction"},
+            {"action_ids": ()},
+            {"action_ids": ("list-zones", "list-zones")},
+            {"action_ids": ("../shell",)},
+        )
+        for update in invalid_requests:
+            with self.subTest(update=update):
+                client, connection = self.client(_Response(valid))
+                request = {
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                    "api_key": self.secret,
+                    "language_exemplar": "Liste minhas zonas",
+                    "action_ids": ("list-zones", "get-zone"),
+                    **update,
+                }
+                with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                    client.action_labels(**request)
+                self.assertEqual(connection.requests, [])
+
     def test_delete_thread_rejects_invalid_ids_before_connecting(self):
         for thread_id in ("", "bad thread", "a" * 257, None):
             with self.subTest(thread_id=thread_id):

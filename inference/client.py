@@ -6,17 +6,23 @@ import http.client
 import json
 import os
 import re
+import unicodedata
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from core import strict_json
+
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_REPLY_CHARS = 60_000
 MAX_ACTION_REQUESTS = 64
+MAX_ACTION_LABELS = 64
+MAX_ACTION_LABEL_CHARS = 80
+MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -63,6 +69,12 @@ class RuntimeTurn:
     status: Literal["completed", "action-required"]
     reply: str
     actions: tuple[ActionRequest, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeActionLabel:
+    id: str
+    label: str
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -156,8 +168,8 @@ class BrainRuntimeClient:
         if response.status != 200:
             raise BrainRuntimeError("Brain runtime request failed")
         try:
-            decoded = json.loads(raw)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            decoded = strict_json.loads(raw)
+        except (UnicodeError, ValueError) as exc:
             raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
         return decoded
 
@@ -217,6 +229,37 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return RuntimeTurn(status=status, reply=reply, actions=tuple(actions))
 
+    @staticmethod
+    def _parse_action_labels(value: object, action_ids: tuple[str, ...]) -> tuple[RuntimeActionLabel, ...]:
+        if not isinstance(value, dict) or set(value) != {"labels"} or not isinstance(value["labels"], list):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        expected = frozenset(action_ids)
+        labels: dict[str, str] = {}
+        for item in value["labels"]:
+            if not isinstance(item, dict) or set(item) != {"id", "label"}:
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
+            action_id = item["id"]
+            label = item["label"]
+            if (
+                not isinstance(action_id, str)
+                or action_id not in expected
+                or action_id in labels
+                or not isinstance(label, str)
+            ):
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
+            normalized = unicodedata.normalize("NFC", label)
+            if (
+                normalized != label
+                or normalized.strip() != normalized
+                or not 1 <= len(normalized) <= MAX_ACTION_LABEL_CHARS
+                or any(unicodedata.category(character).startswith("C") for character in normalized)
+            ):
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
+            labels[action_id] = normalized
+        if len(labels) != len(expected) or len(set(labels.values())) != len(labels):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return tuple(RuntimeActionLabel(action_id, labels[action_id]) for action_id in action_ids)
+
     def start(self, context: RuntimeContext, message: str) -> RuntimeTurn:
         payload = self._context(context)
         payload["message"] = message
@@ -233,3 +276,42 @@ class BrainRuntimeClient:
         response = self._post("/v1/threads/delete", {"thread_id": thread_id})
         if not isinstance(response, dict) or response != {"status": "deleted"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
+
+    def action_labels(
+        self,
+        *,
+        provider: Literal["anthropic", "openai"],
+        model: str,
+        api_key: str,
+        language_exemplar: str,
+        action_ids: tuple[str, ...],
+    ) -> tuple[RuntimeActionLabel, ...]:
+        if (
+            provider not in {"anthropic", "openai"}
+            or not isinstance(model, str)
+            or SAFE_ID_RE.fullmatch(model) is None
+            or not isinstance(api_key, str)
+            or not api_key
+            or len(api_key) > 16 * 1024
+            or "\0" in api_key
+            or not isinstance(language_exemplar, str)
+            or language_exemplar.strip() != language_exemplar
+            or not 1 <= len(language_exemplar) <= MAX_LANGUAGE_EXEMPLAR_CHARS
+            or any(
+                unicodedata.category(character).startswith("C") and character not in {"\n", "\t"}
+                for character in language_exemplar
+            )
+            or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
+            or any(ACTION_ID_RE.fullmatch(action_id) is None for action_id in action_ids)
+            or len(set(action_ids)) != len(action_ids)
+        ):
+            raise BrainRuntimeError("Brain runtime Action label request is invalid")
+        response = self._post(
+            "/v1/action-labels",
+            {
+                "provider": {"provider": provider, "model": model, "api_key": api_key},
+                "language_exemplar": language_exemplar,
+                "actions": list(action_ids),
+            },
+        )
+        return self._parse_action_labels(response, action_ids)
