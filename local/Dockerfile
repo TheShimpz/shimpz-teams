@@ -52,7 +52,7 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
 COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
     local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
     local/assistant/rpc.py ./local/assistant/
-COPY local/chat/__init__.py local/chat/api.py local/chat/continuation.py \
+COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/chat/continuation.py \
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py \
     local/chat/state.py local/chat/types.py ./local/chat/

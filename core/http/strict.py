@@ -415,6 +415,12 @@ CONTROLLER_ROUTES = (
         "/v1/teams/:team_id/assistants/:assistant_id/icon",
         "assistant-icon",
     ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/assistants/:assistant_id/action-labels",
+        "assistant-action-labels",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("POST", "/v1/teams/:team_id/assistants", "assistant-install"),
     _controller_route(
         "DELETE",

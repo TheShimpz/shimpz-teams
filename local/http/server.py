@@ -39,6 +39,7 @@ REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
 _MACHINE_ONLY_OPERATIONS = frozenset({"health", "space-bootstrap-reset", "assistant-integration-complete"})
 _JSON_BODY_LIMITS = {
+    "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
     "assistant-integration-authorize": MAX_BODY_BYTES,
     "assistant-integration-cancel": MAX_BODY_BYTES,
@@ -300,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
         return parts, route
 
     def _model_binding(self, operation: str) -> dict[str, str] | None:
-        if operation not in {"chat", "chat-human-submit", "chat-integration-submit"}:
+        if operation not in {"assistant-action-labels", "chat", "chat-human-submit", "chat-integration-submit"}:
             return None
         provider, api_key = self._model_credential_headers()
         return {
@@ -734,6 +735,21 @@ class Handler(BaseHTTPRequestHandler):
                 assistant_id,
             )
         assistant_id = route.params["assistant_id"]
+        if operation == "assistant-action-labels":
+            provider, api_key = self._model_credential_headers()
+            return (
+                HTTPStatus.OK,
+                controller.chat_turn_service.action_labels(
+                    team_id,
+                    assistant_id,
+                    self._body(),
+                    provider,
+                    api_key,
+                ),
+                operation,
+                team_id,
+                assistant_id,
+            )
         if operation == "assistant-uninstall":
             return (
                 HTTPStatus.OK,

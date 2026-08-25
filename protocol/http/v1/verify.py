@@ -105,6 +105,7 @@ identifiers = vectors.get("identifiers", {})
 validators = {
     "team": payload.canonical_team_id,
     "assistant": payload.canonical_assistant_id,
+    "action": payload.canonical_action_id,
     "source_digest": payload.canonical_source_digest,
     "assurance_handle": payload.canonical_assurance_handle,
 }
@@ -114,5 +115,19 @@ for kind, validator in validators.items():
         fail(f"Team HTTP {kind} positive vector differs")
     if any(validator(value) is not None for value in cases.get("invalid", [])):
         fail(f"Team HTTP {kind} negative vector differs")
+
+action_label_text = vectors.get("action_label_text", {})
+for case in action_label_text.get("exemplars", []):
+    if payload.canonical_language_exemplar(case["input"]) != case["canonical"]:
+        fail("Team HTTP Action-label exemplar positive vector differs")
+if any(
+    payload.canonical_language_exemplar(value) is not None
+    for value in action_label_text.get("invalid_exemplars", [])
+):
+    fail("Team HTTP Action-label exemplar negative vector differs")
+if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
+    fail("Team HTTP Action-label label positive vector differs")
+if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):
+    fail("Team HTTP Action-label label negative vector differs")
 
 print("Team HTTP protocol integrity and golden vectors are valid")

@@ -36,6 +36,16 @@ An authenticated Supervisor may read the canonical PNG for one installed Assista
 verifies the icon digest again at read time, returns exactly `image/png`, and marks the response
 `no-store`. Missing bindings fail as absent; missing or tampered custody fails closed.
 
+Local Admin may request presentation-only labels for one installed binding from
+`POST /v1/teams/:team_id/assistants/:assistant_id/action-labels`. The exact request body is
+`{"language_exemplar":"..."}` and carries the same request-scoped model credential headers as chat.
+Team supplies Brain only the bounded exemplar and the binding's canonical Action ids, then revalidates
+the Team generation, Assistant version, Action-id set, provider, and model after the stateless model call.
+The response contains `team_id`, `assistant`, `assistant_version`, and every exact Action as an `id` plus
+an inert bounded `label`; the HTTP adapter adds `trace_id`. Labels never replace canonical ids, enter chat
+history, describe Action schemas, or grant authority. Binding drift fails closed. Model or label failure is
+availability failure after installation and must not be represented as installation rollback.
+
 In the Hosted profile, every human Team operation carries exactly one `X-Shimpz-Account`
 header containing the current opaque Account session. Team binds the canonical route, parameters,
 query, and exact request-body evidence before synchronously asking Account to evaluate that session.

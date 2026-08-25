@@ -216,6 +216,15 @@ class SharedStrictHttpTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             strict_http.resolve_controller_route("unknown", "GET", ())
 
+        action_labels = ("v1", "teams", "team_1", "assistants", "cloudflare-assistant", "action-labels")
+        resolved = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", action_labels)
+        self.assertEqual(resolved.operation, "assistant-action-labels")
+        self.assertEqual(
+            resolved.params,
+            {"team_id": "team_1", "assistant_id": "cloudflare-assistant"},
+        )
+        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", action_labels))
+
 
 if __name__ == "__main__":
     unittest.main()

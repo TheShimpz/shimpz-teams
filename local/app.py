@@ -51,6 +51,7 @@ from local.assistant import resources as local_assistant_resources
 from local.assistant import rpc as local_assistant_rpc
 from local.assistant.egress import PROFILE
 from local.chat import api as local_chat_api
+from local.chat import capabilities as local_chat_capabilities
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
@@ -325,6 +326,8 @@ class ChatTurnService:
     _pending_chat_continuation = local_chat_api._pending_chat_continuation
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
+    action_labels = local_chat_capabilities.action_labels
+    _action_label_snapshot = local_chat_capabilities._action_label_snapshot
     resume_chat_integrations = local_chat_api.resume_chat_integrations
     resume_chat_human = local_chat_human.resume_chat_human
     pending_chat_human = local_chat_human.pending_chat_human

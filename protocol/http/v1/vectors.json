@@ -304,6 +304,10 @@
       "valid": ["a", "hello-world"],
       "invalid": ["", "Hello", "hello_world", "hello--world"]
     },
+    "action": {
+      "valid": ["list-zones", "dns.read", "zone_get"],
+      "invalid": ["", "List-zones", "../shell", "dns..read"]
+    },
     "source_digest": {
       "valid": ["sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
       "invalid": ["", "sha256:abc", "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
@@ -318,5 +322,14 @@
         true
       ]
     }
+  },
+  "action_label_text": {
+    "exemplars": [
+      {"input": "  Quero listar minhas zonas DNS  ", "canonical": "Quero listar minhas zonas DNS"},
+      {"input": "é", "canonical": "é"}
+    ],
+    "invalid_exemplars": ["", "hidden\u0000instruction"],
+    "labels": ["Listar zonas DNS", "Consultar zona"],
+    "invalid_labels": [" surrounding ", "Listar\nzona", "é"]
   }
 }

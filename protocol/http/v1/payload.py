@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 
 TEAM_ID_PATTERN = r"^[a-z0-9_]{1,40}$"
 ASSISTANT_ID_PATTERN = r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+ACTION_ID_PATTERN = r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"
 FILE_ID_PATTERN = r"^[0-9a-f]{32}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
@@ -15,6 +17,7 @@ ACCOUNT_SESSION_HEADER = "X-Shimpz-Account"
 
 TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
 ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
+ACTION_ID_RE = re.compile(ACTION_ID_PATTERN)
 FILE_ID_RE = re.compile(FILE_ID_PATTERN)
 SHA256_RE = re.compile(SHA256_PATTERN)
 SOURCE_DIGEST_RE = re.compile(SOURCE_DIGEST_PATTERN)
@@ -26,6 +29,8 @@ MAX_CHAT_FILES = 8
 MAX_CHAT_ASSISTANTS = 16
 MAX_TEAM_FILES = 256
 MAX_TEAM_NAME_CHARS = 80
+MAX_ACTION_LABEL_CHARS = 80
+MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
@@ -37,6 +42,36 @@ def canonical_team_id(value: object) -> str | None:
 
 def canonical_assistant_id(value: object) -> str | None:
     if not isinstance(value, str) or len(value) > 80 or ASSISTANT_ID_RE.fullmatch(value) is None:
+        return None
+    return value
+
+
+def canonical_action_id(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) > 128 or ACTION_ID_RE.fullmatch(value) is None:
+        return None
+    return value
+
+
+def canonical_language_exemplar(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = unicodedata.normalize("NFC", value.strip())
+    if not 1 <= len(normalized) <= MAX_LANGUAGE_EXEMPLAR_CHARS:
+        return None
+    if any(
+        unicodedata.category(character).startswith("C") and character not in {"\n", "\t"}
+        for character in normalized
+    ):
+        return None
+    return normalized
+
+
+def canonical_action_label(value: object) -> str | None:
+    if not isinstance(value, str) or unicodedata.normalize("NFC", value) != value:
+        return None
+    if value.strip() != value or not 1 <= len(value) <= MAX_ACTION_LABEL_CHARS:
+        return None
+    if any(unicodedata.category(character).startswith("C") for character in value):
         return None
     return value
 

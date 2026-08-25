@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import unittest
 from email.message import Message
 from http import HTTPStatus
@@ -162,11 +163,21 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         with self.assertRaises(ApiProblemError):
             handler._resolved_route()
 
+        api_key = "a" * 32
+        handler.headers.add_header("X-Shimpz-Model-Provider", "openai")
+        handler.headers.add_header("X-Shimpz-Model-Api-Key", api_key)
+        self.assertEqual(
+            handler._model_binding("assistant-action-labels"),
+            {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
+        )
+        self.assertIsNone(handler._model_binding("assistant-list"))
+
 
 class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     @staticmethod
     def controller() -> SimpleNamespace:
         service = SimpleNamespace(
+            action_labels=mock.Mock(return_value={"actions": []}),
             complete_cloudflare_oauth_callback=mock.Mock(return_value={"connected": True}),
             pending_chat_human=mock.Mock(return_value={"pending": "human"}),
             pending_chat_integrations=mock.Mock(return_value={"pending": "integration"}),
@@ -319,6 +330,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         handler._install_body = mock.Mock(return_value=("assistant", "sha256:" + "a" * 64))
         handler._body = mock.Mock(return_value={"input": "ok"})
+        handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         cases = (
             ("assistant-list", {"team_id": "team_1"}),
             ("assistant-install", {"team_id": "team_1"}),
@@ -332,6 +344,21 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             with self.subTest(operation=operation):
                 result = handler._route([], self.route(operation, **params))
                 self.assertEqual(result[2], operation)
+
+        exact_body = {"language_exemplar": "Quero listar minhas zonas DNS"}
+        handler._body.return_value = exact_body
+        result = handler._route(
+            [],
+            self.route("assistant-action-labels", team_id="team_1", assistant_id="assistant"),
+        )
+        self.assertEqual(result[2], "assistant-action-labels")
+        controller.chat_turn_service.action_labels.assert_called_once_with(
+            "team_1",
+            "assistant",
+            exact_body,
+            "openai",
+            "private-model-key",
+        )
 
         with self.assertRaises(AssertionError):
             handler._route([], self.route("unknown", team_id="team_1", assistant_id="assistant"))
