@@ -12,7 +12,7 @@ authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
-`shimpz.chat.v5` retains the Local Admin's exact `human-response` client frame. It binds a `submit` or
+`shimpz.chat.v6` retains the Local Admin's exact `human-response` client frame. It binds a `submit` or
 `deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
 bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
 actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
