@@ -2,7 +2,7 @@
 
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
-`websocket.py` validates the bounded `shimpz.chat.v5` frame primitives and redacts unsafe errors.
+`websocket.py` validates the bounded `shimpz.chat.v6` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
@@ -30,6 +30,13 @@ bounded public display metadata and a socket-scoped proposal id; later `installi
 `cancelled`, `expired`, or `failed` events correlate that proposal. The browser never sends the proposal
 id or a source digest. A later ordinary `chat` message is interpreted by Admin against the pending
 proposal before any installation is submitted to Team.
+
+Local Admin may also emit the exact `assistant-uninstall` lifecycle. Its `proposed` event carries only
+Team-derived bounded display identity and the installed semantic version; later `uninstalling`,
+`uninstalled`, `cancelled`, `expired`, or `failed` events correlate that proposal. The browser never sends
+the proposal id, Assistant id, version, or a deletion target. Admin requires closed destructive intent,
+uses a removal-specific confirmation vocabulary, and revalidates Team presence and version immediately
+before invoking the existing Team-owned uninstall route. Store data and Store icon routes never participate.
 
 An authenticated Supervisor may read the canonical PNG for one installed Assistant from
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
