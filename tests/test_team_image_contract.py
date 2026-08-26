@@ -61,7 +61,6 @@ LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/supervisor.py",
-    "protocol/http/v1/websocket.py",
     *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
 }
 DYNAMIC_IMPORT_MODULES = {"importlib", "pkgutil", "runpy"}
@@ -395,6 +394,11 @@ class StaticTeamImageContractTests(unittest.TestCase):
         }
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
         self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py"})
+        local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
+        self.assertEqual(
+            local_protocol_runtime_data,
+            {path for path in LOCAL_PROTOCOL_DATA if path.startswith("protocol/http/")},
+        )
         self.assertEqual(
             protocol_install_data | protocol_authority_data | protocol_runtime_data,
             HOSTED_PROTOCOL_DATA,
