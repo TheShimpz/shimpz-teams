@@ -70,7 +70,8 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
-COPY protocol/http/v1/progress.py protocol/http/v1/supervisor.py protocol/http/v1/websocket.py ./protocol/http/v1/
+COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/supervisor.py \
+    protocol/http/v1/websocket.py ./protocol/http/v1/
 COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py ./action/
 COPY storage/__init__.py storage/files.py ./storage/
 

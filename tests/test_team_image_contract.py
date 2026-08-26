@@ -58,6 +58,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/install/v1/verify.py",
 }
 LOCAL_PROTOCOL_DATA = {
+    "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/supervisor.py",
     "protocol/http/v1/websocket.py",
