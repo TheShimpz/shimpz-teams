@@ -59,8 +59,7 @@ def canonical_language_exemplar(value: object) -> str | None:
     if not 1 <= len(normalized) <= MAX_LANGUAGE_EXEMPLAR_CHARS:
         return None
     if any(
-        unicodedata.category(character).startswith("C") and character not in {"\n", "\t"}
-        for character in normalized
+        unicodedata.category(character).startswith("C") and character not in {"\n", "\t"} for character in normalized
     ):
         return None
     return normalized

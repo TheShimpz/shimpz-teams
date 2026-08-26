@@ -121,8 +121,7 @@ for case in action_label_text.get("exemplars", []):
     if payload.canonical_language_exemplar(case["input"]) != case["canonical"]:
         fail("Team HTTP Action-label exemplar positive vector differs")
 if any(
-    payload.canonical_language_exemplar(value) is not None
-    for value in action_label_text.get("invalid_exemplars", [])
+    payload.canonical_language_exemplar(value) is not None for value in action_label_text.get("invalid_exemplars", [])
 ):
     fail("Team HTTP Action-label exemplar negative vector differs")
 if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
