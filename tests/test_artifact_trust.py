@@ -180,18 +180,49 @@ class ArtifactTrustTests(unittest.TestCase):
     def test_accepts_signature_provenance_and_exact_attachment_digests(self) -> None:
         resolution = copy.deepcopy(RESOLUTION)
         resolution["trust"]["signer_identity"] = SIGNER_IDENTITY
-        verifier = self._verifier(resolution)
+        tags: list[str] = []
+        digests = iter(
+            (
+                resolution["trust"]["signature_reference"].removeprefix(
+                    "ghcr.io/theshimpz/shimpz-assistant-trust@"
+                ),
+                resolution["trust"]["provenance_reference"].removeprefix(
+                    "ghcr.io/theshimpz/shimpz-assistant-trust@"
+                ),
+            )
+        )
+        images = types.SimpleNamespace(
+            get_registry_data=lambda tag, *, auth_config: tags.append(tag)
+            or types.SimpleNamespace(id=next(digests))
+        )
+        verifier = ArtifactTrustVerifier(
+            types.SimpleNamespace(images=images),
+            container_id="a" * 64,
+            credentials=AUTH,
+            trust_root=self._trust_root,
+        )
         outputs = iter(
             (
                 json.dumps(_signature(resolution)).encode(),
                 json.dumps(_attestation(resolution)).encode(),
-                b"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-image.sig\n",
-                b"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-image.att\n",
             )
         )
 
-        with mock.patch.object(verifier, "_run_cosign", side_effect=lambda _args: next(outputs)):
+        with mock.patch.object(
+            verifier,
+            "_run_cosign",
+            side_effect=lambda _args: next(outputs),
+        ) as run_cosign:
             verifier.verify(resolution)
+        digest = resolution["oci_digest"].removeprefix("sha256:")
+        self.assertEqual(
+            tags,
+            [
+                f"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-{digest}.sig",
+                f"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-{digest}.att",
+            ],
+        )
+        self.assertEqual(run_cosign.call_count, 2)
 
     def test_rejects_each_mismatched_authority(self) -> None:
         base = copy.deepcopy(RESOLUTION)
@@ -216,8 +247,6 @@ class ArtifactTrustTests(unittest.TestCase):
                 (
                     json.dumps(_signature(base)).encode(),
                     json.dumps(_attestation(base)).encode(),
-                    b"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-image.sig\n",
-                    b"ghcr.io/theshimpz/shimpz-assistant-trust:sha256-image.att\n",
                 )
             )
             with (
@@ -231,14 +260,11 @@ class ArtifactTrustTests(unittest.TestCase):
             ):
                 verifier.verify(resolution)
 
-    def test_attachment_and_cosign_decoders_reject_invalid_evidence(self) -> None:
+    def test_attachment_tags_and_cosign_decoder_reject_invalid_evidence(self) -> None:
         resolution = copy.deepcopy(RESOLUTION)
         verifier = self._verifier(resolution)
-        with (
-            mock.patch.object(verifier, "_cosign_text", return_value="attacker.example:tag"),
-            self.assertRaisesRegex(ArtifactTrustError, "location is invalid"),
-        ):
-            verifier._verify_attachment("image", "expected", attestation=False)
+        with self.assertRaisesRegex(ArtifactTrustError, "OCI digest is invalid"):
+            verifier._verify_attachment("sha256:image", "expected", attestation=False)
 
         docker_client = types.SimpleNamespace(
             images=types.SimpleNamespace(get_registry_data=lambda *_args, **_kwargs: object())
@@ -249,31 +275,14 @@ class ArtifactTrustTests(unittest.TestCase):
             credentials=AUTH,
             trust_root=self._trust_root,
         )
-        with (
-            mock.patch.object(
-                unavailable,
-                "_cosign_text",
-                return_value="ghcr.io/theshimpz/shimpz-assistant-trust:tag",
-            ),
-            self.assertRaisesRegex(ArtifactTrustError, "digest is unavailable"),
-        ):
-            unavailable._verify_attachment("image", "expected", attestation=False)
+        with self.assertRaisesRegex(ArtifactTrustError, "digest is unavailable"):
+            unavailable._verify_attachment(resolution["oci_digest"], "expected", attestation=False)
 
         with (
             mock.patch.object(verifier, "_run_cosign", return_value=b"not-json"),
             self.assertRaisesRegex(ArtifactTrustError, "invalid verification evidence"),
         ):
             verifier._cosign_json("verify")
-        with (
-            mock.patch.object(verifier, "_run_cosign", return_value=b"\xff"),
-            self.assertRaisesRegex(ArtifactTrustError, "invalid attachment evidence"),
-        ):
-            verifier._cosign_text("triangulate")
-        with (
-            mock.patch.object(verifier, "_run_cosign", return_value=b" \n"),
-            self.assertRaisesRegex(ArtifactTrustError, "empty attachment evidence"),
-        ):
-            verifier._cosign_text("triangulate")
 
     def test_cosign_stream_is_bounded_and_transport_failures_are_mapped(self) -> None:
         api = mock.Mock()

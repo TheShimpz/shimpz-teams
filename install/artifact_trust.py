@@ -6,6 +6,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import stat
 import tempfile
 import time
@@ -20,6 +21,7 @@ SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workfl
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
 RELEASE_PROXY_URL = "http://shimpz-assistant-release:8888"
+_OCI_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
 _TIMEOUT_EXIT_CODES = frozenset({124, 137})
@@ -84,24 +86,18 @@ class ArtifactTrustVerifier:
         )
         _verify_provenance(attestation, resolution)
         self._verify_attachment(
-            image,
+            resolution["oci_digest"],
             resolution["trust"]["signature_reference"],
             attestation=False,
         )
         self._verify_attachment(
-            image,
+            resolution["oci_digest"],
             resolution["trust"]["provenance_reference"],
             attestation=True,
         )
 
-    def _verify_attachment(self, image: str, expected: str, *, attestation: bool) -> None:
-        arguments = ["triangulate"]
-        if attestation:
-            arguments.extend(("--type", "attestation"))
-        arguments.append(image)
-        tag = self._cosign_text(*arguments)
-        if not tag.startswith(f"{TRUST_REPOSITORY}:") or "\n" in tag:
-            raise ArtifactTrustError("Sigstore attachment location is invalid")
+    def _verify_attachment(self, oci_digest: str, expected: str, *, attestation: bool) -> None:
+        tag = _attachment_tag(oci_digest, attestation=attestation)
         try:
             registry_data = self._docker.images.get_registry_data(
                 tag,
@@ -119,16 +115,6 @@ class ArtifactTrustVerifier:
             return json.loads(raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise ArtifactTrustError("Cosign returned invalid verification evidence") from exc
-
-    def _cosign_text(self, *arguments: str) -> str:
-        raw = self._run_cosign(arguments)
-        try:
-            value = raw.decode("ascii").strip()
-        except UnicodeError as exc:
-            raise ArtifactTrustError("Cosign returned invalid attachment evidence") from exc
-        if not value:
-            raise ArtifactTrustError("Cosign returned empty attachment evidence")
-        return value
 
     def _run_cosign(self, arguments: tuple[str, ...]) -> bytes:
         with (
@@ -182,6 +168,15 @@ class ArtifactTrustVerifier:
                 return bytes(output)
             except (KeyError, TypeError, docker.errors.DockerException) as exc:
                 raise ArtifactTrustError("Cosign verification is unavailable") from exc
+
+
+def _attachment_tag(oci_digest: str, *, attestation: bool) -> str:
+    """Derive the pinned Cosign v3 attachment tag without spawning its CLI."""
+    match = _OCI_DIGEST.fullmatch(oci_digest)
+    if match is None:
+        raise ArtifactTrustError("Assistant OCI digest is invalid")
+    suffix = "att" if attestation else "sig"
+    return f"{TRUST_REPOSITORY}:sha256-{match.group(1)}.{suffix}"
 
 
 def _ensure_private_directory(path: Path) -> Path:
