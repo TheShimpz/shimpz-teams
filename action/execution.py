@@ -15,6 +15,7 @@ from typing import NoReturn
 
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from core import strict_json
 
 # A missing manifest Action is a missing resource; an unavailable connected integration is an unmet
@@ -78,12 +79,14 @@ def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) 
 def encode_rpc_invocation(
     action_input: object,
     integrations: Mapping[str, str],
+    stored_inputs: Mapping[str, str],
     responses: tuple[Mapping[str, object], ...] = (),
 ) -> bytes:
     """Encode one bounded Spec v1 invocation, adding responses only for replay."""
     invocation: dict[str, object] = {
         "input": action_input,
         "integrations": dict(integrations),
+        "stored_inputs": dict(stored_inputs),
     }
     if responses:
         invocation["responses"] = [dict(response) for response in responses]
@@ -106,6 +109,7 @@ def action_operation(
     assistant_container_id: object,
     assistant_image: object,
     integration_generations: tuple[tuple[str, int], ...] = (),
+    stored_input_generations: tuple[tuple[str, int], ...] = (),
 ) -> action_journal.Operation:
     """Fingerprint one normalized request and every immutable private-state generation."""
     if not isinstance(assistant_container_id, str) or not assistant_container_id:
@@ -119,6 +123,7 @@ def action_operation(
                 "assistant_id": request.assistant_id,
                 "assistant_image": assistant_image,
                 "integration_generations": integration_generations,
+                "stored_input_generations": stored_input_generations,
                 "input": request.input,
                 "action": request.action,
             },
@@ -138,6 +143,7 @@ class ActionBatchStrategy:
     execute: Callable[[object, object], object]
     preflight: Callable[[object], object]
     integration_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
+    stored_input_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
 
 
 class ActionBatch:
@@ -173,6 +179,7 @@ class ActionBatch:
                 container_id,
                 image,
                 self._strategy.integration_generations(request),
+                self._strategy.stored_input_generations(request),
             ),
             evidence,
         )
@@ -255,30 +262,62 @@ class RpcInvalidResultError(ValueError):
     """An Assistant result failed its reviewed Action schema."""
 
 
+class StoredInputRejectedError(RuntimeError):
+    """An Assistant explicitly rejected one exact supplied persistent input."""
+
+    def __init__(self, stored_input: str) -> None:
+        super().__init__("Assistant rejected one Stored Input")
+        self.stored_input = stored_input
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RpcResultPolicy:
+    """Reviewed Action result capabilities and private values for one invocation."""
+
+    human_requests: tuple[str, ...] = ()
+    protected_values: Mapping[str, str] | None = None
+    authorization_requested: bool = False
+    stored_inputs_by_id: Mapping[str, str] | None = None
+    declared_stored_inputs: tuple[str, ...] = ()
+    supplied_stored_inputs: frozenset[str] = frozenset()
+
+
+_DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
+
+
 def project_rpc_result(
     raw_result: object,
     integrations_by_id: Mapping[str, Mapping[str, object]],
     validate: Callable[[object], object],
-    human_requests: tuple[str, ...] = (),
-    protected_values: Mapping[str, str] | None = None,
-    *,
-    authorization_requested: bool = False,
+    policy: RpcResultPolicy = _DEFAULT_RPC_RESULT_POLICY,
 ) -> object:
     """Reject private echoes, validate one tagged result, or raise one admitted suspension."""
     secrets = protected_rpc_values(integrations_by_id)
-    if protected_values is not None:
-        secrets.update(protected_values)
+    if policy.protected_values is not None:
+        secrets.update(policy.protected_values)
+    if policy.stored_inputs_by_id is not None:
+        secrets.update({f"stored-input:{key}": value for key, value in policy.stored_inputs_by_id.items()})
     if contains_secret(raw_result, secrets):
         raise RpcSecretExposureError
-    if not isinstance(raw_result, dict) or set(raw_result) not in ({"type", "result"}, {"type", "request"}):
+    valid_fields = ({"type", "result"}, {"type", "request"}, {"type", "stored_input"})
+    if not isinstance(raw_result, dict) or set(raw_result) not in valid_fields:
         raise RpcInvalidResultError
     response_type = raw_result.get("type")
+    if response_type == "stored_input_rejected":
+        rejected = raw_result.get("stored_input")
+        if rejected not in policy.declared_stored_inputs or rejected not in policy.supplied_stored_inputs:
+            raise RpcInvalidResultError
+        raise StoredInputRejectedError(str(rejected))
     if response_type == "request" and "request" in raw_result:
         try:
-            request = action_human.validate_request(raw_result["request"], human_requests)
+            request = action_human.validate_request(
+                raw_result["request"],
+                policy.human_requests,
+                policy.declared_stored_inputs,
+            )
         except action_human.HumanRequestError as exc:
             raise RpcInvalidResultError from exc
-        if authorization_requested and request.kind in action_human.AUTHORIZATION_KINDS:
+        if policy.authorization_requested and request.kind in action_human.AUTHORIZATION_KINDS:
             raise RpcInvalidResultError
         raise action_human.HumanRequestSuspensionError(request)
     if response_type != "result" or "result" not in raw_result:
@@ -407,18 +446,148 @@ def integration_generations(
     return private_generations(tuple(metadata(declarations)))
 
 
+def stored_input_origin(request: object) -> str:
+    """Bind a newly consumed Stored Input to one exact Brain Action interrupt."""
+    try:
+        encoded = json.dumps(
+            {
+                "action": request.action,
+                "assistant_id": request.assistant_id,
+                "input": request.input,
+                "interrupt_id": request.interrupt_id,
+            },
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (AttributeError, TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
+        raise action_journal.ActionJournalConflictError("Action Stored Input origin is invalid") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _stored_input_declarations(
+    actions: Mapping[str, object],
+    stored_inputs: Mapping[str, object],
+    action_id: str,
+) -> dict[str, object]:
+    action = actions.get(action_id)
+    if action is None:
+        raise action_journal.ActionJournalConflictError("Action Stored Input contract is unavailable")
+    stored_input_ids = tuple(getattr(action, "stored_inputs", ()))
+    declarations = {
+        stored_input_id: stored_inputs[stored_input_id]
+        for stored_input_id in stored_input_ids
+        if stored_input_id in stored_inputs
+    }
+    if len(declarations) != len(stored_input_ids):
+        raise action_journal.ActionJournalConflictError("Action Stored Input contract is unavailable")
+    return declarations
+
+
+def resolve_action_stored_inputs(
+    actions: Mapping[str, object],
+    stored_inputs: Mapping[str, object],
+    action_id: str,
+    resolve: Callable[[str, object], action_stored_input.StoredInputValue],
+) -> dict[str, action_stored_input.StoredInputValue]:
+    """Resolve only the current Action's exact declared persistent input."""
+    values: dict[str, action_stored_input.StoredInputValue] = {}
+    for stored_input_id, declaration in _stored_input_declarations(actions, stored_inputs, action_id).items():
+        try:
+            value = resolve(stored_input_id, declaration)
+        except action_stored_input.StoredInputMissingError:
+            continue
+        if not isinstance(value, action_stored_input.StoredInputValue):
+            raise action_journal.ActionJournalConflictError("Action Stored Input state is unavailable")
+        values[stored_input_id] = value
+    return values
+
+
+def stored_input_generations(
+    actions: Mapping[str, object],
+    stored_inputs: Mapping[str, object],
+    action_id: str,
+    origin: str,
+    resolve: Callable[[str, object], action_stored_input.StoredInputValue],
+) -> tuple[tuple[str, int], ...]:
+    """Fingerprint reusable generations while preserving a just-sealed journal replay."""
+    values = resolve_action_stored_inputs(actions, stored_inputs, action_id, resolve)
+    generations: list[tuple[str, int]] = []
+    for stored_input_id, value in values.items():
+        if value.origin == origin:
+            continue
+        if type(value.generation) is not int or value.generation < 1:
+            raise action_journal.ActionJournalConflictError("Action Stored Input generation is unavailable")
+        generations.append((stored_input_id, value.generation))
+    return tuple(generations)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class RpcPrivateInputs:
+    """Exact private values frozen by one invoke-time preflight."""
+
+    integrations: Mapping[str, Mapping[str, object]]
+    stored_inputs: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ActionInvocationEvidence:
+    """Invoke-time private evidence plus the memory-only replay transcript."""
+
+    private_inputs: RpcPrivateInputs
+    transcript: action_human.ActionTranscript
+    origin: str
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class ResolvedInvocationEvidence:
+    """Private values selected for an invocation, including direct calls without replay."""
+
+    integrations: Mapping[str, Mapping[str, object]]
+    stored_inputs: Mapping[str, str]
+    transcript: action_human.ActionTranscript
+    origin: str | None
+
+
+def resolve_invocation_evidence(
+    evidence: ActionInvocationEvidence | None,
+    resolve_integrations: Callable[[], Mapping[str, Mapping[str, object]]],
+    resolve_stored_inputs: Callable[[], Mapping[str, action_stored_input.StoredInputValue]],
+) -> ResolvedInvocationEvidence:
+    """Use frozen chat evidence or resolve exact private values for a direct invocation."""
+    if evidence is not None:
+        return ResolvedInvocationEvidence(
+            evidence.private_inputs.integrations,
+            evidence.private_inputs.stored_inputs,
+            evidence.transcript,
+            evidence.origin,
+        )
+    resolved = resolve_stored_inputs()
+    return ResolvedInvocationEvidence(
+        resolve_integrations(),
+        {stored_input_id: value.value for stored_input_id, value in resolved.items()},
+        action_human.ActionTranscript(""),
+        None,
+    )
+
+
 def require_rpc_envelope(
     active: object,
     request: object,
     resolve_integrations: Callable[[object, str], Mapping[str, Mapping[str, object]]],
-) -> Mapping[str, Mapping[str, object]]:
+    resolve_stored_inputs: Callable[[object, str], Mapping[str, action_stored_input.StoredInputValue]],
+) -> RpcPrivateInputs:
     """Resolve and size-check the exact Spec v1 invocation before journaling."""
     integrations = resolve_integrations(active, request.action)
+    resolved_stored_inputs = resolve_stored_inputs(active, request.action)
+    stored_inputs = {stored_input_id: resolved.value for stored_input_id, resolved in resolved_stored_inputs.items()}
     encode_rpc_invocation(
         request.input,
         integration_access_tokens(integrations),
+        stored_inputs,
     )
-    return integrations
+    return RpcPrivateInputs(integrations, stored_inputs)
 
 
 def contains_secret(value: object, secrets_by_id: Mapping[str, str]) -> bool:

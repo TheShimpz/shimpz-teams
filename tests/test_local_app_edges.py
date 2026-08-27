@@ -6,6 +6,8 @@ import types
 import unittest
 from contextlib import nullcontext
 from http import HTTPStatus
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import mock
 
 from docker.errors import APIError, DockerException
@@ -283,8 +285,8 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
-        action_spec = types.SimpleNamespace(human_requests=())
-        spec = types.SimpleNamespace(actions={"action": action_spec})
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        spec = types.SimpleNamespace(actions={"action": action_spec}, stored_inputs={})
         container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         controller.assistant_lifecycle = types.SimpleNamespace(
             _resolve=lambda *_args: spec,
@@ -299,6 +301,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             _active_action_containers={},
             _resolve_action_integrations=lambda *_args: {},
         )
+        controller.assistant_stored_inputs = mock.Mock()
         return controller, spec, container
 
     def test_invoke_rejects_contract_runtime_and_rpc_failures(self) -> None:
@@ -308,7 +311,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(caught.exception.code, "action-not-declared")
 
-        spec.actions = {"action": types.SimpleNamespace(human_requests=())}
+        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=())}
         with (
             mock.patch.object(
                 local_app,
@@ -348,7 +351,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             mock.patch.object(local_app.local_audit, "record_request"),
             self.assertRaises(local_app.ApiProblem),
         ):
-            controller.invoke("team_1", "assistant", "action", {}, ({"value": True},))
+            controller.invoke("team_1", "assistant", "action", {})
 
     def test_invoke_maps_projection_failures_and_returns_valid_result(self) -> None:
         controller, _spec, _container = self.controller()
@@ -382,6 +385,77 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
         ):
             result = controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(result["result"], {"ok": True})
+
+    def test_stored_input_is_sealed_reused_and_cleared_on_exact_rejection(self) -> None:
+        controller, spec, _container = self.controller()
+        action_spec = types.SimpleNamespace(human_requests=("input:password",), stored_inputs=("whatsapp-token",))
+        declaration = types.SimpleNamespace(kind="password")
+        spec.assistant_id = "assistant"
+        spec.actions = {"action": action_spec}
+        spec.stored_inputs = {"whatsapp-token": declaration}
+        token = "whatsapp-private-token-123456789"
+        response = local_app.action_human.HumanResponse(
+            "input:password",
+            0,
+            "a" * 64,
+            token,
+            "whatsapp-token",
+        )
+        transcript = local_app.action_human.ActionTranscript("interrupt", (response,))
+        captured: list[dict[str, object]] = []
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = local_app.action_stored_input.StoredInputStore(
+                root / "state" / "stored-inputs.json",
+                root / "key" / "aes256.key",
+            )
+            controller.assistant_stored_inputs = store
+            controller.chat_turn_service._resolve_action_stored_inputs = lambda *_args: (
+                local_app.action_execution.resolve_action_stored_inputs(
+                    spec.actions,
+                    spec.stored_inputs,
+                    "action",
+                    lambda stored_input_id, current: store.resolve(
+                        "team_1",
+                        "assistant",
+                        stored_input_id,
+                        current.kind,
+                    ),
+                )
+            )
+
+            def rpc(_container, _action, payload):
+                captured.append(payload)
+                return {"type": "result", "result": {"ok": True}}
+
+            controller.assistant_lifecycle._rpc = rpc
+            evidence = local_app.action_execution.ActionInvocationEvidence(
+                local_app.action_execution.RpcPrivateInputs({}, {}),
+                transcript,
+                "b" * 64,
+            )
+            with (
+                mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
+                mock.patch.object(local_app.local_audit, "record_request"),
+            ):
+                controller.invoke("team_1", "assistant", "action", {}, evidence)
+                controller.invoke("team_1", "assistant", "action", {})
+                controller.assistant_lifecycle._rpc = lambda *_args: {
+                    "type": "stored_input_rejected",
+                    "stored_input": "whatsapp-token",
+                }
+                with self.assertRaises(local_app.ApiProblem) as rejected:
+                    controller.invoke("team_1", "assistant", "action", {})
+
+            self.assertEqual(rejected.exception.code, "assistant-stored-input-rejected")
+            with self.assertRaises(local_app.action_stored_input.StoredInputMissingError):
+                store.resolve("team_1", "assistant", "whatsapp-token", "password")
+
+        self.assertEqual(captured[0]["stored_inputs"], {})
+        self.assertEqual(captured[0]["responses"], (response.payload(),))
+        self.assertEqual(captured[1]["stored_inputs"], {"whatsapp-token": token})
+        self.assertNotIn("responses", captured[1])
 
 
 class LocalAppMainEdgeTests(unittest.TestCase):

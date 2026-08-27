@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from chat import contract as assistant_chat
@@ -62,11 +63,13 @@ class _HostedAssistantSpec:
     summary: str
     actions: dict[str, object]
     integrations: dict[str, assistant_registry.IntegrationSpec]
+    stored_inputs: dict[str, assistant_registry.StoredInputSpec]
 
 
 @dataclass(frozen=True, slots=True)
 class _HostedActionSpec:
     integrations: tuple[str, ...]
+    stored_inputs: tuple[str, ...]
     summary: str
     human_requests: tuple[str, ...]
 
@@ -97,12 +100,14 @@ def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
         actions={
             action_id: _HostedActionSpec(
                 tuple(getattr(action, "integrations", ())),
+                tuple(getattr(action, "stored_inputs", ())),
                 str(getattr(action, "summary", "")),
                 tuple(getattr(action, "human_requests", ())),
             )
             for action_id, action in active.contract.actions.items()
         },
         integrations=getattr(active.contract, "integrations", {}),
+        stored_inputs=getattr(active.contract, "stored_inputs", {}),
     )
 
 
@@ -305,6 +310,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
         encoded = action_execution.encode_rpc_invocation(
             request.payload["input"],
             request.payload["integrations"],
+            request.payload["stored_inputs"],
             request.payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:
@@ -379,6 +385,52 @@ def _action_integration_generations(
         raise action_journal.ActionJournalConflictError("Action integration state is unavailable") from exc
 
 
+def _resolve_action_stored_inputs(
+    team_id: str,
+    active: _ActiveAssistant,
+    action_id: str,
+) -> dict[str, action_stored_input.StoredInputValue]:
+    try:
+        return action_execution.resolve_action_stored_inputs(
+            active.contract.actions,
+            active.contract.stored_inputs,
+            action_id,
+            lambda stored_input_id, declaration: runtime_state._assistant_stored_inputs.resolve(
+                team_id,
+                active.assistant_id,
+                stored_input_id,
+                declaration.kind,
+            ),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input state is unavailable",
+        ) from exc
+
+
+def _action_stored_input_generations(
+    team_id: str,
+    active: _ActiveAssistant,
+    request: brain_runtime_client.ActionRequest,
+) -> tuple[tuple[str, int], ...]:
+    try:
+        return action_execution.stored_input_generations(
+            active.contract.actions,
+            active.contract.stored_inputs,
+            request.action,
+            action_execution.stored_input_origin(request),
+            lambda stored_input_id, declaration: runtime_state._assistant_stored_inputs.resolve(
+                team_id,
+                active.assistant_id,
+                stored_input_id,
+                declaration.kind,
+            ),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        raise action_journal.ActionJournalConflictError("Action Stored Input state is unavailable") from exc
+
+
 def _refresh_oauth_integration(
     provider: str,
     scopes: tuple[str, ...],
@@ -431,6 +483,7 @@ def _require_hosted_action_rpc_envelope(
             active,
             request,
             lambda binding, action_id: _resolve_action_integrations(team_id, binding, action_id),
+            lambda binding, action_id: _resolve_action_stored_inputs(team_id, binding, action_id),
         )
     except ValueError as exc:
         raise runtime_state.ApiError(
@@ -506,8 +559,90 @@ class ActionInvocationRequest:
     payload: object
     inspect_memo: dict[str, object] | None = None
     validated_assistant: _ActiveAssistant | None = None
-    integration_values: Mapping[str, Mapping[str, object]] | None = None
-    transcript: action_human.ActionTranscript | None = None
+    evidence: action_execution.ActionInvocationEvidence | None = None
+
+
+def _project_hosted_action_result(
+    request: ActionInvocationRequest,
+    raw_result: object,
+    private: action_execution.ResolvedInvocationEvidence,
+) -> object:
+    action = str(request.action)
+    action_spec = request.contract.actions[action]
+    try:
+        return action_execution.project_rpc_result(
+            raw_result,
+            private.integrations,
+            lambda value: _validate_action_payload(request.contract, action, value, output=True),
+            action_execution.RpcResultPolicy(
+                human_requests=tuple(action_spec.human_requests),
+                protected_values=private.transcript.protected_values(),
+                authorization_requested=any(
+                    response.kind in action_human.AUTHORIZATION_KINDS
+                    for response in private.transcript.responses
+                ),
+                stored_inputs_by_id=private.stored_inputs,
+                declared_stored_inputs=tuple(action_spec.stored_inputs),
+                supplied_stored_inputs=frozenset(private.stored_inputs)
+                | frozenset(private.transcript.submitted_stored_inputs()),
+            ),
+        )
+    except action_execution.StoredInputRejectedError as exc:
+        try:
+            runtime_state._assistant_stored_inputs.delete(request.team_id, request.assistant_id, exc.stored_input)
+        except action_stored_input.StoredInputStoreError as store_error:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant Stored Input state is unavailable",
+            ) from store_error
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "Assistant rejected its stored input; retry the task to provide a new value",
+        ) from None
+    except action_execution.RpcSecretExposureError:
+        audit.log(
+            "assistant_action",
+            request.team_id,
+            result="error",
+            assistant=request.assistant_id,
+            action=action,
+            reason="secret-exposure",
+        )
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action exposed protected data") from None
+    except action_execution.RpcInvalidResultError as exc:
+        audit.log(
+            "assistant_action",
+            request.team_id,
+            result="error",
+            assistant=request.assistant_id,
+            action=action,
+            reason="invalid-output",
+        )
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action returned an invalid result") from exc
+
+
+def _seal_hosted_stored_inputs(
+    request: ActionInvocationRequest,
+    private: action_execution.ResolvedInvocationEvidence,
+) -> None:
+    submitted = private.transcript.submitted_stored_inputs()
+    if not submitted:
+        return
+    if private.origin is None:
+        raise AssertionError("Stored Input submission lacks Action evidence")
+    action_spec = request.contract.actions[str(request.action)]
+    for stored_input_id, value in submitted.items():
+        if stored_input_id not in action_spec.stored_inputs:
+            raise KeyError(stored_input_id)
+        declaration = request.contract.stored_inputs[stored_input_id]
+        runtime_state._assistant_stored_inputs.seal(
+            request.team_id,
+            request.assistant_id,
+            stored_input_id,
+            declaration.kind,
+            value,
+            private.origin,
+        )
 
 
 def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, object]:
@@ -543,11 +678,10 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     if _current_id != assistant_id or current_contract != contract or current_container.id != container.id:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "installed Assistant changed during the chat turn")
     active = _ActiveAssistant(assistant_id, contract, container)
-    transcript = request.transcript or action_human.ActionTranscript("")
-    integration_values = (
-        _resolve_action_integrations(team_id, active, action)
-        if request.integration_values is None
-        else dict(request.integration_values)
+    private = action_execution.resolve_invocation_evidence(
+        request.evidence,
+        lambda: _resolve_action_integrations(team_id, active, action),
+        lambda: _resolve_action_stored_inputs(team_id, active, action),
     )
     audit.log(
         "assistant_action",
@@ -559,10 +693,11 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     )
     rpc_payload = {
         "input": safe_input,
-        "integrations": action_execution.integration_access_tokens(integration_values),
+        "integrations": action_execution.integration_access_tokens(private.integrations),
+        "stored_inputs": private.stored_inputs,
     }
-    if transcript.responses:
-        rpc_payload["responses"] = transcript.payloads()
+    if private.transcript.responses:
+        rpc_payload["responses"] = private.transcript.payloads()
     try:
         raw_result = _assistant_rpc(
             team_id,
@@ -581,37 +716,14 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             status=int(exc.status),
         )
         raise
+    projected = _project_hosted_action_result(request, raw_result, private)
     try:
-        projected = action_execution.project_rpc_result(
-            raw_result,
-            integration_values,
-            lambda value: _validate_action_payload(contract, action, value, output=True),
-            tuple(contract.actions[action].human_requests),
-            transcript.protected_values(),
-            authorization_requested=any(
-                response.kind in action_human.AUTHORIZATION_KINDS for response in transcript.responses
-            ),
-        )
-    except action_execution.RpcSecretExposureError:
-        audit.log(
-            "assistant_action",
-            team_id,
-            result="error",
-            assistant=assistant_id,
-            action=action,
-            reason="secret-exposure",
-        )
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action exposed protected data") from None
-    except action_execution.RpcInvalidResultError as exc:
-        audit.log(
-            "assistant_action",
-            team_id,
-            result="error",
-            assistant=assistant_id,
-            action=action,
-            reason="invalid-output",
-        )
-        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action returned an invalid result") from exc
+        _seal_hosted_stored_inputs(request, private)
+    except (KeyError, action_stored_input.StoredInputStoreError) as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input could not be saved",
+        ) from exc
     audit.log(
         "assistant_action",
         team_id,

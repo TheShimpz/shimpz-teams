@@ -24,6 +24,7 @@ from hosted_assistant_fixture import hosted_assistants, runtime_state
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from hosted import container as container_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
@@ -118,12 +119,12 @@ class ActionRpcFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "envelope"):
             action_execution.integration_access_tokens({"cloud": {"type": "invalid", "access_token": "token"}})
         with self.assertRaisesRegex(ValueError, "invocation"):
-            action_execution.encode_rpc_invocation({"value": object()}, {})
+            action_execution.encode_rpc_invocation({"value": object()}, {}, {})
         with (
             mock.patch.object(action_execution, "MAX_RPC_REQUEST_BYTES", 1),
             self.assertRaisesRegex(ValueError, "too large"),
         ):
-            action_execution.encode_rpc_invocation({}, {})
+            action_execution.encode_rpc_invocation({}, {}, {})
 
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         for container_id, image in (("", "image"), ("container", "")):
@@ -174,6 +175,52 @@ class ActionRpcFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation"):
             action_execution.private_generations((SimpleNamespace(id="cloud", status="missing", generation=0),))
 
+    def test_stored_input_helpers_bind_generation_to_the_exact_action_origin(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt", "whatsapp", "send", {"to": "+15551234567"})
+        origin = action_execution.stored_input_origin(request)
+        actions = {"send": SimpleNamespace(stored_inputs=("whatsapp-token",))}
+        declarations = {"whatsapp-token": SimpleNamespace(kind="password")}
+
+        self.assertEqual(
+            action_execution.stored_input_generations(
+                actions,
+                declarations,
+                "send",
+                origin,
+                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
+                    "private",
+                    2,
+                    origin,
+                ),
+            ),
+            (),
+        )
+        self.assertEqual(
+            action_execution.stored_input_generations(
+                actions,
+                declarations,
+                "send",
+                "b" * 64,
+                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
+                    "private",
+                    2,
+                    origin,
+                ),
+            ),
+            (("whatsapp-token", 2),),
+        )
+        self.assertEqual(
+            action_execution.resolve_action_stored_inputs(
+                actions,
+                declarations,
+                "send",
+                lambda _stored_input, _declaration: (_ for _ in ()).throw(
+                    action_stored_input.StoredInputMissingError()
+                ),
+            ),
+            {},
+        )
+
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
         projected = action_execution.project_rpc_result(
             {"type": "result", "result": {"ok": True}},
@@ -212,7 +259,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
-                ("approval",),
+                action_execution.RpcResultPolicy(human_requests=("approval",)),
             )
         self.assertEqual(suspended.exception.request.payload(), request)
 
@@ -221,8 +268,10 @@ class ActionRpcFrameTests(unittest.TestCase):
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
-                ("approval",),
-                authorization_requested=True,
+                action_execution.RpcResultPolicy(
+                    human_requests=("approval",),
+                    authorization_requested=True,
+                ),
             )
 
         with self.assertRaises(action_execution.RpcInvalidResultError):
@@ -230,25 +279,80 @@ class ActionRpcFrameTests(unittest.TestCase):
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
-                (),
+            )
+
+    def test_rpc_projects_exact_stored_input_requests_and_rejections(self) -> None:
+        request = {
+            "kind": "input:password",
+            "ordinal": 0,
+            "title": "Connect WhatsApp",
+            "description": "Provide the token once.",
+            "label": "WhatsApp token",
+            "required": True,
+            "placeholder": None,
+            "min_length": 1,
+            "max_length": 1024,
+            "stored_input": "whatsapp-token",
+        }
+        request["fingerprint"] = action_human._fingerprint(request)
+        with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
+            action_execution.project_rpc_result(
+                {"type": "request", "request": request},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(
+                    human_requests=("input:password",),
+                    declared_stored_inputs=("whatsapp-token",),
+                ),
+            )
+        self.assertEqual(suspended.exception.request.stored_input, "whatsapp-token")
+
+        with self.assertRaises(action_execution.StoredInputRejectedError) as rejected:
+            action_execution.project_rpc_result(
+                {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(
+                    declared_stored_inputs=("whatsapp-token",),
+                    supplied_stored_inputs=frozenset({"whatsapp-token"}),
+                ),
+            )
+        self.assertEqual(rejected.exception.stored_input, "whatsapp-token")
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
+                {"type": "stored_input_rejected", "stored_input": "whatsapp-token"},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(
+                    declared_stored_inputs=("whatsapp-token",),
+                ),
             )
 
     def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
-        initial = action_execution.encode_rpc_invocation({}, {})
+        initial = action_execution.encode_rpc_invocation({}, {}, {})
         response = {
             "kind": "approval",
             "ordinal": 0,
             "fingerprint": "a" * 64,
             "value": True,
         }
-        replay = action_execution.encode_rpc_invocation({}, {}, (response,))
+        replay = action_execution.encode_rpc_invocation({}, {}, {}, (response,))
 
-        self.assertEqual(initial, b'{"input":{},"integrations":{}}')
+        self.assertEqual(initial, b'{"input":{},"integrations":{},"stored_inputs":{}}')
         self.assertEqual(
             replay,
-            b'{"input":{},"integrations":{},"responses":[{"kind":"approval","ordinal":0,'
+            b'{"input":{},"integrations":{},"stored_inputs":{},"responses":[{"kind":"approval","ordinal":0,'
             b'"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
             b'"value":true}]}',
+        )
+        with_stored_input = action_execution.encode_rpc_invocation(
+            {},
+            {},
+            {"whatsapp-token": "private"},
+        )
+        self.assertEqual(
+            with_stored_input,
+            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"}}',
         )
 
     def test_malformed_frames_fail_closed_in_both_readers(self) -> None:
@@ -692,7 +796,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                         team_id="team_1",
                         container=container,
                         action_id="test",
-                        payload={"input": {}, "integrations": {}},
+                        payload={"input": {}, "integrations": {}, "stored_inputs": {}},
                         token=None,
                     )
                 )
@@ -725,7 +829,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 controller.assistant_lifecycle._rpc(
                     SimpleNamespace(id="assistant-container"),
                     "test",
-                    {"input": {}, "integrations": {}},
+                    {"input": {}, "integrations": {}, "stored_inputs": {}},
                 )
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
@@ -757,10 +861,10 @@ class ActionRpcFrameTests(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="assistant-container"),
                 "test",
-                {"input": {}, "integrations": {}, "responses": (response,)},
+                {"input": {}, "integrations": {}, "stored_inputs": {}, "responses": (response,)},
             )
 
-        encode.assert_called_once_with({}, {}, (response,))
+        encode.assert_called_once_with({}, {}, {}, (response,))
 
     def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
         response = {
@@ -773,7 +877,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             team_id="team_1",
             container=SimpleNamespace(id="assistant-container"),
             action_id="test",
-            payload={"input": {}, "integrations": {}, "responses": (response,)},
+            payload={"input": {}, "integrations": {}, "stored_inputs": {}, "responses": (response,)},
             token=None,
         )
         with (
@@ -787,7 +891,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         ):
             hosted_assistants._assistant_rpc_exchange(request)
 
-        encode.assert_called_once_with({}, {}, (response,))
+        encode.assert_called_once_with({}, {}, {}, (response,))
 
 
 class RpcMessageParity(unittest.TestCase):
@@ -796,7 +900,7 @@ class RpcMessageParity(unittest.TestCase):
             team_id="t",
             container=SimpleNamespace(id="c"),
             action_id="p",
-            payload={"input": {}, "integrations": {}},
+            payload={"input": {}, "integrations": {}, "stored_inputs": {}},
             token=None,
         )
         with (
@@ -830,7 +934,7 @@ class RpcMessageParity(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="c"),
                 "p",
-                {"input": {}, "integrations": {}},
+                {"input": {}, "integrations": {}, "stored_inputs": {}},
             )
         return caught.exception.message
 

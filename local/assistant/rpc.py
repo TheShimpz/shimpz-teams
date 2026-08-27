@@ -66,6 +66,7 @@ def _rpc(
         encoded = action_execution.encode_rpc_invocation(
             payload["input"],
             payload["integrations"],
+            payload["stored_inputs"],
             payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:

@@ -238,12 +238,14 @@ def _execute_hosted_action(
     execution: HostedActionExecution,
     request: brain_runtime_client.ActionRequest,
     validated_assistant: hosted_assistants._ActiveAssistant,
-    integration_values: object,
+    private_inputs: object,
     transcript: action_human.ActionTranscript,
 ) -> object:
     active = execution.bindings.get(request.assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
+    if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
+        raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
     invocation = hosted_assistants._invoke_assistant_action(
         hosted_assistants.ActionInvocationRequest(
             team_id=execution.team_id,
@@ -255,8 +257,11 @@ def _execute_hosted_action(
             payload=request.input,
             inspect_memo=execution.inspect_memo,
             validated_assistant=validated_assistant,
-            integration_values=integration_values,
-            transcript=transcript,
+            evidence=action_execution.ActionInvocationEvidence(
+                private_inputs,
+                transcript,
+                action_execution.stored_input_origin(request),
+            ),
         )
     )
     return invocation["result"]
@@ -294,7 +299,7 @@ def _run_hosted_chat_segment_with_metadata(
     def validate_action(assistant_id: str, action: str, action_input) -> object:
         return hosted_assistants._validate_assistant_action_input(bindings, assistant_id, action, action_input)
 
-    def execute_action(action_request: brain_runtime_client.ActionRequest, integration_values: object) -> object:
+    def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
         nonlocal credential_evidence, validated_action_assistants
         if not credential_evidence:
             raise AssertionError("hosted Action lacks fresh credential evidence")
@@ -308,7 +313,7 @@ def _run_hosted_chat_segment_with_metadata(
             HostedActionExecution(team_id, token, bindings, inspect_memo),
             action_request,
             validated_assistant,
-            integration_values,
+            private_inputs,
             transcript,
         )
 
@@ -385,6 +390,11 @@ def _run_hosted_chat_segment_with_metadata(
                 ),
                 lambda request: hosted_assistants._action_integration_generations(
                     team_id, bindings[request.assistant_id], request.action
+                ),
+                lambda request: hosted_assistants._action_stored_input_generations(
+                    team_id,
+                    bindings[request.assistant_id],
+                    request,
                 ),
             ),
         )

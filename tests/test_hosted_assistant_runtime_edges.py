@@ -370,7 +370,11 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             "action": ACTION_ID,
             "payload": {"page": 1, "per_page": 25},
             "validated_assistant": active,
-            "integration_values": {},
+            "evidence": assistants.action_execution.ActionInvocationEvidence(
+                assistants.action_execution.RpcPrivateInputs({}, {}),
+                assistants.action_human.ActionTranscript("interrupt"),
+                "a" * 64,
+            ),
         }
         for action in (None, "INVALID", "missing"):
             with self.subTest(action=action), self.assertRaises(state.ApiError):
@@ -419,7 +423,18 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             mock.patch.object(assistants.action_execution, "project_rpc_result", return_value={"ok": True}),
         ):
             result = assistants._invoke_assistant_action(
-                assistants.ActionInvocationRequest(**(base | {"transcript": transcript}))
+                assistants.ActionInvocationRequest(
+                    **(
+                        base
+                        | {
+                            "evidence": assistants.action_execution.ActionInvocationEvidence(
+                                assistants.action_execution.RpcPrivateInputs({}, {}),
+                                transcript,
+                                "a" * 64,
+                            )
+                        }
+                    )
+                )
             )
         self.assertEqual(result["result"], {"ok": True})
         self.assertEqual(rpc.call_args.args[-1]["responses"], (response.payload(),))

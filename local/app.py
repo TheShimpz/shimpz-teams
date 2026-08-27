@@ -13,7 +13,6 @@ import os
 import secrets
 import sys
 import threading
-from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -355,8 +354,10 @@ class ChatTurnService:
     _pause_human = local_chat_pause._pause_human
 
     _action_integration_generations = local_chat_private._action_integration_generations
+    _action_stored_input_generations = local_chat_private._action_stored_input_generations
     _refresh_oauth_integration = local_chat_private._refresh_oauth_integration
     _resolve_action_integrations = local_chat_private._resolve_action_integrations
+    _resolve_action_stored_inputs = local_chat_private._resolve_action_stored_inputs
     _require_action_rpc_envelope = local_chat_private._require_action_rpc_envelope
     _raise_integration_problem = staticmethod(local_chat_private._raise_integration_problem)
     list_assistant_integrations = local_chat_private.list_assistant_integrations
@@ -430,6 +431,78 @@ class LocalControllerDependencies:
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
+
+
+def _project_local_action_result(
+    raw_result: object,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+) -> object:
+    return action_execution.project_rpc_result(
+        raw_result,
+        private.integrations,
+        lambda value: validate_action_payload(action_spec, "output", value),
+        action_execution.RpcResultPolicy(
+            human_requests=action_spec.human_requests,
+            protected_values=private.transcript.protected_values(),
+            authorization_requested=any(
+                response.kind in action_human.AUTHORIZATION_KINDS
+                for response in private.transcript.responses
+            ),
+            stored_inputs_by_id=private.stored_inputs,
+            declared_stored_inputs=action_spec.stored_inputs,
+            supplied_stored_inputs=frozenset(private.stored_inputs)
+            | frozenset(private.transcript.submitted_stored_inputs()),
+        ),
+    )
+
+
+def _seal_local_stored_inputs(
+    store: action_stored_input.StoredInputStore,
+    team_id: str,
+    assistant_id: str,
+    spec: object,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+) -> None:
+    submitted = private.transcript.submitted_stored_inputs()
+    if not submitted:
+        return
+    if private.origin is None:
+        raise AssertionError("Stored Input submission lacks Action evidence")
+    for stored_input_id, value in submitted.items():
+        if stored_input_id not in action_spec.stored_inputs:
+            raise KeyError(stored_input_id)
+        declaration = spec.stored_inputs[stored_input_id]
+        store.seal(
+            team_id,
+            assistant_id,
+            stored_input_id,
+            declaration.kind,
+            value,
+            private.origin,
+        )
+
+
+def _clear_rejected_local_stored_input(
+    store: action_stored_input.StoredInputStore,
+    team_id: str,
+    assistant_id: str,
+    stored_input_id: str,
+) -> NoReturn:
+    try:
+        store.delete(team_id, assistant_id, stored_input_id)
+    except action_stored_input.StoredInputStoreError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input state is unavailable",
+            code="assistant-stored-input-state-unavailable",
+        ) from exc
+    raise ApiProblem(
+        HTTPStatus.CONFLICT,
+        "the Assistant rejected its stored input; retry the task to provide a new value",
+        code="assistant-stored-input-rejected",
+    )
 
 
 class LocalController:
@@ -785,8 +858,7 @@ class LocalController:
         assistant_id: str,
         action: str,
         payload: object,
-        responses: tuple[Mapping[str, object], ...] = (),
-        protected_values: Mapping[str, str] | None = None,
+        evidence: action_execution.ActionInvocationEvidence | None = None,
     ) -> dict[str, object]:
         team_id = validate_team_id(team_id)
         spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
@@ -821,7 +893,15 @@ class LocalController:
                     "Team capabilities changed; retry",
                     code="team-context-changed",
                 )
-            integration_values = self.chat_turn_service._resolve_action_integrations(team_id, spec, action)
+            private = action_execution.resolve_invocation_evidence(
+                evidence,
+                lambda: self.chat_turn_service._resolve_action_integrations(team_id, spec, action),
+                lambda: (
+                    self.chat_turn_service._resolve_action_stored_inputs(team_id, spec, action)
+                    if action_spec.stored_inputs
+                    else {}
+                ),
+            )
             local_audit.record_request(
                 "assistant-action",
                 result="ok",
@@ -831,10 +911,11 @@ class LocalController:
             )
             rpc_payload = {
                 "input": safe_payload,
-                "integrations": action_execution.integration_access_tokens(integration_values),
+                "integrations": action_execution.integration_access_tokens(private.integrations),
+                "stored_inputs": private.stored_inputs,
             }
-            if responses:
-                rpc_payload["responses"] = responses
+            if private.transcript.responses:
+                rpc_payload["responses"] = private.transcript.payloads()
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
@@ -851,15 +932,13 @@ class LocalController:
             )
             raise
         try:
-            projected = action_execution.project_rpc_result(
-                raw_result,
-                integration_values,
-                lambda value: validate_action_payload(action_spec, "output", value),
-                action_spec.human_requests,
-                protected_values,
-                authorization_requested=any(
-                    response.get("kind") in action_human.AUTHORIZATION_KINDS for response in responses
-                ),
+            projected = _project_local_action_result(raw_result, action_spec, private)
+        except action_execution.StoredInputRejectedError as exc:
+            _clear_rejected_local_stored_input(
+                self.assistant_stored_inputs,
+                team_id,
+                assistant_id,
+                exc.stored_input,
             )
         except action_execution.RpcSecretExposureError:
             local_audit.record_request(
@@ -886,6 +965,21 @@ class LocalController:
                 HTTPStatus.BAD_GATEWAY,
                 "the Assistant returned an invalid result",
                 code="invalid-action-output",
+            ) from exc
+        try:
+            _seal_local_stored_inputs(
+                self.assistant_stored_inputs,
+                team_id,
+                assistant_id,
+                spec,
+                action_spec,
+                private,
+            )
+        except (KeyError, action_stored_input.StoredInputStoreError) as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant Stored Input could not be saved",
+                code="assistant-stored-input-state-unavailable",
             ) from exc
         local_audit.record_request(
             "assistant-action",

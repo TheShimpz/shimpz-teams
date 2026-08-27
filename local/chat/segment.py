@@ -47,16 +47,18 @@ def _run_chat_segment_with_metadata(
     identity: tuple[object, ...] = ()
     network_id = ""
 
-    def execute_action(action_request: brain_runtime_client.ActionRequest, _integration_values: object) -> object:
+    def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
         active = _required_active_assistant(bindings, action_request.assistant_id)
         transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
+        if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
+            raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
         return self._invoke_chat_action(
             request.team_id,
             request.token,
             action_request,
             active.container_id,
-            transcript.payloads(),
-            transcript.protected_values(),
+            transcript,
+            private_inputs,
         )
 
     def human_requirement(
@@ -133,6 +135,11 @@ def _run_chat_segment_with_metadata(
                     request.team_id,
                     _required_active_assistant(bindings, action_request.assistant_id),
                     action_request.action,
+                ),
+                lambda action_request: self._action_stored_input_generations(
+                    request.team_id,
+                    _required_active_assistant(bindings, action_request.assistant_id),
+                    action_request,
                 ),
             ),
         )

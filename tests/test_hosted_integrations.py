@@ -174,6 +174,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 {
                     "input": ZONE_INPUT,
                     "integrations": {"cloudflare": ACCESS_TOKEN},
+                    "stored_inputs": {},
                 }
             ],
         )
@@ -218,7 +219,11 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     action="list-zones",
                     payload=ZONE_INPUT,
                     validated_assistant=self.active,
-                    integration_values=integration_values,
+                    evidence=hosted_assistants.action_execution.ActionInvocationEvidence(
+                        hosted_assistants.action_execution.RpcPrivateInputs(integration_values, {}),
+                        action_human.ActionTranscript("interrupt"),
+                        "a" * 64,
+                    ),
                 )
             )
 
@@ -266,7 +271,11 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     action="list-zones",
                     payload=ZONE_INPUT,
                     validated_assistant=active,
-                    integration_values={},
+                    evidence=hosted_assistants.action_execution.ActionInvocationEvidence(
+                        hosted_assistants.action_execution.RpcPrivateInputs({}, {}),
+                        action_human.ActionTranscript("interrupt"),
+                        "a" * 64,
+                    ),
                 )
             )
 

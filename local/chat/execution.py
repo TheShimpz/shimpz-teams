@@ -1,9 +1,10 @@
 """Local chat Action execution and context validation operations."""
 
-from collections.abc import Mapping
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import execution as action_execution
+from action import human as action_human
 from action import journal as action_journal
 from assistant.spec import validate_action_payload
 from chat import orchestrator as chat_orchestrator
@@ -23,8 +24,8 @@ def _invoke_chat_action(
     token: str,
     action_request: brain_runtime_client.ActionRequest,
     frozen_container_id: str,
-    responses: tuple[Mapping[str, object], ...] = (),
-    protected_values: Mapping[str, str] | None = None,
+    transcript: action_human.ActionTranscript,
+    private_inputs: action_execution.RpcPrivateInputs,
 ) -> object:
     assistant_id = action_request.assistant_id
     with self._lock(team_id):
@@ -47,22 +48,17 @@ def _invoke_chat_action(
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped")
             self._active_action_containers[team_id] = (token, container)
     try:
-        if responses:
-            invocation = self.assistant_lifecycle.invoke(
-                team_id,
-                assistant_id,
-                action_request.action,
-                action_request.input,
-                responses,
-                protected_values,
-            )
-        else:
-            invocation = self.assistant_lifecycle.invoke(
-                team_id,
-                assistant_id,
-                action_request.action,
-                action_request.input,
-            )
+        invocation = self.assistant_lifecycle.invoke(
+            team_id,
+            assistant_id,
+            action_request.action,
+            action_request.input,
+            action_execution.ActionInvocationEvidence(
+                private_inputs,
+                transcript,
+                action_execution.stored_input_origin(action_request),
+            ),
+        )
     except ApiProblem:
         if self._chat_cancelled(token):
             raise chat_orchestrator.ChatStoppedError("chat turn stopped") from None

@@ -7,6 +7,7 @@ from docker.errors import DockerException
 
 from action import execution as action_execution
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -38,6 +39,55 @@ def _action_integration_generations(
         )
     except integration_store.OAuthIntegrationStoreError as exc:
         raise action_journal.ActionJournalConflictError("Action integration state is unavailable") from exc
+
+
+def _resolve_action_stored_inputs(
+    self,
+    team_id: str,
+    spec: AssistantSpec,
+    action_id: str,
+) -> dict[str, action_stored_input.StoredInputValue]:
+    try:
+        return action_execution.resolve_action_stored_inputs(
+            spec.actions,
+            spec.stored_inputs,
+            action_id,
+            lambda stored_input_id, declaration: self.assistant_stored_inputs.resolve(
+                team_id,
+                spec.assistant_id,
+                stored_input_id,
+                declaration.kind,
+            ),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input state is unavailable",
+            code="assistant-stored-input-state-unavailable",
+        ) from exc
+
+
+def _action_stored_input_generations(
+    self,
+    team_id: str,
+    active: _ActiveAssistant,
+    request: brain_runtime_client.ActionRequest,
+) -> tuple[tuple[str, int], ...]:
+    try:
+        return action_execution.stored_input_generations(
+            active.spec.actions,
+            active.spec.stored_inputs,
+            request.action,
+            action_execution.stored_input_origin(request),
+            lambda stored_input_id, declaration: self.assistant_stored_inputs.resolve(
+                team_id,
+                active.spec.assistant_id,
+                stored_input_id,
+                declaration.kind,
+            ),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        raise action_journal.ActionJournalConflictError("Action Stored Input state is unavailable") from exc
 
 
 def _refresh_oauth_integration(
@@ -89,6 +139,7 @@ def _require_action_rpc_envelope(
             active,
             request,
             lambda binding, action_id: self._resolve_action_integrations(team_id, binding.spec, action_id),
+            lambda binding, action_id: self._resolve_action_stored_inputs(team_id, binding.spec, action_id),
         )
     except ValueError as exc:
         raise ApiProblem(
