@@ -170,6 +170,10 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             handler._model_binding("assistant-action-labels"),
             {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
         )
+        self.assertEqual(
+            handler._model_binding("chat-capability-plan"),
+            {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
+        )
         self.assertIsNone(handler._model_binding("assistant-list"))
 
 
@@ -178,6 +182,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
     def controller() -> SimpleNamespace:
         service = SimpleNamespace(
             action_labels=mock.Mock(return_value={"actions": []}),
+            capability_plan=mock.Mock(return_value={"status": "sufficient", "assistant_ids": []}),
             complete_cloudflare_oauth_callback=mock.Mock(return_value={"connected": True}),
             pending_chat_human=mock.Mock(return_value={"pending": "human"}),
             pending_chat_integrations=mock.Mock(return_value={"pending": "integration"}),
@@ -375,6 +380,24 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._fixed_route = mock.Mock(return_value=None)
         with self.assertRaises(AssertionError):
             handler._route([], self.route("health"))
+
+    def test_chat_capability_plan_uses_the_exact_model_bound_body(self) -> None:
+        controller = self.controller()
+        handler = self.handler(controller=controller)
+        exact_body = {"objective": "Configure DNS.", "candidates": []}
+        handler._body = mock.Mock(return_value=exact_body)
+        handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
+        handler.command = "POST"
+
+        result = handler._chat_route(["v1", "teams", "team_1", "chat", "capability-plan"])
+
+        self.assertEqual(result[2], "chat-capability-plan")
+        controller.chat_turn_service.capability_plan.assert_called_once_with(
+            "team_1",
+            exact_body,
+            "openai",
+            "private-model-key",
+        )
 
 
 class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):

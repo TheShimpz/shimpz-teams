@@ -377,6 +377,12 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/chat/capability-plan",
+        "chat-capability-plan",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/v1/teams/:team_id/chat/integrations", "chat-integration-pending"),
     _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
     _controller_route("GET", "/v1/teams/:team_id/chat/human", "chat-human-pending"),

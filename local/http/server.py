@@ -30,6 +30,7 @@ from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_CHAT_BODY_BYTES = supervisor_contract.MAX_JSON_BODY_BYTES
+MAX_CAPABILITY_PLAN_BODY_BYTES = 32 * 1024
 MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -46,6 +47,7 @@ _JSON_BODY_LIMITS = {
     "assistant-integration-complete": MAX_BODY_BYTES,
     "assistant-invoke": MAX_BODY_BYTES,
     "chat": MAX_CHAT_BODY_BYTES,
+    "chat-capability-plan": MAX_CAPABILITY_PLAN_BODY_BYTES,
     "chat-integration-submit": MAX_BODY_BYTES,
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
@@ -301,7 +303,13 @@ class Handler(BaseHTTPRequestHandler):
         return parts, route
 
     def _model_binding(self, operation: str) -> dict[str, str] | None:
-        if operation not in {"assistant-action-labels", "chat", "chat-human-submit", "chat-integration-submit"}:
+        if operation not in {
+            "assistant-action-labels",
+            "chat",
+            "chat-capability-plan",
+            "chat-human-submit",
+            "chat-integration-submit",
+        }:
             return None
         provider, api_key = self._model_credential_headers()
         return {
@@ -515,6 +523,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._chat_pending(team_id, segment)
         if self.command == "POST" and segment == "stop":
             return self._chat_stop(team_id)
+        if self.command == "POST" and segment == "capability-plan":
+            provider, api_key = self._model_credential_headers()
+            return (
+                HTTPStatus.OK,
+                self.server.controller.chat_turn_service.capability_plan(
+                    team_id,
+                    self._body(max_bytes=MAX_CAPABILITY_PLAN_BODY_BYTES),
+                    provider,
+                    api_key,
+                ),
+                "chat-capability-plan",
+                team_id,
+                None,
+            )
         return self._chat_submit(team_id, segment) if self.command == "POST" else None
 
     def _write_stream_record(self, record: dict[str, object]) -> None:

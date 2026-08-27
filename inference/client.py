@@ -23,6 +23,13 @@ MAX_ACTION_REQUESTS = 64
 MAX_ACTION_LABELS = 64
 MAX_ACTION_LABEL_CHARS = 80
 MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
+MAX_CAPABILITY_CANDIDATES = 8
+MAX_CAPABILITY_SELECTED = 4
+MAX_CAPABILITY_OBJECTIVE_CHARS = 16_000
+MAX_CAPABILITY_NAME_CHARS = 80
+MAX_CAPABILITY_SUMMARY_CHARS = 160
+MAX_CAPABILITY_ACTIONS = 64
+MAX_CAPABILITY_INTEGRATIONS = 16
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -75,6 +82,27 @@ class RuntimeTurn:
 class RuntimeActionLabel:
     id: str
     label: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCapabilityIntegration:
+    id: str
+    provider: str
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCapabilityCandidate:
+    id: str
+    name: str
+    summary: str
+    actions: tuple[str, ...]
+    integrations: tuple[RuntimeCapabilityIntegration, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCapabilityPlan:
+    status: Literal["sufficient", "install-required"]
+    assistant_ids: tuple[str, ...]
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -260,6 +288,96 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return tuple(RuntimeActionLabel(action_id, labels[action_id]) for action_id in action_ids)
 
+    @staticmethod
+    def _capability_text(value: object, maximum: int, *, allow_layout: bool = False) -> str:
+        if not isinstance(value, str):
+            raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+        normalized = unicodedata.normalize("NFC", value)
+        if (
+            normalized != value
+            or value.strip() != value
+            or not 1 <= len(value) <= maximum
+            or any(
+                unicodedata.category(character).startswith("C")
+                and (not allow_layout or character not in {"\n", "\t"})
+                for character in value
+            )
+        ):
+            raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+        return value
+
+    @classmethod
+    def validate_capability_plan_inputs(
+        cls,
+        objective: object,
+        candidates: tuple[RuntimeCapabilityCandidate, ...],
+    ) -> tuple[str, tuple[RuntimeCapabilityCandidate, ...]]:
+        task = cls._capability_text(objective, MAX_CAPABILITY_OBJECTIVE_CHARS, allow_layout=True)
+        if not isinstance(candidates, tuple) or not 1 <= len(candidates) <= MAX_CAPABILITY_CANDIDATES:
+            raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+        admitted: list[RuntimeCapabilityCandidate] = []
+        for candidate in candidates:
+            if not isinstance(candidate, RuntimeCapabilityCandidate):
+                raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+            actions = candidate.actions
+            integrations = candidate.integrations
+            if (
+                not isinstance(candidate.id, str)
+                or ACTION_ID_RE.fullmatch(candidate.id) is None
+                or not isinstance(actions, tuple)
+                or any(not isinstance(item, str) or ACTION_ID_RE.fullmatch(item) is None for item in actions)
+                or not 1 <= len(actions) <= MAX_CAPABILITY_ACTIONS
+                or actions != tuple(sorted(set(actions)))
+                or not isinstance(integrations, tuple)
+                or len(integrations) > MAX_CAPABILITY_INTEGRATIONS
+                or any(
+                    not isinstance(item, RuntimeCapabilityIntegration)
+                    or not isinstance(item.id, str)
+                    or ACTION_ID_RE.fullmatch(item.id) is None
+                    or not isinstance(item.provider, str)
+                    or ACTION_ID_RE.fullmatch(item.provider) is None
+                    for item in integrations
+                )
+            ):
+                raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+            if integrations != tuple(sorted(set(integrations), key=lambda item: (item.id, item.provider))):
+                raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+            admitted.append(
+                RuntimeCapabilityCandidate(
+                    id=candidate.id,
+                    name=cls._capability_text(candidate.name, MAX_CAPABILITY_NAME_CHARS),
+                    summary=cls._capability_text(candidate.summary, MAX_CAPABILITY_SUMMARY_CHARS),
+                    actions=actions,
+                    integrations=integrations,
+                )
+            )
+        result = tuple(admitted)
+        if tuple(item.id for item in result) != tuple(sorted({item.id for item in result})):
+            raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+        return task, result
+
+    @staticmethod
+    def _parse_capability_plan(
+        value: object,
+        candidates: tuple[RuntimeCapabilityCandidate, ...],
+    ) -> RuntimeCapabilityPlan:
+        if not isinstance(value, dict) or set(value) != {"status", "assistant_ids"}:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        status = value["status"]
+        raw_ids = value["assistant_ids"]
+        if status not in {"sufficient", "install-required"} or not isinstance(raw_ids, list):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        expected = frozenset(candidate.id for candidate in candidates)
+        assistant_ids = tuple(raw_ids)
+        if (
+            any(not isinstance(item, str) or item not in expected for item in assistant_ids)
+            or assistant_ids != tuple(sorted(set(assistant_ids)))
+            or len(assistant_ids) > MAX_CAPABILITY_SELECTED
+            or (status == "sufficient") != (not assistant_ids)
+        ):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return RuntimeCapabilityPlan(status, assistant_ids)
+
     def start(self, context: RuntimeContext, message: str) -> RuntimeTurn:
         payload = self._context(context)
         payload["message"] = message
@@ -315,3 +433,45 @@ class BrainRuntimeClient:
             },
         )
         return self._parse_action_labels(response, action_ids)
+
+    def capability_plan(
+        self,
+        *,
+        provider: Literal["anthropic", "openai"],
+        model: str,
+        api_key: str,
+        objective: object,
+        candidates: tuple[RuntimeCapabilityCandidate, ...],
+    ) -> RuntimeCapabilityPlan:
+        if (
+            provider not in {"anthropic", "openai"}
+            or not isinstance(model, str)
+            or SAFE_ID_RE.fullmatch(model) is None
+            or not isinstance(api_key, str)
+            or not api_key
+            or len(api_key) > 16 * 1024
+            or "\0" in api_key
+        ):
+            raise BrainRuntimeError("Brain runtime capability plan request is invalid")
+        task, admitted = self.validate_capability_plan_inputs(objective, candidates)
+        response = self._post(
+            "/v1/capability-plan",
+            {
+                "provider": {"provider": provider, "model": model, "api_key": api_key},
+                "objective": task,
+                "candidates": [
+                    {
+                        "id": candidate.id,
+                        "name": candidate.name,
+                        "summary": candidate.summary,
+                        "actions": list(candidate.actions),
+                        "integrations": [
+                            {"id": integration.id, "provider": integration.provider}
+                            for integration in candidate.integrations
+                        ],
+                    }
+                    for candidate in admitted
+                ],
+            },
+        )
+        return self._parse_capability_plan(response, admitted)

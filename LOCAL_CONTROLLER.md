@@ -80,6 +80,7 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 | --- | --- | --- |
 | `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider/model selection |
 | `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider/model selection |
+| `POST` | `/v1/teams/{team_id}/chat/capability-plan` | select an exact bounded subset from a public Assistant shortlist |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |
 | `GET` | `/v1/teams/{team_id}/chat/integrations` | inspect the pending Integration gate |
 | `POST` | `/v1/teams/{team_id}/chat/integrations` | resume after the exact Integration challenge completes |
@@ -89,6 +90,11 @@ Chat accepts only `message`, opaque file IDs, and selected installed Assistant I
 one active/paused turn. Selection and workload identity are revalidated before provider start, each
 Action, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
 executes Actions and resumes the checkpoint.
+
+Capability planning is a stateless pre-turn operation. It receives only an objective and at most eight bounded
+public candidates, forwards them through the independently bounded Brain planner lane with the Team's request-only
+model credential, and returns either `sufficient` or at most four sorted candidate IDs. It carries no Genesis,
+Action schema, checkpoint, thread, tool, digest, or installation authority.
 
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
 `started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and

@@ -62,6 +62,29 @@ def context(secret: str) -> brain_runtime_client.RuntimeContext:
     )
 
 
+def capability_candidates() -> tuple[brain_runtime_client.RuntimeCapabilityCandidate, ...]:
+    return (
+        brain_runtime_client.RuntimeCapabilityCandidate(
+            id="shimpz-cloudflare",
+            name="Shimpz Cloudflare",
+            summary="Manage reviewed DNS records.",
+            actions=("change-dns", "list-zones"),
+            integrations=(
+                brain_runtime_client.RuntimeCapabilityIntegration("cloudflare", "cloudflare"),
+            ),
+        ),
+        brain_runtime_client.RuntimeCapabilityCandidate(
+            id="shimpz-whatsapp",
+            name="Shimpz WhatsApp",
+            summary="Send reviewed WhatsApp messages.",
+            actions=("send-message",),
+            integrations=(
+                brain_runtime_client.RuntimeCapabilityIntegration("whatsapp", "whatsapp"),
+            ),
+        ),
+    )
+
+
 class BrainRuntimeClientTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -185,6 +208,91 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 "actions": ["list-zones", "get-zone"],
             },
         )
+
+    def test_capability_plan_uses_only_the_stateless_bounded_endpoint(self):
+        client, connection = self.client(
+            _Response(
+                {
+                    "status": "install-required",
+                    "assistant_ids": ["shimpz-cloudflare", "shimpz-whatsapp"],
+                }
+            )
+        )
+
+        plan = client.capability_plan(
+            provider="openai",
+            model="gpt-5.6-terra",
+            api_key=self.secret,
+            objective="Configure example.com and send the result by WhatsApp.",
+            candidates=capability_candidates(),
+        )
+
+        self.assertEqual(
+            plan,
+            brain_runtime_client.RuntimeCapabilityPlan(
+                "install-required",
+                ("shimpz-cloudflare", "shimpz-whatsapp"),
+            ),
+        )
+        method, path, raw_body, headers = connection.requests[0]
+        self.assertEqual((method, path), ("POST", "/v1/capability-plan"))
+        self.assertEqual(headers["Authorization"], f"Bearer {self.token}")
+        payload = json.loads(raw_body)
+        self.assertEqual(payload["provider"]["api_key"], self.secret)
+        self.assertEqual([item["id"] for item in payload["candidates"]], [
+            "shimpz-cloudflare",
+            "shimpz-whatsapp",
+        ])
+        self.assertNotIn("thread_id", payload)
+        self.assertNotIn("genesis", raw_body.decode())
+        self.assertNotIn("input_schema", raw_body.decode())
+
+    def test_capability_plan_rejects_invalid_inputs_and_outputs_without_widening(self):
+        invalid_outputs = (
+            {"status": "sufficient", "assistant_ids": ["shimpz-cloudflare"]},
+            {"status": "install-required", "assistant_ids": []},
+            {"status": "install-required", "assistant_ids": ["unknown"]},
+            {"status": "install-required", "assistant_ids": ["shimpz-whatsapp", "shimpz-cloudflare"]},
+            {"status": "install-required", "assistant_ids": ["shimpz-cloudflare", "shimpz-cloudflare"]},
+            {"status": "sufficient", "assistant_ids": [], "extra": True},
+        )
+        for payload in invalid_outputs:
+            with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client, _connection = self.client(_Response(payload))
+                client.capability_plan(
+                    provider="openai",
+                    model="gpt-5.6-terra",
+                    api_key=self.secret,
+                    objective="Configure DNS.",
+                    candidates=capability_candidates(),
+                )
+
+        invalid_candidates = (
+            (),
+            capability_candidates()[::-1],
+            (capability_candidates()[0], capability_candidates()[0]),
+            (
+                brain_runtime_client.RuntimeCapabilityCandidate(
+                    id="shimpz-cloudflare",
+                    name="Shimpz Cloudflare",
+                    summary="Manage DNS.",
+                    actions=("list-zones", "list-zones"),
+                    integrations=(),
+                ),
+            ),
+        )
+        for candidates in invalid_candidates:
+            with self.subTest(candidates=candidates):
+                client, connection = self.client(_Response({"status": "sufficient", "assistant_ids": []}))
+                with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                    client.capability_plan(
+                        provider="openai",
+                        model="gpt-5.6-terra",
+                        api_key=self.secret,
+                        objective="Configure DNS.",
+                        candidates=candidates,
+                    )
+                self.assertEqual(connection.requests, [])
 
     def test_action_label_requests_and_responses_fail_closed(self):
         valid = {
