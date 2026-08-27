@@ -317,6 +317,42 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 )
             controller.assistant_icons.put.assert_not_called()
 
+    def test_install_skips_redundant_icon_cleanup_only_after_success(self) -> None:
+        controller = self._service_controller()
+        resolution = _runtime_resolution()
+        with (
+            mock.patch.object(install_service, "_resolved_publication", return_value=resolution),
+            mock.patch.object(
+                install_service,
+                "_apply_publication",
+                return_value={"assistant": "helper", "installed": True},
+            ),
+        ):
+            result = install_service.install_publication(
+                controller,
+                "team_1",
+                "helper",
+                resolution["source_digest"],
+            )
+
+        self.assertEqual(result, {"assistant": "helper", "installed": True})
+        controller.assistant_icons.discard_unreferenced.assert_not_called()
+
+        controller = self._service_controller()
+        failure = ApiProblemError(503, "install failed", code="install-failed")
+        with (
+            mock.patch.object(install_service, "_resolved_publication", return_value=resolution),
+            mock.patch.object(install_service, "_apply_publication", side_effect=failure),
+            self.assertRaisesRegex(ApiProblemError, "install failed"),
+        ):
+            install_service.install_publication(
+                controller,
+                "team_1",
+                "helper",
+                resolution["source_digest"],
+            )
+        controller.assistant_icons.discard_unreferenced.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

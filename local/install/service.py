@@ -30,8 +30,11 @@ def install_publication(
             "Assistant binding changed before automatic update",
             code="assistant-update-conflict",
         )
+    publication_resolved = False
+    installation_completed = False
     try:
         resolution = _resolved_publication(self, assistant_id, source_digest)
+        publication_resolved = True
         result = _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution)
     except ApiProblem as exc:
         if existing is None and exc.code != "assistant-install-rollback-incomplete":
@@ -72,8 +75,25 @@ def install_publication(
     else:
         if existing is not None:
             _discard_icon(self, str(existing.resolution["source_digest"]))
+        installation_completed = True
         return result
     finally:
+        _discard_failed_publication(
+            self,
+            source_digest,
+            publication_resolved=publication_resolved,
+            installation_completed=installation_completed,
+        )
+
+
+def _discard_failed_publication(
+    self,
+    source_digest: str,
+    *,
+    publication_resolved: bool,
+    installation_completed: bool,
+) -> None:
+    if publication_resolved and not installation_completed:
         _discard_icon(self, source_digest)
 
 
