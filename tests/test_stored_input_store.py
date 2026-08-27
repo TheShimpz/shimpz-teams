@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from action import stored_input
 
 TOKEN = "whatsapp-token-private-material-123456789"
+ORIGIN = "a" * 64
 DECLARATIONS = {
     "whatsapp-token": SimpleNamespace(
         kind="password",
@@ -45,10 +46,10 @@ class StoredInputStoreTests(unittest.TestCase):
                     ),
                 ),
             )
-            self.assertEqual(store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN), 1)
+            self.assertEqual(store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, ORIGIN), 1)
             resolved = store.resolve("team_1", "whatsapp", "whatsapp-token", "password")
 
-            self.assertEqual((resolved.value, resolved.generation), (TOKEN, 1))
+            self.assertEqual((resolved.value, resolved.generation, resolved.origin), (TOKEN, 1, ORIGIN))
             self.assertNotIn(TOKEN, repr(resolved))
             metadata = store.metadata("team_1", "whatsapp", DECLARATIONS)[0]
             self.assertEqual((metadata.status, metadata.generation), ("stored", 1))
@@ -67,7 +68,7 @@ class StoredInputStoreTests(unittest.TestCase):
             root = Path(directory)
             first = self._store(root)
             second = self._store(root)
-            self.assertEqual(first.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN), 1)
+            self.assertEqual(first.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, ORIGIN), 1)
             self.assertEqual(
                 first.resolve("team_1", "whatsapp", "whatsapp-token", "password").value,
                 TOKEN,
@@ -75,17 +76,17 @@ class StoredInputStoreTests(unittest.TestCase):
 
             replacement = "replacement-whatsapp-token-private-material"
             self.assertEqual(
-                second.seal("team_1", "whatsapp", "whatsapp-token", "password", replacement),
+                second.seal("team_1", "whatsapp", "whatsapp-token", "password", replacement, "b" * 64),
                 2,
             )
 
             refreshed = first.resolve("team_1", "whatsapp", "whatsapp-token", "password")
-            self.assertEqual((refreshed.value, refreshed.generation), (replacement, 2))
+            self.assertEqual((refreshed.value, refreshed.generation, refreshed.origin), (replacement, 2, "b" * 64))
 
     def test_aad_prevents_cross_team_assistant_or_identifier_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
-            store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN)
+            store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, ORIGIN)
             state = json.loads(store.state_path.read_bytes())
             record = state["teams"]["team_1"]["whatsapp"]["whatsapp-token"]
             state["teams"] = {"team_2": {"other-assistant": {"other-token": record}}}
@@ -107,9 +108,9 @@ class StoredInputStoreTests(unittest.TestCase):
     def test_team_isolation_and_exact_lifecycle_cleanup_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
-            store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN)
-            store.seal("team_1", "other", "other-token", "password", "other-assistant-token")
-            store.seal("team_2", "whatsapp", "whatsapp-token", "password", "other-team-token")
+            store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, ORIGIN)
+            store.seal("team_1", "other", "other-token", "password", "other-assistant-token", "b" * 64)
+            store.seal("team_2", "whatsapp", "whatsapp-token", "password", "other-team-token", "c" * 64)
 
             self.assertTrue(store.retain_declared("team_1", "whatsapp", ()))
             self.assertFalse(store.retain_declared("team_1", "whatsapp", ()))
@@ -152,7 +153,9 @@ class StoredInputStoreTests(unittest.TestCase):
                 with self.subTest(value_type=type(value).__name__), self.assertRaises(
                     stored_input.StoredInputValidationError
                 ):
-                    store.seal("team_1", "whatsapp", "whatsapp-token", "password", value)
+                    store.seal("team_1", "whatsapp", "whatsapp-token", "password", value, ORIGIN)
+            with self.assertRaises(stored_input.StoredInputValidationError):
+                store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, "not-an-origin")
             with self.assertRaises(stored_input.StoredInputValidationError):
                 store.metadata("team_1", "whatsapp", {"WhatsApp_Token": DECLARATIONS["whatsapp-token"]})
 

@@ -24,12 +24,13 @@ KEY_PATH = Path("/var/lib/shimpz-local/assistant-stored-inputs/key/aes256.key")
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_VALUE_CHARACTERS = 1024
 MAX_VALUE_BYTES = 16 * 1024
-MAX_PLAINTEXT_BYTES = MAX_VALUE_BYTES + 64
+MAX_PLAINTEXT_BYTES = MAX_VALUE_BYTES + 160
 MAX_STORED_INPUTS_PER_ASSISTANT = 8
 MAX_TOTAL_RECORDS = 4096
 _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
 _COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+_ORIGIN = re.compile(r"[0-9a-f]{64}\Z")
 StoredInputStatus = Literal["missing", "stored"]
 
 
@@ -71,6 +72,7 @@ class StoredInputValue:
 
     value: str
     generation: int
+    origin: str
 
 
 def _team_id(value: object) -> str:
@@ -108,6 +110,12 @@ def _secret_value(value: object) -> str:
         raise StoredInputValidationError("Stored Input value is invalid")
     if len(value.encode("utf-8")) > MAX_VALUE_BYTES:
         raise StoredInputValidationError("Stored Input value is invalid")
+    return value
+
+
+def _origin(value: object) -> str:
+    if not isinstance(value, str) or _ORIGIN.fullmatch(value) is None:
+        raise StoredInputValidationError("Stored Input origin is invalid")
     return value
 
 
@@ -188,18 +196,14 @@ def _validate_assistants(raw_team: object, raw_assistants: object) -> int:
 
 
 def _aad(
-    team_id: str,
-    assistant_id: str,
-    stored_input_id: str,
+    reference: tuple[str, str, str],
     record: Mapping[str, object],
 ) -> bytes:
     kind, generation = _record_metadata(record)
     return json.dumps(
         [
             "shimpz-stored-input-v1",
-            team_id,
-            assistant_id,
-            stored_input_id,
+            *reference,
             kind,
             generation,
         ],
@@ -317,9 +321,9 @@ class StoredInputStore:
         return _PRIVATE_STATE.key(self.key_path, "Stored Input keyring", allow_create=allow_create)
 
     @staticmethod
-    def _plaintext(value: str) -> bytes:
+    def _plaintext(value: str, origin: str) -> bytes:
         payload = json.dumps(
-            {"value": value},
+            {"origin": origin, "value": value},
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
@@ -329,11 +333,10 @@ class StoredInputStore:
 
     def _sealed_record(
         self,
-        team: str,
-        assistant: str,
-        stored_input: str,
+        reference: tuple[str, str, str],
         kind: str,
         value: str,
+        origin: str,
         generation: int,
         key: bytes,
     ) -> dict[str, object]:
@@ -346,8 +349,8 @@ class StoredInputStore:
         nonce = os.urandom(12)
         ciphertext = AESGCM(key).encrypt(
             nonce,
-            self._plaintext(value),
-            _aad(team, assistant, stored_input, record),
+            self._plaintext(value, origin),
+            _aad(reference, record),
         )
         record["envelope"] = {
             "algorithm": "AES-256-GCM",
@@ -363,6 +366,7 @@ class StoredInputStore:
         stored_input_id: object,
         kind: object,
         value: object,
+        origin: object,
     ) -> int:
         """Encrypt a successfully consumed value and atomically advance its generation."""
         team = _team_id(team_id)
@@ -370,6 +374,7 @@ class StoredInputStore:
         stored_input = _component_id(stored_input_id, "Stored Input id")
         canonical_kind = _kind(kind)
         canonical_value = _secret_value(value)
+        canonical_origin = _origin(origin)
         with self._lock:
             state = self._read_state_for_update()
             key = self._key(allow_create=not _PRIVATE_STATE.has_records(state))
@@ -379,11 +384,10 @@ class StoredInputStore:
             previous = records.get(stored_input)
             generation = int(previous.get("generation", 0)) + 1 if isinstance(previous, dict) else 1
             records[stored_input] = self._sealed_record(
-                team,
-                assistant,
-                stored_input,
+                (team, assistant, stored_input),
                 canonical_kind,
                 canonical_value,
+                canonical_origin,
                 generation,
                 key,
             )
@@ -426,21 +430,22 @@ class StoredInputStore:
             plaintext = AESGCM(self._key()).decrypt(
                 _PRIVATE_STATE.decode_part(envelope.get("nonce"), expected=12),
                 _PRIVATE_STATE.decode_part(envelope.get("ciphertext")),
-                _aad(team, assistant, stored_input, validated),
+                _aad((team, assistant, stored_input), validated),
             )
         except InvalidTag as exc:
             raise StoredInputStoreError("Stored Input envelope authentication failed") from exc
-        return StoredInputValue(self._decrypted_value(plaintext), generation)
+        value, origin = self._decrypted_value(plaintext)
+        return StoredInputValue(value, generation, origin)
 
     @staticmethod
-    def _decrypted_value(plaintext: bytes) -> str:
+    def _decrypted_value(plaintext: bytes) -> tuple[str, str]:
         if len(plaintext) > MAX_PLAINTEXT_BYTES:
             raise StoredInputStoreError("decrypted Stored Input is malformed")
         decoded = _strict_json(plaintext)
-        if not isinstance(decoded, dict) or set(decoded) != {"value"}:
+        if not isinstance(decoded, dict) or set(decoded) != {"origin", "value"}:
             raise StoredInputStoreError("decrypted Stored Input is malformed")
         try:
-            return _secret_value(decoded["value"])
+            return _secret_value(decoded["value"]), _origin(decoded["origin"])
         except StoredInputValidationError as exc:
             raise StoredInputStoreError("decrypted Stored Input is malformed") from exc
 
