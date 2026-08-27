@@ -318,8 +318,21 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         calls: list[tuple[str, object]] = []
 
         class Service:
-            def authorization_url(self, challenge, session_binding, *, callback_mode):
-                calls.append(("start", (challenge, session_binding, callback_mode)))
+            def authorization_url(
+                self,
+                challenge,
+                session_binding,
+                *,
+                assistant_id,
+                integration_id,
+                callback_mode,
+            ):
+                calls.append(
+                    (
+                        "start",
+                        (challenge, session_binding, assistant_id, integration_id, callback_mode),
+                    )
+                )
                 return (
                     "https://shimpz.com/api/oauth/cloudflare/start?state="
                     + "s" * 43
@@ -353,6 +366,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         started = controller.chat_turn_service.start_assistant_integration_authorization(
             "team_1",
             pending.id,
+            "shimpz-cloudflare",
+            "cloudflare",
             "browser-session-private-123456789",
             "hosted",
         )
@@ -380,8 +395,11 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
     def test_internal_oauth_routes_are_closed_and_exact(self) -> None:
         chat_turn_service = SimpleNamespace(
-            start_assistant_integration_authorization=lambda team, challenge, binding, callback_mode: {
-                "authorization_url": f"https://shimpz.com/{team}/{challenge}/{binding}/{callback_mode}"
+            start_assistant_integration_authorization=lambda team, challenge, assistant, integration, binding,
+            callback_mode: {
+                "authorization_url": (
+                    f"https://shimpz.com/{team}/{challenge}/{assistant}/{integration}/{binding}/{callback_mode}"
+                )
             },
             complete_cloudflare_oauth_callback=lambda **_values: {
                 "connected": True,
@@ -395,6 +413,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         handler = object.__new__(local_app.Handler)
         handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=chat_turn_service))
         handler._body = lambda **_kwargs: {
+            "assistant_id": "shimpz-cloudflare",
+            "integration_id": "cloudflare",
             "callback_mode": "out-of-band",
             "session_binding": "browser-session-private-123456789",
         }

@@ -341,6 +341,15 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 types.SimpleNamespace(get=lambda *_args: object()),
                 types.SimpleNamespace(
                     authorization_url=mock.Mock(
+                        side_effect=integration_service.OAuthIntegrationUnavailableError("not pending")
+                    )
+                ),
+                "assistant-integration-not-pending",
+            ),
+            (
+                types.SimpleNamespace(get=lambda *_args: object()),
+                types.SimpleNamespace(
+                    authorization_url=mock.Mock(
                         side_effect=integration_service.OAuthIntegrationServiceError("unavailable")
                     )
                 ),
@@ -358,6 +367,8 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                         subject,
                         "team_1",
                         "challenge",
+                        "assistant",
+                        "integration",
                         "session",
                         "local",
                     )

@@ -586,11 +586,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_assistant_integration_authorize(self, request: _AuthorizedRequest) -> None:
         body = self._read_body()
-        if not isinstance(body, dict) or set(body) != {"session_binding"}:
+        if not isinstance(body, dict) or set(body) != {"assistant_id", "integration_id", "session_binding"}:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "OAuth authorization request is invalid")
         result = hosted_chat_api._start_oauth_integration(
             request.team_id,
             request.params["challenge_id"],
+            body["assistant_id"],
+            body["integration_id"],
             body["session_binding"],
             request.lease,
         )

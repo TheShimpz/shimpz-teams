@@ -117,6 +117,8 @@ def _current_integration_declaration(team_id: str, assistant_id: str, integratio
 def _start_oauth_integration(
     team_id: str,
     challenge_id: object,
+    assistant_id: object,
+    integration_id: object,
     session_binding: object,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
@@ -135,6 +137,8 @@ def _start_oauth_integration(
         authorization_url = runtime_state._oauth_integrations.authorization_url(
             challenge,
             session_binding,
+            assistant_id=assistant_id,
+            integration_id=integration_id,
             resource_binding=(lease.owner, lease.container_id),
         )
     except integration_service.OAuthIntegrationUnavailableError as exc:

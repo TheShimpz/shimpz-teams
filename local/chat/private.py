@@ -134,6 +134,8 @@ def start_assistant_integration_authorization(
     self,
     team_id: object,
     challenge_id: object,
+    assistant_id: object,
+    integration_id: object,
     session_binding: object,
     callback_mode: object,
 ) -> dict[str, object]:
@@ -142,6 +144,8 @@ def start_assistant_integration_authorization(
         authorization_url = self.oauth_service.authorization_url(
             challenge,
             session_binding,
+            assistant_id=assistant_id,
+            integration_id=integration_id,
             callback_mode=callback_mode,
         )
     except integration_challenges.IntegrationChallengeError as exc:
@@ -149,6 +153,12 @@ def start_assistant_integration_authorization(
             HTTPStatus.CONFLICT,
             "Assistant integration request expired; retry the message",
             code="assistant-integration-challenge-expired",
+        ) from exc
+    except integration_service.OAuthIntegrationUnavailableError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant integration is not pending",
+            code="assistant-integration-not-pending",
         ) from exc
     except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(

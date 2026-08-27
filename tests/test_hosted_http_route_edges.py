@@ -215,7 +215,13 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
         handler._read_body = mock.Mock(return_value={"invalid": True})
         with self.assertRaises(runtime_state.ApiError):
             handler._route_assistant_integration_authorize(request)
-        handler._read_body = mock.Mock(return_value={"session_binding": "browser"})
+        handler._read_body = mock.Mock(
+            return_value={
+                "assistant_id": "cloudflare",
+                "integration_id": "oauth",
+                "session_binding": "browser",
+            }
+        )
         with mock.patch.object(hosted_chat_api, "_start_oauth_integration", return_value={"url": "https://oauth"}):
             handler._route_assistant_integration_authorize(request)
 

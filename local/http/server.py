@@ -624,7 +624,7 @@ class Handler(BaseHTTPRequestHandler):
             )
         if len(parts) == 7 and parts[4] == "challenges" and parts[6] == "authorize" and self.command == "POST":
             body = self._body()
-            if set(body) != {"callback_mode", "session_binding"}:
+            if set(body) != {"assistant_id", "integration_id", "callback_mode", "session_binding"}:
                 raise ApiProblem(
                     HTTPStatus.UNPROCESSABLE_ENTITY,
                     "OAuth authorization is invalid",
@@ -641,6 +641,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.controller.chat_turn_service.start_assistant_integration_authorization(
                     team_id,
                     parts[5],
+                    body["assistant_id"],
+                    body["integration_id"],
                     body["session_binding"],
                     body["callback_mode"],
                 ),

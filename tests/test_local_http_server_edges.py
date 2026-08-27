@@ -299,11 +299,21 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "POST"
         with self.assertRaises(ApiProblemError):
             handler._assistant_integration_route(authorize)
-        handler._body.return_value = {"callback_mode": "invalid", "session_binding": "b"}
+        handler._body.return_value = {
+            "assistant_id": "assistant",
+            "integration_id": "cloudflare",
+            "callback_mode": "invalid",
+            "session_binding": "b",
+        }
         with self.assertRaises(ApiProblemError):
             handler._assistant_integration_route(authorize)
         callback_mode = next(iter(integration_broker.CALLBACK_MODES))
-        handler._body.return_value = {"callback_mode": callback_mode, "session_binding": "b"}
+        handler._body.return_value = {
+            "assistant_id": "assistant",
+            "integration_id": "cloudflare",
+            "callback_mode": callback_mode,
+            "session_binding": "b",
+        }
         self.assertEqual(handler._assistant_integration_route(authorize)[2], "assistant-integration-authorize")
         handler.command = "DELETE"
         handler._body.return_value = {}

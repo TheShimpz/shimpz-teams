@@ -117,9 +117,11 @@ abstraction and total code without improving either Controller's safety contract
 OAuth authorization material crosses the dedicated broker path, never chat frames. The controller
 stores only encrypted Integration credentials, returns redacted metadata, binds claims/challenges to one
 Team and Admin session, and deletes local and broker state on disconnect or Team teardown.
-The authorization request body contains exactly `callback_mode` and `session_binding`; callback mode is one of
-`loopback`, `hosted`, or `out-of-band`. Cancellation contains exactly `session_binding`. Broker claim redemption
-contains exactly `state`, `claim`, and `session_binding`. All three bodies reject additional fields.
+The authorization request body contains exactly `assistant_id`, `integration_id`, `callback_mode`, and
+`session_binding`; the Assistant and Integration pair must be an exact currently missing requirement in the pending
+challenge, and callback mode is one of `loopback`, `hosted`, or `out-of-band`. Cancellation contains exactly
+`session_binding`. Broker claim redemption contains exactly `state`, `claim`, and `session_binding`. All three
+bodies reject additional fields.
 
 ## Assistant execution
 

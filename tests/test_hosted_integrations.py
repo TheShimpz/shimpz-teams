@@ -353,10 +353,12 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             pending,
         )
         fake_service = types.SimpleNamespace(
-            authorization_url=lambda current, session, *, resource_binding: (
+            authorization_url=lambda current, session, *, assistant_id, integration_id, resource_binding: (
                 "https://x.com/i/oauth2/authorize?state=opaque"
                 if current is challenge
                 and session == "browser-session-binding-value"
+                and assistant_id == ASSISTANT_ID
+                and integration_id == "cloudflare"
                 and resource_binding == ("integration_1", ANCHOR_ID)
                 else None
             ),
@@ -401,6 +403,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             started = hosted_chat_api._start_oauth_integration(
                 TEAM_ID,
                 challenge.id,
+                ASSISTANT_ID,
+                "cloudflare",
                 "browser-session-binding-value",
                 lease,
             )

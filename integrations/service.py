@@ -64,6 +64,12 @@ class _Candidate:
     scopes: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _Selection:
+    assistant_id: object
+    integration_id: object
+
+
 def _identifier(value: object, label: str) -> str:
     if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
         raise OAuthIntegrationServiceError(f"pending OAuth {label} is unavailable")
@@ -139,8 +145,11 @@ def _candidates(
 def _missing_candidate(
     pending: integration_challenges.PendingIntegrationChallenge,
     store: integration_store.OAuthIntegrationStore,
+    selection: _Selection,
 ) -> _Candidate:
     candidates = _candidates(pending)
+    selected_assistant = _identifier(selection.assistant_id, "Assistant")
+    selected_integration = _identifier(selection.integration_id, "integration")
     metadata_by_binding: dict[
         tuple[str, str],
         integration_store.OAuthIntegrationMetadata,
@@ -158,13 +167,18 @@ def _missing_candidate(
         (
             candidate
             for candidate in candidates
-            if metadata_by_binding[(candidate.assistant_id, candidate.integration_id)].status
-            in {"missing", "reauthorization-required"}
+            if candidate.assistant_id == selected_assistant
+            and candidate.integration_id == selected_integration
         ),
         None,
     )
     if selected is None:
-        raise OAuthIntegrationUnavailableError("all pending OAuth integrations are already configured")
+        raise OAuthIntegrationUnavailableError("requested pending OAuth integration is unavailable")
+    if metadata_by_binding[(selected.assistant_id, selected.integration_id)].status not in {
+        "missing",
+        "reauthorization-required",
+    }:
+        raise OAuthIntegrationUnavailableError("requested pending OAuth integration is already configured")
     return selected
 
 
@@ -175,9 +189,10 @@ def _authorization_url(
     pending: integration_challenges.PendingIntegrationChallenge,
     session_binding: object,
     resource_binding: object,
+    selection: _Selection,
 ) -> str:
     try:
-        selected = _missing_candidate(pending, store)
+        selected = _missing_candidate(pending, store, selection)
         public = challenge.create(
             session_binding=session_binding,
             team_id=selected.team_id,
@@ -428,9 +443,11 @@ class OAuthIntegrationService:
         pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
         *,
+        assistant_id: object,
+        integration_id: object,
         resource_binding: object = None,
     ) -> str:
-        """Create one trusted URL for the first deterministic missing integration."""
+        """Create one trusted URL for the exact pending missing Integration."""
         client_id, _client_secret, redirect_uri = self._client_configuration()
         build_url = functools.partial(
             integration_http.authorization_url,
@@ -444,6 +461,7 @@ class OAuthIntegrationService:
             pending,
             session_binding,
             resource_binding,
+            _Selection(assistant_id, integration_id),
         )
 
     def complete(
@@ -517,6 +535,8 @@ class BrokeredOAuthIntegrationService:
         pending: integration_challenges.PendingIntegrationChallenge,
         session_binding: object,
         *,
+        assistant_id: object,
+        integration_id: object,
         callback_mode: object,
         resource_binding: object = None,
     ) -> str:
@@ -535,6 +555,7 @@ class BrokeredOAuthIntegrationService:
             pending,
             session_binding,
             resource_binding,
+            _Selection(assistant_id, integration_id),
         )
 
     def complete(

@@ -62,6 +62,22 @@ def pending() -> integration_challenges.PendingIntegrationChallenge:
     )
 
 
+def authorization(
+    service: integration_service.BrokeredOAuthIntegrationService,
+    flow: integration_challenges.PendingIntegrationChallenge,
+    session: str,
+    *,
+    callback_mode: str,
+) -> str:
+    return service.authorization_url(
+        flow,
+        session,
+        assistant_id="shimpz-cloudflare",
+        integration_id="cloudflare",
+        callback_mode=callback_mode,
+    )
+
+
 class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -83,7 +99,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_full_flow_uses_broker_and_never_requires_client_credentials(self) -> None:
-        url = self.service.authorization_url(pending(), SESSION, callback_mode="hosted")
+        url = authorization(self.service, pending(), SESSION, callback_mode="hosted")
         self.assertEqual(parse_qs(urlsplit(url).query, strict_parsing=True)["callback"], ["hosted"])
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
@@ -132,7 +148,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             {"provider": "cloudflare", "scopes": ("zone.read",)},
         ):
             start_session = SESSION if declaration is DECLARATION else "second-browser-session-private-123456789"
-            url = self.service.authorization_url(pending(), start_session, callback_mode="loopback")
+            url = authorization(self.service, pending(), start_session, callback_mode="loopback")
             state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
             session = "other-browser-session-private-123" if declaration is DECLARATION else start_session
             with self.assertRaises(integration_service.OAuthIntegrationServiceError):
@@ -154,7 +170,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             integration_http.OAuthTokenSet(ACCESS, REFRESH, SCOPES, 3600, LEASE),
         )
         self.store._demote_for_reauthorization("team_1", "shimpz-cloudflare", "cloudflare")
-        url = self.service.authorization_url(pending(), SESSION, callback_mode="hosted")
+        url = authorization(self.service, pending(), SESSION, callback_mode="hosted")
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
         completed = self.service.complete(
@@ -196,7 +212,8 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
                 "callback mode is invalid",
             ),
         ):
-            self.service.authorization_url(
+            authorization(
+                self.service,
                 pending(),
                 SESSION,
                 callback_mode="https://attacker.example",
@@ -205,7 +222,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
         create.assert_not_called()
 
     def test_out_of_band_challenge_can_be_cancelled_without_a_broker_claim(self) -> None:
-        url = self.service.authorization_url(pending(), SESSION, callback_mode="out-of-band")
+        url = authorization(self.service, pending(), SESSION, callback_mode="out-of-band")
         state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
 
         self.assertTrue(self.service.cancel(SESSION))
@@ -252,7 +269,7 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
             integration_service.OAuthIntegrationUnavailableError,
             "already configured",
         ):
-            service.authorization_url(pending(), SESSION, callback_mode="hosted")
+            authorization(service, pending(), SESSION, callback_mode="hosted")
 
         self.assertEqual(self.transport.requests, [])
 
