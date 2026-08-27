@@ -310,6 +310,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
                     "scopes": ["dns.read", "offline_access", "zone.read"],
                 }
             ],
+            "stored_inputs": [],
         }
     )
     return resolution
