@@ -471,7 +471,6 @@ class StoredInputStore:
                 stored_kind, generation = _record_metadata(validated)
                 status: StoredInputStatus = "missing"
                 if stored_kind == kind:
-                    self._resolve_record(team, assistant, stored_input, validated)
                     status = "stored"
                 result.append(StoredInputMetadata(stored_input, kind, label, description, status, generation))
             return tuple(result)

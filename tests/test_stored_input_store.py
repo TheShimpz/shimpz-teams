@@ -110,18 +110,19 @@ class StoredInputStoreTests(unittest.TestCase):
             state["teams"] = {"team_2": {"other-assistant": {"other-token": record}}}
             store.state_path.write_text(json.dumps(state, separators=(",", ":")), encoding="utf-8")
 
+            moved = self._store(Path(directory))
+            declarations = {
+                "other-token": {
+                    "kind": "password",
+                    "label": "Other token",
+                    "description": "Token for another boundary.",
+                }
+            }
+            self.assertEqual(moved.metadata("team_2", "other-assistant", declarations)[0].status, "stored")
             with self.assertRaisesRegex(stored_input.StoredInputStoreError, "authentication failed"):
-                self._store(Path(directory)).metadata(
-                    "team_2",
-                    "other-assistant",
-                    {
-                        "other-token": {
-                            "kind": "password",
-                            "label": "Other token",
-                            "description": "Token for another boundary.",
-                        }
-                    },
-                )
+                moved.resolve("team_2", "other-assistant", "other-token", "password")
+            self.assertTrue(moved.delete("team_2", "other-assistant", "other-token"))
+            self.assertEqual(moved.metadata("team_2", "other-assistant", declarations)[0].status, "missing")
 
     def test_team_isolation_and_exact_lifecycle_cleanup_are_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
