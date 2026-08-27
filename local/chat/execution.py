@@ -1,11 +1,13 @@
 """Local chat Action execution and context validation operations."""
 
+from collections.abc import Callable
 from http import HTTPStatus
 from typing import NoReturn
 
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from assistant.spec import validate_action_payload
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -16,6 +18,79 @@ from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
+
+
+def project_action_result(
+    raw_result: object,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+    validate: Callable[[object, str, object], object],
+) -> object:
+    return action_execution.project_rpc_result(
+        raw_result,
+        private.integrations,
+        lambda value: validate(action_spec, "output", value),
+        action_execution.RpcResultPolicy(
+            human_requests=action_spec.human_requests,
+            protected_values=private.transcript.protected_values(),
+            authorization_requested=any(
+                response.kind in action_human.AUTHORIZATION_KINDS
+                for response in private.transcript.responses
+            ),
+            stored_inputs_by_id=private.stored_inputs,
+            declared_stored_inputs=action_spec.stored_inputs,
+            supplied_stored_inputs=frozenset(private.stored_inputs)
+            | frozenset(private.transcript.submitted_stored_inputs()),
+        ),
+    )
+
+
+def seal_stored_inputs(
+    store: action_stored_input.StoredInputStore,
+    team_id: str,
+    assistant_id: str,
+    spec: object,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+) -> None:
+    submitted = private.transcript.submitted_stored_inputs()
+    if not submitted:
+        return
+    if private.origin is None:
+        raise AssertionError("Stored Input submission lacks Action evidence")
+    for stored_input_id, value in submitted.items():
+        if stored_input_id not in action_spec.stored_inputs:
+            raise KeyError(stored_input_id)
+        declaration = spec.stored_inputs[stored_input_id]
+        store.seal(
+            team_id,
+            assistant_id,
+            stored_input_id,
+            declaration.kind,
+            value,
+            private.origin,
+        )
+
+
+def clear_rejected_stored_input(
+    store: action_stored_input.StoredInputStore,
+    team_id: str,
+    assistant_id: str,
+    stored_input_id: str,
+) -> NoReturn:
+    try:
+        store.delete(team_id, assistant_id, stored_input_id)
+    except action_stored_input.StoredInputStoreError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input state is unavailable",
+            code="assistant-stored-input-state-unavailable",
+        ) from exc
+    raise ApiProblem(
+        HTTPStatus.CONFLICT,
+        "the Assistant rejected its stored input; retry the task to provide a new value",
+        code="assistant-stored-input-rejected",
+    )
 
 
 def _invoke_chat_action(

@@ -24,7 +24,6 @@ from docker.errors import APIError, DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
-from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
@@ -434,78 +433,6 @@ class LocalControllerDependencies:
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
-
-
-def _project_local_action_result(
-    raw_result: object,
-    action_spec: object,
-    private: action_execution.ResolvedInvocationEvidence,
-) -> object:
-    return action_execution.project_rpc_result(
-        raw_result,
-        private.integrations,
-        lambda value: validate_action_payload(action_spec, "output", value),
-        action_execution.RpcResultPolicy(
-            human_requests=action_spec.human_requests,
-            protected_values=private.transcript.protected_values(),
-            authorization_requested=any(
-                response.kind in action_human.AUTHORIZATION_KINDS
-                for response in private.transcript.responses
-            ),
-            stored_inputs_by_id=private.stored_inputs,
-            declared_stored_inputs=action_spec.stored_inputs,
-            supplied_stored_inputs=frozenset(private.stored_inputs)
-            | frozenset(private.transcript.submitted_stored_inputs()),
-        ),
-    )
-
-
-def _seal_local_stored_inputs(
-    store: action_stored_input.StoredInputStore,
-    team_id: str,
-    assistant_id: str,
-    spec: object,
-    action_spec: object,
-    private: action_execution.ResolvedInvocationEvidence,
-) -> None:
-    submitted = private.transcript.submitted_stored_inputs()
-    if not submitted:
-        return
-    if private.origin is None:
-        raise AssertionError("Stored Input submission lacks Action evidence")
-    for stored_input_id, value in submitted.items():
-        if stored_input_id not in action_spec.stored_inputs:
-            raise KeyError(stored_input_id)
-        declaration = spec.stored_inputs[stored_input_id]
-        store.seal(
-            team_id,
-            assistant_id,
-            stored_input_id,
-            declaration.kind,
-            value,
-            private.origin,
-        )
-
-
-def _clear_rejected_local_stored_input(
-    store: action_stored_input.StoredInputStore,
-    team_id: str,
-    assistant_id: str,
-    stored_input_id: str,
-) -> NoReturn:
-    try:
-        store.delete(team_id, assistant_id, stored_input_id)
-    except action_stored_input.StoredInputStoreError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant Stored Input state is unavailable",
-            code="assistant-stored-input-state-unavailable",
-        ) from exc
-    raise ApiProblem(
-        HTTPStatus.CONFLICT,
-        "the Assistant rejected its stored input; retry the task to provide a new value",
-        code="assistant-stored-input-rejected",
-    )
 
 
 class LocalController:
@@ -935,9 +862,14 @@ class LocalController:
             )
             raise
         try:
-            projected = _project_local_action_result(raw_result, action_spec, private)
+            projected = local_chat_execution.project_action_result(
+                raw_result,
+                action_spec,
+                private,
+                validate_action_payload,
+            )
         except action_execution.StoredInputRejectedError as exc:
-            _clear_rejected_local_stored_input(
+            local_chat_execution.clear_rejected_stored_input(
                 self.assistant_stored_inputs,
                 team_id,
                 assistant_id,
@@ -970,7 +902,7 @@ class LocalController:
                 code="invalid-action-output",
             ) from exc
         try:
-            _seal_local_stored_inputs(
+            local_chat_execution.seal_stored_inputs(
                 self.assistant_stored_inputs,
                 team_id,
                 assistant_id,

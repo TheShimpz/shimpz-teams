@@ -28,6 +28,7 @@ from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
 from hosted.http import admission
 from hosted.http import routes as hosted
+from hosted.http import stored_input as hosted_stored_input_http
 from hosted.install import developers_client, publication
 from hosted.install import http as developers_http
 from hosted.team import lifecycle as hosted_lifecycle
@@ -618,31 +619,8 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json(HTTPStatus.OK, result, no_store=True)
 
-    def _route_assistant_stored_input_list(self, request: _AuthorizedRequest) -> None:
-        self._send_json(
-            HTTPStatus.OK,
-            hosted_assistants._assistant_stored_input_inventory(request.team_id, request.lease),
-            no_store=True,
-        )
-
-    def _route_assistant_stored_input_clear(self, request: _AuthorizedRequest) -> None:
-        assistant_id = request.params["assistant_id"]
-        stored_input_id = request.params["stored_input_id"]
-        result = hosted_chat_api._clear_assistant_stored_input(
-            request.team_id,
-            assistant_id,
-            stored_input_id,
-            request.lease,
-        )
-        self._audit_security(
-            "assistant_stored_input_clear",
-            request.team_id,
-            result="ok",
-            assistant=assistant_id,
-            stored_input=stored_input_id,
-            cleared=result["cleared"],
-        )
-        self._send_json(HTTPStatus.OK, result, no_store=True)
+    _route_assistant_stored_input_list = hosted_stored_input_http.list_stored_inputs
+    _route_assistant_stored_input_clear = hosted_stored_input_http.clear_stored_input
 
     def _route_team_status(self, request: _AuthorizedRequest) -> None:
         self._send_json(HTTPStatus.OK, hosted_lifecycle._status(request.team_id, request.lease))

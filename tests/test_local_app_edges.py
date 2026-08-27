@@ -12,6 +12,7 @@ from unittest import mock
 
 from docker.errors import APIError, DockerException
 
+from action import human as action_human
 from inference import config as inference_config
 from local import app as local_app
 from storage import files as team_storage
@@ -394,14 +395,14 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
         spec.actions = {"action": action_spec}
         spec.stored_inputs = {"whatsapp-token": declaration}
         token = "whatsapp-private-token-123456789"
-        response = local_app.action_human.HumanResponse(
+        response = action_human.HumanResponse(
             "input:password",
             0,
             "a" * 64,
             token,
             "whatsapp-token",
         )
-        transcript = local_app.action_human.ActionTranscript("interrupt", (response,))
+        transcript = action_human.ActionTranscript("interrupt", (response,))
         captured: list[dict[str, object]] = []
 
         with TemporaryDirectory() as directory:

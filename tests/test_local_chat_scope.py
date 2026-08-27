@@ -15,6 +15,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
+from action import human as action_human
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local.chat.types import ActiveAssistant
@@ -71,7 +72,7 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen_container_id,
-                    local_app.action_human.ActionTranscript(""),
+                    action_human.ActionTranscript(""),
                     local_app.action_execution.RpcPrivateInputs({}, {}),
                 )
                 try:
@@ -318,7 +319,7 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen.id,
-                    local_app.action_human.ActionTranscript(""),
+                    action_human.ActionTranscript(""),
                     local_app.action_execution.RpcPrivateInputs({}, {}),
                 )
 
