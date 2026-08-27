@@ -134,10 +134,11 @@ COPY inference/__init__.py inference/client.py inference/config.py inference/int
      inference/model_catalog.json inference/token.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
      integrations/challenges.py integrations/flow.py integrations/http.py \
-     integrations/pkce.py integrations/private_state.py integrations/providers.py \
+     integrations/pkce.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
-COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py ./action/
-COPY storage/__init__.py storage/files.py ./storage/
+COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
+     action/stored_input.py ./action/
+COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's
@@ -149,6 +150,8 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/action-journal \
         /var/lib/team/assistant-integrations/state \
         /var/lib/team/assistant-integrations/key \
+        /var/lib/team/assistant-stored-inputs/state \
+        /var/lib/team/assistant-stored-inputs/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
         /assistant-egress-policy /run/shimpz-integration-secrets-unseal /run/shimpz-account-model-provider-resolve \
@@ -170,6 +173,8 @@ RUN mkdir -p /run/shimpz-team /var/log/team /var/lib/team/postgresql-principals 
         /var/lib/team/action-journal \
         /var/lib/team/assistant-integrations/state \
         /var/lib/team/assistant-integrations/key \
+        /var/lib/team/assistant-stored-inputs/state \
+        /var/lib/team/assistant-stored-inputs/key \
         /var/lib/team/dynamic-assistants \
         /var/lib/team/cosign \
     && chown shimpzteam:shimpzassistant-egress-policy /assistant-egress-policy \

@@ -27,6 +27,7 @@ from action import challenges as action_challenges
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
@@ -147,6 +148,7 @@ class ChatTurnDependencies:
     brain_runtime: object | None = None
     action_state: object | None = None
     assistant_integrations: object | None = None
+    assistant_stored_inputs: object | None = None
     integration_challenges: object | None = None
     human_challenges: object | None = None
     oauth_pkce: object | None = None
@@ -259,6 +261,7 @@ class ChatTurnService:
         self.brain_runtime = dependencies.brain_runtime
         self.action_state = dependencies.action_state
         self.assistant_integrations = dependencies.assistant_integrations
+        self.assistant_stored_inputs = dependencies.assistant_stored_inputs
         self.integration_challenges = dependencies.integration_challenges
         self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce
@@ -380,9 +383,15 @@ class ChatTurnService:
 
     _active_chat_assistants = local_chat_state._active_chat_assistants
     _delete_assistant_integration_state = local_chat_state._delete_assistant_integration_state
+    _delete_assistant_stored_input_state = local_chat_state._delete_assistant_stored_input_state
     _delete_team_integration_state = local_chat_state._delete_team_integration_state
+    _delete_team_stored_input_state = local_chat_state._delete_team_stored_input_state
     _delete_all_integration_state = local_chat_state._delete_all_integration_state
+    _delete_all_stored_input_state = local_chat_state._delete_all_stored_input_state
     _retain_declared_assistant_integration_state = local_chat_state._retain_declared_assistant_integration_state
+    _retain_declared_assistant_stored_input_state = (
+        local_chat_state._retain_declared_assistant_stored_input_state
+    )
     _raise_chat_continuation_problem = staticmethod(local_chat_state._raise_chat_continuation_problem)
     _persist_chat_continuation = local_chat_state._persist_chat_continuation
     _restore_chat_continuation = local_chat_state._restore_chat_continuation
@@ -409,6 +418,7 @@ class LocalControllerDependencies:
     brain_runtime: brain_runtime_client.BrainRuntimeClient | None = None
     action_state: action_journal.ActionJournal | None = None
     assistant_integrations: integration_store.OAuthIntegrationStore | None = None
+    assistant_stored_inputs: action_stored_input.StoredInputStore | None = None
     integration_challenges: integration_challenges.IntegrationChallengeStore | None = None
     human_challenges: action_challenges.HumanChallengeStore | None = None
     oauth_pkce: integration_pkce.OAuthPKCEChallengeStore | None = None
@@ -465,6 +475,7 @@ class LocalController:
             else action_journal.ActionJournal(LOCAL_ACTION_JOURNAL_PATH)
         )
         self.assistant_integrations = dependencies.assistant_integrations or integration_store.OAuthIntegrationStore()
+        self.assistant_stored_inputs = dependencies.assistant_stored_inputs or action_stored_input.StoredInputStore()
         self.integration_challenges = (
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
@@ -533,6 +544,7 @@ class LocalController:
                 brain_runtime=getattr(self, "brain_runtime", None),
                 action_state=getattr(self, "action_state", None),
                 assistant_integrations=getattr(self, "assistant_integrations", None),
+                assistant_stored_inputs=getattr(self, "assistant_stored_inputs", None),
                 integration_challenges=getattr(self, "integration_challenges", None),
                 human_challenges=getattr(self, "human_challenges", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),

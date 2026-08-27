@@ -9,6 +9,7 @@ from typing import NoReturn
 from docker.errors import DockerException
 
 from action import challenges as action_challenges
+from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from inference import config as inference_config
@@ -212,6 +213,13 @@ def _delete_assistant_integration_state(self, team_id: str, assistant_id: str) -
         self._raise_integration_problem(exc)
 
 
+def _delete_assistant_stored_input_state(self, team_id: str, assistant_id: str) -> None:
+    try:
+        self.assistant_stored_inputs.delete_assistant(team_id, assistant_id)
+    except action_stored_input.StoredInputStoreError as exc:
+        _raise_stored_input_problem(exc)
+
+
 def _delete_team_integration_state(self, team_id: str) -> None:
     try:
         self.assistant_integrations.delete_team(team_id)
@@ -219,11 +227,25 @@ def _delete_team_integration_state(self, team_id: str) -> None:
         self._raise_integration_problem(exc)
 
 
+def _delete_team_stored_input_state(self, team_id: str) -> None:
+    try:
+        self.assistant_stored_inputs.delete_team(team_id)
+    except action_stored_input.StoredInputStoreError as exc:
+        _raise_stored_input_problem(exc)
+
+
 def _delete_all_integration_state(self) -> None:
     try:
         self.assistant_integrations.delete_all()
     except integration_store.OAuthIntegrationStoreError as exc:
         self._raise_integration_problem(exc)
+
+
+def _delete_all_stored_input_state(self) -> None:
+    try:
+        self.assistant_stored_inputs.delete_all()
+    except action_stored_input.StoredInputStoreError as exc:
+        _raise_stored_input_problem(exc)
 
 
 def _retain_declared_assistant_integration_state(self, team_id: str, spec: AssistantSpec) -> None:
@@ -238,6 +260,25 @@ def _retain_declared_assistant_integration_state(self, team_id: str, spec: Assis
     if pruned:
         self.integration_challenges.cancel_team(team_id)
         self._delete_chat_continuation(team_id)
+
+
+def _retain_declared_assistant_stored_input_state(self, team_id: str, spec: AssistantSpec) -> None:
+    try:
+        self.assistant_stored_inputs.retain_declared(
+            team_id,
+            spec.assistant_id,
+            tuple(sorted(spec.stored_inputs)),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        _raise_stored_input_problem(exc)
+
+
+def _raise_stored_input_problem(exc: Exception) -> NoReturn:
+    raise ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "Assistant Stored Input state is unavailable",
+        code="stored-input-state-unavailable",
+    ) from exc
 
 
 def _raise_chat_continuation_problem(exc: Exception) -> NoReturn:

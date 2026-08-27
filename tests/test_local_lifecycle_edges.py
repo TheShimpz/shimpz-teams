@@ -227,7 +227,8 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         )
         subject = types.SimpleNamespace(
             chat_turn_service=types.SimpleNamespace(
-                _delete_all_integration_state=lambda: events.append("integration-delete")
+                _delete_all_integration_state=lambda: events.append("integration-delete"),
+                _delete_all_stored_input_state=lambda: events.append("stored-input-delete"),
             ),
             _delete_team_conversation=lambda *_args: events.append("conversation-delete"),
             assistant_lifecycle=types.SimpleNamespace(

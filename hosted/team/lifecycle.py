@@ -8,6 +8,7 @@ from http import HTTPStatus
 import docker.errors
 
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
@@ -35,6 +36,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "egress_policies",
         "inference_configuration",
         "integration_credentials",
+        "stored_inputs",
         "action_checkpoints",
         "publication_bindings",
         "runtime_state",
@@ -232,6 +234,14 @@ def _teardown_assistant_integrations(team_id: str) -> bool:
     return True
 
 
+def _teardown_assistant_stored_inputs(team_id: str) -> bool:
+    try:
+        runtime_state._assistant_stored_inputs.delete_team(team_id)
+    except action_stored_input.StoredInputStoreError:
+        return False
+    return True
+
+
 def _drop_teardown_database(team_id: str, record: cleanup_state.Record) -> cleanup_state.Record | None:
     if record.db_dropped:
         return record
@@ -276,6 +286,10 @@ def _teardown_artifacts(team_id: str, runtime) -> tuple[bool, set[str]]:
         (
             lambda: _teardown_assistant_integrations(team_id),
             ("integration_credentials",),
+        ),
+        (
+            lambda: _teardown_assistant_stored_inputs(team_id),
+            ("stored_inputs",),
         ),
         (lambda: _teardown_network_planes(team_id), ("team_networks",)),
         (lambda: _remove_teardown_runtime(runtime), ("runtime_container",)),

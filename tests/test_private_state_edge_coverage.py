@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from integrations import private_state
+from storage import private_state
 
 
 class PrivateStateEdgeCoverageTests(unittest.TestCase):

@@ -47,7 +47,7 @@ COPY inference/__init__.py inference/client.py inference/config.py inference/mod
     inference/token.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \
-    integrations/pkce.py integrations/private_state.py integrations/providers.py \
+    integrations/pkce.py integrations/providers.py \
     integrations/service.py integrations/store.py ./integrations/
 COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
     local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
@@ -71,8 +71,9 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/supervisor.py ./protocol/http/v1/
-COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py ./action/
-COPY storage/__init__.py storage/files.py ./storage/
+COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
+    action/stored_input.py ./action/
+COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
 
 RUN test -x /usr/bin/timeout && \
     groupadd --gid 10001 shimpzlocal && \
@@ -87,6 +88,7 @@ RUN test -x /usr/bin/timeout && \
         /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/action-journal /var/lib/shimpz-local/assistant-egress \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
+        /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     mkdir -p /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzteam-token /run/shimpz-local && chmod 2750 /run/shimpz-local && \
@@ -97,6 +99,7 @@ RUN test -x /usr/bin/timeout && \
     chown shimpzlocal:shimpzlocal /var/log/shimpz-local /var/lib/shimpz-local/storage \
         /var/lib/shimpz-local/inference /var/lib/shimpz-local/action-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
+        /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key && \
     chown shimpzlocal:shimpzlocal /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chown shimpzlocal:shimpzassistant-egress-policy /var/lib/shimpz-local/assistant-egress && \
@@ -104,6 +107,7 @@ RUN test -x /usr/bin/timeout && \
     chmod 0700 /var/log/shimpz-local /var/lib/shimpz-local/storage /var/lib/shimpz-local/inference \
         /var/lib/shimpz-local/action-journal \
         /var/lib/shimpz-local/assistant-integrations/state /var/lib/shimpz-local/assistant-integrations/key \
+        /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
     chmod 0555 /app/local/healthcheck.py

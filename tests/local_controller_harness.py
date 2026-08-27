@@ -14,6 +14,7 @@ sys.path.insert(0, str(TEAM))
 from local_assistant_fixture import assistant_spec
 
 from action import execution as action_execution
+from action import stored_input as action_stored_input
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
@@ -83,6 +84,10 @@ class LocalContractCase(unittest.TestCase):
             Path(directory) / "assistant-integrations" / "state" / "integrations.json",
             Path(directory) / "assistant-integrations" / "key" / "aes256.key",
         )
+        controller.assistant_stored_inputs = action_stored_input.StoredInputStore(
+            Path(directory) / "assistant-stored-inputs" / "state" / "stored-inputs.json",
+            Path(directory) / "assistant-stored-inputs" / "key" / "aes256.key",
+        )
         controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
         controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         controller.chat_continuations = local_chat_continuation_store.EncryptedContinuationStore(
@@ -143,6 +148,10 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_integrations = integration_store.OAuthIntegrationStore(
             Path(state_directory.name) / "assistant-integrations" / "state" / "integrations.json",
             Path(state_directory.name) / "assistant-integrations" / "key" / "aes256.key",
+        )
+        controller.assistant_stored_inputs = action_stored_input.StoredInputStore(
+            Path(state_directory.name) / "assistant-stored-inputs" / "state" / "stored-inputs.json",
+            Path(state_directory.name) / "assistant-stored-inputs" / "key" / "aes256.key",
         )
         controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)

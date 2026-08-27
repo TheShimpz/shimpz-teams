@@ -10,6 +10,7 @@ from typing import NoReturn
 
 import docker.errors
 
+from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
@@ -377,6 +378,24 @@ def _retain_admitted_assistant_integrations(
         runtime_state._integration_challenges.cancel_team(team_id)
 
 
+def _retain_admitted_assistant_stored_inputs(
+    team_id: str,
+    assistant_id: str,
+    spec: assistant_registry.AssistantSpec,
+) -> None:
+    try:
+        runtime_state._assistant_stored_inputs.retain_declared(
+            team_id,
+            assistant_id,
+            tuple(sorted(spec.contract.stored_inputs)),
+        )
+    except action_stored_input.StoredInputStoreError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant Stored Input state is unavailable",
+        ) from exc
+
+
 @runtime_state._serialize_against_team_chat
 def _install_assistant(
     team_id: str,
@@ -526,6 +545,7 @@ def _admit_existing_assistant(
             f"installed Assistant {assistant_id!r} is not ready ({status})",
         )
     _retain_admitted_assistant_integrations(team_id, assistant_id, spec)
+    _retain_admitted_assistant_stored_inputs(team_id, assistant_id, spec)
     return {
         "team_id": team_id,
         "assistant": assistant_id,
@@ -638,6 +658,7 @@ def _provision_assistant_transaction(
                 f"Assistant {assistant_id!r} lost readiness before install commit ({committed_status}; rolled back)",
             )
         _retain_admitted_assistant_integrations(team_id, assistant_id, spec)
+        _retain_admitted_assistant_stored_inputs(team_id, assistant_id, spec)
     except Exception as exc:
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
@@ -681,6 +702,7 @@ def _uninstall_assistant(
                 team_id,
                 assistant_id,
             )
+            runtime_state._assistant_stored_inputs.delete_assistant(team_id, assistant_id)
             runtime_state._dynamic_assistants.delete(team_id, assistant_id)
             if source_digest is not None:
                 publication.discard_icon(
@@ -688,10 +710,10 @@ def _uninstall_assistant(
                     runtime_state._dynamic_assistants,
                     source_digest,
                 )
-        except integration_store.OAuthIntegrationStoreError as exc:
+        except (integration_store.OAuthIntegrationStoreError, action_stored_input.StoredInputStoreError) as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant integration state is unavailable",
+                "Assistant private state is unavailable",
             ) from exc
         except (dynamic_assistants.DynamicAssistantError, assistant_icons.AssistantIconError) as exc:
             raise runtime_state.ApiError(

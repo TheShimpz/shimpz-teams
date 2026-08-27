@@ -262,6 +262,7 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
             _teardown_storage=lambda _team: True,
             _teardown_inference=lambda _team: True,
             _teardown_assistant_integrations=lambda _team: True,
+            _teardown_assistant_stored_inputs=lambda _team: True,
             _teardown_network_planes=lambda _team: True,
             _remove_teardown_runtime=lambda _runtime: True,
             _teardown_volumes=lambda _team: True,

@@ -17,6 +17,7 @@ import docker
 
 from action import challenges as action_challenges
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from hosted import container as container_spec
@@ -101,6 +102,18 @@ ASSISTANT_INTEGRATION_KEY_PATH = Path(
         "/var/lib/team/assistant-integrations/key/aes256.key",
     )
 )
+ASSISTANT_STORED_INPUT_STATE_PATH = Path(
+    os.environ.get(
+        "SHIMPZ_TEAM_ASSISTANT_STORED_INPUT_STATE_PATH",
+        "/var/lib/team/assistant-stored-inputs/state/stored-inputs.json",
+    )
+)
+ASSISTANT_STORED_INPUT_KEY_PATH = Path(
+    os.environ.get(
+        "SHIMPZ_TEAM_ASSISTANT_STORED_INPUT_KEY_PATH",
+        "/var/lib/team/assistant-stored-inputs/key/aes256.key",
+    )
+)
 DEVELOPERS_CONTROLLER_TOKEN_PATH = Path("/run/shimpz-developers-controller/developers-to-controller-token")
 DEVELOPERS_DELEGATION_PUBLIC_KEY_PATH = Path("/run/shimpz-developers-controller/delegation-public.pem")
 CONTROLLER_DEVELOPERS_TOKEN_PATH = Path("/run/shimpz-developers-controller/controller-to-developers-token")
@@ -151,6 +164,10 @@ _assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
 _assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_STATE_PATH,
     ASSISTANT_INTEGRATION_KEY_PATH,
+)
+_assistant_stored_inputs = action_stored_input.StoredInputStore(
+    ASSISTANT_STORED_INPUT_STATE_PATH,
+    ASSISTANT_STORED_INPUT_KEY_PATH,
 )
 _integration_challenges = integration_challenges.IntegrationChallengeStore()
 _human_challenges = action_challenges.HumanChallengeStore()

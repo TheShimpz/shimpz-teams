@@ -37,6 +37,7 @@ LOCAL_TEAM_RESIDUES = [
     "integration_credentials",
     "publication_bindings",
     "runtime_state",
+    "stored_inputs",
     "team_networks",
     "team_storage",
 ]
@@ -431,6 +432,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.assistant_integrations = SimpleNamespace(
             delete_team=lambda team_id: events.append(("integrations-delete", team_id))
         )
+        controller.assistant_stored_inputs = SimpleNamespace(
+            delete_team=lambda team_id: events.append(("stored-inputs-delete", team_id))
+        )
 
         class ChatLock:
             def acquire(self, *, timeout: int) -> bool:
@@ -508,6 +512,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "inference-delete",
                 "network-remove",
                 ("integrations-delete", "team_1"),
+                ("stored-inputs-delete", "team_1"),
                 "lifecycle-release",
                 "chat-release",
             ],
@@ -553,6 +558,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             ("validate-network", team_id)
         )
         controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
+        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append(
+            "delete-stored-inputs"
+        )
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )
@@ -573,6 +581,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertIn("residue-sweep", events)
         self.assertEqual(controller.registry.identities(), set())
         self.assertLess(events.index("delete-integrations"), events.index("network-remove"))
+        self.assertLess(events.index("delete-stored-inputs"), events.index("network-remove"))
 
     def test_reset_queues_removed_assistant_images_before_the_final_sweep(self) -> None:
         events: list[object] = []
@@ -605,6 +614,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         controller.client.containers.list = lambda **_kwargs: [container]
         controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
+        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append(
+            "delete-stored-inputs"
+        )
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )

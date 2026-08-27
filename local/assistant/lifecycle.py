@@ -250,6 +250,7 @@ def _replace_outdated_assistant(
             code="assistant-update-conflict",
         )
     self.chat_turn_service._retain_declared_assistant_integration_state(team_id, spec)
+    self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, spec)
     remaining_egress = (
         self._team_has_egress_assistant(team_id, excluding=spec.assistant_id) if spec.allowed_hosts else None
     )
@@ -460,6 +461,7 @@ def update_assistant(
                 code="assistant-update-conflict",
             ) from exc
         self.chat_turn_service._retain_declared_assistant_integration_state(team_id, successor)
+        self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, successor)
         self._queue_residue(transaction.previous_image_id)
         self._clear_update(transaction)
         self.sweep_residues()
@@ -540,6 +542,7 @@ def recover_updates(self) -> None:
                 self._recover_update_target(update, target)
                 if binding == update.successor:
                     self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
+                    self.chat_turn_service._retain_declared_assistant_stored_input_state(update.team_id, target)
                     self._queue_residue(update.previous_image_id)
                 self._clear_update(update)
             except ApiProblem, RuntimeError, DockerException:
@@ -653,6 +656,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                     remaining_egress=remaining_egress,
                 )
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
+            self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
             if source_digest is not None:
                 self.icons.discard_unreferenced(source_digest, self.registry.bindings())
@@ -685,6 +689,7 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
                 remaining_egress=remaining_egress,
             )
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
+        self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
         if source_digest is not None:
             self.icons.discard_unreferenced(source_digest, self.registry.bindings())

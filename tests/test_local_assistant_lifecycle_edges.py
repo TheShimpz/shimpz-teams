@@ -166,7 +166,10 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _create_assistant_container=mock.Mock(),
             _team_has_egress_assistant=mock.Mock(return_value=False),
             _release_assistant_egress=mock.Mock(),
-            chat_turn_service=types.SimpleNamespace(_retain_declared_assistant_integration_state=mock.Mock()),
+            chat_turn_service=types.SimpleNamespace(
+                _retain_declared_assistant_integration_state=mock.Mock(),
+                _retain_declared_assistant_stored_input_state=mock.Mock(),
+            ),
         )
 
     def test_unready_replacement_maps_removal_and_forwards_authorization(self) -> None:
@@ -567,7 +570,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 spec=lambda binding: types.SimpleNamespace(binding=binding),
             ),
             _recover_update_target=mock.Mock(),
-            chat_turn_service=types.SimpleNamespace(_retain_declared_assistant_integration_state=mock.Mock()),
+            chat_turn_service=types.SimpleNamespace(
+                _retain_declared_assistant_integration_state=mock.Mock(),
+                _retain_declared_assistant_stored_input_state=mock.Mock(),
+            ),
             _queue_residue=mock.Mock(),
             _clear_update=mock.Mock(),
             sweep_residues=mock.Mock(),
@@ -575,6 +581,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         assistant_lifecycle.recover_updates(subject)
         self.assertEqual(subject._recover_update_target.call_count, 2)
         subject.chat_turn_service._retain_declared_assistant_integration_state.assert_called_once()
+        subject.chat_turn_service._retain_declared_assistant_stored_input_state.assert_called_once()
         subject._queue_residue.assert_called_once_with("image-2")
         subject.sweep_residues.assert_called_once_with()
 

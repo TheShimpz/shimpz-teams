@@ -35,6 +35,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "egress_policies",
         "inference_configuration",
         "integration_credentials",
+        "stored_inputs",
         "action_checkpoints",
         "publication_bindings",
         "runtime_state",
@@ -148,6 +149,7 @@ def _delete_team_persistence(self, team_id: str) -> bool:
 
 def _delete_team_private_state(self, team_id: str) -> None:
     self.chat_turn_service._delete_team_integration_state(team_id)
+    self.chat_turn_service._delete_team_stored_input_state(team_id)
 
 
 def _remove_team_network(self, network) -> bool:
@@ -201,7 +203,7 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             destroyed = self._remove_team_network(network)
             residue_absent.add("team_networks")
             self._delete_team_private_state(team_id)
-            residue_absent.add("integration_credentials")
+            residue_absent.update(("integration_credentials", "stored_inputs"))
             self._clear_team_runtime_state(team_id)
             residue_absent.add("runtime_state")
             if residue_absent != _TEAM_RESIDUE_ABSENCE:
@@ -293,8 +295,9 @@ def _remove_space_resources(
     networks: list,
     owned_assistants: set[tuple[str, str]],
 ) -> tuple[bool, set[str]]:
-    absent = {"integration_credentials"}
+    absent = {"integration_credentials", "stored_inputs"}
     self.chat_turn_service._delete_all_integration_state()
+    self.chat_turn_service._delete_all_stored_input_state()
     for network in networks:
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self._delete_team_conversation(team_id, network)
