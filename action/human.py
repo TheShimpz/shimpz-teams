@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -26,6 +27,7 @@ AUTH_KINDS = frozenset(
 )
 AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
 _BASE_FIELDS = frozenset({"kind", "ordinal", "title", "description"})
+_STORED_INPUT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 
 
 class HumanRequestError(ValueError):
@@ -40,6 +42,7 @@ class HumanRequest:
     ordinal: int
     fingerprint: str
     canonical: bytes
+    stored_input: str | None = None
 
     def payload(self) -> dict[str, object]:
         """Return an independent JSON object for projection or continuation binding."""
@@ -65,6 +68,7 @@ class HumanResponse:
     ordinal: int
     fingerprint: str
     value: object
+    stored_input: str | None = None
 
     @property
     def secret(self) -> bool:
@@ -110,10 +114,25 @@ class ActionTranscript:
     def protected_values(self) -> dict[str, str]:
         """Return ephemeral arbitrary secrets that a final result must not expose."""
         return {
-            f"human-response-{response.ordinal}": response.value
+            (
+                f"stored-input:{response.stored_input}"
+                if response.stored_input is not None
+                else f"human-response-{response.ordinal}"
+            ): response.value
             for response in self.responses
             if response.secret and isinstance(response.value, str)
         }
+
+    def submitted_stored_inputs(self) -> dict[str, str]:
+        """Return newly supplied persistent values without adding them to replay frames."""
+        submitted = {
+            response.stored_input: response.value
+            for response in self.responses
+            if response.stored_input is not None and isinstance(response.value, str)
+        }
+        if len(submitted) > 1:
+            raise HumanRequestError("Assistant Action submitted multiple Stored Inputs")
+        return submitted
 
 
 def transcript_for(
@@ -143,7 +162,11 @@ def append_response(
     return (*transcripts, updated)
 
 
-def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanRequest:
+def validate_request(
+    value: object,
+    capabilities: tuple[str, ...],
+    stored_inputs: tuple[str, ...] = (),
+) -> HumanRequest:
     """Validate one request and bind its advertised fingerprint to canonical bytes."""
     if not isinstance(value, dict) or "fingerprint" not in value:
         raise HumanRequestError("Assistant Action human request is invalid")
@@ -163,11 +186,15 @@ def validate_request(value: object, capabilities: tuple[str, ...]) -> HumanReque
     if not hmac.compare_digest(fingerprint, expected):
         raise HumanRequestError("Assistant Action human request fingerprint is invalid")
     framed = {**request, "fingerprint": fingerprint}
+    stored_input = request.get("stored_input")
+    if stored_input is not None and stored_input not in stored_inputs:
+        raise HumanRequestError("Assistant Action Stored Input request is undeclared")
     return HumanRequest(
         kind=kind,
         ordinal=int(request["ordinal"]),
         fingerprint=fingerprint,
         canonical=_canonical(framed),
+        stored_input=stored_input if isinstance(stored_input, str) else None,
     )
 
 
@@ -185,7 +212,7 @@ def admit_response(request: HumanRequest, value: object) -> HumanResponse:
         valid = _text_response(descriptor, value)
     if not valid:
         raise HumanRequestError("human response does not match its reviewed request")
-    return HumanResponse(kind, request.ordinal, request.fingerprint, value)
+    return HumanResponse(kind, request.ordinal, request.fingerprint, value, request.stored_input)
 
 
 def _single_choice_response(request: Mapping[str, object], value: object) -> bool:
@@ -270,8 +297,15 @@ def _kind_error(request: dict[str, object], kind: str) -> str | None:
 
 def _length_error(request: dict[str, object], limit: int) -> str | None:
     expected = _BASE_FIELDS | {"label", "required", "placeholder", "min_length", "max_length"}
+    if request.get("kind") == "input:password" and "stored_input" in request:
+        expected |= {"stored_input"}
     if set(request) != expected or not _input_base(request):
         return "shape"
+    if "stored_input" in request and (
+        not isinstance(request["stored_input"], str)
+        or _STORED_INPUT_ID.fullmatch(request["stored_input"]) is None
+    ):
+        return "stored-input"
     placeholder = request["placeholder"]
     minimum = request["min_length"]
     maximum = request["max_length"]

@@ -83,6 +83,46 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(human.HumanRequestError):
             human.ActionTranscript("interrupt-1").append(request("approval", 1), True)
 
+    def test_stored_input_password_is_exactly_declared_and_kept_out_of_replay(self) -> None:
+        descriptor = {
+            "kind": "input:password",
+            "ordinal": 0,
+            "title": "Connect WhatsApp",
+            "description": "Provide the token once to continue this Action.",
+            "label": "WhatsApp token",
+            "required": True,
+            "placeholder": None,
+            "min_length": 1,
+            "max_length": 1024,
+            "stored_input": "whatsapp-token",
+        }
+        descriptor["fingerprint"] = human._fingerprint(descriptor)
+
+        current = human.validate_request(
+            descriptor,
+            ("input:password",),
+            ("whatsapp-token",),
+        )
+        transcript = human.ActionTranscript("interrupt-1").append(current, "private-token")
+
+        self.assertEqual(current.stored_input, "whatsapp-token")
+        self.assertNotIn("stored_input", transcript.payloads()[0])
+        self.assertEqual(transcript.submitted_stored_inputs(), {"whatsapp-token": "private-token"})
+        self.assertEqual(transcript.protected_values(), {"stored-input:whatsapp-token": "private-token"})
+        for stored_inputs in ((), ("other-token",)):
+            with self.subTest(stored_inputs=stored_inputs), self.assertRaisesRegex(
+                human.HumanRequestError,
+                "undeclared",
+            ):
+                human.validate_request(descriptor, ("input:password",), stored_inputs)
+
+        malformed = {**descriptor, "stored_input": "WhatsApp_Token"}
+        malformed["fingerprint"] = human._fingerprint(
+            {key: value for key, value in malformed.items() if key != "fingerprint"}
+        )
+        with self.assertRaises(human.HumanRequestError):
+            human.validate_request(malformed, ("input:password",), ("whatsapp-token",))
+
     def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
         transcripts: tuple[human.ActionTranscript, ...] = ()
         for index in range(human.MAX_REQUESTS_PER_TURN):
