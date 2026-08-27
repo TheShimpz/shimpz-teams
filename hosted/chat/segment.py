@@ -597,10 +597,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             file_ids=request.file_ids,
             owner=request.owner,
             identity=segment.identity,
-            transcripts=action_human.retain_unfinished_transcripts(
-                request.transcripts,
-                suspension.continuation.seen_interrupts,
-            ),
+            transcripts=chat_orchestrator.retain_suspension_transcripts(request.transcripts, suspension),
             requests_used=request.requests_used,
         )
 

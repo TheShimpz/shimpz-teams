@@ -2,7 +2,6 @@
 
 from http import HTTPStatus
 
-from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -43,10 +42,7 @@ def _segment_response(
             file_ids=response.file_ids,
             provider=response.provider,
             identity=segment.identity,
-            transcripts=action_human.retain_unfinished_transcripts(
-                response.transcripts,
-                suspension.continuation.seen_interrupts,
-            ),
+            transcripts=chat_orchestrator.retain_suspension_transcripts(response.transcripts, suspension),
             requests_used=response.requests_used,
         )
 

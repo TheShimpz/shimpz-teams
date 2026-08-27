@@ -56,6 +56,18 @@ class ChatHumanSuspension:
     continuation: ChatContinuation
     action: brain_runtime_client.ActionRequest
     request: action_human.HumanRequest
+    completed_interrupts: tuple[str, ...] = ()
+
+
+def retain_suspension_transcripts(
+    transcripts: tuple[action_human.ActionTranscript, ...],
+    suspension: ChatSuspension | ChatHumanSuspension,
+) -> tuple[action_human.ActionTranscript, ...]:
+    """Drop transcripts for delivered rounds and completed Actions in the current batch."""
+    completed = suspension.continuation.seen_interrupts
+    if isinstance(suspension, ChatHumanSuspension):
+        completed = (*completed, *suspension.completed_interrupts)
+    return action_human.retain_unfinished_transcripts(transcripts, completed)
 
 
 ActionInvoker = Callable[[brain_runtime_client.ActionRequest], object]
@@ -174,7 +186,7 @@ def _drive(
                 try:
                     result = strategy.invoke_action(request)
                 except action_human.HumanRequestSuspensionError as exc:
-                    return ChatHumanSuspension(checkpoint, request, exc.request)
+                    return ChatHumanSuspension(checkpoint, request, exc.request, tuple(results))
             results[request.interrupt_id] = result
             batch_invoked.append(InvokedAction(assistant_id=request.assistant_id, action=request.action))
 

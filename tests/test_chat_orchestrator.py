@@ -129,6 +129,44 @@ class ChatOrchestratorTests(unittest.TestCase):
         self.assertEqual(invoked, ["first"])
         self.assertEqual(runtime.resumes, [])
 
+    def test_human_pause_drops_transcripts_for_actions_completed_in_the_same_batch(self):
+        first = suspended(interrupt_id="first").actions[0]
+        second = suspended(interrupt_id="second").actions[0]
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue",
+            "description": "Continue the reviewed operation.",
+        }
+        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+        admitted = action_human.validate_request(descriptor, ("approval",))
+
+        def invoke(request):
+            if request.interrupt_id == "second":
+                raise action_human.HumanRequestSuspensionError(admitted)
+            return {"ok": True}
+
+        outcome = chat_orchestrator.run_until_pause(
+            FakeRuntime([suspension(first, second), completed()]),
+            context(),
+            "Use both Actions",
+            strategy(accept_input, invoke),
+        )
+
+        self.assertIsInstance(outcome, chat_orchestrator.ChatHumanSuspension)
+        self.assertEqual(outcome.completed_interrupts, ("first",))
+        transcripts = (
+            action_human.ActionTranscript(
+                "first",
+                (action_human.HumanResponse("input:password", 0, "a" * 64, "secret", "token"),),
+            ),
+            action_human.ActionTranscript("second"),
+        )
+        self.assertEqual(
+            chat_orchestrator.retain_suspension_transcripts(transcripts, outcome),
+            (transcripts[1],),
+        )
+
     def test_direct_reply_never_invokes_a_action(self):
         invoked = []
 
