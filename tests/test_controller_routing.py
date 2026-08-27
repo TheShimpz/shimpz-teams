@@ -33,6 +33,22 @@ class ControllerRoutingTests(unittest.TestCase):
                 "assistant-integration-authorize",
                 {"team_id": "team_1", "challenge_id": "challenge-1"},
             ),
+            (
+                "GET",
+                "/v1/teams/team_1/assistant-stored-inputs",
+                "assistant-stored-input-list",
+                {"team_id": "team_1"},
+            ),
+            (
+                "DELETE",
+                "/v1/teams/team_1/assistant-stored-inputs/whatsapp/whatsapp-token",
+                "assistant-stored-input-clear",
+                {
+                    "team_id": "team_1",
+                    "assistant_id": "whatsapp",
+                    "stored_input_id": "whatsapp-token",
+                },
+            ),
         )
         for method, path, operation, params in common:
             with self.subTest(method=method, path=path):

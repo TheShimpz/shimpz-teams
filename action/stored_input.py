@@ -476,6 +476,28 @@ class StoredInputStore:
                 result.append(StoredInputMetadata(stored_input, kind, label, description, status, generation))
             return tuple(result)
 
+    def inventory(self, team_id: object, assistants: Iterable[object]) -> dict[str, object]:
+        """Project authenticated declared identifiers and status without values or generations."""
+        team = _team_id(team_id)
+        inventory: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for spec in assistants:
+            assistant = _component_id(getattr(spec, "assistant_id", None), "Assistant id")
+            if assistant in seen:
+                raise StoredInputValidationError("Stored Input Assistant inventory is ambiguous")
+            seen.add(assistant)
+            declarations = getattr(spec, "stored_inputs", None)
+            inventory.extend(
+                {
+                    "assistant_id": assistant,
+                    "stored_input_id": metadata.id,
+                    "status": metadata.status,
+                }
+                for metadata in self.metadata(team, assistant, declarations)
+            )
+        inventory.sort(key=lambda item: (item["assistant_id"], item["stored_input_id"]))
+        return {"team_id": team, "stored_inputs": inventory}
+
     def retain_declared(self, team_id: object, assistant_id: object, declared_ids: object) -> bool:
         """Discard values removed from the current Assistant contract."""
         team = _team_id(team_id)

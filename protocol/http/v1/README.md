@@ -73,6 +73,15 @@ For an authentication-gated Action response, that same signed, one-use assertion
 Team requires that binding for the matching authentication challenge and rejects it on every
 non-authentication request. Credential and factor material never cross this protocol.
 
+An authenticated Supervisor or Owner may inspect persistent Action input status through
+`GET /v1/teams/:team_id/assistant-stored-inputs`. The response is metadata-only: each current
+declaration carries exactly `assistant_id`, `stored_input_id`, and `status`; values and generations
+never cross HTTP. `DELETE /v1/teams/:team_id/assistant-stored-inputs/:assistant_id/:stored_input_id`
+clears only that exact currently declared slot and is idempotent when its value is already absent.
+The next Action that needs the slot requests it just in time through the existing human-response
+surface. A submitted password is memory-only until the exact Action returns a valid terminal result;
+Team then encrypts it for later invocations. Store has no public browser surface for these endpoints.
+
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
 `contract-files.sha256`, and remain byte-identical to this directory.

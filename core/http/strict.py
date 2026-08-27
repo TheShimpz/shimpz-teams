@@ -349,6 +349,7 @@ class ControllerRouteMatch:
             ("inference-", "inference"),
             ("chat-", "chat"),
             ("assistant-integration-", "assistant-integration"),
+            ("assistant-stored-input-", "assistant-stored-input"),
         ):
             if self.operation.startswith(prefix):
                 return group
@@ -404,6 +405,12 @@ CONTROLLER_ROUTES = (
         "DELETE",
         "/v1/teams/:team_id/assistant-integrations/:assistant_id/:integration_id",
         "assistant-integration-disconnect",
+    ),
+    _controller_route("GET", "/v1/teams/:team_id/assistant-stored-inputs", "assistant-stored-input-list"),
+    _controller_route(
+        "DELETE",
+        "/v1/teams/:team_id/assistant-stored-inputs/:assistant_id/:stored_input_id",
+        "assistant-stored-input-clear",
     ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stream", "chat-stream", _HOSTED_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/status", "team-status", _HOSTED_CONTROLLER_ONLY),

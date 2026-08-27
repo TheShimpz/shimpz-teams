@@ -618,6 +618,32 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_json(HTTPStatus.OK, result, no_store=True)
 
+    def _route_assistant_stored_input_list(self, request: _AuthorizedRequest) -> None:
+        self._send_json(
+            HTTPStatus.OK,
+            hosted_assistants._assistant_stored_input_inventory(request.team_id, request.lease),
+            no_store=True,
+        )
+
+    def _route_assistant_stored_input_clear(self, request: _AuthorizedRequest) -> None:
+        assistant_id = request.params["assistant_id"]
+        stored_input_id = request.params["stored_input_id"]
+        result = hosted_chat_api._clear_assistant_stored_input(
+            request.team_id,
+            assistant_id,
+            stored_input_id,
+            request.lease,
+        )
+        self._audit_security(
+            "assistant_stored_input_clear",
+            request.team_id,
+            result="ok",
+            assistant=assistant_id,
+            stored_input=stored_input_id,
+            cleared=result["cleared"],
+        )
+        self._send_json(HTTPStatus.OK, result, no_store=True)
+
     def _route_team_status(self, request: _AuthorizedRequest) -> None:
         self._send_json(HTTPStatus.OK, hosted_lifecycle._status(request.team_id, request.lease))
 
@@ -974,6 +1000,8 @@ _AUTHORIZED_ROUTES = {
     "assistant-integration-list": Handler._route_assistant_integration_list,
     "assistant-integration-authorize": Handler._route_assistant_integration_authorize,
     "assistant-integration-disconnect": Handler._route_assistant_integration_disconnect,
+    "assistant-stored-input-list": Handler._route_assistant_stored_input_list,
+    "assistant-stored-input-clear": Handler._route_assistant_stored_input_clear,
     "assistant-install": Handler._route_assistant_install,
     "assistant-icon": Handler._route_assistant_icon,
     "assistant-list": Handler._route_assistant_list,

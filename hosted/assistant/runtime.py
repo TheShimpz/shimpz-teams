@@ -514,6 +514,24 @@ def _assistant_integration_inventory(
     return {"team_id": team_id, **payload}
 
 
+def _assistant_stored_input_inventory(
+    team_id: str,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            return runtime_state._assistant_stored_inputs.inventory(
+                team_id,
+                _installed_assistant_specs(team_id),
+            )
+        except action_stored_input.StoredInputStoreError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant Stored Input state is unavailable",
+            ) from exc
+
+
 def _installed_assistant_specs(team_id: str) -> tuple[_HostedAssistantSpec, ...]:
     specs: list[_HostedAssistantSpec] = []
     seen: set[str] = set()

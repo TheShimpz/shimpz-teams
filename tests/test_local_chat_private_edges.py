@@ -490,6 +490,52 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             {"disconnected": True},
         )
 
+    def test_stored_input_inventory_and_exact_clear_are_status_only(self) -> None:
+        spec = types.SimpleNamespace(
+            assistant_id="whatsapp",
+            stored_inputs={"whatsapp-token": types.SimpleNamespace(kind="password")},
+        )
+        store = types.SimpleNamespace(
+            inventory=mock.Mock(return_value={"team_id": "team_1", "stored_inputs": []}),
+            delete=mock.Mock(return_value=True),
+        )
+        subject = types.SimpleNamespace(
+            _lock=lambda _team_id: nullcontext(),
+            assistant_lifecycle=types.SimpleNamespace(
+                _assistant_ids=lambda _team_id: ("whatsapp",),
+                _resolve=lambda *_args: spec,
+            ),
+            assistant_stored_inputs=store,
+        )
+
+        self.assertEqual(
+            local_chat_private.list_assistant_stored_inputs(subject, "team_1"),
+            {"team_id": "team_1", "stored_inputs": []},
+        )
+        self.assertEqual(
+            local_chat_private.clear_assistant_stored_input(
+                subject,
+                "team_1",
+                "whatsapp",
+                "whatsapp-token",
+            ),
+            {
+                "team_id": "team_1",
+                "assistant_id": "whatsapp",
+                "stored_input_id": "whatsapp-token",
+                "cleared": True,
+            },
+        )
+        store.delete.assert_called_once_with("team_1", "whatsapp", "whatsapp-token")
+        with self.assertRaises(local_app.ApiProblem) as missing:
+            local_chat_private.clear_assistant_stored_input(
+                subject,
+                "team_1",
+                "whatsapp",
+                "other-token",
+            )
+        self.assertEqual(missing.exception.code, "assistant-stored-input-not-found")
+
 
 if __name__ == "__main__":
     unittest.main()

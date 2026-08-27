@@ -8,10 +8,12 @@ from http import HTTPStatus
 
 import docker.errors
 
+from action import stored_input as action_stored_input
 from assistant import spec as assistant_registry
 from chat import turn as chat_turn_engine
 from hosted import audit
 from hosted import state as runtime_state
+from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
@@ -278,6 +280,36 @@ def _disconnect_oauth_integration(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Assistant integration could not be disconnected"
             ) from exc
     return {"disconnected": disconnected}
+
+
+@runtime_state._serialize_against_team_chat
+def _clear_assistant_stored_input(
+    team_id: str,
+    assistant_id: str,
+    stored_input_id: str,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            current_id, spec = assistant_lifecycle._resolve_team_assistant(team_id, assistant_id)
+        except assistant_registry.AssistantSpecError as exc:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed") from exc
+        if stored_input_id not in spec.contract.stored_inputs:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant Stored Input is not declared")
+        try:
+            cleared = runtime_state._assistant_stored_inputs.delete(team_id, current_id, stored_input_id)
+        except action_stored_input.StoredInputStoreError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant Stored Input state is unavailable",
+            ) from exc
+    return {
+        "team_id": team_id,
+        "assistant_id": current_id,
+        "stored_input_id": stored_input_id,
+        "cleared": cleared,
+    }
 
 
 def _resume_chat_integrations(

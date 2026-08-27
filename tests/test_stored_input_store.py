@@ -62,6 +62,24 @@ class StoredInputStoreTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(store.key_path.stat().st_mode), 0o600)
             self.assertEqual(stat.S_IMODE(store.state_path.parent.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(store.key_path.parent.stat().st_mode), 0o700)
+            inventory = store.inventory(
+                "team_1",
+                (SimpleNamespace(assistant_id="whatsapp", stored_inputs=DECLARATIONS),),
+            )
+            self.assertEqual(
+                inventory,
+                {
+                    "team_id": "team_1",
+                    "stored_inputs": [
+                        {
+                            "assistant_id": "whatsapp",
+                            "stored_input_id": "whatsapp-token",
+                            "status": "stored",
+                        }
+                    ],
+                },
+            )
+            self.assertNotIn(TOKEN, repr(inventory))
 
     def test_rotation_and_external_atomic_replacement_refresh_the_cache(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -703,6 +703,32 @@ class Handler(BaseHTTPRequestHandler):
             )
         return None
 
+    def _assistant_stored_input_route(
+        self,
+        parts: list[str],
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        if len(parts) < 4 or parts[:2] != ["v1", "teams"] or parts[3] != "assistant-stored-inputs":
+            return None
+        team_id = validate_team_id(parts[2])
+        service = self.server.controller.chat_turn_service
+        if len(parts) == 4 and self.command == "GET":
+            return (
+                HTTPStatus.OK,
+                service.list_assistant_stored_inputs(team_id),
+                "assistant-stored-input-list",
+                team_id,
+                None,
+            )
+        if len(parts) == 6 and self.command == "DELETE":
+            return (
+                HTTPStatus.OK,
+                service.clear_assistant_stored_input(team_id, parts[4], parts[5]),
+                "assistant-stored-input-clear",
+                team_id,
+                parts[4],
+            )
+        return None
+
     def _team_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         if len(parts) == 4 and parts[:2] == ["v1", "teams"] and parts[3] == "create":
             team_id = validate_team_id(parts[2])
@@ -738,6 +764,7 @@ class Handler(BaseHTTPRequestHandler):
             "inference": self._inference_route,
             "chat": self._chat_route,
             "assistant-integration": self._assistant_integration_route,
+            "assistant-stored-input": self._assistant_stored_input_route,
             "team": self._team_route,
         }.get(route.group)
         if grouped_resolver is not None:

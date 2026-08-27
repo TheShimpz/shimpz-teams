@@ -157,6 +157,54 @@ def _raise_integration_problem(exc: integration_store.OAuthIntegrationStoreError
     ) from exc
 
 
+def _raise_stored_input_problem(exc: action_stored_input.StoredInputStoreError) -> NoReturn:
+    raise ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "Assistant Stored Input state is unavailable",
+        code="assistant-stored-input-state-unavailable",
+    ) from exc
+
+
+def list_assistant_stored_inputs(self, team_id: str) -> dict[str, object]:
+    team_id = validate_team_id(team_id)
+    with self._lock(team_id):
+        specs = [
+            self.assistant_lifecycle._resolve(team_id, assistant_id)
+            for assistant_id in self.assistant_lifecycle._assistant_ids(team_id)
+        ]
+        try:
+            return self.assistant_stored_inputs.inventory(team_id, specs)
+        except action_stored_input.StoredInputStoreError as exc:
+            self._raise_stored_input_problem(exc)
+
+
+def clear_assistant_stored_input(
+    self,
+    team_id: object,
+    assistant_id: object,
+    stored_input_id: object,
+) -> dict[str, object]:
+    team = validate_team_id(team_id)
+    with self._lock(team):
+        spec = self.assistant_lifecycle._resolve(team, assistant_id)
+        if stored_input_id not in spec.stored_inputs:
+            raise ApiProblem(
+                HTTPStatus.NOT_FOUND,
+                "Assistant Stored Input is not declared",
+                code="assistant-stored-input-not-found",
+            )
+        try:
+            cleared = self.assistant_stored_inputs.delete(team, spec.assistant_id, stored_input_id)
+        except action_stored_input.StoredInputStoreError as exc:
+            self._raise_stored_input_problem(exc)
+    return {
+        "team_id": team,
+        "assistant_id": spec.assistant_id,
+        "stored_input_id": stored_input_id,
+        "cleared": cleared,
+    }
+
+
 def list_assistant_integrations(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     with self._lock(team_id):

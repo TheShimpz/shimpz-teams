@@ -190,6 +190,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             resume_chat_integrations=mock.Mock(return_value={"status": "ok"}),
             stop_chat=mock.Mock(return_value={"stopped": True}),
             list_assistant_integrations=mock.Mock(return_value={"integrations": []}),
+            list_assistant_stored_inputs=mock.Mock(return_value={"stored_inputs": []}),
+            clear_assistant_stored_input=mock.Mock(return_value={"cleared": True}),
             start_assistant_integration_authorization=mock.Mock(return_value={"url": "https://example.com"}),
             cancel_assistant_integration_authorization=mock.Mock(return_value={"cancelled": True}),
             disconnect_assistant_integration=mock.Mock(return_value={"disconnected": True}),
@@ -331,7 +333,17 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "PATCH"
         self.assertIsNone(handler._assistant_integration_route(path))
 
+        stored_inputs = ["v1", "teams", "team_1", "assistant-stored-inputs"]
+        handler.command = "GET"
+        self.assertEqual(handler._assistant_stored_input_route(stored_inputs)[2], "assistant-stored-input-list")
+        handler.command = "DELETE"
+        clear = [*stored_inputs, "whatsapp", "whatsapp-token"]
+        self.assertEqual(handler._assistant_stored_input_route(clear)[2], "assistant-stored-input-clear")
+        handler.command = "POST"
+        self.assertIsNone(handler._assistant_stored_input_route(stored_inputs))
+
         create = ["v1", "teams", "team_1", "create"]
+        handler.command = "PATCH"
         self.assertIsNone(handler._team_route(create))
         handler.command = "POST"
         handler._team_create_body = mock.Mock(return_value="Team")

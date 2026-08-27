@@ -208,6 +208,7 @@ class SharedStrictHttpTest(unittest.TestCase):
             "inference-status": "inference",
             "chat-stream": "chat",
             "assistant-integration-list": "assistant-integration",
+            "assistant-stored-input-list": "assistant-stored-input",
             "unknown": None,
         }
         for operation, group in expected.items():

@@ -233,6 +233,25 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
             handler._route_assistant_integration_disconnect(request)
         self.assertEqual(handler._send_json.call_count, 3)
 
+    def test_stored_input_routes_expose_metadata_and_clear_one_exact_slot(self) -> None:
+        handler = _handler()
+        request = _request(assistant_id="whatsapp", stored_input_id="whatsapp-token")
+        with mock.patch.object(
+            server.hosted_assistants,
+            "_assistant_stored_input_inventory",
+            return_value={"stored_inputs": []},
+        ):
+            handler._route_assistant_stored_input_list(request)
+        with mock.patch.object(
+            hosted_chat_api,
+            "_clear_assistant_stored_input",
+            return_value={"cleared": True},
+        ) as clear:
+            handler._route_assistant_stored_input_clear(request)
+
+        clear.assert_called_once_with(TEAM_ID, "whatsapp", "whatsapp-token", request.lease)
+        self.assertEqual(handler._send_json.call_count, 2)
+
     def test_team_observation_and_lifecycle_routes_delegate_exactly(self) -> None:
         handler = _handler()
         request = _request()
