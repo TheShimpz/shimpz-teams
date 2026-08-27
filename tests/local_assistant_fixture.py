@@ -90,6 +90,7 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "input_schema": dict(action.input_schema),
                     "output_schema": dict(action.output_schema),
                     "integrations": list(action.integrations),
+                    "stored_inputs": list(action.stored_inputs),
                     "human_requests": list(action.human_requests),
                 }
                 for action_id, action in sorted(actions.items())
@@ -114,6 +115,7 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
             name=local.name,
             actions=local.actions,
             integrations=local.integrations,
+            stored_inputs=local.stored_inputs,
             machine_contract=local.machine_contract,
         ),
     )

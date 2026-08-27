@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from assistant.spec import ActionSpec, IntegrationSpec, digest_is_bound
+from assistant.spec import ActionSpec, IntegrationSpec, StoredInputSpec, digest_is_bound
 
 _DIGEST_REF = re.compile(
     r"(?:[a-z0-9.-]+(?::[0-9]{1,5})?/)?"
@@ -24,6 +24,7 @@ class AssistantSpec:
     allowed_hosts: tuple[str, ...]
     required_image_labels: tuple[tuple[str, str], ...]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
+    stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
 
 

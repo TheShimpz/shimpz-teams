@@ -4,7 +4,7 @@
   "title": "Shimpz Action invocation v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["input", "integrations"],
+  "required": ["input", "integrations", "stored_inputs"],
   "properties": {
     "input": {
       "type": "object"
@@ -19,6 +19,18 @@
         "type": "string",
         "minLength": 1,
         "maxLength": 16384
+      }
+    },
+    "stored_inputs": {
+      "type": "object",
+      "maxProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 1024
       }
     },
     "responses": {

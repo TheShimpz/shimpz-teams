@@ -357,7 +357,9 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         cache = types.SimpleNamespace(
             get=admit,
         )
-        machine_cache = types.SimpleNamespace(get=lambda _container, _integrations, reviewed: reviewed)
+        machine_cache = types.SimpleNamespace(
+            get=lambda _container, _integrations, _stored_inputs, reviewed: reviewed
+        )
         with (
             mock.patch.multiple(
                 runtime_state,
@@ -659,6 +661,8 @@ class HostedDynamicAssistantResolutionTests(unittest.TestCase):
         action = resolution["machine_contract"]["actions"][0]
         action["input_schema"]["additionalProperties"] = False
         action["output_schema"]["additionalProperties"] = False
+        resolution["stored_inputs"] = []
+        action["stored_inputs"] = []
         action["human_requests"] = []
         return resolution
 

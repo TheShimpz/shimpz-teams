@@ -47,6 +47,31 @@ for filename in SCHEMAS:
     if schema.get("$id") != f"https://schemas.shimpz.com/assistant/v1/{filename}":
         fail(f"{filename} has an invalid canonical ID")
 
+manifest_schema = json.loads((HERE / "manifest.schema.json").read_bytes())
+stored_input = manifest_schema.get("$defs", {}).get("storedInput", {})
+if (
+    manifest_schema.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 8
+    or stored_input.get("additionalProperties") is not False
+    or stored_input.get("properties", {}).get("kind", {}).get("const") != "password"
+):
+    fail("Assistant Stored Input manifest contract is invalid")
+
+invocation = json.loads((HERE / "invocation.schema.json").read_bytes())
+if (
+    "stored_inputs" not in invocation.get("required", [])
+    or invocation.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 1
+):
+    fail("Assistant Stored Input invocation contract is invalid")
+
+result = json.loads((HERE / "result.schema.json").read_bytes())
+result_types = {
+    envelope.get("properties", {}).get("type", {}).get("const")
+    for envelope in result.get("oneOf", [])
+    if isinstance(envelope, dict)
+}
+if result_types != {"result", "request", "stored_input_rejected"}:
+    fail("Assistant Stored Input result contract is invalid")
+
 vectors = json.loads((HERE / "manifest-vectors.json").read_bytes())
 cases = vectors.get("cases") if isinstance(vectors, dict) else None
 if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
@@ -74,12 +99,15 @@ human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())
 declared_capabilities = machine["$defs"]["humanRequestCapability"].get("enum")
 human_requests = machine["$defs"]["action"]["properties"]["human_requests"]
+stored_inputs = machine["$defs"]["action"]["properties"].get("stored_inputs", {})
 authorization_capabilities = ["approval", "auth:password", "auth:totp", "auth:passkey"]
 if (
     not isinstance(declared_capabilities, list)
     or human_requests.get("contains", {}).get("enum") != authorization_capabilities
     or human_requests.get("minContains") != 0
     or human_requests.get("maxContains") != 1
+    or stored_inputs.get("maxItems") != 1
+    or "stored_inputs" not in machine["$defs"]["action"].get("required", [])
 ):
     fail("Assistant human-request vectors are invalid")
 try:

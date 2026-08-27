@@ -30,6 +30,7 @@ MAX_CATALOG_BYTES = MAX_CATALOG_ASSISTANTS * MAX_CONTRACT_BYTES + 64 * 1024
 MAX_ARCHIVE_BYTES = MAX_MANIFEST_BYTES + (32 * 1024)
 MAX_ALLOWED_HOSTS = 32
 MAX_INTEGRATIONS = 16
+MAX_STORED_INPUTS = 8
 MAX_IDENTIFIER_LENGTH = 80
 MAX_SECRET_ID_LENGTH = 64
 MAX_GENESIS_LENGTH = 65_536
@@ -98,12 +99,23 @@ class IntegrationDeclaration:
     scopes: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class StoredInputDeclaration:
+    """Public intent for one controller-custodied persistent Action input."""
+
+    id: str
+    kind: str
+    label: str
+    description: str
+
+
 @dataclass(frozen=True, slots=True)
 class ManifestContract:
     """Canonical security intent admitted from one immutable Assistant package."""
 
     allowed_hosts: tuple[str, ...]
     integrations: tuple[IntegrationDeclaration, ...]
+    stored_inputs: tuple[StoredInputDeclaration, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +127,7 @@ class ReviewedAssistant:
     summary: str
     allowed_hosts: tuple[str, ...]
     integrations: tuple[IntegrationDeclaration, ...]
+    stored_inputs: tuple[StoredInputDeclaration, ...]
     actions: dict[str, dict[str, Any]]
     action_validators: dict[str, dict[str, Draft202012Validator]]
     machine_contract: dict[str, Any]
@@ -189,10 +202,37 @@ def canonical_integration_declarations(value: object) -> tuple[IntegrationDeclar
     return tuple(sorted(declarations))
 
 
+def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDeclaration, ...]:
+    """Canonicalize bounded declarations without accepting credential values."""
+    if not isinstance(value, Mapping) or len(value) > MAX_STORED_INPUTS:
+        raise ManifestError("Assistant Stored Input declarations are invalid")
+    declarations: list[StoredInputDeclaration] = []
+    for stored_input_id, metadata in value.items():
+        identifier = _identifier(stored_input_id, kind="Stored Input", maximum=MAX_SECRET_ID_LENGTH)
+        if not isinstance(metadata, Mapping) or set(metadata) != {"kind", "label", "description"}:
+            raise ManifestError("Assistant Stored Input declaration is invalid")
+        if metadata["kind"] != "password":
+            raise ManifestError("Assistant Stored Input kind is invalid")
+        declarations.append(
+            StoredInputDeclaration(
+                id=identifier,
+                kind="password",
+                label=_public_text(metadata["label"], kind="Stored Input label", maximum=80),
+                description=_public_text(
+                    metadata["description"],
+                    kind="Stored Input description",
+                    maximum=500,
+                ),
+            )
+        )
+    return tuple(sorted(declarations))
+
+
 def canonical_manifest_contract(
     *,
     allowed_hosts: object,
     integration_declarations: object | None = None,
+    stored_input_declarations: object | None = None,
 ) -> ManifestContract:
     """Build one deterministic contract for package and reviewed registry comparison."""
     integrations = canonical_integration_declarations(
@@ -201,6 +241,9 @@ def canonical_manifest_contract(
     return ManifestContract(
         allowed_hosts=canonical_allowed_hosts(allowed_hosts),
         integrations=integrations,
+        stored_inputs=canonical_stored_input_declarations(
+            {} if stored_input_declarations is None else stored_input_declarations
+        ),
     )
 
 
@@ -215,13 +258,24 @@ def reviewed_manifest_contract(
     *,
     allowed_hosts: object,
     integrations: object | None = None,
+    stored_inputs: object | None = None,
 ) -> ManifestContract:
     """Normalize the controller-owned registry dataclasses without trusting package input."""
-    if not isinstance(integrations, Mapping):
+    if stored_inputs is None:
+        stored_inputs = {}
+    if not isinstance(integrations, Mapping) or not isinstance(stored_inputs, Mapping):
         raise ManifestError("Assistant reviewed manifest contract is invalid")
     try:
         integration_declarations = {
             integration_id: metadata.scopes for integration_id, metadata in integrations.items()
+        }
+        stored_input_declarations = {
+            stored_input_id: {
+                "kind": metadata.kind,
+                "label": metadata.label,
+                "description": metadata.description,
+            }
+            for stored_input_id, metadata in stored_inputs.items()
         }
         if any(integration_id != metadata.provider for integration_id, metadata in integrations.items()):
             raise ManifestError("Assistant reviewed integration provider does not match its id")
@@ -230,6 +284,7 @@ def reviewed_manifest_contract(
     return canonical_manifest_contract(
         allowed_hosts=allowed_hosts,
         integration_declarations=integration_declarations,
+        stored_input_declarations=stored_input_declarations,
     )
 
 
@@ -329,7 +384,9 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
 
 
 def canonical_machine_contract(
-    value: object, declared_integrations: tuple[IntegrationDeclaration, ...]
+    value: object,
+    declared_integrations: tuple[IntegrationDeclaration, ...],
+    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
 ) -> dict[str, Any]:
     """Validate and canonicalize an untrusted SDK-generated Action contract."""
     if not isinstance(value, dict) or set(value) != {"version", "actions"} or value["version"] != 1:
@@ -338,6 +395,7 @@ def canonical_machine_contract(
     if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 128:
         raise ManifestError("Assistant machine contract Actions are invalid")
     declared_ids = {integration.id for integration in declared_integrations}
+    declared_stored_input_ids = {stored_input.id for stored_input in declared_stored_inputs}
     used_integrations: set[str] = set()
     actions: list[dict[str, Any]] = []
     ids: set[str] = set()
@@ -347,6 +405,7 @@ def canonical_machine_contract(
             "input_schema",
             "output_schema",
             "integrations",
+            "stored_inputs",
             "human_requests",
         }:
             raise ManifestError("Assistant machine contract Action is invalid")
@@ -366,6 +425,18 @@ def canonical_machine_contract(
         ):
             raise ManifestError("Assistant machine contract Action integrations are invalid")
         used_integrations.update(integrations)
+        stored_inputs = raw_action["stored_inputs"]
+        if (
+            not isinstance(stored_inputs, list)
+            or len(stored_inputs) > 1
+            or len(stored_inputs) != len(set(stored_inputs))
+            or any(
+                not isinstance(stored_input_id, str)
+                or stored_input_id not in declared_stored_input_ids
+                for stored_input_id in stored_inputs
+            )
+        ):
+            raise ManifestError("Assistant machine contract Action Stored Inputs are invalid")
         human_requests = raw_action["human_requests"]
         if (
             not isinstance(human_requests, list)
@@ -375,12 +446,15 @@ def canonical_machine_contract(
             or sum(kind in AUTHORIZATION_REQUEST_KINDS for kind in human_requests) > 1
         ):
             raise ManifestError("Assistant machine contract Action human requests are invalid")
+        if stored_inputs and "input:password" not in human_requests:
+            raise ManifestError("Assistant machine contract Action Stored Input request is undeclared")
         actions.append(
             {
                 "id": action_id,
                 "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
                 "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
                 "integrations": sorted(integrations),
+                "stored_inputs": sorted(stored_inputs),
                 "human_requests": sorted(human_requests),
             }
         )
@@ -389,11 +463,16 @@ def canonical_machine_contract(
     return {"version": 1, "actions": sorted(actions, key=lambda action: action["id"])}
 
 
-def parse_machine_contract(raw: bytes, declared_integrations: tuple[IntegrationDeclaration, ...]) -> dict[str, Any]:
+def parse_machine_contract(
+    raw: bytes,
+    declared_integrations: tuple[IntegrationDeclaration, ...],
+    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
     return canonical_machine_contract(
         _strict_json(raw, maximum=MAX_CONTRACT_BYTES, kind="machine contract"),
         declared_integrations,
+        declared_stored_inputs,
     )
 
 
@@ -430,6 +509,7 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
             "summary",
             "allowed_hosts",
             "integrations",
+            "stored_inputs",
             "contract",
         }:
             raise ManifestError("Assistant reviewed catalog entry is invalid")
@@ -444,13 +524,18 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
                 raise ManifestError("Assistant reviewed catalog integration is invalid")
             integration_scopes[integration_id] = integration["scopes"]
         integrations = canonical_integration_declarations(integration_scopes)
-        machine_contract = canonical_machine_contract(metadata["contract"], integrations)
+        raw_stored_inputs = metadata["stored_inputs"]
+        if not isinstance(raw_stored_inputs, dict):
+            raise ManifestError("Assistant reviewed catalog Stored Inputs are invalid")
+        stored_inputs = canonical_stored_input_declarations(raw_stored_inputs)
+        machine_contract = canonical_machine_contract(metadata["contract"], integrations, stored_inputs)
         reviewed[assistant_id] = ReviewedAssistant(
             assistant_id=assistant_id,
             name=name,
             summary=summary,
             allowed_hosts=canonical_allowed_hosts(metadata["allowed_hosts"]),
             integrations=integrations,
+            stored_inputs=stored_inputs,
             actions={action["id"]: action for action in machine_contract["actions"]},
             action_validators={
                 action["id"]: {
@@ -475,7 +560,7 @@ def _reject_credential_material(value: object) -> None:
                 if not isinstance(key, str):
                     raise ManifestError("Assistant manifest contains an invalid key")
                 lowered = key.lower()
-                if any(
+                if path != ("stored_inputs",) and any(
                     marker in lowered
                     for marker in ("secret", "password", "token", "api_key", "private_key", "access_key", "env")
                 ):
@@ -501,7 +586,9 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
     except (RecursionError, tomllib.TOMLDecodeError) as exc:
         raise ManifestError("Assistant manifest is invalid TOML") from exc
     required_root = {"shimpz", "network"}
-    if not required_root <= set(manifest) or set(manifest) - (required_root | {"integrations"}):
+    if not required_root <= set(manifest) or set(manifest) - (
+        required_root | {"integrations", "stored_inputs"}
+    ):
         raise ManifestError("Assistant manifest contains an unsupported top-level field")
     metadata = manifest["shimpz"]
     network = manifest["network"]
@@ -560,9 +647,14 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
             raise ManifestError("Assistant integration declaration is invalid")
         integration_declarations[integration_id] = metadata["scopes"]
 
+    raw_stored_inputs = manifest.get("stored_inputs", {})
+    if not isinstance(raw_stored_inputs, dict):
+        raise ManifestError("Assistant Stored Input declarations are invalid")
+
     return canonical_manifest_contract(
         allowed_hosts=network["allowed_hosts"],
         integration_declarations=integration_declarations,
+        stored_input_declarations=raw_stored_inputs,
     )
 
 
@@ -662,6 +754,7 @@ def read_container_manifest_genesis(container) -> str:
 def read_container_machine_contract(
     container,
     declared_integrations: tuple[IntegrationDeclaration, ...],
+    declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
     raw = _read_container_file(
@@ -670,7 +763,7 @@ def read_container_machine_contract(
         name="shimpz.contract.json",
         maximum=MAX_CONTRACT_BYTES,
     )
-    return parse_machine_contract(raw, declared_integrations)
+    return parse_machine_contract(raw, declared_integrations, declared_stored_inputs)
 
 
 class ManifestContractCache:
@@ -728,6 +821,7 @@ class MachineContractCache:
         self,
         container,
         declared_integrations: tuple[IntegrationDeclaration, ...],
+        declared_stored_inputs: tuple[StoredInputDeclaration, ...],
         reviewed: object,
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
@@ -742,7 +836,11 @@ class MachineContractCache:
         with self._lock:
             declared = self._entries.get(container_id)
             if declared is None:
-                declared = read_container_machine_contract(container, declared_integrations)
+                declared = read_container_machine_contract(
+                    container,
+                    declared_integrations,
+                    declared_stored_inputs,
+                )
                 self._entries[container_id] = declared
                 while len(self._entries) > self._max_entries:
                     self._entries.popitem(last=False)

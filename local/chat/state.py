@@ -129,9 +129,15 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
             integrations=spec.integrations,
+            stored_inputs=spec.stored_inputs,
         )
         declared = self._assistant_allowed_hosts_cache.get(container, reviewed)
-        self._assistant_machine_contract_cache.get(container, declared.integrations, spec.machine_contract)
+        self._assistant_machine_contract_cache.get(
+            container,
+            declared.integrations,
+            declared.stored_inputs,
+            spec.machine_contract,
+        )
     except assistant_manifest.ManifestUnavailableError as exc:
         log.warning("Assistant manifest admission unavailable: %s", exc)
         raise ApiProblem(

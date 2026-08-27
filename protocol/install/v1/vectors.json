@@ -109,9 +109,13 @@
               "integrations": [
                 "cloudflare"
               ],
+              "stored_inputs": [
+                "whatsapp-token"
+              ],
               "human_requests": [
                 "approval",
-                "input:choice"
+                "input:choice",
+                "input:password"
               ]
             }
           ]
@@ -126,6 +130,14 @@
             "scopes": [
               "zone.read"
             ]
+          }
+        ],
+        "stored_inputs": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API."
           }
         ],
         "review_state": "pending",
@@ -657,6 +669,9 @@
             "integrations": [
               "cloudflare"
             ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
             "human_requests": [
               "approval",
               "auth:password"
@@ -701,6 +716,114 @@
             "provider": "cloudflare",
             "scopes": [
               "zone.read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_missing_stored_input_intent",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": []
+      }
+    },
+    {
+      "name": "resolve_duplicate_stored_input_intent",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API."
+          },
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API."
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_unknown_stored_input_reference",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "other-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_without_password_request",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_stored_input_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice"
             ]
           }
         ]

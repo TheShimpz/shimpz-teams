@@ -12,6 +12,11 @@
       "manifest": "[shimpz]\nspec = 1\nid = \"research-assistant\"\nversion = \"12.3.4\"\nname = \"Research Assistant\"\nsummary = \"Finds public research.\"\ncreators = [\"@shimpz\", \"@the-shimpz\"]\ngithub = \"https://github.com/TheShimpz/research-assistant\"\ngenesis = \"Search public sources.\\nReturn concise citations.\"\n\n[network]\nallowed_hosts = [\"api.example.org\", \"papers.example.net\"]\n"
     },
     {
+      "name": "stored_input",
+      "valid": true,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\n"
+    },
+    {
       "name": "legacy_root_fields",
       "valid": false,
       "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"
@@ -95,6 +100,16 @@
       "name": "unknown_integration_field",
       "valid": false,
       "manifest": "[shimpz]\nspec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\ngenesis = \"Produce a greeting.\"\n\n[network]\nallowed_hosts = []\n\n[integrations.github]\nscopes = [\"repo:read\"]\nundeclared = true\n"
+    },
+    {
+      "name": "unknown_stored_input_field",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nundeclared = true\n"
+    },
+    {
+      "name": "unsupported_stored_input_kind",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"text\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\n"
     }
   ]
 }

@@ -23,6 +23,8 @@ class DynamicAssistantRuntimeTests(unittest.TestCase):
         action = resolution["machine_contract"]["actions"][0]
         action["input_schema"]["additionalProperties"] = False
         action["output_schema"]["additionalProperties"] = False
+        resolution["stored_inputs"] = []
+        action["stored_inputs"] = []
         action["human_requests"] = []
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")

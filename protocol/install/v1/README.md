@@ -60,6 +60,11 @@ independent. An authentication ceremony both proves the named mechanism and
 authorizes the exact challenge, so it is never combined with `approval` for the
 same Action.
 
+Resolve also carries each reviewed Stored Input declaration and every Action's exact use list. Stored Inputs are
+token-like third-party credentials rather than OAuth Integrations. The declaration contains only id, closed
+`password` kind, label, and description; no value, configured status, or ciphertext crosses this boundary. Every
+Action references at most one declared id.
+
 ## Golden vectors
 
 `vectors.json` contains reusable fixtures and positive and negative cases for

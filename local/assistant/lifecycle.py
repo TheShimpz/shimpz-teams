@@ -372,10 +372,12 @@ def update_assistant(
     previous_contract = assistant_manifest.reviewed_manifest_contract(
         allowed_hosts=previous.allowed_hosts,
         integrations=previous.integrations,
+        stored_inputs=previous.stored_inputs,
     )
     successor_contract = assistant_manifest.reviewed_manifest_contract(
         allowed_hosts=successor.allowed_hosts,
         integrations=successor.integrations,
+        stored_inputs=successor.stored_inputs,
     )
     if not assistant_manifest.automatic_update_preserves_egress(previous_contract, successor_contract):
         raise ApiProblem(

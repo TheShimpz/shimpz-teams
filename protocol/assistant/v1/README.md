@@ -12,7 +12,9 @@ id after replacing underscores with hyphens. `lib/` and `tests/` are optional au
 The manifest is represented by `manifest.schema.json`. Identity, version, disclosure, and Genesis
 live under the required `[shimpz]` table. Exact outbound hosts live under the required `[network]`
 table. Optional provider requests remain peer `[integrations.<id>]` tables. Root-level metadata and
-unknown fields are rejected rather than accepted as compatibility syntax. The required `[shimpz].id`
+optional persistent Action inputs use peer `[stored_inputs.<id>]` tables with the closed `password` kind,
+bounded public label, and bounded public description. Unknown fields are rejected rather than accepted as
+compatibility syntax. The required `[shimpz].id`
 is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
@@ -29,18 +31,20 @@ Unknown fields and unsupported Spec versions fail closed.
 pre-build. `shimpz.contract.json` is build output and does not belong in an Assistant repository.
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
-capabilities declared by that Action. An undeclared capability never acquires a prompt channel.
+capabilities and Stored Input ids declared by that Action. An undeclared capability never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
-that Action ids are unique, paths match ids, Integrations are declared and used, every nested object schema
-is closed, and the canonical contract is at most 512 KiB.
+that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
+unique, every used Stored Input is declared, every nested object schema is closed, and the canonical contract is at
+most 512 KiB.
 
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-and, only during deterministic logical replay, at most eight Team-admitted human responses. The request is
+at most one exact Team-custodied Stored Input, and, only during deterministic logical replay, at most eight
+Team-admitted human responses. The request is
 passed over a private bounded stdin channel; tokens and responses never enter command-line arguments,
 environment variables, logs, generated artifacts, or the Brain.
 
@@ -50,6 +54,9 @@ A capability-declared request is `{"type":"request","request":{...}}`, with one 
 ordinal, canonical fingerprint, and bounded inert copy. Team accepts it only for the exact reviewed Action,
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
 response transcript. An Action failure returns no partial result or private diagnostic.
+The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
+declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value, and
+terminates the turn with a sanitized retry instruction; generic failure never clears a value.
 
 The fingerprint is lowercase SHA-256 over the request object before its `fingerprint` member is added. Its
 preimage is UTF-8 JSON with object keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted
@@ -58,8 +65,10 @@ request values are limited to strings, integers, booleans, null, arrays, and obj
 without a general numeric canonicalizer. `human-request-vectors.json` freezes representative preimages, digests,
 semantic request constraints, and replay transcript failures that JSON Schema cannot express alone.
 
-Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state;
-`password` input is memory-only, protected from result echo, and must be the final request. Authentication both
+Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
+ordinary `password` input is memory-only, protected from result echo, and must be the final request. A reviewed
+password request may name the one Stored Input declared by its Action: Team may satisfy it internally without an
+ordinal, or request it just in time and seal it only after a valid secret-free terminal result. Authentication both
 proves the named mechanism and authorizes the exact challenge whose copy the human submits. One logical Action may
 resolve at most one authorization request. A request after observing an Integration token is invalid. Denial,
 cancellation, expiry, unsupported authentication, transcript divergence, and undeclared capability all block the

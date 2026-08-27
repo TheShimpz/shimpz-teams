@@ -152,6 +152,7 @@ class LocalContractCase(unittest.TestCase):
             image=CURRENT_ASSISTANT_IMAGE,
             allowed_hosts=(),
             integrations={},
+            stored_inputs={},
         )
         controller.registry = TestPublicationRegistry({spec.assistant_id: spec})
         controller._wire_collaborators()

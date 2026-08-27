@@ -26,6 +26,7 @@ def _reviewed_catalog(assistant_id: str = "shimpz-cloudflare"):
                         "scopes": ["zone.read", "dns.read", "offline_access"],
                     }
                 },
+                "stored_inputs": {},
                 "contract": json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text(encoding="utf-8")),
             }
         },
@@ -114,6 +115,62 @@ class ContractContainer:
 
 
 class AssistantManifestTests(unittest.TestCase):
+    def test_manifest_admits_only_declarative_stored_input_metadata(self) -> None:
+        raw = manifest(
+            integrations=(
+                "[stored_inputs.whatsapp-token]\n"
+                'kind = "password"\n'
+                'label = "WhatsApp token"\n'
+                'description = "Token used to call the WhatsApp API."\n'
+            )
+        )
+
+        parsed = assistant_manifest.parse_manifest_contract(raw)
+
+        self.assertEqual(
+            parsed.stored_inputs,
+            (
+                assistant_manifest.StoredInputDeclaration(
+                    id="whatsapp-token",
+                    kind="password",
+                    label="WhatsApp token",
+                    description="Token used to call the WhatsApp API.",
+                ),
+            ),
+        )
+
+    def test_machine_contract_requires_password_capability_for_stored_input(self) -> None:
+        declarations = assistant_manifest.canonical_stored_input_declarations(
+            {
+                "whatsapp-token": {
+                    "kind": "password",
+                    "label": "WhatsApp token",
+                    "description": "Token used to call the WhatsApp API.",
+                }
+            }
+        )
+        contract = {
+            "version": 1,
+            "actions": [
+                {
+                    "id": "send-message",
+                    "input_schema": {"type": "object", "additionalProperties": False},
+                    "output_schema": {"type": "object", "additionalProperties": False},
+                    "integrations": [],
+                    "stored_inputs": ["whatsapp-token"],
+                    "human_requests": ["input:password"],
+                }
+            ],
+        }
+
+        self.assertEqual(
+            assistant_manifest.canonical_machine_contract(contract, (), declarations),
+            contract,
+        )
+        contract["actions"][0]["human_requests"] = []
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "request is undeclared"):
+            assistant_manifest.canonical_machine_contract(contract, (), declarations)
+
     def test_reads_the_sdk_baked_v1_manifest_path(self) -> None:
         self.assertEqual(assistant_manifest.MANIFEST_PATH, "/opt/shimpz/shimpz.toml")
 
@@ -356,7 +413,7 @@ class AssistantManifestTests(unittest.TestCase):
         )
         self.assertEqual(
             set(reviewed.machine_contract["actions"][0]),
-            {"id", "input_schema", "output_schema", "integrations", "human_requests"},
+            {"id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests"},
         )
 
         foreign = json.loads(raw)
@@ -458,7 +515,7 @@ class AssistantManifestTests(unittest.TestCase):
         cache = assistant_manifest.MachineContractCache()
 
         self.assertEqual(
-            cache.get(container, reviewed.integrations, reviewed.machine_contract),
+            cache.get(container, reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract),
             reviewed.machine_contract,
         )
         with mock.patch.object(
@@ -467,7 +524,7 @@ class AssistantManifestTests(unittest.TestCase):
             wraps=assistant_manifest.canonical_machine_contract,
         ) as canonicalize:
             self.assertEqual(
-                cache.get(container, reviewed.integrations, reviewed.machine_contract),
+                cache.get(container, reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract),
                 reviewed.machine_contract,
             )
         canonicalize.assert_not_called()
@@ -476,7 +533,7 @@ class AssistantManifestTests(unittest.TestCase):
         drifted = json.loads(raw)
         drifted["actions"][0]["id"] = "other"
         with self.assertRaises(assistant_manifest.ManifestError):
-            cache.get(container, reviewed.integrations, drifted)
+            cache.get(container, reviewed.integrations, reviewed.stored_inputs, drifted)
 
     def test_public_contract_helpers_reject_wrong_shapes_and_secret_like_text(self) -> None:
         with self.assertRaises(assistant_manifest.ManifestError):
@@ -725,9 +782,19 @@ class AssistantManifestTests(unittest.TestCase):
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         machine = assistant_manifest.MachineContractCache(max_entries=1)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
-            machine.get(object(), reviewed.integrations, reviewed.machine_contract)
-        machine.get(ContractContainer("first", raw), reviewed.integrations, reviewed.machine_contract)
-        machine.get(ContractContainer("second", raw), reviewed.integrations, reviewed.machine_contract)
+            machine.get(object(), reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract)
+        machine.get(
+            ContractContainer("first", raw),
+            reviewed.integrations,
+            reviewed.stored_inputs,
+            reviewed.machine_contract,
+        )
+        machine.get(
+            ContractContainer("second", raw),
+            reviewed.integrations,
+            reviewed.stored_inputs,
+            reviewed.machine_contract,
+        )
         self.assertEqual(tuple(machine._entries), ("second",))
         machine.discard(None)
 

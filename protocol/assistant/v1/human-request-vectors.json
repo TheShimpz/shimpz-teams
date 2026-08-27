@@ -56,6 +56,22 @@
           ]
         },
         "sha256": "7ec1cb29f5dc36de7e9cd9909fbcc114f1f4e308a39b0ab0df7b688096622e17"
+      },
+      {
+        "name": "stored_password",
+        "request": {
+          "kind": "input:password",
+          "ordinal": 0,
+          "title": "WhatsApp token",
+          "description": "Enter the token used by this WhatsApp Action.",
+          "label": "Token",
+          "required": true,
+          "placeholder": null,
+          "min_length": 1,
+          "max_length": 1024,
+          "stored_input": "whatsapp-token"
+        },
+        "sha256": "34f985f2cd7e31378eafa0822d7789a2ec80823c94003b083ea6460a859fe468"
       }
     ]
   },
@@ -95,6 +111,56 @@
         "placeholder": null,
         "min_length": 0,
         "max_length": 1025
+      }
+    },
+    {
+      "name": "valid_stored_password",
+      "valid": true,
+      "request": {
+        "kind": "input:password",
+        "ordinal": 0,
+        "title": "WhatsApp token",
+        "description": "Enter the token used by this WhatsApp Action.",
+        "label": "Token",
+        "required": true,
+        "placeholder": null,
+        "min_length": 1,
+        "max_length": 1024,
+        "stored_input": "whatsapp-token"
+      }
+    },
+    {
+      "name": "reject_invalid_stored_input_id",
+      "valid": false,
+      "error": "stored_input",
+      "request": {
+        "kind": "input:password",
+        "ordinal": 0,
+        "title": "WhatsApp token",
+        "description": "Enter the token used by this WhatsApp Action.",
+        "label": "Token",
+        "required": true,
+        "placeholder": null,
+        "min_length": 1,
+        "max_length": 1024,
+        "stored_input": "WhatsApp_Token"
+      }
+    },
+    {
+      "name": "reject_stored_input_on_text",
+      "valid": false,
+      "error": "request_shape",
+      "request": {
+        "kind": "input:text",
+        "ordinal": 0,
+        "title": "Name",
+        "description": "Enter a public name.",
+        "label": "Name",
+        "required": true,
+        "placeholder": null,
+        "min_length": 1,
+        "max_length": 80,
+        "stored_input": "whatsapp-token"
       }
     },
     {

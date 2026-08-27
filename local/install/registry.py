@@ -102,9 +102,20 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             )
             for integration in binding.resolution["integrations"]
         )
+        stored_input_declarations = assistant_manifest.canonical_stored_input_declarations(
+            {
+                stored_input["id"]: {
+                    "kind": stored_input["kind"],
+                    "label": stored_input["label"],
+                    "description": stored_input["description"],
+                }
+                for stored_input in binding.resolution["stored_inputs"]
+            }
+        )
         machine_contract = assistant_manifest.canonical_machine_contract(
             binding.resolution["machine_contract"],
             declarations,
+            stored_input_declarations,
         )
         if machine_contract != binding.resolution["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
@@ -115,9 +126,18 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             )
             for integration in declarations
         }
+        stored_inputs = {
+            stored_input.id: assistant_registry.StoredInputSpec(
+                kind=stored_input.kind,
+                label=stored_input.label,
+                description=stored_input.description,
+            )
+            for stored_input in stored_input_declarations
+        }
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=binding.resolution["allowed_hosts"],
             integrations=integrations,
+            stored_inputs=stored_inputs,
         )
         actions = {
             action["id"]: assistant_registry.ActionSpec(
@@ -125,6 +145,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
                 input_schema=action["input_schema"],
                 output_schema=action["output_schema"],
                 integrations=tuple(action["integrations"]),
+                stored_inputs=tuple(action["stored_inputs"]),
                 human_requests=tuple(action["human_requests"]),
             )
             for action in machine_contract["actions"]
@@ -142,6 +163,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
                 ("org.shimpz.source.digest", str(binding.resolution["source_digest"])),
             ),
             integrations=integrations,
+            stored_inputs=stored_inputs,
             machine_contract=machine_contract,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:

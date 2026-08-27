@@ -160,8 +160,12 @@ def _verify_cases(cases: object, kind: str) -> None:
 
 def _length_error(request: dict[str, object], limit: int) -> str | None:
     expected = BASE | {"label", "required", "placeholder", "min_length", "max_length"}
+    if request.get("kind") == "input:password" and "stored_input" in request:
+        expected.add("stored_input")
     if set(request) != expected or not _input_base_valid(request):
         return "request_shape"
+    if "stored_input" in request and not _identifier(request["stored_input"]):
+        return "stored_input"
     placeholder = request["placeholder"]
     if placeholder is not None and not _text(placeholder, 120):
         return "public_text"
@@ -243,3 +247,18 @@ def _option(value: object) -> bool:
 
 def _text(value: object, maximum: int) -> bool:
     return isinstance(value, str) and value == value.strip() and 0 < len(value) <= maximum and value.isprintable()
+
+
+def _identifier(value: object) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        return False
+    return (
+        value[0].isascii()
+        and value[0].islower()
+        and value[-1] != "-"
+        and "--" not in value
+        and all(
+            character.isascii() and (character.islower() or character.isdigit() or character == "-")
+            for character in value
+        )
+    )

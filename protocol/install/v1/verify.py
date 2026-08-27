@@ -138,6 +138,33 @@ def validate_resolve(value: dict[str, object]) -> None:
         raise ContractViolationError("resolve_integration_mismatch")
     if set(intent_ids) != required_ids:
         raise ContractViolationError("resolve_integration_mismatch")
+    stored_inputs = value.get("stored_inputs")
+    if not isinstance(stored_inputs, list):
+        return
+    stored_input_ids = [
+        stored_input.get("id")
+        for stored_input in stored_inputs
+        if isinstance(stored_input, dict) and isinstance(stored_input.get("id"), str)
+    ]
+    required_stored_input_ids = {
+        stored_input
+        for action in actions
+        if isinstance(action, dict) and isinstance(action.get("stored_inputs"), list)
+        for stored_input in action["stored_inputs"]
+        if isinstance(stored_input, str)
+    }
+    duplicate_stored_input = len(set(stored_input_ids)) != len(stored_input_ids)
+    if len(stored_input_ids) != len(stored_inputs) or duplicate_stored_input:
+        raise ContractViolationError("resolve_stored_input_mismatch")
+    if not required_stored_input_ids.issubset(stored_input_ids):
+        raise ContractViolationError("resolve_stored_input_mismatch")
+    if any(
+        action.get("stored_inputs")
+        and "input:password" not in action.get("human_requests", [])
+        for action in actions
+        if isinstance(action, dict)
+    ):
+        raise ContractViolationError("resolve_stored_input_mismatch")
 
 
 def validate_lifetime(

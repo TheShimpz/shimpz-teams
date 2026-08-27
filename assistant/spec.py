@@ -26,6 +26,7 @@ class ActionSpec:
     input_schema: Mapping[str, object]
     output_schema: Mapping[str, object]
     integrations: tuple[str, ...] = ()
+    stored_inputs: tuple[str, ...] = ()
     human_requests: tuple[str, ...] = ()
 
 
@@ -36,10 +37,18 @@ class IntegrationSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class StoredInputSpec:
+    kind: str
+    label: str
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class AssistantContract:
     name: str
     actions: dict[str, ActionSpec]
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
+    stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, Any] = field(default_factory=dict)
 
 

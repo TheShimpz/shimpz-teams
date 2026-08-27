@@ -219,6 +219,7 @@
         "input_schema",
         "output_schema",
         "integrations",
+        "stored_inputs",
         "human_requests"
       ],
       "properties": {
@@ -234,6 +235,14 @@
         "integrations": {
           "type": "array",
           "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/componentIdentifier"
+          }
+        },
+        "stored_inputs": {
+          "type": "array",
+          "maxItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/componentIdentifier"
@@ -448,6 +457,36 @@
         }
       }
     },
+    "storedInputIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "label",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/componentIdentifier"
+        },
+        "kind": {
+          "const": "password"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        }
+      }
+    },
     "artifactTrust": {
       "type": "object",
       "additionalProperties": false,
@@ -491,6 +530,7 @@
         "machine_contract",
         "allowed_hosts",
         "integrations",
+        "stored_inputs",
         "review_state",
         "blocked",
         "sbom_digest",
@@ -580,6 +620,13 @@
           "maxItems": 16,
           "items": {
             "$ref": "#/$defs/integrationIntent"
+          }
+        },
+        "stored_inputs": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/storedInputIntent"
           }
         },
         "review_state": {

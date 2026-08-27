@@ -547,7 +547,7 @@ class LocalLifecycleTests(LocalContractCase):
 
         controller.assistant_lifecycle._assistant_allowed_hosts_cache = SimpleNamespace(get=admit)
         controller.assistant_lifecycle._assistant_machine_contract_cache = SimpleNamespace(
-            get=lambda _container, _integrations, reviewed: reviewed
+            get=lambda _container, _integrations, _stored_inputs, reviewed: reviewed
         )
         spec = self._registry(CURRENT_ASSISTANT_IMAGE)["shimpz-cloudflare"]
 

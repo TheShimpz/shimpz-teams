@@ -64,11 +64,13 @@ def _require_assistant_allowed_hosts(
         reviewed = assistant_manifest.reviewed_manifest_contract(
             allowed_hosts=spec.allowed_hosts,
             integrations=spec.contract.integrations,
+            stored_inputs=spec.contract.stored_inputs,
         )
         declared = runtime_state._assistant_allowed_hosts_cache.get(container, reviewed)
         runtime_state._assistant_machine_contract_cache.get(
             container,
             declared.integrations,
+            declared.stored_inputs,
             spec.contract.machine_contract,
         )
     except assistant_manifest.ManifestError as exc:

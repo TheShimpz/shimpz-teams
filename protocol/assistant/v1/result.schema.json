@@ -20,9 +20,24 @@
         "type": { "const": "request" },
         "request": { "$ref": "#/$defs/humanRequest" }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "stored_input"],
+      "properties": {
+        "type": { "const": "stored_input_rejected" },
+        "stored_input": { "$ref": "#/$defs/identifier" }
+      }
     }
   ],
   "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+    },
     "publicText": {
       "type": "string",
       "minLength": 1,
@@ -182,6 +197,9 @@
               "type": "object",
               "properties": {
                 "kind": { "const": "input:password" },
+                "stored_input": {
+                  "$ref": "#/$defs/identifier"
+                },
                 "min_length": { "maximum": 1024 },
                 "max_length": { "maximum": 1024 }
               }

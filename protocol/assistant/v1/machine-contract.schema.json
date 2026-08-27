@@ -37,7 +37,7 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "input_schema", "output_schema", "integrations", "human_requests"],
+      "required": ["id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests"],
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
@@ -51,6 +51,14 @@
         "integrations": {
           "type": "array",
           "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/identifier"
+          }
+        },
+        "stored_inputs": {
+          "type": "array",
+          "maxItems": 1,
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/identifier"
