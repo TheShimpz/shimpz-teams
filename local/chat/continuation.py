@@ -16,7 +16,7 @@ from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 MAX_JSON_DEPTH = 16
 MAX_JSON_NODES = 4096
 MAX_INVOKED_ACTIONS = 512
@@ -42,6 +42,7 @@ class PendingLocalChat:
     provider: str
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +157,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "provider": pending.provider,
         "identity": identity,
         "transcripts": _transcripts_payload(pending.transcripts),
+        "requests_used": _requests_used(pending.requests_used),
     }
 
 
@@ -179,6 +181,12 @@ def _transcripts_payload(transcripts: tuple[action_human.ActionTranscript, ...])
             }
         )
     return payload
+
+
+def _requests_used(value: object) -> int:
+    if type(value) is not int or not 0 <= value <= action_human.MAX_REQUESTS_PER_TURN:
+        raise ContinuationCodecError("human request budget is malformed")
+    return value
 
 
 def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
@@ -427,6 +435,7 @@ def _pending(value: object) -> PendingLocalChat:
             "provider",
             "identity",
             "transcripts",
+            "requests_used",
         },
         "pending continuation",
     )
@@ -448,13 +457,18 @@ def _pending(value: object) -> PendingLocalChat:
     identity = _identity(raw["identity"])
     if identity[4].provider != provider:
         raise ContinuationCodecError("pending provider binding is malformed")
+    transcripts = _transcripts(raw["transcripts"])
+    requests_used = _requests_used(raw["requests_used"])
+    if sum(len(item.responses) for item in transcripts) > requests_used:
+        raise ContinuationCodecError("human request budget is malformed")
     return PendingLocalChat(
         continuation=_continuation(raw["continuation"]),
         assistant_ids=assistant_ids,
         file_ids=file_ids,
         provider=provider,
         identity=identity,
-        transcripts=_transcripts(raw["transcripts"]),
+        transcripts=transcripts,
+        requests_used=requests_used,
     )
 
 

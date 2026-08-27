@@ -30,6 +30,10 @@ def _pending(*, provider: str = "openai", identity: tuple[object, ...] = ("ident
     )
 
 
+def _action_private_inputs() -> local_app.action_execution.RpcPrivateInputs:
+    return local_app.action_execution.RpcPrivateInputs({}, {})
+
+
 def _challenge(payload: object) -> action_challenges.PendingHumanChallenge:
     return action_challenges.PendingHumanChallenge(
         id="challenge",
@@ -345,6 +349,7 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
 
     def test_action_invocation_rejects_generation_and_turn_drift(self) -> None:
         request = types.SimpleNamespace(
+            interrupt_id="interrupt",
             assistant_id="assistant",
             action="action",
             input={},
@@ -357,6 +362,8 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "different",
+                action_human.ActionTranscript(""),
+                _action_private_inputs(),
             )
         self.assertEqual(caught.exception.code, "team-context-changed")
 
@@ -368,6 +375,8 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
+                action_human.ActionTranscript(""),
+                _action_private_inputs(),
             )
 
         subject = self._invocation_subject()
@@ -384,6 +393,8 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
+                action_human.ActionTranscript(""),
+                _action_private_inputs(),
             ),
             "ok",
         )
@@ -403,6 +414,8 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
+                action_human.ActionTranscript(""),
+                _action_private_inputs(),
             )
 
         subject = self._invocation_subject()
@@ -414,6 +427,8 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
+                action_human.ActionTranscript(""),
+                _action_private_inputs(),
             )
 
     def test_problem_mapping_covers_every_closed_failure_family(self) -> None:

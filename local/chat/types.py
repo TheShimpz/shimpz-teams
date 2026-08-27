@@ -29,6 +29,7 @@ class ResponseRequest:
     file_ids: tuple[str, ...]
     provider: str
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
 
 
 def required_active_assistant(

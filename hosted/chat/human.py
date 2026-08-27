@@ -93,7 +93,7 @@ def _admit_response(
     decision: str,
     value: object | None,
     assurance: dict[str, str] | None,
-) -> tuple[action_human.ActionTranscript, ...] | None:
+) -> action_human.HumanResponseAdmission | None:
     if decision == "deny":
         if assurance is not None:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Action human response is invalid")
@@ -109,11 +109,12 @@ def _admit_response(
     elif assurance is not None:
         return None
     try:
-        transcripts = action_human.append_response(
+        admission = action_human.append_response(
             pending.transcripts,
             challenge.requirement.interrupt_id,
             request,
             response,
+            pending.requests_used,
         )
     except action_human.HumanRequestError as exc:
         raise runtime_state.ApiError(
@@ -121,7 +122,7 @@ def _admit_response(
             "Action human response does not match its request",
         ) from exc
     runtime_state._human_challenges.claim(team_id, challenge.id)
-    return transcripts
+    return admission
 
 
 def resume_chat_human(
@@ -136,8 +137,8 @@ def resume_chat_human(
     with exclusive_turn(team_id, lease) as (token, container):
         challenge = _pending_challenge(team_id, challenge_id)
         pending = _validate_pending_context(team_id, challenge, container, lease.owner)
-        transcripts = _admit_response(team_id, challenge, pending, decision, value, assurance)
-        if transcripts is None:
+        admission = _admit_response(team_id, challenge, pending, decision, value, assurance)
+        if admission is None:
             reason = "denied" if decision == "deny" else "authentication-failed"
             return hosted_chat_segment._terminal_hosted_human_failure(team_id, token, pending, reason)
         segment = hosted_chat_segment._run_hosted_chat_segment(
@@ -150,17 +151,21 @@ def resume_chat_human(
                 owner=lease.owner,
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
-                transcripts=transcripts,
+                transcripts=admission.transcripts,
+                requests_used=admission.requests_used,
             )
         )
         return hosted_chat_segment._hosted_segment_response(
-            team_id,
-            token,
-            segment,
-            pending.assistant_ids,
-            pending.file_ids,
-            pending.owner,
-            transcripts,
+            hosted_chat_segment.HostedSegmentResponseRequest(
+                team_id,
+                token,
+                segment,
+                pending.assistant_ids,
+                pending.file_ids,
+                pending.owner,
+                admission.transcripts,
+                admission.requests_used,
+            )
         )
 
 

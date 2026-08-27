@@ -89,6 +89,7 @@ class _PendingHostedChat:
     owner: str
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:

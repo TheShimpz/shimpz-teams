@@ -2,6 +2,7 @@
 
 from http import HTTPStatus
 
+from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -42,7 +43,11 @@ def _segment_response(
             file_ids=response.file_ids,
             provider=response.provider,
             identity=segment.identity,
-            transcripts=response.transcripts,
+            transcripts=action_human.retain_unfinished_transcripts(
+                response.transcripts,
+                suspension.continuation.seen_interrupts,
+            ),
+            requests_used=response.requests_used,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
@@ -198,6 +203,8 @@ def resume_chat_integrations(
                 token=token,
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
+                transcripts=pending.transcripts,
+                requests_used=pending.requests_used,
                 progress=progress or chat_progress.Reporter(),
             )
         )
@@ -210,5 +217,6 @@ def resume_chat_integrations(
                 pending.file_ids,
                 provider,
                 pending.transcripts,
+                pending.requests_used,
             )
         )

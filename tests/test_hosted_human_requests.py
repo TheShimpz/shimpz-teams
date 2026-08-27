@@ -88,12 +88,14 @@ class HostedHumanRequestTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_commit_chat_terminal", return_value=True),
         ):
             response = hosted_chat_segment._hosted_segment_response(
-                "team_1",
-                "turn-token",
-                segment,
-                ("shimpz-cloudflare",),
-                (),
-                "account_1",
+                hosted_chat_segment.HostedSegmentResponseRequest(
+                    "team_1",
+                    "turn-token",
+                    segment,
+                    ("shimpz-cloudflare",),
+                    (),
+                    "account_1",
+                )
             )
 
         self.assertEqual(response["status"], "human-required")
@@ -137,7 +139,8 @@ class HostedHumanRequestTests(unittest.TestCase):
             )
 
         self.assertIsNone(denied)
-        self.assertEqual(admitted[0].responses[0].value, True)
+        self.assertEqual(admitted.transcripts[0].responses[0].value, True)
+        self.assertEqual(admitted.requests_used, 1)
         self.assertIsNone(challenges.current("team_1"))
 
     def test_resume_replays_only_the_admitted_boolean_auth_result(self) -> None:
@@ -198,7 +201,9 @@ class HostedHumanRequestTests(unittest.TestCase):
         transcripts = run.call_args.args[0].transcripts
         self.assertEqual(transcripts[0].responses[0].value, True)
         self.assertNotEqual(transcripts[0].responses[0].value, "opaque-account-handle")
-        self.assertEqual(respond.call_args.args[-1], transcripts)
+        response_request = respond.call_args.args[0]
+        self.assertEqual(response_request.transcripts, transcripts)
+        self.assertEqual(response_request.requests_used, 1)
         self.assertEqual(result, {"reply": "done"})
 
     def test_lifecycle_change_cancels_challenge_and_purges_replayable_state(self) -> None:

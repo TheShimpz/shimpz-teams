@@ -135,6 +135,14 @@ class ActionTranscript:
         return submitted
 
 
+@dataclass(frozen=True, slots=True)
+class HumanResponseAdmission:
+    """Updated transcript state and its monotonic Team-turn request budget."""
+
+    transcripts: tuple[ActionTranscript, ...]
+    requests_used: int
+
+
 def transcript_for(
     transcripts: tuple[ActionTranscript, ...],
     interrupt_id: str,
@@ -151,15 +159,27 @@ def append_response(
     interrupt_id: str,
     request: HumanRequest,
     value: object,
-) -> tuple[ActionTranscript, ...]:
+    requests_used: int,
+) -> HumanResponseAdmission:
     """Append one response while enforcing the Team-wide turn budget."""
-    if sum(len(item.responses) for item in transcripts) >= MAX_REQUESTS_PER_TURN:
+    if type(requests_used) is not int or not 0 <= requests_used < MAX_REQUESTS_PER_TURN:
         raise HumanRequestError("Team turn exceeded its human request limit")
     current = transcript_for(transcripts, interrupt_id)
     updated = current.append(request, value)
     if current.responses:
-        return tuple(updated if item is current else item for item in transcripts)
-    return (*transcripts, updated)
+        admitted = tuple(updated if item is current else item for item in transcripts)
+    else:
+        admitted = (*transcripts, updated)
+    return HumanResponseAdmission(admitted, requests_used + 1)
+
+
+def retain_unfinished_transcripts(
+    transcripts: tuple[ActionTranscript, ...],
+    completed_interrupts: tuple[str, ...],
+) -> tuple[ActionTranscript, ...]:
+    """Drop memory-only responses after their exact Action interrupt completed."""
+    completed = set(completed_interrupts)
+    return tuple(transcript for transcript in transcripts if transcript.interrupt_id not in completed)
 
 
 def validate_request(

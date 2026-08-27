@@ -98,17 +98,18 @@ def _admit_human_response(
     pending: PendingLocalChat,
     decision: str,
     value: object | None,
-) -> tuple[action_human.ActionTranscript, ...] | None:
+) -> action_human.HumanResponseAdmission | None:
     if decision == "deny":
         self.human_challenges.claim(team_id, challenge.id)
         self._delete_chat_continuation(team_id, challenge.id)
         return None
     try:
-        transcripts = action_human.append_response(
+        admission = action_human.append_response(
             pending.transcripts,
             challenge.requirement.interrupt_id,
             challenge.requirement.request,
             value,
+            pending.requests_used,
         )
     except action_human.HumanRequestError as exc:
         raise ApiProblem(
@@ -118,7 +119,7 @@ def _admit_human_response(
         ) from exc
     self.human_challenges.claim(team_id, challenge.id)
     self._delete_chat_continuation(team_id, challenge.id)
-    return transcripts
+    return admission
 
 
 def resume_chat_human(
@@ -136,8 +137,8 @@ def resume_chat_human(
         with self._lock(team_id):
             challenge = _pending_challenge(self, team_id, challenge_id)
             pending = _validate_pending_context(self, team_id, provider, challenge)
-            transcripts = _admit_human_response(self, team_id, challenge, pending, decision, value)
-            if transcripts is None:
+            admission = _admit_human_response(self, team_id, challenge, pending, decision, value)
+            if admission is None:
                 return self._terminal_human_failure(team_id, token, pending, "denied")
         segment = self._run_chat_segment(
             SegmentRequest(
@@ -149,7 +150,8 @@ def resume_chat_human(
                 token=token,
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
-                transcripts=transcripts,
+                transcripts=admission.transcripts,
+                requests_used=admission.requests_used,
                 progress=progress or chat_progress.Reporter(),
             )
         )
@@ -161,6 +163,7 @@ def resume_chat_human(
                 pending.assistant_ids,
                 pending.file_ids,
                 provider,
-                transcripts,
+                admission.transcripts,
+                admission.requests_used,
             )
         )

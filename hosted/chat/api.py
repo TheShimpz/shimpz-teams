@@ -348,16 +348,20 @@ def _resume_chat_integrations(
                 continuation=pending.continuation,
                 expected_identity=pending.identity,
                 transcripts=pending.transcripts,
+                requests_used=pending.requests_used,
             )
         )
         return hosted_chat_segment._hosted_segment_response(
-            team_id,
-            token,
-            segment,
-            pending.assistant_ids,
-            pending.file_ids,
-            pending.owner,
-            pending.transcripts,
+            hosted_chat_segment.HostedSegmentResponseRequest(
+                team_id,
+                token,
+                segment,
+                pending.assistant_ids,
+                pending.file_ids,
+                pending.owner,
+                pending.transcripts,
+                pending.requests_used,
+            )
         )
 
 

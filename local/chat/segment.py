@@ -27,6 +27,7 @@ class SegmentRequest:
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
 
 

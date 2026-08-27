@@ -137,12 +137,14 @@ class HumanResponseTests(unittest.TestCase):
                 min_length=1,
                 max_length=8,
             )
-            transcripts = human.append_response(
+            admission = human.append_response(
                 transcripts,
                 interrupt,
                 current,
                 "value",
+                index,
             )
+            transcripts = admission.transcripts
 
         self.assertEqual(len(transcripts), 2)
         self.assertEqual(len(human.transcript_for(transcripts, "interrupt-1").responses), 8)
@@ -159,9 +161,16 @@ class HumanResponseTests(unittest.TestCase):
                     max_length=8,
                 ),
                 "value",
+                human.MAX_REQUESTS_PER_TURN,
             )
         with self.assertRaises(human.HumanRequestError):
             human.transcript_for((*transcripts, transcripts[0]), "interrupt-0")
+
+        self.assertEqual(admission.requests_used, human.MAX_REQUESTS_PER_TURN)
+        self.assertEqual(
+            human.retain_unfinished_transcripts(transcripts, ("interrupt-0",)),
+            (transcripts[1],),
+        )
 
     def test_request_admission_rejects_shape_capability_and_fingerprint_drift(self) -> None:
         with self.assertRaises(human.HumanRequestError):

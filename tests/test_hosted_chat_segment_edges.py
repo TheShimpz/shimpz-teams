@@ -247,7 +247,9 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             mock.patch.object(segment.chat_turn_engine, "dispatch", side_effect=lambda *_args: _args[2](object())),
             self.assertRaises(AssertionError),
         ):
-            segment._hosted_segment_response("team_1", "token", invalid_segment, (), (), "account_1")
+            segment._hosted_segment_response(
+                segment.HostedSegmentResponseRequest("team_1", "token", invalid_segment, (), (), "account_1")
+            )
 
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
         action = SimpleNamespace(summary="Action", input_schema={})
@@ -337,13 +339,17 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             mock.patch.object(state, "_commit_chat_terminal", return_value=False),
             self.assertRaises(state.ApiError),
         ):
-            segment._hosted_segment_response("team_1", "token", invalid_segment, (), (), "account_1")
+            segment._hosted_segment_response(
+                segment.HostedSegmentResponseRequest("team_1", "token", invalid_segment, (), (), "account_1")
+            )
 
         with (
             mock.patch.object(segment.chat_turn_engine, "dispatch", side_effect=ValueError("invalid")),
             self.assertRaises(state.ApiError),
         ):
-            segment._hosted_segment_response("team_1", "token", invalid_segment, (), (), "account_1")
+            segment._hosted_segment_response(
+                segment.HostedSegmentResponseRequest("team_1", "token", invalid_segment, (), (), "account_1")
+            )
 
 
 if __name__ == "__main__":

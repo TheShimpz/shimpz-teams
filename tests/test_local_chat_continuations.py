@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 TEAM = Path(__file__).resolve().parents[1]
@@ -120,6 +121,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                     (action_human.admit_response(action_human.validate_request(first, ("approval",)), True),),
                 ),
             ),
+            1,
         )
         requirement = (
             action_challenges.HumanRequirement(
@@ -171,6 +173,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                     ),
                 ),
             ),
+            1,
         )
 
         with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "secret"):
@@ -189,6 +192,31 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 ),
                 state,
             )
+
+    def test_restart_preserves_the_monotonic_human_request_budget(self) -> None:
+        requirement = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant",
+                "Demo Assistant",
+                ("publish",),
+                (("cloudflare", "cloudflare", ("dns.read",)),),
+            ),
+        )
+        state = replace(pending(), requests_used=action_human.MAX_REQUESTS_PER_TURN)
+        bindings, payload = local_chat_continuations.encode("integrations", requirement, state)
+        decoded = local_chat_continuations.decode(
+            local_chat_continuation_store.StoredContinuation(
+                "team_1",
+                "integrations",
+                "c" * 32,
+                1_300,
+                1,
+                bindings,
+                payload,
+            )
+        )
+
+        self.assertEqual(decoded.pending.requests_used, action_human.MAX_REQUESTS_PER_TURN)
 
     def test_rejects_release_binding_and_decrypted_shape_drift(self) -> None:
         requirement = (

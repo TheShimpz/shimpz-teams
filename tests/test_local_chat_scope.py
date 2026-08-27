@@ -71,6 +71,8 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen_container_id,
+                    local_app.action_human.ActionTranscript(""),
+                    local_app.action_execution.RpcPrivateInputs({}, {}),
                 )
                 try:
                     self.assertTrue(started.wait(timeout=1))
@@ -316,6 +318,8 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen.id,
+                    local_app.action_human.ActionTranscript(""),
+                    local_app.action_execution.RpcPrivateInputs({}, {}),
                 )
 
         self.assertEqual(lookups, [frozen.id, replacement.id])

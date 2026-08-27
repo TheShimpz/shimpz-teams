@@ -137,6 +137,7 @@ class HostedChatSegmentRequest:
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
 
 
 @dataclass(slots=True)
@@ -570,25 +571,37 @@ def _pause_hosted_human(
     return _hosted_human_challenge_payload(challenge)
 
 
-def _hosted_segment_response(
-    team_id: str,
-    token: str,
-    segment: chat_turn_engine.SegmentResult,
-    assistant_ids: tuple[str, ...],
-    file_ids: tuple[str, ...],
-    owner: str,
-    transcripts: tuple[action_human.ActionTranscript, ...] = (),
-) -> dict[str, object]:
+@dataclass(frozen=True, slots=True)
+class HostedSegmentResponseRequest:
+    team_id: str
+    token: str
+    segment: chat_turn_engine.SegmentResult
+    assistant_ids: tuple[str, ...]
+    file_ids: tuple[str, ...]
+    owner: str
+    transcripts: tuple[action_human.ActionTranscript, ...] = ()
+    requests_used: int = 0
+
+
+def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str, object]:
+    team_id = request.team_id
+    token = request.token
+    segment = request.segment
+
     def pending(suspension: object) -> hosted_assistants._PendingHostedChat:
         if not isinstance(suspension, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension):
             raise AssertionError("invalid hosted chat suspension")
         return hosted_assistants._PendingHostedChat(
             continuation=suspension.continuation,
-            assistant_ids=assistant_ids,
-            file_ids=file_ids,
-            owner=owner,
+            assistant_ids=request.assistant_ids,
+            file_ids=request.file_ids,
+            owner=request.owner,
             identity=segment.identity,
-            transcripts=transcripts,
+            transcripts=action_human.retain_unfinished_transcripts(
+                request.transcripts,
+                suspension.continuation.seen_interrupts,
+            ),
+            requests_used=request.requests_used,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
@@ -644,10 +657,12 @@ def _chat_in_turn(
         )
     )
     return _hosted_segment_response(
-        team_id,
-        token,
-        segment,
-        assistant_ids,
-        tuple(file_ids) if isinstance(file_ids, list) else (),
-        owner,
+        HostedSegmentResponseRequest(
+            team_id,
+            token,
+            segment,
+            assistant_ids,
+            tuple(file_ids) if isinstance(file_ids, list) else (),
+            owner,
+        )
     )
