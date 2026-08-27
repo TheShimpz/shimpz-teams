@@ -1,4 +1,4 @@
-"""Shared fail-closed plumbing for encrypted controller-owned state."""
+"""Shared fail-closed plumbing for encrypted Team-owned state."""
 
 from __future__ import annotations
 
