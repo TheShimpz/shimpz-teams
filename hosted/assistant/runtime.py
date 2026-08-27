@@ -607,6 +607,15 @@ def _project_hosted_action_result(
             ),
         )
     except action_execution.StoredInputRejectedError as exc:
+        audit.log(
+            "assistant_action",
+            request.team_id,
+            result="error",
+            assistant=request.assistant_id,
+            action=action,
+            stored_input=exc.stored_input,
+            reason="stored-input-rejected",
+        )
         try:
             runtime_state._assistant_stored_inputs.delete(request.team_id, request.assistant_id, exc.stored_input)
         except action_stored_input.StoredInputStoreError as store_error:

@@ -408,6 +408,30 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                     assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
             self.assertIn(expected_message, caught.exception.message)
 
+        with (
+            mock.patch.object(assistants, "_assistant_rpc", return_value={}),
+            mock.patch.object(
+                assistants.action_execution,
+                "project_rpc_result",
+                side_effect=assistants.action_execution.StoredInputRejectedError("whatsapp-token"),
+            ),
+            mock.patch.object(state._assistant_stored_inputs, "delete", return_value=True) as delete,
+            mock.patch.object(assistants.audit, "log") as audit,
+            self.assertRaises(state.ApiError) as rejected,
+        ):
+            assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
+        self.assertEqual(rejected.exception.status, HTTPStatus.CONFLICT)
+        audit.assert_any_call(
+            "assistant_action",
+            TEAM_ID,
+            result="error",
+            assistant=ASSISTANT_ID,
+            action=ACTION_ID,
+            stored_input="whatsapp-token",
+            reason="stored-input-rejected",
+        )
+        delete.assert_called_once_with(TEAM_ID, ASSISTANT_ID, "whatsapp-token")
+
         response = assistants.action_human.HumanResponse(
             kind="input:text",
             ordinal=0,

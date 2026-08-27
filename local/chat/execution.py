@@ -15,6 +15,7 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import flow as integration_flow
 from integrations import store as integration_store
+from local import audit as local_audit
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
@@ -76,8 +77,16 @@ def clear_rejected_stored_input(
     store: action_stored_input.StoredInputStore,
     team_id: str,
     assistant_id: str,
+    action_id: str,
     stored_input_id: str,
 ) -> NoReturn:
+    local_audit.record_request(
+        "assistant-action",
+        result="error",
+        team_id=team_id,
+        assistant=assistant_id,
+        detail=f"stored-input-rejected:{action_id}:{stored_input_id}",
+    )
     try:
         store.delete(team_id, assistant_id, stored_input_id)
     except action_stored_input.StoredInputStoreError as exc:

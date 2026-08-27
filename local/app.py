@@ -873,6 +873,7 @@ class LocalController:
                 self.assistant_stored_inputs,
                 team_id,
                 assistant_id,
+                action,
                 exc.stored_input,
             )
         except action_execution.RpcSecretExposureError:

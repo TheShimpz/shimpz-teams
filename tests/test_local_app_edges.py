@@ -438,7 +438,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             )
             with (
                 mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
-                mock.patch.object(local_app.local_audit, "record_request"),
+                mock.patch.object(local_app.local_audit, "record_request") as audit,
             ):
                 controller.invoke("team_1", "assistant", "action", {}, evidence)
                 controller.invoke("team_1", "assistant", "action", {})
@@ -448,6 +448,14 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 }
                 with self.assertRaises(local_app.ApiProblem) as rejected:
                     controller.invoke("team_1", "assistant", "action", {})
+
+            audit.assert_any_call(
+                "assistant-action",
+                result="error",
+                team_id="team_1",
+                assistant="assistant",
+                detail="stored-input-rejected:action:whatsapp-token",
+            )
 
             self.assertEqual(rejected.exception.code, "assistant-stored-input-rejected")
             with self.assertRaises(local_app.action_stored_input.StoredInputMissingError):
