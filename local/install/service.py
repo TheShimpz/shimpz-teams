@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
@@ -79,10 +81,29 @@ def _resolved_publication(self, assistant_id: str, source_digest: str) -> dict[s
     resolution = self.developers.resolve(source_digest)
     if resolution["assistant_id"] != assistant_id:
         raise developers.PublicationNotInstallableError("publication does not match the requested Assistant")
-    icon = self.developers.icon(source_digest, resolution["icon_digest"])
+    icon = _verify_publication_assets(self, source_digest, resolution)
     self.assistant_icons.put(resolution, icon)
-    self.artifact_trust.verify(resolution)
     return resolution
+
+
+def _verify_publication_assets(self, source_digest: str, resolution: dict[str, object]) -> bytes:
+    icon_context = copy_context()
+    trust_context = copy_context()
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="assistant-publication") as executor:
+        icon_future = executor.submit(
+            icon_context.run,
+            self.developers.icon,
+            source_digest,
+            resolution["icon_digest"],
+        )
+        trust_future = executor.submit(trust_context.run, self.artifact_trust.verify, resolution)
+    trust_error = trust_future.exception()
+    icon_error = icon_future.exception()
+    if trust_error is not None:
+        raise trust_error
+    if icon_error is not None:
+        raise icon_error
+    return icon_future.result()
 
 
 def _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution):

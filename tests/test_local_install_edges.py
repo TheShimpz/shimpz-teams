@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import tempfile
+import threading
 import types
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ from unittest import mock
 
 from install import artifact_trust, bindings, icons
 from install.bindings import DynamicAssistantStore
+from local import audit as local_audit
 from local.errors import ApiProblemError
 from local.install import developers
 from local.install import registry as publication_registry
@@ -245,6 +247,75 @@ class LocalInstallEdgeTests(unittest.TestCase):
         controller.assistant_icons.discard_unreferenced.side_effect = icons.AssistantIconError("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "icon storage is unavailable"):
             install_service._discard_icon(controller, f"sha256:{'1' * 64}")
+
+    def test_publication_icon_and_trust_checks_overlap_with_request_authority(self) -> None:
+        barrier = threading.Barrier(2)
+        principal = local_audit.AuditPrincipal("a" * 32, "human")
+        observed: list[tuple[str, object]] = []
+
+        def icon(_source_digest, _icon_digest):
+            observed.append(("icon", local_audit._REQUEST_PRINCIPAL.get()))
+            barrier.wait(timeout=1)
+            return ICON
+
+        def verify(_resolution):
+            observed.append(("trust", local_audit._REQUEST_PRINCIPAL.get()))
+            barrier.wait(timeout=1)
+
+        controller = types.SimpleNamespace(
+            developers=types.SimpleNamespace(resolve=lambda _digest: RESOLUTION, icon=icon),
+            artifact_trust=types.SimpleNamespace(verify=verify),
+            assistant_icons=types.SimpleNamespace(put=mock.Mock()),
+        )
+        with local_audit.bind_request_principal(principal):
+            result = install_service._resolved_publication(
+                controller,
+                RESOLUTION["assistant_id"],
+                RESOLUTION["source_digest"],
+            )
+
+        self.assertEqual(result, RESOLUTION)
+        self.assertEqual({name for name, _authority in observed}, {"icon", "trust"})
+        self.assertTrue(all(authority is principal for _name, authority in observed))
+        controller.assistant_icons.put.assert_called_once_with(RESOLUTION, ICON)
+
+    def test_publication_trust_failure_wins_and_never_persists_the_icon(self) -> None:
+        for first in ("icon", "trust"):
+            completed = threading.Event()
+
+            def ordered_failure(name, error, *, expected_first=first, signal=completed):
+                if name == expected_first:
+                    signal.set()
+                elif not signal.wait(timeout=1):
+                    raise AssertionError("the first publication check did not finish")
+                raise error
+
+            controller = types.SimpleNamespace(
+                developers=types.SimpleNamespace(
+                    resolve=lambda _digest: RESOLUTION,
+                    icon=lambda *_args: ordered_failure(
+                        "icon",
+                        developers.DevelopersError("icon unavailable"),
+                    ),
+                ),
+                artifact_trust=types.SimpleNamespace(
+                    verify=lambda _resolution: ordered_failure(
+                        "trust",
+                        artifact_trust.ArtifactTrustError("untrusted"),
+                    )
+                ),
+                assistant_icons=types.SimpleNamespace(put=mock.Mock()),
+            )
+            with (
+                self.subTest(first=first),
+                self.assertRaisesRegex(artifact_trust.ArtifactTrustError, "untrusted"),
+            ):
+                install_service._resolved_publication(
+                    controller,
+                    RESOLUTION["assistant_id"],
+                    RESOLUTION["source_digest"],
+                )
+            controller.assistant_icons.put.assert_not_called()
 
 
 if __name__ == "__main__":
