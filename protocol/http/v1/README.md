@@ -2,7 +2,7 @@
 
 Team owns the closed identifiers, payload projections, and WebSocket frame boundary used by Admin
 and Store. `payload.py` validates Team-facing HTTP values without trusting upstream fields.
-`websocket.py` validates the bounded `shimpz.chat.v6` frame primitives and redacts unsafe errors.
+`websocket.py` validates the bounded `shimpz.chat.v7` frame primitives and redacts unsafe errors.
 `progress.py` owns the closed metadata-only progress events and NDJSON terminal framing used by
 Local Team chat. An Action occurrence carries only its canonical reviewed Assistant and Action
 identifiers; it never carries arguments, results, prompts, model output, or free text. Progress is
@@ -12,7 +12,7 @@ authority or exposing execution payloads.
 Thread pools, queues, worker limits, and saturation behavior are deployable-owned runtime policy,
 not part of this wire protocol.
 
-`shimpz.chat.v6` retains the Local Admin's exact `human-response` client frame. It binds a `submit` or
+`shimpz.chat.v7` retains the Local Admin's exact `human-response` client frame. It binds a `submit` or
 `deny` decision to one opaque lowercase 32-hex challenge. Submitted values admit only `true`, one
 bounded string, or one bounded unique string list. The pending reviewed descriptor determines the
 actual request kind and tighter bounds; the Team revalidates it authoritatively. For Local
@@ -25,11 +25,15 @@ resumption after Account consumes it successfully. Handle issuance, freshness, b
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
 
-Local Admin may also emit the exact `assistant-install` lifecycle. A `proposed` event carries only
-bounded public display metadata and a socket-scoped proposal id; later `installing`, `installed`,
-`cancelled`, `expired`, or `failed` events correlate that proposal. The browser never sends the proposal
-id or a source digest. A later ordinary `chat` message is interpreted by Admin against the pending
-proposal before any installation is submitted to Team.
+Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
+Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
+with bounded public display identity, sorted Integration providers, and per-item `pending` status.
+Subsequent `installing` events preserve that identity while advancing a single sequential item through
+`installing` and `installed`; the terminal lifecycle state is `installed`, `failed`, or `stopped`. A failed
+event carries one bounded HTTP status and retains already-installed items without rollback. The browser
+never sends the plan id, Assistant ids, publication digest, or objective back to Admin. After every item
+is freshly proved running, Admin sends the original task exactly once with the admitted scope union.
+Socket loss drops the unstarted plan and task; reconnect never replays them.
 
 Local Admin may also emit the exact `assistant-uninstall` lifecycle. Its `proposed` event carries only
 Team-derived bounded display identity and the installed semantic version; later `uninstalling`,

@@ -1,4 +1,4 @@
-"""Vendored, dependency-free primitives shared by both shimpz.chat.v6 surfaces."""
+"""Vendored, dependency-free primitives shared by both shimpz.chat.v7 surfaces."""
 
 from __future__ import annotations
 
