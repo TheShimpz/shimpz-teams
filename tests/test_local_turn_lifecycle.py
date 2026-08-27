@@ -80,7 +80,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 invocations.append(args)
                 if len(invocations) == 1:
                     raise action_human.HumanRequestSuspensionError(admitted)
-                self.assertEqual(args[4], (action_human.admit_response(admitted, True).payload(),))
+                self.assertEqual(
+                    args[4].transcript.payloads(),
+                    (action_human.admit_response(admitted, True).payload(),),
+                )
                 return {"result": LOOKUP_RESULT}
 
             controller.assistant_lifecycle.invoke = invoke
@@ -771,7 +774,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             invoked: list[tuple[str, str, object]] = []
-            controller.invoke = lambda team_id, assistant, action, payload: (
+            controller.invoke = lambda team_id, assistant, action, payload, _evidence: (
                 invoked.append((team_id, assistant, payload))
                 or {"assistant": assistant, "action": action, "result": LOOKUP_RESULT}
             )
@@ -811,7 +814,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             invocations: list[object] = []
-            controller.invoke = lambda _team_id, assistant, action, payload: (
+            controller.invoke = lambda _team_id, assistant, action, payload, _evidence: (
                 invocations.append(payload) or {"assistant": assistant, "action": action, "result": LOOKUP_RESULT}
             )
             controller.assistant_lifecycle.invoke = controller.invoke

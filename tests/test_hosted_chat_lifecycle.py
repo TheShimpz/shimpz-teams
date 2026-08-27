@@ -486,8 +486,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
             summary="Read current weather.",
             input_schema={"type": "object"},
         )
-        place_contract = types.SimpleNamespace(name="Places", actions={"search": place_action})
-        weather_contract = types.SimpleNamespace(name="Weather", actions={"current": weather_action})
+        place_contract = types.SimpleNamespace(name="Places", actions={"search": place_action}, stored_inputs={})
+        weather_contract = types.SimpleNamespace(name="Weather", actions={"current": weather_action}, stored_inputs={})
         place_container = types.SimpleNamespace(
             id="places-container",
             attrs={"Config": {"Image": "example.invalid/places@sha256:" + "1" * 64}},

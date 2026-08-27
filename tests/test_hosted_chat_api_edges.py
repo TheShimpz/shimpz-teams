@@ -311,7 +311,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(segment, "_hosted_segment_response", return_value={"reply": "done"}) as respond,
         ):
             self.assertEqual(api._resume_chat_integrations("team_1", "challenge", self.lease()), {"reply": "done"})
-        self.assertIs(respond.call_args.args[2], resumed_segment)
+        self.assertIs(respond.call_args.args[0].segment, resumed_segment)
 
         with mock.patch.object(api.hosted_chat_human, "resume_chat_human", return_value={"reply": "human"}) as resume:
             self.assertEqual(api._resume_chat_human("team_1", {}, None, self.lease()), {"reply": "human"})
