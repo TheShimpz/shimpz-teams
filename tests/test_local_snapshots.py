@@ -6,13 +6,17 @@ import hashlib
 import io
 import json
 import tarfile
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 from docker.errors import DockerException
 
 from assistant import manifest as assistant_manifest
+from install.bindings import DynamicAssistantStore
+from local.install import registry as assistant_registry
 from local.install import snapshots, source_package
 from tests.test_assistant_manifest import manifest
 from tests.test_local_source_package import _packages
@@ -194,6 +198,45 @@ class LocalSnapshotTests(unittest.TestCase):
         for mutation in mutations:
             with self.subTest(fields=set(mutation)), self.assertRaises(snapshots.LocalSnapshotError):
                 snapshots.validate_record(mutation)
+
+    def test_registry_projects_local_runtime_and_replaces_only_local_bindings(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        with tempfile.TemporaryDirectory() as directory:
+            registry = assistant_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json",
+                    local_record_validator=snapshots.validate_record,
+                )
+            )
+            spec = registry.put_local("team_1", admitted.record)
+
+            self.assertEqual(spec.provenance, "local")
+            self.assertEqual(spec.image, IMAGE_ID)
+            self.assertEqual(tuple(spec.actions), ("ping",))
+            self.assertEqual(
+                spec.required_image_labels,
+                (
+                    (snapshots.LOCAL_STAGE_LABEL, snapshots.LOCAL_STAGE_VALUE),
+                    (snapshots.ASSISTANT_LABEL, "fixture-assistant"),
+                    (snapshots.SOURCE_LABEL, admitted.record["source_digest"]),
+                    (snapshots.VERSION_LABEL, "0.1.0"),
+                ),
+            )
+            current = registry.binding("team_1", "fixture-assistant")
+            self.assertIsNotNone(current)
+            replacement = {**admitted.record, "image_id": "sha256:" + ("c" * 64)}
+            candidate, candidate_spec = registry.local_replacement(
+                "team_1",
+                current.binding_digest,
+                replacement,
+            )
+            self.assertFalse(assistant_registry.is_successor(current, candidate))
+            self.assertEqual(candidate_spec.version, spec.version)
+            self.assertEqual(
+                registry.commit_local_replacement("team_1", current.binding_digest, replacement).image,
+                replacement["image_id"],
+            )
 
 
 if __name__ == "__main__":

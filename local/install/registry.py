@@ -1,10 +1,11 @@
-"""Team-scoped durable publication bindings for the Local profile."""
+"""Team-scoped durable Assistant bindings for the Local profile."""
 
 from __future__ import annotations
 
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from install import bindings
+from local.install import snapshots
 from local.install.runtime import AssistantSpec
 
 
@@ -12,17 +13,24 @@ def is_successor(
     current: bindings.DynamicAssistantBinding,
     candidate: bindings.DynamicAssistantBinding,
 ) -> bool:
-    if current.assistant_id != candidate.assistant_id:
+    if (
+        current.provenance != "published"
+        or candidate.provenance != "published"
+        or current.assistant_id != candidate.assistant_id
+    ):
         return False
     return _version(candidate.resolution) > _version(current.resolution)
 
 
-class PublicationRegistry:
+class AssistantRegistry:
     def __init__(self, store: bindings.DynamicAssistantStore) -> None:
         self._store = store
 
     def put(self, team_id: str, resolution: dict[str, object]) -> AssistantSpec:
         return _spec(self._store.put(team_id, resolution))
+
+    def put_local(self, team_id: str, record: dict[str, object]) -> AssistantSpec:
+        return _spec(self._store.put_local(team_id, record))
 
     def get(self, team_id: str, assistant_id: str) -> AssistantSpec | None:
         binding = self._store.get(team_id, assistant_id)
@@ -35,9 +43,9 @@ class PublicationRegistry:
         binding = self._store.get(team_id, assistant_id)
         if binding is None:
             return None
-        value = binding.resolution.get("assistant_version")
+        value = binding.document.get("assistant_version")
         if not isinstance(value, str):
-            raise bindings.DynamicAssistantError("publication has no valid Assistant version")
+            raise bindings.DynamicAssistantError("Assistant binding has no valid version")
         return _spec(binding), value
 
     def replacement(
@@ -50,6 +58,8 @@ class PublicationRegistry:
         current = self._store.get(team_id, binding.assistant_id)
         if current is None or current.binding_digest != expected_binding_digest:
             raise bindings.DynamicAssistantConflictError("the Assistant binding changed before replacement")
+        if current.provenance != "published":
+            raise bindings.DynamicAssistantConflictError("the Assistant binding provenance cannot be replaced")
         return binding, _spec(binding)
 
     def commit_replacement(
@@ -59,6 +69,28 @@ class PublicationRegistry:
         resolution: dict[str, object],
     ) -> AssistantSpec:
         return _spec(self._store.replace(team_id, expected_binding_digest, resolution))
+
+    def local_replacement(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        record: dict[str, object],
+    ) -> tuple[bindings.DynamicAssistantBinding, AssistantSpec]:
+        binding = bindings.binding_from_local_record(team_id, record, snapshots.validate_record)
+        current = self._store.get(team_id, binding.assistant_id)
+        if current is None or current.binding_digest != expected_binding_digest:
+            raise bindings.DynamicAssistantConflictError("the Assistant binding changed before replacement")
+        if current.provenance != "local":
+            raise bindings.DynamicAssistantConflictError("the Assistant binding provenance cannot be replaced")
+        return binding, _spec(binding)
+
+    def commit_local_replacement(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        record: dict[str, object],
+    ) -> AssistantSpec:
+        return _spec(self._store.replace_local(team_id, expected_binding_digest, record))
 
     @staticmethod
     def spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
@@ -93,6 +125,7 @@ class PublicationRegistry:
 
 
 def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
+    document = binding.document
     try:
         declarations = tuple(
             assistant_manifest.IntegrationDeclaration(
@@ -100,7 +133,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
                 provider=integration["provider"],
                 scopes=tuple(integration["scopes"]),
             )
-            for integration in binding.resolution["integrations"]
+            for integration in document["integrations"]
         )
         stored_input_declarations = assistant_manifest.canonical_stored_input_declarations(
             {
@@ -109,15 +142,15 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
                     "label": stored_input["label"],
                     "description": stored_input["description"],
                 }
-                for stored_input in binding.resolution["stored_inputs"]
+                for stored_input in document["stored_inputs"]
             }
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
-            binding.resolution["machine_contract"],
+            document["machine_contract"],
             declarations,
             stored_input_declarations,
         )
-        if machine_contract != binding.resolution["machine_contract"]:
+        if machine_contract != document["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
         integrations = {
             integration.id: assistant_registry.IntegrationSpec(
@@ -135,7 +168,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             for stored_input in stored_input_declarations
         }
         reviewed = assistant_manifest.reviewed_manifest_contract(
-            allowed_hosts=binding.resolution["allowed_hosts"],
+            allowed_hosts=document["allowed_hosts"],
             integrations=integrations,
             stored_inputs=stored_inputs,
         )
@@ -150,36 +183,57 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             )
             for action in machine_contract["actions"]
         }
+        image, required_labels = _runtime_identity(binding)
         return AssistantSpec(
             assistant_id=binding.assistant_id,
-            version=str(binding.resolution["assistant_version"]),
-            name=str(binding.resolution["name"]),
-            summary=str(binding.resolution["summary"]),
-            image=str(binding.resolution["image_reference"]),
+            version=str(document["assistant_version"]),
+            name=str(document["name"]),
+            summary=str(document["summary"]),
+            image=image,
             actions=actions,
             allowed_hosts=reviewed.allowed_hosts,
-            required_image_labels=(
-                ("org.shimpz.assistant.id", binding.assistant_id),
-                ("org.shimpz.source.digest", str(binding.resolution["source_digest"])),
-            ),
+            required_image_labels=required_labels,
             integrations=integrations,
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
+            provenance=binding.provenance,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
-        raise bindings.DynamicAssistantError("publication has no valid Assistant runtime contract") from exc
+        raise bindings.DynamicAssistantError("Assistant binding has no valid runtime contract") from exc
+
+
+def _runtime_identity(binding: bindings.DynamicAssistantBinding) -> tuple[str, tuple[tuple[str, str], ...]]:
+    document = binding.document
+    if binding.provenance == "published":
+        image = str(document["image_reference"])
+        labels = (
+            (snapshots.ASSISTANT_LABEL, binding.assistant_id),
+            (snapshots.SOURCE_LABEL, str(document["source_digest"])),
+        )
+    elif binding.provenance == "local":
+        snapshots.validate_record(document)
+        image = str(document["image_id"])
+        labels = (
+            (snapshots.LOCAL_STAGE_LABEL, snapshots.LOCAL_STAGE_VALUE),
+            (snapshots.ASSISTANT_LABEL, binding.assistant_id),
+            (snapshots.SOURCE_LABEL, str(document["source_digest"])),
+            (snapshots.VERSION_LABEL, str(document["assistant_version"])),
+        )
+    else:
+        raise bindings.DynamicAssistantError("Assistant binding provenance is invalid")
+    return image, labels
 
 
 def _version(resolution: dict[str, object]) -> tuple[int, int, int]:
     value = resolution.get("assistant_version")
     if not isinstance(value, str):
-        raise bindings.DynamicAssistantError("publication has no valid Assistant version")
+        raise bindings.DynamicAssistantError("Assistant binding has no valid version")
     try:
         major, minor, patch = value.split(".")
         return int(major), int(minor), int(patch)
     except (ValueError, TypeError) as exc:
-        raise bindings.DynamicAssistantError("publication has no valid Assistant version") from exc
+        raise bindings.DynamicAssistantError("Assistant binding has no valid version") from exc
 
 
 def _catalog_order(binding: bindings.DynamicAssistantBinding) -> tuple[tuple[int, int, int], str]:
-    return _version(binding.resolution), binding.binding_digest
+    return _version(binding.document), binding.binding_digest

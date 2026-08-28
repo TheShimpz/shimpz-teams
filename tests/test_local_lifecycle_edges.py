@@ -6,7 +6,7 @@ from http import HTTPStatus
 from unittest import mock
 
 from docker.errors import DockerException
-from local_controller_harness import LocalContractCase, TestPublicationRegistry
+from local_controller_harness import LocalContractCase, TestAssistantRegistry
 
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -28,12 +28,12 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
         container = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: "assistant"})
-        subject.registry = TestPublicationRegistry({})
+        subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._validate_destroy_containers(subject, [container], "team_1", object())
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        subject.registry = TestPublicationRegistry({"assistant": object()})
+        subject.registry = TestAssistantRegistry({"assistant": object()})
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._validate_destroy_containers(subject, [container], "team_1", None)
         self.assertEqual(caught.exception.code, "ownership-conflict")
@@ -66,14 +66,14 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             sweep_residues=mock.Mock(),
         )
         subject = types.SimpleNamespace(
-            registry=TestPublicationRegistry({}),
+            registry=TestAssistantRegistry({}),
             assistant_lifecycle=lifecycle,
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        subject.registry = TestPublicationRegistry({"assistant": object()})
+        subject.registry = TestAssistantRegistry({"assistant": object()})
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
@@ -88,7 +88,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
 
     def test_binding_only_assistants_are_removed_for_the_exact_team(self) -> None:
         own_spec = object()
-        registry = TestPublicationRegistry({"own": own_spec, "other": object()})
+        registry = TestAssistantRegistry({"own": own_spec, "other": object()})
         registry.identities = lambda: {("other_team", "other"), ("team_1", "own")}
         lifecycle = types.SimpleNamespace(
             _blocked_action_workloads=set(),
@@ -103,7 +103,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertIsNone(registry.get("team_1", "own"))
         self.assertIsNotNone(registry.get("other_team", "other"))
 
-        missing = TestPublicationRegistry({})
+        missing = TestAssistantRegistry({})
         missing.identities = lambda: {("team_1", "missing")}
         subject.registry = missing
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -202,7 +202,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         network = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: 7}})
-        subject.registry = TestPublicationRegistry({})
+        subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._reset_assistant_identities(subject, [], [network])
         self.assertEqual(caught.exception.code, "ownership-conflict")
@@ -239,7 +239,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 sweep_residues=lambda: events.append("residue-sweep"),
                 _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
             ),
-            registry=TestPublicationRegistry({}),
+            registry=TestAssistantRegistry({}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete=lambda _team_id: events.append("inference-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),

@@ -483,7 +483,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
             mock.patch.object(local_app.local_token_store, "ensure_token", return_value="token"),
             mock.patch.object(local_app.brain_runtime_token_store, "ensure"),
             mock.patch.object(local_app.docker, "from_env", return_value=client),
-            mock.patch.object(local_app, "PublicationRegistry", return_value=object()),
+            mock.patch.object(local_app, "AssistantRegistry", return_value=object()),
             mock.patch.object(local_app.bindings, "DynamicAssistantStore", return_value=object()),
             mock.patch.object(local_app.team_storage, "TeamStorage", return_value=object()),
             mock.patch.object(local_app.local_developers, "DevelopersClient", return_value=object()),

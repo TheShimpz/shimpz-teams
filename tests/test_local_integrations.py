@@ -15,7 +15,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
 from local_assistant_fixture import assistant_spec
-from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestPublicationRegistry
+from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
 
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
@@ -102,7 +102,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
     @staticmethod
     def _registry() -> dict[str, AssistantSpec]:
         image = "example.invalid/cloudflare@sha256:" + ("b" * 64)
-        return TestPublicationRegistry({"shimpz-cloudflare": assistant_spec(image)})
+        return TestAssistantRegistry({"shimpz-cloudflare": assistant_spec(image)})
 
     def test_controller_accepts_injected_integration_state(self) -> None:
         injected_store = SimpleNamespace()
@@ -113,7 +113,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 networks=SimpleNamespace(list=lambda **_kwargs: []),
             ),
             "local-space",
-            TestPublicationRegistry(),
+            TestAssistantRegistry(),
             SimpleNamespace(),
             local_app.LocalControllerDependencies(
                 inference_store=SimpleNamespace(),
@@ -254,7 +254,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     networks=SimpleNamespace(list=lambda **_kwargs: []),
                 ),
                 "local-space",
-                TestPublicationRegistry(),
+                TestAssistantRegistry(),
                 SimpleNamespace(),
                 local_app.LocalControllerDependencies(
                     inference_store=SimpleNamespace(),

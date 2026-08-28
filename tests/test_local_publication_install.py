@@ -19,7 +19,7 @@ from install.icons import AssistantIconStore
 from local import app as local_app
 from local.assistant import resources as local_resources
 from local.install.developers import DevelopersClient, DevelopersError, PublicationNotInstallableError
-from local.install.registry import PublicationRegistry
+from local.install.registry import AssistantRegistry
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
 ICON = b"canonical icon"
@@ -144,7 +144,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_registry_binds_publications_independently_per_team(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             first = registry.put("team_1", _runtime_resolution())
             second = registry.put("team_2", _runtime_resolution())
 
@@ -172,7 +172,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         binding = binding_from_resolution("team_1", resolution)
         store = mock.Mock()
         store.get.return_value = binding
-        registry = PublicationRegistry(store)
+        registry = AssistantRegistry(store)
 
         self.assertEqual(
             registry.get_versioned("team_1", binding.assistant_id),
@@ -186,8 +186,8 @@ class LocalPublicationInstallTests(unittest.TestCase):
         store.get.assert_called_once_with("team_1", binding.assistant_id)
 
         store.reset_mock()
-        store.get.return_value = SimpleNamespace(resolution={"assistant_version": 1})
-        with self.assertRaisesRegex(DynamicAssistantError, "valid Assistant version"):
+        store.get.return_value = SimpleNamespace(document={"assistant_version": 1})
+        with self.assertRaisesRegex(DynamicAssistantError, "valid version"):
             registry.get_versioned("team_1", binding.assistant_id)
         store.get.assert_called_once_with("team_1", binding.assistant_id)
 
@@ -202,7 +202,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             binding_from_resolution("team_1", older),
         )
 
-        catalog = PublicationRegistry(store).catalog()
+        catalog = AssistantRegistry(store).catalog()
 
         self.assertEqual(len(catalog), 1)
         self.assertEqual(catalog[0].version, "0.2.0")
@@ -215,7 +215,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.registry.put("team_1", current)
             controller.developers = mock.Mock()
             controller.developers.icon.return_value = ICON
@@ -252,7 +252,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.registry.put("team_1", resolution)
             controller.developers = mock.Mock()
             controller.developers.icon.return_value = ICON
@@ -279,7 +279,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
     def test_automatic_update_fence_rejects_a_removed_binding_before_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
             controller.developers.icon.return_value = ICON
             controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
@@ -297,7 +297,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
     def test_trusted_image_requires_the_bound_publication_labels(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             spec = registry.put("team_1", _runtime_resolution())
             image = SimpleNamespace(
                 attrs={
@@ -323,7 +323,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         events: list[str] = []
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
             controller.developers.icon.return_value = ICON
             controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
@@ -358,7 +358,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         changed["oci_digest"] = "sha256:" + ("0" * 64)
         with tempfile.TemporaryDirectory() as directory:
             controller = object.__new__(local_app.LocalController)
-            controller.registry = PublicationRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+            controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             controller.developers = mock.Mock()
             controller.developers.icon.return_value = ICON
             controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")

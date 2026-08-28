@@ -65,7 +65,7 @@ from local.install import automatic as local_automatic_updates
 from local.install import developers as local_developers
 from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
-from local.install.registry import PublicationRegistry
+from local.install.registry import AssistantRegistry
 from local.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
 from local.labels import (
     KIND_LABEL,
@@ -462,7 +462,7 @@ class LocalController:
         self,
         client: docker.DockerClient,
         space_id: str,
-        registry: PublicationRegistry,
+        registry: AssistantRegistry,
         storage: team_storage.TeamStorage,
         dependencies: LocalControllerDependencies | None = None,
     ) -> None:
@@ -934,7 +934,7 @@ def main() -> int:
         token = local_token_store.ensure_token()
         brain_runtime_token_store.ensure()
         client = docker.from_env(timeout=REQUEST_TIMEOUT_SECONDS)
-        registry = PublicationRegistry(
+        registry = AssistantRegistry(
             bindings.DynamicAssistantStore(
                 LOCAL_PUBLICATION_BINDINGS_PATH,
                 local_record_validator=local_snapshots.validate_record,

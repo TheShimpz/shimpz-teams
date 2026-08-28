@@ -32,7 +32,7 @@ OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 
 TEST_ASSISTANT_VERSION = "0.1.0"
 
 
-class TestPublicationRegistry(dict):
+class TestAssistantRegistry(dict):
     def get(self, team_id, assistant_id=None):
         return super().get(team_id if assistant_id is None else assistant_id)
 
@@ -55,7 +55,7 @@ class TestPublicationRegistry(dict):
 
 class LocalContractCase(unittest.TestCase):
     def _registry(self, image: str) -> dict[str, AssistantSpec]:
-        return TestPublicationRegistry({"shimpz-cloudflare": assistant_spec(image)})
+        return TestAssistantRegistry({"shimpz-cloudflare": assistant_spec(image)})
 
     def _chat_controller(
         self,
@@ -163,7 +163,7 @@ class LocalContractCase(unittest.TestCase):
             integrations={},
             stored_inputs={},
         )
-        controller.registry = TestPublicationRegistry({spec.assistant_id: spec})
+        controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)

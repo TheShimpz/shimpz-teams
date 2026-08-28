@@ -13,7 +13,7 @@ from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
-from local_controller_harness import LocalContractCase, TestPublicationRegistry
+from local_controller_harness import LocalContractCase, TestAssistantRegistry
 
 from assistant import spec as assistant_registry
 from inference import config as inference_config
@@ -190,7 +190,7 @@ class LocalContractTests(LocalContractCase):
             ),
             mock.patch.object(
                 local_app,
-                "PublicationRegistry",
+                "AssistantRegistry",
                 side_effect=lambda _store: events.append("registry") or SimpleNamespace(),
             ),
             mock.patch.object(
@@ -265,7 +265,7 @@ class LocalContractTests(LocalContractCase):
         controller = local_app.LocalController(
             client,
             "local-space",
-            TestPublicationRegistry(),
+            TestAssistantRegistry(),
             SimpleNamespace(),
             local_app.LocalControllerDependencies(
                 brain_runtime=SimpleNamespace(),

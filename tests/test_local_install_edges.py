@@ -85,12 +85,20 @@ class LocalInstallEdgeTests(unittest.TestCase):
             developers._resolution(200, b"[]")
 
     def test_publication_registry_rejects_conflicts_and_invalid_contracts(self) -> None:
-        current = types.SimpleNamespace(assistant_id="one", resolution={"assistant_version": "1.0.0"})
-        candidate = types.SimpleNamespace(assistant_id="two", resolution={"assistant_version": "2.0.0"})
+        current = types.SimpleNamespace(
+            assistant_id="one",
+            provenance="published",
+            resolution={"assistant_version": "1.0.0"},
+        )
+        candidate = types.SimpleNamespace(
+            assistant_id="two",
+            provenance="published",
+            resolution={"assistant_version": "2.0.0"},
+        )
         self.assertFalse(publication_registry.is_successor(current, candidate))
 
         with tempfile.TemporaryDirectory() as directory:
-            registry = publication_registry.PublicationRegistry(
+            registry = publication_registry.AssistantRegistry(
                 DynamicAssistantStore(Path(directory) / "bindings.json")
             )
             resolution = _runtime_resolution()
@@ -140,9 +148,9 @@ class LocalInstallEdgeTests(unittest.TestCase):
             ):
                 publication_registry._spec(binding)
 
-        with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid Assistant version"):
+        with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid version"):
             publication_registry._version({"assistant_version": 1})
-        with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid Assistant version"):
+        with self.assertRaisesRegex(bindings.DynamicAssistantError, "valid version"):
             publication_registry._version({"assistant_version": "invalid"})
 
     @staticmethod

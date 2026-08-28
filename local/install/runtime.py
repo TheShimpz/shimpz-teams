@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Literal
 
 from assistant.spec import ActionSpec, IntegrationSpec, StoredInputSpec, digest_is_bound
 
@@ -26,6 +27,7 @@ class AssistantSpec:
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
+    provenance: Literal["published", "local"] = "published"
 
 
 def is_digest_ref(value: object) -> bool:

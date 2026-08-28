@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from docker.errors import DockerException
-from local_controller_harness import TestPublicationRegistry
+from local_controller_harness import TestAssistantRegistry
 
 from local import app as local_app
 from local.assistant import egress as local_egress
@@ -95,7 +95,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
             assistant_id="shimpz-cloudflare",
             allowed_hosts=("api.open-meteo.com", "geocoding-api.open-meteo.com"),
         )
-        self.controller.registry = TestPublicationRegistry({self.spec.assistant_id: self.spec})
+        self.controller.registry = TestAssistantRegistry({self.spec.assistant_id: self.spec})
         self.controller._wire_collaborators()
         self.patches = (
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_DIR", self.policy_root),
@@ -533,13 +533,13 @@ class LocalAssistantEgressTests(unittest.TestCase):
 
         direct_spec = types.SimpleNamespace(assistant_id="direct", allowed_hosts=())
         direct = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: direct_spec.assistant_id})
-        lifecycle.registry = TestPublicationRegistry(
+        lifecycle.registry = TestAssistantRegistry(
             {direct_spec.assistant_id: direct_spec, self.spec.assistant_id: self.spec}
         )
         self.controller.client.containers.list.return_value = [direct, assistant]
         self.assertTrue(lifecycle._team_has_egress_assistant("team_1"))
 
-        lifecycle.registry = TestPublicationRegistry({})
+        lifecycle.registry = TestAssistantRegistry({})
         self.controller.client.containers.list.return_value = [assistant]
         with self.assertRaises(local_app.ApiProblem) as caught:
             lifecycle._team_has_egress_assistant("team_1")
