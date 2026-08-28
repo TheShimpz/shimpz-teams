@@ -33,7 +33,7 @@ ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
-COPY local/__init__.py local/app.py local/audit.py local/authority.py local/errors.py local/healthcheck.py \
+COPY local/__init__.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
     local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
 COPY local/install/__init__.py local/install/automatic.py local/install/developers.py local/install/registry.py \
     local/install/runtime.py local/install/service.py local/install/snapshots.py \

@@ -59,6 +59,7 @@ from local.chat import private as local_chat_private
 from local.chat import resume as local_chat_resume
 from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
+from local.composition import AssistantLifecycleDependencies, ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import automatic as local_automatic_updates
@@ -116,45 +117,6 @@ LOCAL_PUBLICATION_ICONS_PATH = Path("/var/lib/shimpz-local/publications/icons")
 LOCAL_ASSISTANT_UPDATES_PATH = Path("/var/lib/shimpz-local/publications/updates")
 LOCAL_ASSISTANT_RESIDUES_PATH = Path("/var/lib/shimpz-local/publications/residues")
 LOCAL_COSIGN_TRUST_ROOT = Path("/var/lib/shimpz-local/cosign")
-
-
-@dataclass(frozen=True)
-class AssistantLifecycleDependencies:
-    """Explicit external dependencies for Assistant lifecycle operations."""
-
-    client: object | None = None
-    space_id: str | None = None
-    registry: object | None = None
-    cpuset_cpus: str | None = None
-    lock_for: object | None = None
-    invoke: object | None = None
-    list_assistants: object | None = None
-    developers: object | None = None
-    artifact_trust: object | None = None
-    updates: object | None = None
-    residues: object | None = None
-    icons: object | None = None
-
-
-@dataclass(frozen=True)
-class ChatTurnDependencies:
-    """Explicit external dependencies for local chat-turn operations."""
-
-    space_id: str | None = None
-    registry: object | None = None
-    storage: object | None = None
-    inference_store: object | None = None
-    brain_runtime: object | None = None
-    action_state: object | None = None
-    assistant_integrations: object | None = None
-    assistant_stored_inputs: object | None = None
-    integration_challenges: object | None = None
-    human_challenges: object | None = None
-    oauth_pkce: object | None = None
-    oauth_service: object | None = None
-    chat_continuations: object | None = None
-    lock_for: object | None = None
-    raise_storage_problem: object | None = None
 
 
 class AssistantLifecycle:
