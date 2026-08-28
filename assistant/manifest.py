@@ -119,6 +119,16 @@ class ManifestContract:
 
 
 @dataclass(frozen=True, slots=True)
+class ManifestIdentity:
+    """Bounded Assistant identity and display metadata from one complete manifest."""
+
+    assistant_id: str
+    version: str
+    name: str
+    summary: str
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewedAssistant:
     """Controller-reviewed metadata and machine Action contract."""
 
@@ -658,6 +668,36 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     )
 
 
+def parse_manifest_identity(raw: bytes) -> ManifestIdentity:
+    """Parse identity only after the complete Spec v1 manifest passes admission."""
+    parse_manifest_contract(raw)
+    metadata = _manifest_table(raw)["shimpz"]
+    return canonical_manifest_identity(
+        assistant_id=metadata["id"],
+        version=metadata["version"],
+        name=metadata["name"],
+        summary=metadata["summary"],
+    )
+
+
+def canonical_manifest_identity(
+    *,
+    assistant_id: object,
+    version: object,
+    name: object,
+    summary: object,
+) -> ManifestIdentity:
+    """Canonicalize persisted identity fields without accepting publication attribution."""
+    if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
+        raise ManifestError("Assistant version is invalid")
+    return ManifestIdentity(
+        assistant_id=_identifier(assistant_id, kind="id", maximum=40),
+        version=version,
+        name=_public_text(name, kind="name", maximum=80),
+        summary=_public_text(summary, kind="summary", maximum=160),
+    )
+
+
 def parse_manifest_genesis(raw: bytes) -> str:
     """Read the canonical model guidance from one complete Spec v1 manifest."""
     manifest = _manifest_table(raw)
@@ -685,7 +725,7 @@ def _bounded_archive(chunks: Iterable[bytes], maximum: int = MAX_ARCHIVE_BYTES) 
     return bytes(archive)
 
 
-def _read_container_file(container, *, path: str, name: str, maximum: int) -> bytes:
+def read_container_file(container, *, path: str, name: str, maximum: int) -> bytes:
     """Read one fixed immutable regular file from a digest-bound root."""
     try:
         chunks, metadata = container.get_archive(path)
@@ -733,7 +773,7 @@ def _read_container_file(container, *, path: str, name: str, maximum: int) -> by
 
 
 def _read_container_manifest_bytes(container) -> bytes:
-    return _read_container_file(
+    return read_container_file(
         container,
         path=MANIFEST_PATH,
         name="shimpz.toml",
@@ -757,7 +797,7 @@ def read_container_machine_contract(
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
-    raw = _read_container_file(
+    raw = read_container_file(
         container,
         path=CONTRACT_PATH,
         name="shimpz.contract.json",
