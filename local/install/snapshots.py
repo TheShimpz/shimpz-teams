@@ -51,6 +51,10 @@ class LocalSnapshotError(bindings.DynamicAssistantError):
     """A staged Local Assistant image is unavailable or violates admission."""
 
 
+class LocalSnapshotUnavailableError(LocalSnapshotError):
+    """Docker could not complete a Local snapshot operation."""
+
+
 @dataclass(frozen=True, slots=True)
 class LocalSnapshotCandidate:
     assistant_id: str
@@ -74,7 +78,7 @@ def list_candidates(client) -> tuple[LocalSnapshotCandidate, ...]:
             filters={"label": [f"{LOCAL_STAGE_LABEL}={LOCAL_STAGE_VALUE}"]},
         )
     except DockerException as exc:
-        raise LocalSnapshotError("Docker cannot enumerate Local Assistant snapshots") from exc
+        raise LocalSnapshotUnavailableError("Docker cannot enumerate Local Assistant snapshots") from exc
     if not isinstance(images, list) or len(images) > MAX_CANDIDATES:
         raise LocalSnapshotError("the Local Assistant snapshot inventory is invalid or too large")
     platform = _daemon_platform(client)
@@ -144,7 +148,7 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
     try:
         image.reload()
     except DockerException as exc:
-        raise LocalSnapshotError("Docker cannot inspect a Local Assistant snapshot") from exc
+        raise LocalSnapshotUnavailableError("Docker cannot inspect a Local Assistant snapshot") from exc
     attrs = image.attrs
     labels = _labels(image)
     image_id = image.id
@@ -190,9 +194,9 @@ def _exact_image(client, image_id: str):
     try:
         image = client.images.get(image_id)
     except ImageNotFound as exc:
-        raise LocalSnapshotError("the Local Assistant snapshot is no longer available") from exc
+        raise LocalSnapshotUnavailableError("the Local Assistant snapshot is no longer available") from exc
     except DockerException as exc:
-        raise LocalSnapshotError("Docker cannot resolve the Local Assistant snapshot") from exc
+        raise LocalSnapshotUnavailableError("Docker cannot resolve the Local Assistant snapshot") from exc
     if image.id != image_id:
         raise LocalSnapshotError("Docker did not resolve the exact Local Assistant image id")
     return image
@@ -202,7 +206,7 @@ def _daemon_platform(client) -> str:
     try:
         info = client.info()
     except DockerException as exc:
-        raise LocalSnapshotError("Docker cannot report its Local Assistant platform") from exc
+        raise LocalSnapshotUnavailableError("Docker cannot report its Local Assistant platform") from exc
     architecture = info.get("Architecture") if isinstance(info, dict) else None
     try:
         return _PLATFORMS[architecture]
@@ -257,9 +261,12 @@ def _extract_files(client, image_id: str) -> dict[str, bytes]:
         failure = exc
     cleanup_failure = _remove_temporary_container(container)
     if cleanup_failure is not None:
-        raise LocalSnapshotError("the Local Assistant admission container could not be removed") from cleanup_failure
+        raise LocalSnapshotUnavailableError(
+            "the Local Assistant admission container could not be removed"
+        ) from cleanup_failure
     if failure is not None:
-        raise LocalSnapshotError("the Local Assistant files could not be admitted") from failure
+        error = LocalSnapshotUnavailableError if isinstance(failure, DockerException) else LocalSnapshotError
+        raise error("the Local Assistant files could not be admitted") from failure
     if extracted is None:
         raise LocalSnapshotError("the Local Assistant files could not be admitted")
     return extracted

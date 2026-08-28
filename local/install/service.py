@@ -9,9 +9,145 @@ from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
-from local.install import developers
+from local.install import developers, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
+
+
+def list_local_snapshots(self) -> dict[str, object]:
+    try:
+        candidates = snapshots.list_candidates(self.client)
+    except snapshots.LocalSnapshotUnavailableError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant snapshots are unavailable",
+            code="local-assistant-snapshots-unavailable",
+        ) from exc
+    except snapshots.LocalSnapshotError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Local Assistant snapshot inventory is invalid",
+            code="local-assistant-snapshots-invalid",
+        ) from exc
+    return {
+        "assistants": [
+            {
+                "assistant_id": candidate.assistant_id,
+                "assistant_version": candidate.version,
+                "image_id": candidate.image_id,
+                "platform": candidate.platform,
+                "created_at": candidate.created_at,
+                "provenance": "local",
+                "unpublished": True,
+            }
+            for candidate in candidates
+        ]
+    }
+
+
+def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, object]:
+    team_id = validate_team_id(team_id)
+    admitted = _admit_local_snapshot(self, image_id)
+    assistant_id = admitted.record["assistant_id"]
+    existing = self.registry.binding(team_id, assistant_id)
+    if existing is not None and existing.provenance != "local":
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Uninstall the published Assistant before installing a Local snapshot",
+            code="assistant-provenance-conflict",
+        )
+    candidate = bindings.binding_from_local_record(team_id, admitted.record, snapshots.validate_record)
+    try:
+        self.assistant_icons.put_local(admitted.record, admitted.icon)
+        result = _apply_local_snapshot(self, team_id, existing, admitted.record)
+    except ApiProblem as exc:
+        if existing is None and exc.code != "assistant-install-rollback-incomplete":
+            self.registry.delete(team_id, assistant_id)
+        _discard_local_icon(self, candidate)
+        raise
+    except bindings.DynamicAssistantError as exc:
+        if existing is None:
+            self.registry.delete(team_id, assistant_id)
+        _discard_local_icon(self, candidate)
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Local Assistant binding failed",
+            code="assistant-binding-conflict",
+        ) from exc
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
+        ) from exc
+    if existing is not None:
+        _discard_local_icon(self, existing)
+    return {
+        **result,
+        "provenance": "local",
+        "image_id": image_id,
+        "unpublished": True,
+    }
+
+
+def _admit_local_snapshot(self, image_id: str) -> snapshots.AdmittedLocalSnapshot:
+    try:
+        return snapshots.admit(self.client, image_id)
+    except snapshots.LocalSnapshotUnavailableError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant snapshot is unavailable",
+            code="local-assistant-snapshot-unavailable",
+        ) from exc
+    except snapshots.LocalSnapshotError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Local Assistant snapshot failed admission",
+            code="local-assistant-snapshot-invalid",
+        ) from exc
+
+
+def _apply_local_snapshot(
+    self,
+    team_id: str,
+    existing: bindings.DynamicAssistantBinding | None,
+    record: dict[str, object],
+) -> dict[str, object]:
+    assistant_id = str(record["assistant_id"])
+    if existing is None:
+        spec = self.registry.put_local(team_id, record)
+        return self.assistant_lifecycle.install_assistant(team_id, spec.assistant_id)
+    candidate, successor = self.registry.local_replacement(
+        team_id,
+        existing.binding_digest,
+        record,
+    )
+    if candidate == existing:
+        return self.assistant_lifecycle.install_assistant(team_id, assistant_id)
+    if existing.local_record["image_id"] == record["image_id"]:
+        raise bindings.DynamicAssistantConflictError("the Local Assistant replacement image id is unchanged")
+    previous = self.registry.get(team_id, assistant_id)
+    if previous is None:
+        raise bindings.DynamicAssistantConflictError("the Assistant binding changed before update")
+    return self.assistant_lifecycle.update_assistant(
+        team_id,
+        previous,
+        successor,
+        previous_binding=existing,
+        successor_document=record,
+        authorize_start=lambda: None,
+    )
+
+
+def _discard_local_icon(self, binding: bindings.DynamicAssistantBinding) -> None:
+    try:
+        self.assistant_icons.discard_binding(binding, self.registry.bindings())
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
+        ) from exc
 
 
 def install_publication(

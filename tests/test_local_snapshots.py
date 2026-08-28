@@ -15,10 +15,13 @@ from unittest import mock
 from docker.errors import DockerException
 
 from assistant import manifest as assistant_manifest
+from install import bindings
 from install.bindings import DynamicAssistantError, DynamicAssistantStore
+from install.icons import AssistantIconError, AssistantIconStore
 from install.update import AssistantUpdateStore
+from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
-from local.install import snapshots, source_package
+from local.install import service, snapshots, source_package
 from tests.test_assistant_manifest import manifest
 from tests.test_local_source_package import _packages
 
@@ -263,6 +266,132 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertEqual(updates.get("team_1", "fixture-assistant"), transaction)
             with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
                 AssistantUpdateStore(root / "updates").list()
+
+    def test_service_lists_only_public_candidate_fields(self) -> None:
+        client, _image_value, _container_value = _client()
+
+        result = service.list_local_snapshots(SimpleNamespace(client=client))
+
+        self.assertEqual(
+            result,
+            {
+                "assistants": [
+                    {
+                        "assistant_id": "fixture-assistant",
+                        "assistant_version": "0.1.0",
+                        "image_id": IMAGE_ID,
+                        "platform": "linux/amd64",
+                        "created_at": CREATED,
+                        "provenance": "local",
+                        "unpublished": True,
+                    }
+                ]
+            },
+        )
+        self.assertNotIn("source_digest", result["assistants"][0])
+
+    def test_service_installs_and_replaces_an_exact_local_snapshot(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        replacement_image = "sha256:" + ("c" * 64)
+        replacement = snapshots.AdmittedLocalSnapshot(
+            record={**admitted.record, "image_id": replacement_image},
+            icon=admitted.icon,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry = assistant_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    root / "bindings.json",
+                    local_record_validator=snapshots.validate_record,
+                )
+            )
+            icon_store = AssistantIconStore(root / "icons")
+            lifecycle = SimpleNamespace(
+                install_assistant=mock.Mock(
+                    return_value={"assistant": "fixture-assistant", "installed": True}
+                ),
+            )
+            controller = SimpleNamespace(
+                client=client,
+                registry=registry,
+                assistant_icons=icon_store,
+                assistant_lifecycle=lifecycle,
+            )
+
+            installed = service.install_local_snapshot(controller, "team_1", IMAGE_ID)
+
+            self.assertEqual(installed["image_id"], IMAGE_ID)
+            self.assertEqual(registry.binding("team_1", "fixture-assistant").provenance, "local")
+
+            def update_assistant(team_id, _previous, _successor, **options):
+                registry.commit_local_replacement(
+                    team_id,
+                    options["previous_binding"].binding_digest,
+                    options["successor_document"],
+                )
+                return {"assistant": "fixture-assistant", "installed": False, "updated": True}
+
+            lifecycle.update_assistant = mock.Mock(side_effect=update_assistant)
+            with mock.patch.object(service.snapshots, "admit", return_value=replacement):
+                updated = service.install_local_snapshot(controller, "team_1", replacement_image)
+
+            self.assertTrue(updated["updated"])
+            self.assertEqual(registry.get("team_1", "fixture-assistant").image, replacement_image)
+            with self.assertRaises(AssistantIconError):
+                icon_store.read_binding(
+                    bindings.binding_from_local_record(
+                        "team_1",
+                        admitted.record,
+                        snapshots.validate_record,
+                    )
+                )
+
+    def test_service_rolls_back_new_binding_and_maps_snapshot_availability(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry = assistant_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    root / "bindings.json",
+                    local_record_validator=snapshots.validate_record,
+                )
+            )
+            icon_store = AssistantIconStore(root / "icons")
+            controller = SimpleNamespace(
+                client=client,
+                registry=registry,
+                assistant_icons=icon_store,
+                assistant_lifecycle=SimpleNamespace(
+                    install_assistant=mock.Mock(
+                        side_effect=ApiProblemError(503, "failed", code="docker-start-failed")
+                    )
+                ),
+            )
+
+            with self.assertRaisesRegex(ApiProblemError, "failed"):
+                service.install_local_snapshot(controller, "team_1", IMAGE_ID)
+
+            self.assertIsNone(registry.binding("team_1", "fixture-assistant"))
+            candidate = bindings.binding_from_local_record(
+                "team_1",
+                admitted.record,
+                snapshots.validate_record,
+            )
+            with self.assertRaises(AssistantIconError):
+                icon_store.read_binding(candidate)
+
+        with (
+            mock.patch.object(
+                service.snapshots,
+                "admit",
+                side_effect=snapshots.LocalSnapshotUnavailableError("offline"),
+            ),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(SimpleNamespace(client=object()), "team_1", IMAGE_ID)
+        self.assertEqual(caught.exception.code, "local-assistant-snapshot-unavailable")
 
 
 if __name__ == "__main__":
