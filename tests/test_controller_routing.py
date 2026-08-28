@@ -82,6 +82,18 @@ class ControllerRoutingTests(unittest.TestCase):
                 "/v1/space/bootstrap",
                 "space-bootstrap-reset",
             ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "GET",
+                "/v1/local-assistants",
+                "local-assistant-list",
+            ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "POST",
+                "/v1/teams/team_1/assistants/local",
+                "local-assistant-install",
+            ),
         )
         for profile, method, path, operation in cases:
             with self.subTest(profile=profile, path=path):

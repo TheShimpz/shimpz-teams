@@ -42,6 +42,7 @@ _MACHINE_ONLY_OPERATIONS = frozenset({"health", "space-bootstrap-reset", "assist
 _JSON_BODY_LIMITS = {
     "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
+    "local-assistant-install": MAX_BODY_BYTES,
     "assistant-integration-authorize": MAX_BODY_BYTES,
     "assistant-integration-cancel": MAX_BODY_BYTES,
     "assistant-integration-complete": MAX_BODY_BYTES,
@@ -266,6 +267,16 @@ class Handler(BaseHTTPRequestHandler):
             )
         return body["assistant_id"], body["source_digest"]
 
+    def _local_install_body(self) -> str:
+        body = self._body()
+        if set(body) != {"image_id"} or not isinstance(body["image_id"], str):
+            raise ApiProblem(
+                HTTPStatus.UNPROCESSABLE_ENTITY,
+                "Local Assistant installation requires image_id",
+                code="invalid-body",
+            )
+        return body["image_id"]
+
     def _model_credential_headers(self) -> tuple[str, str]:
         return validate_model_credential_headers(
             self.headers.get_all("X-Shimpz-Model-Provider", failobj=[]),
@@ -368,6 +379,24 @@ class Handler(BaseHTTPRequestHandler):
             )
             return HTTPStatus.OK, result, "assistant-integration-complete", None, None
         return None
+
+    def _local_assistant_route(
+        self,
+        parts: list[str],
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        controller = self.server.controller
+        if self.command == "GET" and parts == ["v1", "local-assistants"]:
+            return HTTPStatus.OK, controller.list_local_snapshots(), "local-assistant-list", None, None
+        if (
+            self.command != "POST"
+            or len(parts) != 5
+            or parts[:2] != ["v1", "teams"]
+            or parts[3:] != ["assistants", "local"]
+        ):
+            return None
+        team_id = validate_team_id(parts[2])
+        result = controller.install_local_snapshot(team_id, self._local_install_body())
+        return HTTPStatus.OK, result, "local-assistant-install", team_id, str(result["assistant"])
 
     def _file_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         if len(parts) not in {4, 5} or parts[:2] != ["v1", "teams"] or parts[3] != "files":
@@ -765,6 +794,7 @@ class Handler(BaseHTTPRequestHandler):
             "chat": self._chat_route,
             "assistant-integration": self._assistant_integration_route,
             "assistant-stored-input": self._assistant_stored_input_route,
+            "local-assistant": self._local_assistant_route,
             "team": self._team_route,
         }.get(route.group)
         if grouped_resolver is not None:

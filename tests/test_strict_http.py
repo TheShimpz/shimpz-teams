@@ -209,6 +209,7 @@ class SharedStrictHttpTest(unittest.TestCase):
             "chat-stream": "chat",
             "assistant-integration-list": "assistant-integration",
             "assistant-stored-input-list": "assistant-stored-input",
+            "local-assistant-list": "local-assistant",
             "unknown": None,
         }
         for operation, group in expected.items():

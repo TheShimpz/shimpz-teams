@@ -150,6 +150,12 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         digest = "sha256:" + "a" * 64
         handler._body.return_value = {"assistant_id": "assistant", "source_digest": digest}
         self.assertEqual(handler._install_body(), ("assistant", digest))
+        for body in ({}, {"image_id": 1}, {"image_id": digest, "extra": True}):
+            handler._body.return_value = body
+            with self.subTest(body=body), self.assertRaises(ApiProblemError):
+                handler._local_install_body()
+        handler._body.return_value = {"image_id": digest}
+        self.assertEqual(handler._local_install_body(), digest)
 
         handler.path = "/v1//teams"
         with self.assertRaises(ApiProblemError) as caught:
@@ -199,6 +205,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         return SimpleNamespace(
             chat_turn_service=service,
             list_registry=mock.Mock(return_value={"assistants": []}),
+            list_local_snapshots=mock.Mock(return_value={"assistants": []}),
             reset_space=mock.Mock(return_value={"reset": True}),
             list_files=mock.Mock(return_value={"files": []}),
             put_file=mock.Mock(return_value={"file": {}}),
@@ -209,6 +216,9 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             destroy_team=mock.Mock(return_value={"deleted": True}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
             install_publication=mock.Mock(return_value={"installed": True}),
+            install_local_snapshot=mock.Mock(
+                return_value={"assistant": "assistant", "installed": True}
+            ),
             assistant_lifecycle=SimpleNamespace(uninstall_assistant=mock.Mock(return_value={"uninstalled": True})),
             invoke=mock.Mock(return_value={"result": "ok"}),
         )
@@ -217,6 +227,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         controller = self.controller()
         handler = self.handler(controller=controller)
         self.assertEqual(handler._fixed_route(["v1", "assistants"])[2], "registry-list")
+        self.assertEqual(handler._local_assistant_route(["v1", "local-assistants"])[2], "local-assistant-list")
         handler.command = "DELETE"
         self.assertIsNone(handler._fixed_route(["v1", "space", "unknown"]))
         with mock.patch.object(authority, "require_supervisor_absent"):
@@ -356,6 +367,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         controller = self.controller()
         handler = self.handler(controller=controller)
         handler._install_body = mock.Mock(return_value=("assistant", "sha256:" + "a" * 64))
+        handler._local_install_body = mock.Mock(return_value="sha256:" + "b" * 64)
         handler._body = mock.Mock(return_value={"input": "ok"})
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))
         cases = (
@@ -371,6 +383,13 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             with self.subTest(operation=operation):
                 result = handler._route([], self.route(operation, **params))
                 self.assertEqual(result[2], operation)
+
+        handler.command = "POST"
+        result = handler._route(
+            ["v1", "teams", "team_1", "assistants", "local"],
+            self.route("local-assistant-install", team_id="team_1"),
+        )
+        self.assertEqual(result[2], "local-assistant-install")
 
         exact_body = {"language_exemplar": "Quero listar minhas zonas DNS"}
         handler._body.return_value = exact_body

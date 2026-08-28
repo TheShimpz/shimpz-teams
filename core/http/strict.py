@@ -344,6 +344,8 @@ class ControllerRouteMatch:
             return "fixed"
         if self.operation in {"team-create", "team-destroy"}:
             return "team"
+        if self.operation.startswith("local-assistant-"):
+            return "local-assistant"
         for prefix, group in (
             ("file-", "file"),
             ("inference-", "inference"),
@@ -419,6 +421,7 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/start", "team-start", _HOSTED_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/teams/:team_id/restart", "team-restart", _HOSTED_CONTROLLER_ONLY),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
@@ -435,6 +438,12 @@ CONTROLLER_ROUTES = (
         _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("POST", "/v1/teams/:team_id/assistants", "assistant-install"),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/assistants/local",
+        "local-assistant-install",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route(
         "DELETE",
         "/v1/teams/:team_id/assistants/:assistant_id",
