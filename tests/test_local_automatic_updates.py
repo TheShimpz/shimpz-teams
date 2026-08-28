@@ -21,16 +21,20 @@ def _candidate(version: str = "0.2.0") -> dict[str, str]:
     }
 
 
+def _published_binding(**values: object) -> SimpleNamespace:
+    return SimpleNamespace(provenance="published", **values)
+
+
 class AutomaticAssistantUpdaterTests(unittest.TestCase):
     def test_one_candidate_per_installed_digest_updates_every_older_binding_with_its_fence(self) -> None:
         bindings = (
-            SimpleNamespace(
+            _published_binding(
                 team_id="team_1",
                 assistant_id="hello-world",
                 binding_digest=f"sha256:{'1' * 64}",
                 resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
             ),
-            SimpleNamespace(
+            _published_binding(
                 team_id="team_2",
                 assistant_id="hello-world",
                 binding_digest=f"sha256:{'2' * 64}",
@@ -67,7 +71,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         self.assertEqual(candidate_calls, [f"sha256:{'a' * 64}"])
 
     def test_offline_and_busy_teams_defer_without_stopping_other_updates(self) -> None:
-        unavailable_binding = SimpleNamespace(
+        unavailable_binding = _published_binding(
             team_id="team_offline",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'3' * 64}",
@@ -81,7 +85,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         self.assertTrue(AutomaticAssistantUpdater(unavailable).run_once())
 
         bindings = tuple(
-            SimpleNamespace(
+            _published_binding(
                 team_id=f"team_{index}",
                 assistant_id="hello-world",
                 binding_digest=f"sha256:{index:064x}",
@@ -115,7 +119,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         )
 
     def test_no_candidate_is_distinct_from_developers_unavailability(self) -> None:
-        binding = SimpleNamespace(
+        binding = _published_binding(
             team_id="team_1",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'1' * 64}",
@@ -146,7 +150,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         )
 
     def test_failing_binding_uses_independent_bounded_backoff(self) -> None:
-        binding = SimpleNamespace(
+        binding = _published_binding(
             team_id="team_1",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'1' * 64}",
@@ -207,20 +211,39 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         idle.close()
         stopped_thread.join.assert_called_once_with(timeout=30)
 
+    def test_local_bindings_never_reach_developers_or_publication_install(self) -> None:
+        local = SimpleNamespace(
+            provenance="local",
+            team_id="team_1",
+            assistant_id="private-assistant",
+            binding_digest=f"sha256:{'4' * 64}",
+        )
+        controller = SimpleNamespace(
+            developers=SimpleNamespace(latest=mock.Mock()),
+            registry=SimpleNamespace(bindings=lambda: (local,)),
+            install_publication=mock.Mock(),
+            assistant_lifecycle=SimpleNamespace(sweep_residues=mock.Mock()),
+        )
+
+        self.assertTrue(AutomaticAssistantUpdater(controller).run_once())
+
+        controller.developers.latest.assert_not_called()
+        controller.install_publication.assert_not_called()
+
     def test_invalid_binding_identity_and_current_candidate_are_not_installed(self) -> None:
-        invalid = SimpleNamespace(
+        invalid = _published_binding(
             team_id="team_1",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'1' * 64}",
             resolution={"assistant_version": "0.1.0", "source_digest": None},
         )
-        mismatch = SimpleNamespace(
+        mismatch = _published_binding(
             team_id="team_2",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'2' * 64}",
             resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
         )
-        current = SimpleNamespace(
+        current = _published_binding(
             team_id="team_3",
             assistant_id="hello-world",
             binding_digest=f"sha256:{'3' * 64}",

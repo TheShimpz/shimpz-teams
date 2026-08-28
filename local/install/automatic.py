@@ -61,12 +61,13 @@ class AutomaticAssistantUpdater:
             log.warning("Automatic Assistant update check deferred: bindings are unavailable")
             self._record_result(None, None, "error", "cycle:bindings-unavailable")
             return False
-        active_keys = {(binding.team_id, binding.assistant_id, binding.binding_digest) for binding in installed}
+        publications = tuple(binding for binding in installed if binding.provenance == "published")
+        active_keys = {(binding.team_id, binding.assistant_id, binding.binding_digest) for binding in publications}
         self._failures = {key: value for key, value in self._failures.items() if key in active_keys}
         self._retry_after = {key: value for key, value in self._retry_after.items() if key in active_keys}
         now = self._clock()
         candidates: dict[str, dict[str, object] | developers.DevelopersError] = {}
-        for binding in installed:
+        for binding in publications:
             key = binding.team_id, binding.assistant_id, binding.binding_digest
             if now < self._retry_after.get(key, 0):
                 continue
