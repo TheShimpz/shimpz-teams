@@ -65,6 +65,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             assistant_id="assistant",
             image="image@sha256:" + "a" * 64,
             allowed_hosts=("api.example.com",),
+            provenance="published",
         )
         subject = types.SimpleNamespace(
             _reserve_assistant_egress_environment=lambda *_args: (None, {}, object()),
@@ -156,7 +157,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
     @staticmethod
     def _replacement_subject() -> types.SimpleNamespace:
         return types.SimpleNamespace(
-            _trusted_image=mock.Mock(return_value=object()),
+            _assistant_image=mock.Mock(return_value=object()),
             _validate_container=mock.Mock(),
             _validate_container_isolation=mock.Mock(return_value={}),
             _has_current_assistant_artifact=mock.Mock(return_value=False),
@@ -357,7 +358,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
     def test_update_maps_previous_image_and_replacement_failures(self) -> None:
         controller, _container, _events, previous, successor, binding = self._update_specs()
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
-        controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=object())
+        controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=object())
         controller.client.images = types.SimpleNamespace(get=mock.Mock(side_effect=DockerException("unavailable")))
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.assistant_lifecycle.update_assistant(
@@ -376,7 +377,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
         successor_image = types.SimpleNamespace(id="sha256:" + "b" * 64)
         controller.assistant_lifecycle._validate_container_security = mock.Mock()
-        controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=successor_image)
+        controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=successor_image)
         controller.client.images = types.SimpleNamespace(get=lambda _image: previous_image)
         controller.assistant_lifecycle.updates = types.SimpleNamespace(begin=lambda *_args: object())
         controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
@@ -430,7 +431,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
                 successor_image = types.SimpleNamespace(id="sha256:" + "b" * 64)
                 controller.assistant_lifecycle._validate_container_security = mock.Mock()
-                controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=successor_image)
+                controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=successor_image)
                 controller.client.images = types.SimpleNamespace(get=lambda _image, current=previous_image: current)
                 transaction = types.SimpleNamespace(previous_image_id=previous_image.id)
                 controller.assistant_lifecycle.updates = types.SimpleNamespace(
@@ -474,7 +475,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject = types.SimpleNamespace(
             _network=lambda _team_id: network,
             _assistant_container=mock.Mock(return_value=None),
-            _trusted_image=mock.Mock(return_value=object()),
+            _assistant_image=mock.Mock(return_value=object()),
             _create_assistant_container=mock.Mock(),
         )
         assistant_lifecycle._recover_update_target(subject, update, target)
@@ -692,7 +693,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
     def test_new_install_forwards_authorization_and_uninstall_maps_removal(self) -> None:
         controller, container, _events = self._lifecycle_controller()
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
-        controller.assistant_lifecycle._trusted_image = mock.Mock(return_value=object())
+        controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=object())
         controller.assistant_lifecycle._create_assistant_container = mock.Mock()
         authorize = mock.Mock()
         result = controller.assistant_lifecycle.install_assistant(

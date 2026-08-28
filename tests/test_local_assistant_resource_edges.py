@@ -6,7 +6,7 @@ from unittest import mock
 
 from docker.errors import DockerException, ImageNotFound, NotFound
 
-from local.assistant import resources
+from local.assistant import isolation, resources
 from local.errors import ApiProblemError
 
 
@@ -81,6 +81,7 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         spec = types.SimpleNamespace(
             image="registry/image@sha256:digest",
             required_image_labels=(("assistant", "helper"),),
+            provenance="published",
         )
         image = types.SimpleNamespace(
             attrs={
@@ -102,6 +103,39 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
             resources._trusted_image(controller, spec)
 
+    def test_staged_image_never_pulls_and_requires_exact_local_identity(self) -> None:
+        controller = self._controller()
+        controller._image_labels_valid = resources._image_labels_valid
+        spec = types.SimpleNamespace(
+            image="sha256:" + ("a" * 64),
+            platform="linux/amd64",
+            provenance="local",
+            required_image_labels=(("local", "assistant-v1"),),
+        )
+        image = types.SimpleNamespace(
+            id=spec.image,
+            attrs={
+                "Id": spec.image,
+                "Architecture": "amd64",
+                "RepoDigests": [],
+                "RepoTags": [],
+                "Config": {"Labels": {"local": "assistant-v1"}},
+            },
+            reload=mock.Mock(),
+        )
+        controller.client.images.get.return_value = image
+
+        self.assertIs(resources._staged_image(controller, spec), image)
+        controller.client.images.pull.assert_not_called()
+
+        image.attrs["RepoTags"] = ["attacker/latest"]
+        with self.assertRaisesRegex(ApiProblemError, "does not match"):
+            resources._staged_image(controller, spec)
+        controller.client.images.get.side_effect = ImageNotFound("missing")
+        with self.assertRaisesRegex(ApiProblemError, "no longer available"):
+            resources._staged_image(controller, spec)
+        controller.client.images.pull.assert_not_called()
+
     def test_egress_contract_rejects_invalid_manifest_and_environment(self) -> None:
         controller = types.SimpleNamespace(
             _validate_egress_policy=mock.Mock(return_value={}),
@@ -118,6 +152,14 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
                 direct_spec,
                 {"HTTPS_PROXY": "http://attacker"},
             )
+
+    def test_local_isolation_accepts_only_the_bound_image_id(self) -> None:
+        image_id = "sha256:" + ("a" * 64)
+        local = isolation.ImageIdentity(image_id, "local")
+
+        self.assertTrue(isolation._installed_image_valid(image_id, local))
+        self.assertFalse(isolation._installed_image_valid("sha256:" + ("b" * 64), local))
+        self.assertFalse(isolation._installed_image_valid(image_id, isolation.ImageIdentity(image_id, "unknown")))
 
 
 if __name__ == "__main__":

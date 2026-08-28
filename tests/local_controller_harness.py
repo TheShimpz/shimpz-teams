@@ -159,6 +159,7 @@ class LocalContractCase(unittest.TestCase):
         spec = SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,
+            provenance="published",
             allowed_hosts=(),
             integrations={},
             stored_inputs={},

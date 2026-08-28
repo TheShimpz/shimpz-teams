@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from egress import policy as egress_policy
 from local.install.runtime import is_digest_ref
+
+_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class ImageIdentity:
+    reviewed: str
+    provenance: str
 
 ASSISTANT_UID = "10001:10001"
 ASSISTANT_MEMORY = 128 * 1024 * 1024
@@ -52,7 +62,7 @@ def inspect_profile(
     container_name: str,
     expected_labels: dict[str, str],
     expected_name: str,
-    reviewed_image: str,
+    image_identity: ImageIdentity,
     network_name: str,
     cpuset_cpus: str,
 ) -> tuple[dict, dict[str, str]] | None:
@@ -68,9 +78,8 @@ def inspect_profile(
         or not isinstance(labels, dict)
         or not all(labels.get(key) == value for key, value in expected_labels.items())
         or container_name != expected_name
-        or not is_digest_ref(installed_image)
+        or not _installed_image_valid(installed_image, image_identity)
         or config.get("Image") != installed_image
-        or installed_image.rpartition("@sha256:")[0] != reviewed_image.rpartition("@sha256:")[0]
         or config.get("User") != ASSISTANT_UID
         or host.get("ReadonlyRootfs") is not True
         or set(host.get("CapDrop") or []) != {"ALL"}
@@ -101,3 +110,19 @@ def inspect_profile(
     ):
         return None
     return config, environment
+
+
+def _installed_image_valid(installed: object, identity: ImageIdentity) -> bool:
+    if identity.provenance == "published":
+        return (
+            is_digest_ref(installed)
+            and isinstance(installed, str)
+            and installed.rpartition("@sha256:")[0] == identity.reviewed.rpartition("@sha256:")[0]
+        )
+    if identity.provenance == "local":
+        return (
+            isinstance(installed, str)
+            and _IMAGE_ID_RE.fullmatch(installed) is not None
+            and installed == identity.reviewed
+        )
+    return False

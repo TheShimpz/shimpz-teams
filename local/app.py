@@ -203,6 +203,8 @@ class AssistantLifecycle:
     _resolve = local_assistant_resources._resolve
     _image_labels_valid = staticmethod(local_assistant_resources._image_labels_valid)
     _trusted_image = local_assistant_resources._trusted_image
+    _staged_image = local_assistant_resources._staged_image
+    _assistant_image = local_assistant_resources._assistant_image
     _assistant_labels = local_assistant_resources._assistant_labels
     _validate_container_profile = local_assistant_resources._validate_container_profile
     _validate_container_egress_environment = local_assistant_resources._validate_container_egress_environment

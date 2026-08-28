@@ -28,6 +28,7 @@ class AssistantSpec:
     stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
     provenance: Literal["published", "local"] = "published"
+    platform: str | None = None
 
 
 def is_digest_ref(value: object) -> bool:

@@ -197,6 +197,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
             provenance=binding.provenance,
+            platform=str(document["platform"]) if binding.provenance == "local" else None,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("Assistant binding has no valid runtime contract") from exc

@@ -213,7 +213,7 @@ def _replace_unready_assistant(
 ) -> None:
     # The reference Assistant is the only explicitly stateless recovery target. Resolve its trusted image before
     # removing anything, then revalidate ownership to close the pull/remove race.
-    image = self._trusted_image(spec)
+    image = self._assistant_image(spec)
     self._validate_container(existing, team_id, spec, network.name)
     try:
         self._assistant_genesis_cache.discard(existing.id)
@@ -241,7 +241,7 @@ def _replace_outdated_assistant(
     *,
     authorize_start: Callable[[], None] | None = None,
 ) -> None:
-    image = self._trusted_image(spec)
+    image = self._assistant_image(spec)
     config = self._validate_container_isolation(existing, team_id, spec, network.name)
     if self._has_current_assistant_artifact(config, spec):
         raise ApiProblem(
@@ -390,7 +390,7 @@ def update_assistant(
         network = self._network(team_id)
         existing = self._assistant_container(team_id, previous.assistant_id, required=True)
         self._validate_container_security(existing, team_id, previous, network.name)
-        successor_image = self._trusted_image(successor)
+        successor_image = self._assistant_image(successor)
         try:
             previous_image = self.client.images.get(existing.attrs["Image"])
         except (KeyError, DockerException) as exc:
@@ -473,7 +473,7 @@ def _recover_update_target(self, update, target: AssistantSpec) -> None:
     network = self._network(team_id)
     existing = self._assistant_container(team_id, target.assistant_id, required=False)
     if existing is None:
-        self._create_assistant_container(team_id, target, network, self._trusted_image(target))
+        self._create_assistant_container(team_id, target, network, self._assistant_image(target))
         return
     previous = self.registry.spec(update.previous)
     successor = self.registry.spec(update.successor)
@@ -501,7 +501,7 @@ def _recover_update_target(self, update, target: AssistantSpec) -> None:
             code="assistant-update-conflict",
         )
     self._validate_container_security(existing, team_id, actual, network.name, refresh=False)
-    target_image = self._trusted_image(target)
+    target_image = self._assistant_image(target)
     remaining_egress = (
         self._team_has_egress_assistant(team_id, excluding=target.assistant_id) if actual.allowed_hosts else None
     )
@@ -623,7 +623,7 @@ def install_assistant(
                 self._active_assistant_genesis(_ActiveAssistant(spec, existing.id, existing))
             return {"assistant": assistant_id, "installed": False}
 
-        image = self._trusted_image(spec)
+        image = self._assistant_image(spec)
         if authorize_start is None:
             self._create_assistant_container(team_id, spec, network, image)
         else:

@@ -106,6 +106,12 @@ def _image_labels_valid(image, spec: AssistantSpec) -> bool:
 
 
 def _trusted_image(self, spec: AssistantSpec):
+    if spec.provenance != "published":
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the Assistant does not have published image provenance",
+            code="image-provenance-mismatch",
+        )
     try:
         image = self.client.images.get(spec.image)
     except ImageNotFound:
@@ -134,6 +140,58 @@ def _trusted_image(self, spec: AssistantSpec):
     return image
 
 
+def _staged_image(self, spec: AssistantSpec):
+    if spec.provenance != "local":
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the Assistant does not have Local image provenance",
+            code="image-provenance-mismatch",
+        )
+    try:
+        image = self.client.images.get(spec.image)
+        image.reload()
+    except ImageNotFound as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the staged Local Assistant image is no longer available",
+            code="local-image-missing",
+        ) from exc
+    except DockerException as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Docker is unavailable",
+            code="docker-unavailable",
+        ) from exc
+    attrs = image.attrs
+    architecture = spec.platform.rpartition("/")[2] if isinstance(spec.platform, str) else None
+    if (
+        image.id != spec.image
+        or attrs.get("Id") != spec.image
+        or attrs.get("Architecture") != architecture
+        or attrs.get("RepoDigests") != []
+        or attrs.get("RepoTags") != []
+        or not self._image_labels_valid(image, spec)
+    ):
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the staged Local Assistant image does not match its binding",
+            code="local-image-contract-mismatch",
+        )
+    return image
+
+
+def _assistant_image(self, spec: AssistantSpec):
+    if spec.provenance == "published":
+        return self._trusted_image(spec)
+    if spec.provenance == "local":
+        return self._staged_image(spec)
+    raise ApiProblem(
+        HTTPStatus.CONFLICT,
+        "the Assistant image provenance is invalid",
+        code="image-provenance-mismatch",
+    )
+
+
 def _assistant_labels(self, team_id: str, spec: AssistantSpec) -> dict[str, str]:
     labels = self._base_labels(team_id, "assistant")
     labels.update({ASSISTANT_LABEL: spec.assistant_id, IMAGE_LABEL: spec.image})
@@ -158,7 +216,7 @@ def _validate_container_profile(
         container.name,
         expected_labels,
         self._container_name(team_id, spec.assistant_id),
-        spec.image,
+        local_container_policy.ImageIdentity(spec.image, spec.provenance),
         network_name,
         self.cpuset_cpus,
     )
