@@ -956,7 +956,10 @@ def main() -> int:
                     credentials=registry_auth.AnonymousRegistryAccess(),
                     trust_root=LOCAL_COSIGN_TRUST_ROOT,
                 ),
-                assistant_updates=assistant_update.AssistantUpdateStore(LOCAL_ASSISTANT_UPDATES_PATH),
+                assistant_updates=assistant_update.AssistantUpdateStore(
+                    LOCAL_ASSISTANT_UPDATES_PATH,
+                    local_record_validator=local_snapshots.validate_record,
+                ),
                 assistant_residues=assistant_update.AssistantResidueStore(LOCAL_ASSISTANT_RESIDUES_PATH),
                 assistant_icons=icons.AssistantIconStore(LOCAL_PUBLICATION_ICONS_PATH),
             ),

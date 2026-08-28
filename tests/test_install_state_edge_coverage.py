@@ -279,7 +279,7 @@ class UpdateStoreEdgeCoverageTests(unittest.TestCase):
 
         current = self.updates.begin(self.previous, _successor(), IMAGE_ID)
         encoded = update._encode(current)
-        encoded["version"] = 2
+        encoded["version"] = 1
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
             update._decode(encoded)
 

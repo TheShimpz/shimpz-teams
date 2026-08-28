@@ -1,4 +1,4 @@
-"""Durable current-contract transactions for Assistant publication replacement."""
+"""Durable current-contract transactions for Assistant replacement."""
 
 from __future__ import annotations
 
@@ -13,7 +13,8 @@ from typing import Any
 
 from install import bindings
 
-_FORMAT_VERSION = 1
+_UPDATE_FORMAT_VERSION = 2
+_RESIDUE_FORMAT_VERSION = 1
 _MAX_BYTES = 2 * 1024 * 1024
 _TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -37,16 +38,22 @@ class AssistantResidue:
 class AssistantUpdateStore:
     """One atomic transaction file per Team-owned Assistant."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        local_record_validator: bindings.LocalRecordValidator | None = None,
+    ) -> None:
         self._root = root
+        self._local_record_validator = local_record_validator
 
     def begin(
         self,
         previous: bindings.DynamicAssistantBinding,
-        successor_resolution: dict[str, Any],
+        successor_document: dict[str, Any],
         previous_image_id: str,
     ) -> AssistantUpdate:
-        successor = bindings.binding_from_resolution(previous.team_id, successor_resolution)
+        successor = _successor_binding(previous, successor_document, self._local_record_validator)
         if successor.assistant_id != previous.assistant_id or successor == previous:
             raise bindings.DynamicAssistantConflictError("the Assistant update transaction is invalid")
         if _DIGEST_RE.fullmatch(previous_image_id) is None:
@@ -107,8 +114,7 @@ class AssistantUpdateStore:
             raise bindings.DynamicAssistantError("Assistant update identity is invalid")
         return self._root / f"{team_id}--{assistant_id}.json"
 
-    @staticmethod
-    def _read(path: Path) -> AssistantUpdate | None:
+    def _read(self, path: Path) -> AssistantUpdate | None:
         try:
             raw = path.read_bytes()
         except FileNotFoundError:
@@ -121,7 +127,7 @@ class AssistantUpdateStore:
             value = json.loads(raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise bindings.DynamicAssistantError("Assistant update transaction is malformed") from exc
-        return _decode(value)
+        return _decode(value, self._local_record_validator)
 
 
 class AssistantResidueStore:
@@ -140,7 +146,7 @@ class AssistantResidueStore:
                 if current == residue:
                     return current
                 raise bindings.DynamicAssistantError("Assistant residue changed unexpectedly")
-            _write(path, {"version": _FORMAT_VERSION, "image_id": residue.image_id})
+            _write(path, {"version": _RESIDUE_FORMAT_VERSION, "image_id": residue.image_id})
         return residue
 
     def list(self) -> tuple[AssistantResidue, ...]:
@@ -189,7 +195,11 @@ class AssistantResidueStore:
             value = json.loads(raw)
         except (UnicodeError, json.JSONDecodeError) as exc:
             raise bindings.DynamicAssistantError("Assistant residue is malformed") from exc
-        if not isinstance(value, dict) or set(value) != {"version", "image_id"} or value["version"] != _FORMAT_VERSION:
+        if (
+            not isinstance(value, dict)
+            or set(value) != {"version", "image_id"}
+            or value["version"] != _RESIDUE_FORMAT_VERSION
+        ):
             raise bindings.DynamicAssistantError("Assistant residue is malformed")
         return AssistantResidue(_image_id(value["image_id"]))
 
@@ -234,16 +244,19 @@ class _FileLock:
 
 def _encode(update: AssistantUpdate) -> dict[str, object]:
     return {
-        "version": _FORMAT_VERSION,
+        "version": _UPDATE_FORMAT_VERSION,
         "team_id": update.team_id,
         "assistant_id": update.assistant_id,
-        "previous": update.previous.resolution,
-        "successor": update.successor.resolution,
+        "previous": bindings._encode_binding(update.previous),
+        "successor": bindings._encode_binding(update.successor),
         "previous_image_id": update.previous_image_id,
     }
 
 
-def _decode(value: object) -> AssistantUpdate:
+def _decode(
+    value: object,
+    local_record_validator: bindings.LocalRecordValidator | None = None,
+) -> AssistantUpdate:
     if not isinstance(value, dict) or set(value) != {
         "version",
         "team_id",
@@ -254,16 +267,18 @@ def _decode(value: object) -> AssistantUpdate:
     }:
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
     if (
-        value["version"] != _FORMAT_VERSION
-        or not isinstance(value["previous"], dict)
-        or not isinstance(value["successor"], dict)
+        value["version"] != _UPDATE_FORMAT_VERSION
         or not isinstance(value["previous_image_id"], str)
         or _DIGEST_RE.fullmatch(value["previous_image_id"]) is None
     ):
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
-    previous = bindings.binding_from_resolution(value["team_id"], value["previous"])
-    successor = bindings.binding_from_resolution(value["team_id"], value["successor"])
+    previous = bindings._decode_binding(value["previous"], local_record_validator)
+    successor = bindings._decode_binding(value["successor"], local_record_validator)
     if previous.assistant_id != value["assistant_id"] or successor.assistant_id != value["assistant_id"]:
+        raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
+    if previous.team_id != value["team_id"] or successor.team_id != value["team_id"]:
+        raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
+    if previous.provenance != successor.provenance:
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
     return AssistantUpdate(
         previous.team_id,
@@ -272,6 +287,18 @@ def _decode(value: object) -> AssistantUpdate:
         successor,
         value["previous_image_id"],
     )
+
+
+def _successor_binding(
+    previous: bindings.DynamicAssistantBinding,
+    document: dict[str, Any],
+    local_record_validator: bindings.LocalRecordValidator | None,
+) -> bindings.DynamicAssistantBinding:
+    if previous.provenance == "published":
+        return bindings.binding_from_resolution(previous.team_id, document)
+    if previous.provenance == "local":
+        return bindings.binding_from_local_record(previous.team_id, document, local_record_validator)
+    raise bindings.DynamicAssistantConflictError("the Assistant update provenance is invalid")
 
 
 def _write(path: Path, value: dict[str, object]) -> None:

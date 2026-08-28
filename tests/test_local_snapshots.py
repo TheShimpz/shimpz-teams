@@ -15,7 +15,8 @@ from unittest import mock
 from docker.errors import DockerException
 
 from assistant import manifest as assistant_manifest
-from install.bindings import DynamicAssistantStore
+from install.bindings import DynamicAssistantError, DynamicAssistantStore
+from install.update import AssistantUpdateStore
 from local.install import registry as assistant_registry
 from local.install import snapshots, source_package
 from tests.test_assistant_manifest import manifest
@@ -237,6 +238,31 @@ class LocalSnapshotTests(unittest.TestCase):
                 registry.commit_local_replacement("team_1", current.binding_digest, replacement).image,
                 replacement["image_id"],
             )
+
+    def test_local_replacement_transaction_is_durable_and_profile_scoped(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        replacement = {**admitted.record, "image_id": "sha256:" + ("c" * 64)}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            bindings = DynamicAssistantStore(
+                root / "bindings.json",
+                local_record_validator=snapshots.validate_record,
+            )
+            previous = bindings.put_local("team_1", admitted.record)
+            updates = AssistantUpdateStore(
+                root / "updates",
+                local_record_validator=snapshots.validate_record,
+            )
+
+            transaction = updates.begin(previous, replacement, IMAGE_ID)
+
+            self.assertEqual(transaction.previous.provenance, "local")
+            self.assertEqual(transaction.successor.provenance, "local")
+            self.assertEqual(transaction.successor.local_record, replacement)
+            self.assertEqual(updates.get("team_1", "fixture-assistant"), transaction)
+            with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
+                AssistantUpdateStore(root / "updates").list()
 
 
 if __name__ == "__main__":
