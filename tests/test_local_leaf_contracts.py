@@ -153,7 +153,9 @@ class LocalLeafContractTests(unittest.TestCase):
         controller = types.SimpleNamespace(
             _lock=lambda _team_id: nullcontext(),
             registry=types.SimpleNamespace(binding=lambda *_args: binding),
-            assistant_icons=types.SimpleNamespace(read=mock.Mock(side_effect=icons.AssistantIconError("bad icon"))),
+            assistant_icons=types.SimpleNamespace(
+                read_binding=mock.Mock(side_effect=icons.AssistantIconError("bad icon"))
+            ),
         )
         with self.assertRaisesRegex(ApiProblemError, "icon is unavailable"):
             assistant_api.assistant_icon(controller, "team_1", "helper")

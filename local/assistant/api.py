@@ -22,7 +22,7 @@ def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
                 code="assistant-not-installed",
             )
         try:
-            return self.assistant_icons.read(binding.resolution)
+            return self.assistant_icons.read_binding(binding)
         except icons.AssistantIconError as exc:
             raise ApiProblem(
                 HTTPStatus.SERVICE_UNAVAILABLE,

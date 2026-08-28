@@ -35,7 +35,7 @@ class AssistantIconStoreTests(unittest.TestCase):
             store.put(resolution(), ICON)
 
             with (
-                mock.patch.object(store, "read", return_value=b"other"),
+                mock.patch.object(store, "_read", return_value=b"other"),
                 self.assertRaisesRegex(AssistantIconError, "conflicts"),
             ):
                 store.put(resolution(), ICON)
@@ -63,7 +63,7 @@ class AssistantIconStoreTests(unittest.TestCase):
                 team_id="team_1",
                 binding_digest="sha256:" + ("b" * 64),
                 provenance="published",
-                document={"source_digest": SOURCE_DIGEST, "assistant_id": "example"},
+                document={**resolution(), "assistant_id": "example"},
             )
 
             store.discard_unreferenced(SOURCE_DIGEST, [binding])
@@ -72,15 +72,50 @@ class AssistantIconStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(AssistantIconError, "unavailable"):
                 store.read(resolution())
 
+    def test_local_image_identity_cannot_collide_with_a_publication_source(self) -> None:
+        local_icon = b"different local icon"
+        local_record = {
+            "image_id": SOURCE_DIGEST,
+            "icon_digest": f"sha256:{hashlib.sha256(local_icon).hexdigest()}",
+            "assistant_id": "example",
+        }
+        local_binding = DynamicAssistantBinding(
+            team_id="team_1",
+            binding_digest="sha256:" + ("c" * 64),
+            provenance="local",
+            document=local_record,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "icons"
+            store = AssistantIconStore(root)
+            store.put(resolution(), ICON)
+            store.put_local(local_record, local_icon)
+
+            self.assertEqual(store.read(resolution()), ICON)
+            self.assertEqual(store.read_binding(local_binding), local_icon)
+            self.assertEqual(
+                {path.name for path in root.iterdir()},
+                {
+                    f"published-{SOURCE_DIGEST.removeprefix('sha256:')}.png",
+                    f"local-{SOURCE_DIGEST.removeprefix('sha256:')}.png",
+                },
+            )
+            store.discard_binding(local_binding, ())
+            self.assertEqual(store.read(resolution()), ICON)
+
     def test_local_api_serves_only_an_installed_verified_icon(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = AssistantIconStore(Path(directory) / "icons")
             store.put(resolution(), ICON)
+            binding = DynamicAssistantBinding(
+                team_id="team_1",
+                binding_digest="sha256:" + ("b" * 64),
+                provenance="published",
+                document={**resolution(), "assistant_id": "example"},
+            )
             controller = SimpleNamespace(
                 _lock=lambda _team_id: nullcontext(),
-                registry=SimpleNamespace(
-                    binding=lambda _team_id, _assistant_id: SimpleNamespace(resolution=resolution())
-                ),
+                registry=SimpleNamespace(binding=lambda _team_id, _assistant_id: binding),
                 assistant_icons=store,
             )
 
@@ -121,8 +156,8 @@ class AssistantIconStoreTests(unittest.TestCase):
         ):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(AssistantIconError, "identity"):
                 store.read(invalid)
-        with self.assertRaisesRegex(AssistantIconError, "source digest"):
-            store._path("invalid")
+        with self.assertRaisesRegex(AssistantIconError, "icon key"):
+            store._path(SimpleNamespace(namespace="published", key="invalid"))
 
         with (
             mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
