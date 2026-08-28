@@ -352,7 +352,10 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         controller, container, events = self._lifecycle_controller()
         previous = copy.copy(controller.registry["shimpz-cloudflare"])
         successor = copy.copy(previous)
-        previous_binding = types.SimpleNamespace(binding_digest="sha256:" + "1" * 64)
+        previous_binding = types.SimpleNamespace(
+            binding_digest="sha256:" + "1" * 64,
+            provenance="published",
+        )
         return controller, container, events, previous, successor, previous_binding
 
     def test_update_maps_previous_image_and_replacement_failures(self) -> None:
@@ -366,7 +369,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 previous,
                 successor,
                 previous_binding=binding,
-                resolution={},
+                successor_document={},
                 authorize_start=lambda: None,
             )
         self.assertEqual(caught.exception.code, "docker-image-unavailable")
@@ -398,7 +401,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 previous,
                 successor,
                 previous_binding=binding,
-                resolution={},
+                successor_document={},
                 authorize_start=lambda: None,
             )
         self.assertEqual(caught.exception.code, "assistant-not-ready")
@@ -412,7 +415,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 previous,
                 successor,
                 previous_binding=binding,
-                resolution={},
+                successor_document={},
                 authorize_start=lambda: None,
             )
         self.assertEqual(caught.exception.code, "docker-remove-failed")
@@ -451,13 +454,39 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                         previous,
                         successor,
                         previous_binding=binding,
-                        resolution={},
+                        successor_document={},
                         authorize_start=lambda: None,
                     )
                 expected = (
                     "assistant-update-conflict" if cleanup_error is None else "assistant-install-rollback-incomplete"
                 )
                 self.assertEqual(caught.exception.code, expected)
+
+    def test_replacement_commit_and_failed_cleanup_are_provenance_specific(self) -> None:
+        registry = types.SimpleNamespace(
+            commit_replacement=mock.Mock(),
+            commit_local_replacement=mock.Mock(),
+        )
+        subject = types.SimpleNamespace(registry=registry, _queue_residue=mock.Mock())
+        published = types.SimpleNamespace(provenance="published", binding_digest="published-binding")
+        local = types.SimpleNamespace(provenance="local", binding_digest="local-binding")
+
+        assistant_lifecycle._commit_replacement(subject, "team_1", published, {"kind": "published"})
+        assistant_lifecycle._commit_replacement(subject, "team_1", local, {"kind": "local"})
+        assistant_lifecycle._queue_failed_successor(subject, local, "sha256:" + "a" * 64)
+        assistant_lifecycle._queue_failed_successor(subject, published, "sha256:" + "b" * 64)
+
+        registry.commit_replacement.assert_called_once_with(
+            "team_1",
+            "published-binding",
+            {"kind": "published"},
+        )
+        registry.commit_local_replacement.assert_called_once_with(
+            "team_1",
+            "local-binding",
+            {"kind": "local"},
+        )
+        subject._queue_residue.assert_called_once_with("sha256:" + "b" * 64)
 
     def test_recovery_target_covers_absent_current_unknown_and_removal_failures(self) -> None:
         target = types.SimpleNamespace(
@@ -728,7 +757,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_without_container_releases_residual_egress_and_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = object()
+        binding = types.SimpleNamespace(provenance="published")
         controller.registry.binding = lambda *_args: binding
         controller.registry.bindings = lambda: ()
         controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
@@ -749,7 +778,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
-        binding = object()
+        binding = types.SimpleNamespace(provenance="published")
         controller.registry.binding = lambda *_args: binding
         controller.registry.bindings = lambda: ()
         controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
@@ -762,6 +791,34 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
         self.assertTrue(result["uninstalled"])
         controller.icons.discard_binding.assert_called_once_with(binding, ())
+
+    def test_uninstall_local_binding_retains_exact_staged_image(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        image_id = "sha256:" + "a" * 64
+        binding = types.SimpleNamespace(
+            provenance="local",
+            local_record={"image_id": image_id},
+        )
+        controller.registry.binding = lambda *_args: binding
+        controller.registry.bindings = lambda: ()
+        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.assistant_lifecycle.icons = controller.icons
+
+        result = controller.assistant_lifecycle.uninstall_assistant(
+            "team_1",
+            "shimpz-cloudflare",
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "assistant": "shimpz-cloudflare",
+                "uninstalled": True,
+                "staged_image_retained": image_id,
+                "remove_command": f"docker image rm {image_id}",
+            },
+        )
+        self.assertNotIn(("residue-add", image_id), events)
 
 
 if __name__ == "__main__":

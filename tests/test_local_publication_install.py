@@ -230,7 +230,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 controller.registry.commit_replacement(
                     team_id,
                     options["previous_binding"].binding_digest,
-                    options["resolution"],
+                    options["successor_document"],
                 )
                 return {"assistant": candidate.assistant_id, "installed": False, "updated": True}
 

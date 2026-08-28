@@ -189,6 +189,6 @@ def _install_bound_publication(
         previous,
         successor,
         previous_binding=existing,
-        resolution=resolution,
+        successor_document=resolution,
         authorize_start=authorize_start,
     )

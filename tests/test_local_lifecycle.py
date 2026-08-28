@@ -127,8 +127,11 @@ class LocalLifecycleTests(LocalContractCase):
             "team_1",
             previous,
             successor,
-            previous_binding=SimpleNamespace(binding_digest=f"sha256:{'1' * 64}"),
-            resolution={},
+            previous_binding=SimpleNamespace(
+                binding_digest=f"sha256:{'1' * 64}",
+                provenance="published",
+            ),
+            successor_document={},
             authorize_start=lambda: None,
         )
 
@@ -164,8 +167,11 @@ class LocalLifecycleTests(LocalContractCase):
                 "team_1",
                 previous,
                 successor,
-                previous_binding=SimpleNamespace(binding_digest=f"sha256:{'1' * 64}"),
-                resolution={},
+                previous_binding=SimpleNamespace(
+                    binding_digest=f"sha256:{'1' * 64}",
+                    provenance="published",
+                ),
+                successor_document={},
                 authorize_start=lambda: None,
             )
 

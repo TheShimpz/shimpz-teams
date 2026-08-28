@@ -190,6 +190,8 @@ class AssistantLifecycle:
     _clear_update = local_assistant_lifecycle._clear_update
     sweep_residues = local_assistant_lifecycle.sweep_residues
     _queue_residue = local_assistant_lifecycle._queue_residue
+    _queue_failed_successor = local_assistant_lifecycle._queue_failed_successor
+    _commit_replacement = local_assistant_lifecycle._commit_replacement
     install_assistant = local_assistant_lifecycle.install_assistant
     update_assistant = local_assistant_lifecycle.update_assistant
     _recover_update_target = local_assistant_lifecycle._recover_update_target
