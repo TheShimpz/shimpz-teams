@@ -1,4 +1,4 @@
-"""Durable, fail-closed bindings for dynamically published hosted Assistants."""
+"""Durable, fail-closed bindings for dynamically installed Assistants."""
 
 from __future__ import annotations
 
@@ -8,20 +8,25 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from core.container import network as network_policy
 from install.contract import ContractValidationError, ContractValidator
 
-_FORMAT_VERSION = 1
+_FORMAT_VERSION = 2
 _MAX_BINDINGS = 4096
 _MAX_FILE_BYTES = 8 * 1024 * 1024
 _TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTRACTS = ContractValidator()
+_PUBLISHED = "published"
+_LOCAL = "local"
+type AssistantProvenance = Literal["published", "local"]
+type LocalRecordValidator = Callable[[dict[str, Any]], None]
 
 
 class DynamicAssistantError(RuntimeError):
@@ -36,25 +41,46 @@ class DynamicAssistantConflictError(DynamicAssistantError):
 class DynamicAssistantBinding:
     team_id: str
     binding_digest: str
-    resolution: dict[str, Any]
+    provenance: AssistantProvenance
+    document: dict[str, Any]
 
     @property
     def assistant_id(self) -> str:
-        return str(self.resolution["assistant_id"])
+        return str(self.document["assistant_id"])
+
+    @property
+    def resolution(self) -> dict[str, Any]:
+        if self.provenance != _PUBLISHED:
+            raise DynamicAssistantError("the Assistant binding is not a publication")
+        return self.document
+
+    @property
+    def local_record(self) -> dict[str, Any]:
+        if self.provenance != _LOCAL:
+            raise DynamicAssistantError("the Assistant binding is not a local snapshot")
+        return self.document
 
 
 class DynamicAssistantStore:
-    """One controller-private, atomic registry shared by hosted request threads."""
+    """One controller-private, atomic registry shared by request threads."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, local_record_validator: LocalRecordValidator | None = None) -> None:
         self._path = path
         self._lock_path = path.with_suffix(f"{path.suffix}.lock")
+        self._local_record_validator = local_record_validator
 
     def put(self, team_id: str, resolution: dict[str, Any]) -> DynamicAssistantBinding:
         binding = binding_from_resolution(team_id, resolution)
+        return self._put(binding)
+
+    def put_local(self, team_id: str, record: dict[str, Any]) -> DynamicAssistantBinding:
+        binding = binding_from_local_record(team_id, record, self._local_record_validator)
+        return self._put(binding)
+
+    def _put(self, binding: DynamicAssistantBinding) -> DynamicAssistantBinding:
         with self._exclusive_lock():
             bindings = self._read()
-            existing = _find(bindings, team_id, binding.assistant_id)
+            existing = _find(bindings, binding.team_id, binding.assistant_id)
             if existing is not None:
                 if existing == binding:
                     return existing
@@ -77,13 +103,31 @@ class DynamicAssistantStore:
         resolution: dict[str, Any],
     ) -> DynamicAssistantBinding:
         replacement = binding_from_resolution(team_id, resolution)
+        return self._replace(replacement, expected_binding_digest)
+
+    def replace_local(
+        self,
+        team_id: str,
+        expected_binding_digest: str,
+        record: dict[str, Any],
+    ) -> DynamicAssistantBinding:
+        replacement = binding_from_local_record(team_id, record, self._local_record_validator)
+        return self._replace(replacement, expected_binding_digest)
+
+    def _replace(
+        self,
+        replacement: DynamicAssistantBinding,
+        expected_binding_digest: str,
+    ) -> DynamicAssistantBinding:
         if _DIGEST_RE.fullmatch(expected_binding_digest) is None:
             raise DynamicAssistantConflictError("the expected Assistant binding digest is invalid")
         with self._exclusive_lock():
             bindings = self._read()
-            existing = _find(bindings, team_id, replacement.assistant_id)
+            existing = _find(bindings, replacement.team_id, replacement.assistant_id)
             if existing is None or existing.binding_digest != expected_binding_digest:
                 raise DynamicAssistantConflictError("the Assistant binding changed before replacement")
+            if existing.provenance != replacement.provenance:
+                raise DynamicAssistantConflictError("the Assistant binding provenance cannot be replaced")
             if existing == replacement:
                 return existing
             bindings[bindings.index(existing)] = replacement
@@ -140,7 +184,7 @@ class DynamicAssistantStore:
             or len(document["bindings"]) > _MAX_BINDINGS
         ):
             raise DynamicAssistantError("the dynamic Assistant registry is malformed")
-        bindings = [_decode_binding(value) for value in document["bindings"]]
+        bindings = [_decode_binding(value, self._local_record_validator) for value in document["bindings"]]
         identities = [(binding.team_id, binding.assistant_id) for binding in bindings]
         if len(identities) != len(set(identities)):
             raise DynamicAssistantError("the dynamic Assistant registry contains duplicate bindings")
@@ -234,39 +278,79 @@ def binding_from_resolution(
         _CONTRACTS.validate("resolve-response.schema.json", resolution)
     except ContractValidationError as exc:
         raise DynamicAssistantError("the dynamic Assistant resolution is invalid") from exc
-    assistant_id = resolution["assistant_id"]
+    return _binding(team_id, _PUBLISHED, "resolution", resolution)
+
+
+def binding_from_local_record(
+    team_id: str,
+    record: dict[str, Any],
+    validator: LocalRecordValidator | None,
+) -> DynamicAssistantBinding:
+    _validate_team_id(team_id)
+    if validator is None:
+        raise DynamicAssistantError("local Assistant bindings are unavailable in this profile")
+    if not isinstance(record, dict):
+        raise DynamicAssistantError("the local Assistant record is invalid")
+    validator(record)
+    return _binding(team_id, _LOCAL, "local_record", record)
+
+
+def _binding(
+    team_id: str,
+    provenance: AssistantProvenance,
+    document_name: str,
+    document: dict[str, Any],
+) -> DynamicAssistantBinding:
+    assistant_id = document.get("assistant_id")
+    _validate_identity(team_id, assistant_id)
     if assistant_id in network_policy.RESERVED_SERVICE_ALIASES:
         raise DynamicAssistantError("the Assistant id is reserved for Team infrastructure")
     digest_value = {
         "version": _FORMAT_VERSION,
         "team_id": team_id,
-        "resolution": resolution,
+        "provenance": provenance,
+        document_name: document,
     }
     digest = f"sha256:{hashlib.sha256(_canonical_bytes(digest_value)).hexdigest()}"
-    return DynamicAssistantBinding(
-        team_id=team_id,
-        binding_digest=digest,
-        resolution=resolution,
-    )
+    return DynamicAssistantBinding(team_id, digest, provenance, document)
 
 
-def _decode_binding(value: object) -> DynamicAssistantBinding:
-    if not isinstance(value, dict) or set(value) != {"team_id", "binding_digest", "resolution"}:
+def _decode_binding(
+    value: object,
+    local_record_validator: LocalRecordValidator | None = None,
+) -> DynamicAssistantBinding:
+    if not isinstance(value, dict) or not isinstance(value.get("provenance"), str):
         raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
-    resolution = value["resolution"]
-    if not isinstance(resolution, dict):
+    provenance = value["provenance"]
+    document_name = "resolution" if provenance == _PUBLISHED else "local_record"
+    if set(value) != {"team_id", "binding_digest", "provenance", document_name}:
         raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
-    expected = binding_from_resolution(value["team_id"], resolution)
+    document = value[document_name]
+    if not isinstance(document, dict):
+        raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
+    if provenance == _PUBLISHED:
+        expected = binding_from_resolution(value["team_id"], document)
+    elif provenance == _LOCAL:
+        expected = binding_from_local_record(value["team_id"], document, local_record_validator)
+    else:
+        raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
     if value["binding_digest"] != expected.binding_digest:
         raise DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
     return expected
 
 
 def _encode_binding(binding: DynamicAssistantBinding) -> dict[str, object]:
+    if binding.provenance == _PUBLISHED:
+        document_name = "resolution"
+    elif binding.provenance == _LOCAL:
+        document_name = "local_record"
+    else:
+        raise DynamicAssistantError("the dynamic Assistant registry binding is malformed")
     return {
         "team_id": binding.team_id,
         "binding_digest": binding.binding_digest,
-        "resolution": binding.resolution,
+        "provenance": binding.provenance,
+        document_name: binding.document,
     }
 
 

@@ -57,7 +57,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(bindings.DynamicAssistantError, "too large"):
                 self.store._read()
 
-        for document in ([], {}, {"version": 2, "bindings": []}, {"version": 1, "bindings": {}}):
+        for document in ([], {}, {"version": 1, "bindings": []}, {"version": 2, "bindings": {}}):
             with self.subTest(document=document):
                 self.path.write_text(json.dumps(document), encoding="utf-8")
                 with self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
@@ -66,7 +66,7 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
         self.path.unlink()
         binding = self.store.put("team_1", copy.deepcopy(RESOLUTION))
         encoded = bindings._encode_binding(binding)
-        self.path.write_text(json.dumps({"version": 1, "bindings": [encoded, encoded]}), encoding="utf-8")
+        self.path.write_text(json.dumps({"version": 2, "bindings": [encoded, encoded]}), encoding="utf-8")
         with self.assertRaisesRegex(bindings.DynamicAssistantError, "duplicate"):
             self.store._read()
 
@@ -93,7 +93,12 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
     def test_binding_decoder_rejects_outer_and_resolution_shapes(self) -> None:
         for value in (
             None,
-            {"team_id": "team_1", "binding_digest": IMAGE_ID, "resolution": []},
+            {
+                "team_id": "team_1",
+                "binding_digest": IMAGE_ID,
+                "provenance": "published",
+                "resolution": [],
+            },
         ):
             with self.subTest(value=value), self.assertRaisesRegex(bindings.DynamicAssistantError, "malformed"):
                 bindings._decode_binding(value)

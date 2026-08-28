@@ -62,7 +62,8 @@ class AssistantIconStoreTests(unittest.TestCase):
             binding = DynamicAssistantBinding(
                 team_id="team_1",
                 binding_digest="sha256:" + ("b" * 64),
-                resolution={"source_digest": SOURCE_DIGEST, "assistant_id": "example"},
+                provenance="published",
+                document={"source_digest": SOURCE_DIGEST, "assistant_id": "example"},
             )
 
             store.discard_unreferenced(SOURCE_DIGEST, [binding])

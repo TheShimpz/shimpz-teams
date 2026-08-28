@@ -25,6 +25,15 @@ assistant_spec = publication.assistant_spec
 
 VECTORS = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())
 RESOLUTION = VECTORS["fixtures"]["resolve_response"]["value"]
+LOCAL_RECORD = {
+    "assistant_id": "local-example",
+    "image_id": "sha256:" + ("a" * 64),
+}
+
+
+def validate_local_record(record: dict[str, object]) -> None:
+    if set(record) != {"assistant_id", "image_id"} or record["assistant_id"] != "local-example":
+        raise DynamicAssistantError("the local Assistant record is invalid")
 
 
 def runtime_resolution() -> dict[str, object]:
@@ -56,10 +65,43 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertEqual(first, repeated)
         self.assertEqual(first.binding_digest, repeated.binding_digest)
         self.assertNotEqual(first.binding_digest, other_team.binding_digest)
+        self.assertEqual(first.provenance, "published")
         self.assertEqual(DynamicAssistantStore(self.path).get("team_1", "hello-world"), first)
         self.assertEqual(self.store.list("team_1"), (first,))
         self.assertEqual(self.store.snapshot(), (first, other_team))
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
+
+        document = json.loads(self.path.read_bytes())
+        self.assertEqual(document["version"], 2)
+        self.assertEqual(document["bindings"][0]["provenance"], "published")
+        self.assertIn("resolution", document["bindings"][0])
+
+    def test_local_binding_requires_an_explicit_profile_validator(self) -> None:
+        with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
+            self.store.put_local("team_1", copy.deepcopy(LOCAL_RECORD))
+        self.assertFalse(self.path.exists())
+
+        local_store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)
+        binding = local_store.put_local("team_1", copy.deepcopy(LOCAL_RECORD))
+
+        self.assertEqual(binding.provenance, "local")
+        self.assertEqual(binding.local_record, LOCAL_RECORD)
+        self.assertEqual(local_store.get("team_1", "local-example"), binding)
+        with self.assertRaisesRegex(DynamicAssistantError, "not a publication"):
+            _ = binding.resolution
+        with self.assertRaisesRegex(DynamicAssistantError, "unavailable in this profile"):
+            DynamicAssistantStore(self.path).snapshot()
+
+    def test_binding_identity_and_replacement_never_cross_provenance(self) -> None:
+        local_store = DynamicAssistantStore(self.path, local_record_validator=validate_local_record)
+        published = copy.deepcopy(RESOLUTION)
+        published["assistant_id"] = "local-example"
+
+        current = local_store.put_local("team_1", copy.deepcopy(LOCAL_RECORD))
+        with self.assertRaisesRegex(DynamicAssistantConflictError, "already binds"):
+            local_store.put("team_1", published)
+        with self.assertRaisesRegex(DynamicAssistantConflictError, "provenance"):
+            local_store.replace("team_1", current.binding_digest, published)
 
     def test_different_artifact_for_same_identity_requires_removal(self) -> None:
         self.store.put("team_1", copy.deepcopy(RESOLUTION))
@@ -127,7 +169,8 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         forged = DynamicAssistantBinding(
             team_id="team_1",
             binding_digest=f"sha256:{'a' * 64}",
-            resolution=resolution,
+            provenance="published",
+            document=resolution,
         )
         with self.assertRaises(DynamicAssistantError):
             assistant_spec(forged)
