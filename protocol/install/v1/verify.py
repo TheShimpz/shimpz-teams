@@ -159,8 +159,7 @@ def validate_resolve(value: dict[str, object]) -> None:
     if not required_stored_input_ids.issubset(stored_input_ids):
         raise ContractViolationError("resolve_stored_input_mismatch")
     if any(
-        action.get("stored_inputs")
-        and "input:password" not in action.get("human_requests", [])
+        action.get("stored_inputs") and "input:password" not in action.get("human_requests", [])
         for action in actions
         if isinstance(action, dict)
     ):
