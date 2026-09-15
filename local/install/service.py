@@ -23,6 +23,12 @@ def list_local_snapshots(self) -> dict[str, object]:
             "Local Assistant snapshots are unavailable",
             code="local-assistant-snapshots-unavailable",
         ) from exc
+    except snapshots.InvalidLabeledSnapshotError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            str(exc),
+            code="local-assistant-snapshots-invalid",
+        ) from exc
     except snapshots.LocalSnapshotError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

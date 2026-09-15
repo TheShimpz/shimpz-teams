@@ -55,6 +55,10 @@ class LocalSnapshotUnavailableError(LocalSnapshotError):
     """Docker could not complete a Local snapshot operation."""
 
 
+class InvalidLabeledSnapshotError(LocalSnapshotError):
+    """A canonically identified stage-labeled image failed validation."""
+
+
 @dataclass(frozen=True, slots=True)
 class LocalSnapshotCandidate:
     assistant_id: str
@@ -82,7 +86,20 @@ def list_candidates(client) -> tuple[LocalSnapshotCandidate, ...]:
     if not isinstance(images, list) or len(images) > MAX_CANDIDATES:
         raise LocalSnapshotError("the Local Assistant snapshot inventory is invalid or too large")
     platform = _daemon_platform(client)
-    candidates = tuple(_candidate(image, platform) for image in images)
+    candidates = []
+    for image in images:
+        try:
+            candidates.append(_candidate(image, platform))
+        except LocalSnapshotUnavailableError:
+            raise
+        except LocalSnapshotError as exc:
+            image_id = getattr(image, "id", None)
+            if isinstance(image_id, str) and _IMAGE_ID_RE.fullmatch(image_id) is not None:
+                raise InvalidLabeledSnapshotError(
+                    f"Local Assistant snapshot {image_id} carries the Local stage label but failed validation"
+                ) from exc
+            raise
+    candidates = tuple(candidates)
     if len({candidate.image_id for candidate in candidates}) != len(candidates):
         raise LocalSnapshotError("the Local Assistant snapshot inventory contains duplicate images")
     return tuple(sorted(candidates, key=lambda value: (value.assistant_id, value.version, value.image_id)))

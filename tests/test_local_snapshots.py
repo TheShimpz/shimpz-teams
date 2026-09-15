@@ -154,6 +154,23 @@ class LocalSnapshotTests(unittest.TestCase):
 
         image.reload.assert_not_called()
 
+    def test_names_only_a_canonical_invalid_stage_labeled_image(self) -> None:
+        client, image, _container_value = _client()
+        image.attrs["Config"]["User"] = "0:0"
+
+        with self.assertRaisesRegex(
+            snapshots.InvalidLabeledSnapshotError,
+            rf"^Local Assistant snapshot {IMAGE_ID} carries the Local stage label but failed validation$",
+        ):
+            snapshots.list_candidates(client)
+
+        image.id = "malformed-image-id"
+        with self.assertRaisesRegex(
+            snapshots.LocalSnapshotError,
+            "snapshot identity is invalid",
+        ):
+            snapshots.list_candidates(client)
+
     def test_admits_exact_image_without_starting_temporary_container(self) -> None:
         client, _image_value, container = _client()
 
@@ -289,6 +306,19 @@ class LocalSnapshotTests(unittest.TestCase):
             },
         )
         self.assertNotIn("source_digest", result["assistants"][0])
+
+    def test_service_surfaces_the_canonical_invalid_stage_labeled_image(self) -> None:
+        client, image, _container_value = _client()
+        image.attrs["Config"]["User"] = "0:0"
+
+        with self.assertRaises(ApiProblemError) as caught:
+            service.list_local_snapshots(SimpleNamespace(client=client))
+
+        self.assertEqual(caught.exception.code, "local-assistant-snapshots-invalid")
+        self.assertEqual(
+            caught.exception.message,
+            f"Local Assistant snapshot {IMAGE_ID} carries the Local stage label but failed validation",
+        )
 
     def test_service_installs_and_replaces_an_exact_local_snapshot(self) -> None:
         client, _image_value, _container_value = _client()
