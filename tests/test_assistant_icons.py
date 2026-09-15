@@ -100,6 +100,8 @@ class AssistantIconStoreTests(unittest.TestCase):
                     f"local-{SOURCE_DIGEST.removeprefix('sha256:')}.png",
                 },
             )
+            store.discard_binding(local_binding, (local_binding,))
+            self.assertEqual(store.read_binding(local_binding), local_icon)
             store.discard_binding(local_binding, ())
             self.assertEqual(store.read(resolution()), ICON)
 
@@ -156,6 +158,11 @@ class AssistantIconStoreTests(unittest.TestCase):
         ):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(AssistantIconError, "identity"):
                 store.read(invalid)
+        with self.assertRaisesRegex(AssistantIconError, "Local Assistant icon identity"):
+            store.put_local({"image_id": "invalid", "icon_digest": SOURCE_DIGEST}, ICON)
+        invalid_binding = DynamicAssistantBinding("team_1", SOURCE_DIGEST, "unknown", {})
+        with self.assertRaisesRegex(AssistantIconError, "provenance is invalid"):
+            store.read_binding(invalid_binding)
         with self.assertRaisesRegex(AssistantIconError, "icon key"):
             store._path(SimpleNamespace(namespace="published", key="invalid"))
 
