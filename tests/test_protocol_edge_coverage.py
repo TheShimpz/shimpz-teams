@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
+from protocol.assistant.v1 import human_request_validator
 from protocol.http.v1 import payload, progress, supervisor
 
 
@@ -94,6 +95,15 @@ class PayloadEdgeCoverageTests(unittest.TestCase):
         self.assertEqual(payload.canonical_media_type(None), "application/octet-stream")
         self.assertIsNone(payload.canonical_media_type(1))
         self.assertIsNone(payload._integer(True))
+        self.assertEqual(payload.canonical_action_id("send-message"), "send-message")
+        for value in (None, "x" * 129, "Bad"):
+            self.assertIsNone(payload.canonical_action_id(value))
+        self.assertEqual(payload.canonical_language_exemplar("  Configure DNS  "), "Configure DNS")
+        self.assertIsNone(payload.canonical_language_exemplar(None))
+        self.assertEqual(payload.canonical_action_label("Send message"), "Send message")
+        for value in (None, "e\u0301", " padded ", "", "line\nfeed"):
+            self.assertIsNone(payload.canonical_action_label(value))
+        self.assertFalse(human_request_validator._identifier(None))
 
     def test_storage_usage_and_metadata_fail_closed(self) -> None:
         invalid_usage = (

@@ -248,6 +248,8 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
     def test_capability_plan_rejects_invalid_inputs_and_outputs_without_widening(self):
         invalid_outputs = (
+            {"status": "unknown", "assistant_ids": []},
+            {"status": "sufficient", "assistant_ids": None},
             {"status": "sufficient", "assistant_ids": ["shimpz-cloudflare"]},
             {"status": "install-required", "assistant_ids": []},
             {"status": "install-required", "assistant_ids": ["unknown"]},
@@ -268,6 +270,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         invalid_candidates = (
             (),
+            (object(),),
             capability_candidates()[::-1],
             (capability_candidates()[0], capability_candidates()[0]),
             (
@@ -277,6 +280,18 @@ class BrainRuntimeClientTests(unittest.TestCase):
                     summary="Manage DNS.",
                     actions=("list-zones", "list-zones"),
                     integrations=(),
+                ),
+            ),
+            (
+                brain_runtime_client.RuntimeCapabilityCandidate(
+                    id="shimpz-cloudflare",
+                    name="Shimpz Cloudflare",
+                    summary="Manage DNS.",
+                    actions=("list-zones",),
+                    integrations=(
+                        brain_runtime_client.RuntimeCapabilityIntegration("second", "provider"),
+                        brain_runtime_client.RuntimeCapabilityIntegration("first", "provider"),
+                    ),
                 ),
             ),
         )
@@ -293,6 +308,19 @@ class BrainRuntimeClientTests(unittest.TestCase):
                     )
                 self.assertEqual(connection.requests, [])
 
+        client, connection = self.client(_Response({"status": "sufficient", "assistant_ids": []}))
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.capability_plan(
+                provider="invalid",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="Configure DNS.",
+                candidates=capability_candidates(),
+            )
+        self.assertEqual(connection.requests, [])
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            brain_runtime_client.BrainRuntimeClient._capability_text(None, 10)
+
     def test_action_label_requests_and_responses_fail_closed(self):
         valid = {
             "labels": [
@@ -302,6 +330,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         }
         invalid_responses = (
             {**valid, "extra": True},
+            {"labels": [None, valid["labels"][1]]},
             {"labels": valid["labels"][:1]},
             {"labels": [*valid["labels"], {"id": "extra", "label": "Extra"}]},
             {"labels": [{"id": "list-zones", "label": "Mesmo"}, {"id": "get-zone", "label": "Mesmo"}]},

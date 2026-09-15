@@ -313,6 +313,26 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             _execute(HTTP / "verify.py", modules={"supervisor": fake})
 
+    def test_rejects_action_label_text_vector_drift(self) -> None:
+        def wrong_exemplar(value: dict[str, object]) -> None:
+            value["action_label_text"]["exemplars"][0]["canonical"] = "different"
+
+        def admitted_invalid_exemplar(value: dict[str, object]) -> None:
+            value["action_label_text"]["invalid_exemplars"] = ["Valid exemplar"]
+
+        def rejected_label(value: dict[str, object]) -> None:
+            value["action_label_text"]["labels"] = [" padded "]
+
+        def admitted_invalid_label(value: dict[str, object]) -> None:
+            value["action_label_text"]["invalid_labels"] = ["Valid label"]
+
+        for mutate in (wrong_exemplar, admitted_invalid_exemplar, rejected_label, admitted_invalid_label):
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py",
+                    lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation),
+                )
+
 
 class AssistantInstallVerifierEdgeTests(unittest.TestCase):
     @classmethod
