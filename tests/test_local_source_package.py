@@ -123,9 +123,12 @@ class LocalSourcePackageTests(unittest.TestCase):
                 member.size = source_package._MAX_FILE_BYTES + 1
             else:
                 member.type = tarfile.SYMTYPE
-            with self.subTest(member=member.name), self.assertRaisesRegex(
-                source_package.SourcePackageError,
-                "invalid entries",
+            with (
+                self.subTest(member=member.name),
+                self.assertRaisesRegex(
+                    source_package.SourcePackageError,
+                    "invalid entries",
+                ),
             ):
                 source_package._read_record(archive, member)
 
@@ -162,14 +165,20 @@ class LocalSourcePackageTests(unittest.TestCase):
             with self.subTest(message=message), self.assertRaisesRegex(source_package.SourcePackageError, message):
                 source_package._validate_records(mutation)
 
-        with mock.patch.object(source_package, "_MAX_REGULAR_FILES", 0), self.assertRaisesRegex(
-            source_package.SourcePackageError,
-            "files are invalid",
+        with (
+            mock.patch.object(source_package, "_MAX_REGULAR_FILES", 0),
+            self.assertRaisesRegex(
+                source_package.SourcePackageError,
+                "files are invalid",
+            ),
         ):
             source_package._validate_records(records)
-        with mock.patch.object(source_package, "_MAX_ICON_BYTES", 0), self.assertRaisesRegex(
-            source_package.SourcePackageError,
-            "icon is too large",
+        with (
+            mock.patch.object(source_package, "_MAX_ICON_BYTES", 0),
+            self.assertRaisesRegex(
+                source_package.SourcePackageError,
+                "icon is too large",
+            ),
         ):
             source_package._validate_records(records)
 
@@ -221,9 +230,12 @@ class LocalSourcePackageTests(unittest.TestCase):
             [(b"IHDR", valid_header), (b"acTL", b""), (b"IDAT", b""), (b"IEND", b"")],
         )
         for chunks in invalid_chunk_sets:
-            with mock.patch.object(source_package, "_icon_chunks", return_value=chunks), self.assertRaisesRegex(
-                source_package.SourcePackageError,
-                "icon",
+            with (
+                mock.patch.object(source_package, "_icon_chunks", return_value=chunks),
+                self.assertRaisesRegex(
+                    source_package.SourcePackageError,
+                    "icon",
+                ),
             ):
                 source_package._validate_icon(b"ignored")
 

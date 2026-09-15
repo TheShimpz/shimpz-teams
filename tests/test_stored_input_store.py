@@ -263,22 +263,22 @@ class StoredInputStoreTests(unittest.TestCase):
             ("team_1", {"whatsapp": {"Bad": valid_record}}),
         )
         for team, assistants in malformed_assistants:
-            with self.subTest(team=team, assistants=assistants), self.assertRaises(
-                stored_input.StoredInputStoreError
-            ):
+            with self.subTest(team=team, assistants=assistants), self.assertRaises(stored_input.StoredInputStoreError):
                 stored_input._validate_assistants(team, assistants)
 
-        with mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 0), self.assertRaises(
-            stored_input.StoredInputStoreError
+        with (
+            mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 0),
+            self.assertRaises(stored_input.StoredInputStoreError),
         ):
             stored_input._validate_assistants("team_1", {"whatsapp": {"token": valid_record}})
-        with mock.patch.object(stored_input, "MAX_TOTAL_RECORDS", 0), self.assertRaisesRegex(
-            stored_input.StoredInputStoreError,
-            "record limit",
+        with (
+            mock.patch.object(stored_input, "MAX_TOTAL_RECORDS", 0),
+            self.assertRaisesRegex(
+                stored_input.StoredInputStoreError,
+                "record limit",
+            ),
         ):
-            stored_input._validate_state(
-                {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}}
-            )
+            stored_input._validate_state({"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}})
 
     def test_storage_operational_limits_and_cache_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -291,31 +291,42 @@ class StoredInputStoreTests(unittest.TestCase):
 
             store = self._store(root)
             unchanged = SimpleNamespace(unchanged=True, identity=None, payload=None)
-            with mock.patch.object(
-                stored_input.private_state.PrivateState,
-                "read_private_file_if_changed",
-                return_value=unchanged,
-            ), self.assertRaisesRegex(stored_input.StoredInputStoreError, "cache is unavailable"):
+            with (
+                mock.patch.object(
+                    stored_input.private_state.PrivateState,
+                    "read_private_file_if_changed",
+                    return_value=unchanged,
+                ),
+                self.assertRaisesRegex(stored_input.StoredInputStoreError, "cache is unavailable"),
+            ):
                 store._read_state()
 
-            with mock.patch.object(stored_input, "MAX_STATE_BYTES", 1), self.assertRaisesRegex(
-                stored_input.StoredInputStoreError,
-                "byte limit",
+            with (
+                mock.patch.object(stored_input, "MAX_STATE_BYTES", 1),
+                self.assertRaisesRegex(
+                    stored_input.StoredInputStoreError,
+                    "byte limit",
+                ),
             ):
                 store._write_state(stored_input.private_state.empty_state())
-            with mock.patch.object(stored_input, "MAX_PLAINTEXT_BYTES", 1), self.assertRaises(
-                stored_input.StoredInputValidationError
+            with (
+                mock.patch.object(stored_input, "MAX_PLAINTEXT_BYTES", 1),
+                self.assertRaises(stored_input.StoredInputValidationError),
             ):
                 store._plaintext("secret", ORIGIN)
-            with mock.patch.object(stored_input, "MAX_VALUE_BYTES", 1), self.assertRaises(
-                stored_input.StoredInputValidationError
+            with (
+                mock.patch.object(stored_input, "MAX_VALUE_BYTES", 1),
+                self.assertRaises(stored_input.StoredInputValidationError),
             ):
                 stored_input._secret_value("secret")
 
             store.seal("team_1", "whatsapp", "token-one", "password", TOKEN, ORIGIN)
-            with mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 1), self.assertRaisesRegex(
-                stored_input.StoredInputStoreError,
-                "capacity reached",
+            with (
+                mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 1),
+                self.assertRaisesRegex(
+                    stored_input.StoredInputStoreError,
+                    "capacity reached",
+                ),
             ):
                 store.seal("team_1", "whatsapp", "token-two", "password", TOKEN, ORIGIN)
 

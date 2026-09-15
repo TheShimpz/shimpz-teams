@@ -226,8 +226,8 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
 
         state._assistant_stored_inputs.delete_team = mock.Mock()
         self.assertTrue(lifecycle._teardown_assistant_stored_inputs(TEAM_ID))
-        state._assistant_stored_inputs.delete_team.side_effect = (
-            lifecycle.action_stored_input.StoredInputStoreError("state")
+        state._assistant_stored_inputs.delete_team.side_effect = lifecycle.action_stored_input.StoredInputStoreError(
+            "state"
         )
         self.assertFalse(lifecycle._teardown_assistant_stored_inputs(TEAM_ID))
 

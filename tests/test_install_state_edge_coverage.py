@@ -125,9 +125,12 @@ class BindingStoreEdgeCoverageTests(unittest.TestCase):
             },
         )
         for value in malformed_values:
-            with self.subTest(provenance=value["provenance"]), self.assertRaisesRegex(
-                bindings.DynamicAssistantError,
-                "malformed",
+            with (
+                self.subTest(provenance=value["provenance"]),
+                self.assertRaisesRegex(
+                    bindings.DynamicAssistantError,
+                    "malformed",
+                ),
             ):
                 bindings._decode_binding(value)
 

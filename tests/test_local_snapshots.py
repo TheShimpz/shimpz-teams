@@ -130,11 +130,14 @@ class LocalSnapshotTests(unittest.TestCase):
             snapshots.list_candidates(client)
 
         client, image, _container_value = _client()
-        with mock.patch.object(
-            snapshots,
-            "_candidate",
-            side_effect=snapshots.LocalSnapshotUnavailableError("inspection failed"),
-        ), self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "inspection failed"):
+        with (
+            mock.patch.object(
+                snapshots,
+                "_candidate",
+                side_effect=snapshots.LocalSnapshotUnavailableError("inspection failed"),
+            ),
+            self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "inspection failed"),
+        ):
             snapshots.list_candidates(client)
 
         client, image, _container_value = _client()
@@ -290,11 +293,14 @@ class LocalSnapshotTests(unittest.TestCase):
             snapshots.admit(client, IMAGE_ID)
 
         client, _image_value, _container_value = _client()
-        with mock.patch.object(
-            snapshots.source_package,
-            "admit",
-            side_effect=source_package.SourcePackageError("invalid"),
-        ), self.assertRaisesRegex(snapshots.LocalSnapshotError, "declaration is invalid"):
+        with (
+            mock.patch.object(
+                snapshots.source_package,
+                "admit",
+                side_effect=source_package.SourcePackageError("invalid"),
+            ),
+            self.assertRaisesRegex(snapshots.LocalSnapshotError, "declaration is invalid"),
+        ):
             snapshots.admit(client, IMAGE_ID)
 
     def test_extraction_and_cleanup_fail_closed(self) -> None:
@@ -334,9 +340,12 @@ class LocalSnapshotTests(unittest.TestCase):
             [{"id": "cloudflare", "provider": "cloudflare", "scopes": [], "extra": True}],
         )
         for value in malformed_integrations:
-            with self.subTest(integrations=value), self.assertRaisesRegex(
-                snapshots.LocalSnapshotError,
-                "Integrations are invalid",
+            with (
+                self.subTest(integrations=value),
+                self.assertRaisesRegex(
+                    snapshots.LocalSnapshotError,
+                    "Integrations are invalid",
+                ),
             ):
                 snapshots.validate_record({**record, "integrations": value})
 
@@ -352,9 +361,12 @@ class LocalSnapshotTests(unittest.TestCase):
             [{"id": "token", "kind": "input:password", "label": "Token"}],
         )
         for value in malformed_stored_inputs:
-            with self.subTest(stored_inputs=value), self.assertRaisesRegex(
-                snapshots.LocalSnapshotError,
-                "Stored Inputs are invalid",
+            with (
+                self.subTest(stored_inputs=value),
+                self.assertRaisesRegex(
+                    snapshots.LocalSnapshotError,
+                    "Stored Inputs are invalid",
+                ),
             ):
                 snapshots.validate_record({**record, "stored_inputs": value})
 

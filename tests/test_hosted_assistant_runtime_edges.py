@@ -558,10 +558,13 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             assistants._seal_hosted_stored_inputs(request, without_origin)
 
         undeclared_action = SimpleNamespace(human_requests=("input:password",), stored_inputs=())
-        undeclared_request = replace(request, contract=SimpleNamespace(
-            actions={ACTION_ID: undeclared_action},
-            stored_inputs={"whatsapp-token": declaration},
-        ))
+        undeclared_request = replace(
+            request,
+            contract=SimpleNamespace(
+                actions={ACTION_ID: undeclared_action},
+                stored_inputs={"whatsapp-token": declaration},
+            ),
+        )
         with self.assertRaisesRegex(KeyError, "whatsapp-token"):
             assistants._seal_hosted_stored_inputs(undeclared_request, private)
 
