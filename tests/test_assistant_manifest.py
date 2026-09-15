@@ -139,6 +139,18 @@ class AssistantManifestTests(unittest.TestCase):
             ),
         )
 
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "declarations are invalid"):
+            assistant_manifest.canonical_stored_input_declarations(
+                {
+                    f"token-{index}": {
+                        "kind": "password",
+                        "label": "Token",
+                        "description": "Provider token.",
+                    }
+                    for index in range(assistant_manifest.MAX_STORED_INPUTS + 1)
+                }
+            )
+
     def test_machine_contract_requires_password_capability_for_stored_input(self) -> None:
         declarations = assistant_manifest.canonical_stored_input_declarations(
             {
@@ -578,6 +590,9 @@ class AssistantManifestTests(unittest.TestCase):
         invalid_human = json.loads(json.dumps(valid))
         invalid_human["actions"][0]["human_requests"] = ["invalid"]
         variants.append(invalid_human)
+        invalid_stored_input = json.loads(json.dumps(valid))
+        invalid_stored_input["actions"][0]["stored_inputs"] = ["undeclared-token"]
+        variants.append(invalid_stored_input)
         multiple_authorizations = json.loads(json.dumps(valid))
         multiple_authorizations["actions"][0]["human_requests"] = ["approval", "auth:password"]
         variants.append(multiple_authorizations)
@@ -625,6 +640,7 @@ class AssistantManifestTests(unittest.TestCase):
                 "summary": "Reviewed Assistant.",
                 "allowed_hosts": [],
                 "integrations": {},
+                "stored_inputs": {},
                 "contract": valid_contract,
             }
             values = (
@@ -643,6 +659,10 @@ class AssistantManifestTests(unittest.TestCase):
                             "integrations": {"cloudflare": {}},
                         }
                     },
+                },
+                {
+                    "version": 1,
+                    "assistants": {"assistant": {**valid_entry, "stored_inputs": []}},
                 },
             )
             path = root / "catalog.json"
@@ -675,6 +695,17 @@ class AssistantManifestTests(unittest.TestCase):
         root_integration = b'integrations = "invalid"\n' + manifest()
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "integration declarations"):
             assistant_manifest.parse_manifest_contract(root_integration)
+        root_stored_inputs = b'stored_inputs = "invalid"\n' + manifest()
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "Stored Input declarations"):
+            assistant_manifest.parse_manifest_contract(root_stored_inputs)
+
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "version is invalid"):
+            assistant_manifest.canonical_manifest_identity(
+                assistant_id="assistant",
+                version="v1",
+                name="Assistant",
+                summary="Assistant summary.",
+            )
 
     def test_bounded_archive_closes_stream_and_classifies_chunk_failures(self) -> None:
         class Chunks:

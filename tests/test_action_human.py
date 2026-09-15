@@ -126,6 +126,16 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(human.HumanRequestError):
             human.validate_request(malformed, ("input:password",), ("whatsapp-token",))
 
+        ambiguous = human.ActionTranscript(
+            "interrupt-1",
+            (
+                human.HumanResponse("input:password", 0, "a" * 64, "first", "first-token"),
+                human.HumanResponse("input:password", 1, "b" * 64, "second", "second-token"),
+            ),
+        )
+        with self.assertRaisesRegex(human.HumanRequestError, "multiple Stored Inputs"):
+            ambiguous.submitted_stored_inputs()
+
     def test_turn_transcripts_are_interrupt_bound_and_globally_bounded(self) -> None:
         transcripts: tuple[human.ActionTranscript, ...] = ()
         for index in range(human.MAX_REQUESTS_PER_TURN):

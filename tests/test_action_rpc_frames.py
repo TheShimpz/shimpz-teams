@@ -221,6 +221,39 @@ class ActionRpcFrameTests(unittest.TestCase):
             {},
         )
 
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "origin is invalid"):
+            action_execution.stored_input_origin(
+                SimpleNamespace(
+                    action="send",
+                    assistant_id="whatsapp",
+                    input=object(),
+                    interrupt_id="interrupt",
+                )
+            )
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "contract is unavailable"):
+            action_execution.resolve_action_stored_inputs({}, declarations, "send", mock.Mock())
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "contract is unavailable"):
+            action_execution.resolve_action_stored_inputs(actions, {}, "send", mock.Mock())
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "state is unavailable"):
+            action_execution.resolve_action_stored_inputs(
+                actions,
+                declarations,
+                "send",
+                lambda _stored_input, _declaration: object(),
+            )
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation is unavailable"):
+            action_execution.stored_input_generations(
+                actions,
+                declarations,
+                "send",
+                "b" * 64,
+                lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
+                    "private",
+                    0,
+                    origin,
+                ),
+            )
+
     def test_rpc_result_projection_rejects_private_and_invalid_outputs(self) -> None:
         projected = action_execution.project_rpc_result(
             {"type": "result", "result": {"ok": True}},

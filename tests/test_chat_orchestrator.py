@@ -166,6 +166,11 @@ class ChatOrchestratorTests(unittest.TestCase):
             chat_orchestrator.retain_suspension_transcripts(transcripts, outcome),
             (transcripts[1],),
         )
+        ordinary = chat_orchestrator.ChatSuspension(outcome.continuation, ())
+        self.assertEqual(
+            chat_orchestrator.retain_suspension_transcripts(transcripts, ordinary),
+            transcripts,
+        )
 
     def test_direct_reply_never_invokes_a_action(self):
         invoked = []
