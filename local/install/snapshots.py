@@ -245,7 +245,7 @@ def _labels(image) -> dict[str, str]:
 def _extract_files(client, image_id: str) -> dict[str, bytes]:
     container = None
     failure: Exception | None = None
-    extracted: dict[str, bytes] | None = None
+    extracted: dict[str, bytes] = {}
     try:
         container = client.containers.create(image=image_id, network_mode="none")
         extracted = {
@@ -284,8 +284,6 @@ def _extract_files(client, image_id: str) -> dict[str, bytes]:
     if failure is not None:
         error = LocalSnapshotUnavailableError if isinstance(failure, DockerException) else LocalSnapshotError
         raise error("the Local Assistant files could not be admitted") from failure
-    if extracted is None:
-        raise LocalSnapshotError("the Local Assistant files could not be admitted")
     return extracted
 
 

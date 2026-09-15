@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from docker.errors import DockerException
+from docker.errors import DockerException, ImageNotFound
 
 from assistant import manifest as assistant_manifest
 from install import bindings
@@ -122,6 +122,77 @@ def _client(*, source_digest: str | None = None):
 
 
 class LocalSnapshotTests(unittest.TestCase):
+    def test_snapshot_inventory_and_platform_fail_closed(self) -> None:
+        client, image, _container_value = _client()
+        client.images.list.side_effect = DockerException("offline")
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot enumerate"):
+            snapshots.list_candidates(client)
+
+        client, image, _container_value = _client()
+        with mock.patch.object(
+            snapshots,
+            "_candidate",
+            side_effect=snapshots.LocalSnapshotUnavailableError("inspection failed"),
+        ), self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "inspection failed"):
+            snapshots.list_candidates(client)
+
+        client, image, _container_value = _client()
+        client.images.list.return_value = [image, image]
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "duplicate images"):
+            snapshots.list_candidates(client)
+
+        client, _image_value, _container_value = _client()
+        client.info.side_effect = DockerException("offline")
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot report"):
+            snapshots.list_candidates(client)
+
+        client, _image_value, _container_value = _client()
+        client.info.return_value = {"Architecture": "riscv64"}
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "architecture is unsupported"):
+            snapshots.list_candidates(client)
+
+    def test_candidate_inspection_and_labels_fail_closed(self) -> None:
+        client, image, _container_value = _client()
+        image.reload.side_effect = DockerException("offline")
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot inspect"):
+            snapshots.list_candidates(client)
+
+        client, image, _container_value = _client()
+        del image.attrs["Config"]["Labels"][snapshots.ASSISTANT_LABEL]
+        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
+            snapshots.list_candidates(client)
+
+        client, image, _container_value = _client()
+        image.attrs["Config"]["Labels"][snapshots.SOURCE_LABEL] = "not-a-digest"
+        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
+            snapshots.list_candidates(client)
+
+        client, image, _container_value = _client()
+        image.attrs["Config"]["Labels"] = []
+        with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
+            snapshots.list_candidates(client)
+
+    def test_exact_image_resolution_fails_closed(self) -> None:
+        client, _image_value, _container_value = _client()
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
+            snapshots.admit(client, "latest")
+        client.images.get.assert_not_called()
+
+        for failure, message in (
+            (ImageNotFound("missing"), "no longer available"),
+            (DockerException("offline"), "cannot resolve"),
+        ):
+            with self.subTest(message=message):
+                client, _image_value, _container_value = _client()
+                client.images.get.side_effect = failure
+                with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, message):
+                    snapshots.admit(client, IMAGE_ID)
+
+        client, image, _container_value = _client()
+        image.id = "sha256:" + ("c" * 64)
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "exact Local Assistant image id"):
+            snapshots.admit(client, IMAGE_ID)
+
     def test_lists_only_bounded_stage_candidates(self) -> None:
         client, _image_value, _container_value = _client()
 
@@ -195,6 +266,36 @@ class LocalSnapshotTests(unittest.TestCase):
 
         container.remove.assert_called_once_with(force=True, v=False)
 
+    def test_rejects_extracted_file_and_declaration_drift(self) -> None:
+        client, _image_value, container = _client()
+        original_get_archive = container.get_archive.side_effect
+
+        def drift_manifest(path: str):
+            if path == assistant_manifest.MANIFEST_PATH:
+                return iter((_archive("shimpz.toml", b"different"),)), {
+                    "name": "shimpz.toml",
+                    "size": len(b"different"),
+                    "mode": 0o444,
+                }
+            return original_get_archive(path)
+
+        container.get_archive.side_effect = drift_manifest
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "do not match"):
+            snapshots.admit(client, IMAGE_ID)
+
+        client, image, _container_value = _client()
+        image.attrs["Config"]["Labels"][snapshots.VERSION_LABEL] = "0.2.0"
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "manifest does not match"):
+            snapshots.admit(client, IMAGE_ID)
+
+        client, _image_value, _container_value = _client()
+        with mock.patch.object(
+            snapshots.source_package,
+            "admit",
+            side_effect=source_package.SourcePackageError("invalid"),
+        ), self.assertRaisesRegex(snapshots.LocalSnapshotError, "declaration is invalid"):
+            snapshots.admit(client, IMAGE_ID)
+
     def test_extraction_and_cleanup_fail_closed(self) -> None:
         client, _image_value, container = _client()
         container.get_archive.side_effect = DockerException("unavailable")
@@ -206,6 +307,8 @@ class LocalSnapshotTests(unittest.TestCase):
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "could not be removed"):
             snapshots.admit(client, IMAGE_ID)
+
+        self.assertIsNone(snapshots._remove_temporary_container(None))
 
     def test_record_rejects_attribution_and_provider_drift(self) -> None:
         client, _image_value, _container_value = _client()
@@ -219,6 +322,40 @@ class LocalSnapshotTests(unittest.TestCase):
         for mutation in mutations:
             with self.subTest(fields=set(mutation)), self.assertRaises(snapshots.LocalSnapshotError):
                 snapshots.validate_record(mutation)
+
+    def test_record_rejects_malformed_integration_and_stored_input_shapes(self) -> None:
+        client, _image_value, _container_value = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+
+        malformed_integrations = (
+            None,
+            [{"id": "cloudflare", "provider": "cloudflare", "scopes": None}],
+            [{"id": "cloudflare", "provider": "cloudflare", "scopes": [], "extra": True}],
+        )
+        for value in malformed_integrations:
+            with self.subTest(integrations=value), self.assertRaisesRegex(
+                snapshots.LocalSnapshotError,
+                "Integrations are invalid",
+            ):
+                snapshots.validate_record({**record, "integrations": value})
+
+        class MissingValue(dict):
+            def __getitem__(self, key):
+                if key == "description":
+                    raise KeyError(key)
+                return super().__getitem__(key)
+
+        malformed_stored_inputs = (
+            None,
+            [MissingValue(id="token", kind="input:password", label="Token", description="Secret")],
+            [{"id": "token", "kind": "input:password", "label": "Token"}],
+        )
+        for value in malformed_stored_inputs:
+            with self.subTest(stored_inputs=value), self.assertRaisesRegex(
+                snapshots.LocalSnapshotError,
+                "Stored Inputs are invalid",
+            ):
+                snapshots.validate_record({**record, "stored_inputs": value})
 
     def test_registry_projects_local_runtime_and_replaces_only_local_bindings(self) -> None:
         client, _image_value, _container_value = _client()
