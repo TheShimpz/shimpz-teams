@@ -110,9 +110,12 @@ class HumanResponseTests(unittest.TestCase):
         self.assertEqual(transcript.submitted_stored_inputs(), {"whatsapp-token": "private-token"})
         self.assertEqual(transcript.protected_values(), {"stored-input:whatsapp-token": "private-token"})
         for stored_inputs in ((), ("other-token",)):
-            with self.subTest(stored_inputs=stored_inputs), self.assertRaisesRegex(
-                human.HumanRequestError,
-                "undeclared",
+            with (
+                self.subTest(stored_inputs=stored_inputs),
+                self.assertRaisesRegex(
+                    human.HumanRequestError,
+                    "undeclared",
+                ),
             ):
                 human.validate_request(descriptor, ("input:password",), stored_inputs)
 

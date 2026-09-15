@@ -298,8 +298,7 @@ class BrainRuntimeClient:
             or value.strip() != value
             or not 1 <= len(value) <= maximum
             or any(
-                unicodedata.category(character).startswith("C")
-                and (not allow_layout or character not in {"\n", "\t"})
+                unicodedata.category(character).startswith("C") and (not allow_layout or character not in {"\n", "\t"})
                 for character in value
             )
         ):

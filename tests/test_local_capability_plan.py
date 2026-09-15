@@ -85,10 +85,13 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(request["provider"], "openai")
         self.assertEqual(request["model"], "gpt-5.6-terra")
         self.assertEqual(request["api_key"], "private-model-key")
-        self.assertEqual(tuple(item.id for item in request["candidates"]), (
-            "shimpz-cloudflare",
-            "shimpz-whatsapp",
-        ))
+        self.assertEqual(
+            tuple(item.id for item in request["candidates"]),
+            (
+                "shimpz-cloudflare",
+                "shimpz-whatsapp",
+            ),
+        )
         self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
 
     def test_invalid_input_never_reaches_brain(self) -> None:

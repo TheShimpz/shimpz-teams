@@ -394,13 +394,15 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual([call[0] for call in calls], ["start", "complete", "cancel"])
 
     def test_internal_oauth_routes_are_closed_and_exact(self) -> None:
-        chat_turn_service = SimpleNamespace(
-            start_assistant_integration_authorization=lambda team, challenge, assistant, integration, binding,
-            callback_mode: {
+        def start_authorization(team, challenge, assistant, integration, binding, callback_mode):
+            return {
                 "authorization_url": (
                     f"https://shimpz.com/{team}/{challenge}/{assistant}/{integration}/{binding}/{callback_mode}"
                 )
-            },
+            }
+
+        chat_turn_service = SimpleNamespace(
+            start_assistant_integration_authorization=start_authorization,
             complete_cloudflare_oauth_callback=lambda **_values: {
                 "connected": True,
                 "team_id": "team_1",

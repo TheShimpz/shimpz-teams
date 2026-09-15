@@ -137,8 +137,7 @@ def _validate_resolve(value: dict[str, object]) -> None:
         raise ContractValidationError("resolve_stored_input_mismatch")
     actions = contract.get("actions")
     if isinstance(actions, list) and any(
-        action.get("stored_inputs")
-        and "input:password" not in action.get("human_requests", [])
+        action.get("stored_inputs") and "input:password" not in action.get("human_requests", [])
         for action in actions
         if isinstance(action, dict)
     ):

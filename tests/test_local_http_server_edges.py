@@ -216,9 +216,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             destroy_team=mock.Mock(return_value={"deleted": True}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
             install_publication=mock.Mock(return_value={"installed": True}),
-            install_local_snapshot=mock.Mock(
-                return_value={"assistant": "assistant", "installed": True}
-            ),
+            install_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
             assistant_lifecycle=SimpleNamespace(uninstall_assistant=mock.Mock(return_value={"uninstalled": True})),
             invoke=mock.Mock(return_value={"result": "ok"}),
         )

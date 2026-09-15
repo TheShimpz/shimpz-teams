@@ -98,9 +98,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
         self.assertFalse(publication_registry.is_successor(current, candidate))
 
         with tempfile.TemporaryDirectory() as directory:
-            registry = publication_registry.AssistantRegistry(
-                DynamicAssistantStore(Path(directory) / "bindings.json")
-            )
+            registry = publication_registry.AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
             resolution = _runtime_resolution()
             spec = registry.put("team_1", resolution)
             binding = registry.binding("team_1", spec.assistant_id)

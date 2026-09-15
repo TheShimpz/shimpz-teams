@@ -169,8 +169,9 @@ class StoredInputStoreTests(unittest.TestCase):
 
             store = self._store(root)
             for value in ("", "x" * (stored_input.MAX_VALUE_CHARACTERS + 1), object()):
-                with self.subTest(value_type=type(value).__name__), self.assertRaises(
-                    stored_input.StoredInputValidationError
+                with (
+                    self.subTest(value_type=type(value).__name__),
+                    self.assertRaises(stored_input.StoredInputValidationError),
                 ):
                     store.seal("team_1", "whatsapp", "whatsapp-token", "password", value, ORIGIN)
             with self.assertRaises(stored_input.StoredInputValidationError):

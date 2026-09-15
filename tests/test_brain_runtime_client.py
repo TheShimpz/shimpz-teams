@@ -69,18 +69,14 @@ def capability_candidates() -> tuple[brain_runtime_client.RuntimeCapabilityCandi
             name="Shimpz Cloudflare",
             summary="Manage reviewed DNS records.",
             actions=("change-dns", "list-zones"),
-            integrations=(
-                brain_runtime_client.RuntimeCapabilityIntegration("cloudflare", "cloudflare"),
-            ),
+            integrations=(brain_runtime_client.RuntimeCapabilityIntegration("cloudflare", "cloudflare"),),
         ),
         brain_runtime_client.RuntimeCapabilityCandidate(
             id="shimpz-whatsapp",
             name="Shimpz WhatsApp",
             summary="Send reviewed WhatsApp messages.",
             actions=("send-message",),
-            integrations=(
-                brain_runtime_client.RuntimeCapabilityIntegration("whatsapp", "whatsapp"),
-            ),
+            integrations=(brain_runtime_client.RuntimeCapabilityIntegration("whatsapp", "whatsapp"),),
         ),
     )
 
@@ -239,10 +235,13 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(headers["Authorization"], f"Bearer {self.token}")
         payload = json.loads(raw_body)
         self.assertEqual(payload["provider"]["api_key"], self.secret)
-        self.assertEqual([item["id"] for item in payload["candidates"]], [
-            "shimpz-cloudflare",
-            "shimpz-whatsapp",
-        ])
+        self.assertEqual(
+            [item["id"] for item in payload["candidates"]],
+            [
+                "shimpz-cloudflare",
+                "shimpz-whatsapp",
+            ],
+        )
         self.assertNotIn("thread_id", payload)
         self.assertNotIn("genesis", raw_body.decode())
         self.assertNotIn("input_schema", raw_body.decode())

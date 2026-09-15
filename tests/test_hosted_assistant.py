@@ -357,9 +357,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         cache = types.SimpleNamespace(
             get=admit,
         )
-        machine_cache = types.SimpleNamespace(
-            get=lambda _container, _integrations, _stored_inputs, reviewed: reviewed
-        )
+        machine_cache = types.SimpleNamespace(get=lambda _container, _integrations, _stored_inputs, reviewed: reviewed)
         with (
             mock.patch.multiple(
                 runtime_state,

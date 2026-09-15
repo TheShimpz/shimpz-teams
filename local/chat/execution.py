@@ -35,8 +35,7 @@ def project_action_result(
             human_requests=action_spec.human_requests,
             protected_values=private.transcript.protected_values(),
             authorization_requested=any(
-                response.kind in action_human.AUTHORIZATION_KINDS
-                for response in private.transcript.responses
+                response.kind in action_human.AUTHORIZATION_KINDS for response in private.transcript.responses
             ),
             stored_inputs_by_id=private.stored_inputs,
             declared_stored_inputs=action_spec.stored_inputs,

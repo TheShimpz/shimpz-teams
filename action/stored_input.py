@@ -222,7 +222,7 @@ def _declarations(value: object) -> dict[str, tuple[str, str, str]]:
             raw_kind = raw_spec.kind  # type: ignore[attr-defined]
             raw_label = raw_spec.label  # type: ignore[attr-defined]
             raw_description = raw_spec.description  # type: ignore[attr-defined]
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             if not isinstance(raw_spec, Mapping) or set(raw_spec) != {"kind", "label", "description"}:
                 raise StoredInputValidationError("Stored Input declarations are invalid") from None
             raw_kind = raw_spec.get("kind")
@@ -289,9 +289,7 @@ class StoredInputStore:
                 raise StoredInputStoreError("Stored Input state cache is unavailable")
             return self._state_cache
         state = (
-            private_state.empty_state()
-            if snapshot.payload is None
-            else _validate_state(_strict_json(snapshot.payload))
+            private_state.empty_state() if snapshot.payload is None else _validate_state(_strict_json(snapshot.payload))
         )
         self._state_cache_identity = snapshot.identity
         self._state_cache = state

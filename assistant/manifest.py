@@ -441,8 +441,7 @@ def canonical_machine_contract(
             or len(stored_inputs) > 1
             or len(stored_inputs) != len(set(stored_inputs))
             or any(
-                not isinstance(stored_input_id, str)
-                or stored_input_id not in declared_stored_input_ids
+                not isinstance(stored_input_id, str) or stored_input_id not in declared_stored_input_ids
                 for stored_input_id in stored_inputs
             )
         ):
@@ -596,9 +595,7 @@ def _manifest_table(raw: bytes) -> dict[str, object]:
     except (RecursionError, tomllib.TOMLDecodeError) as exc:
         raise ManifestError("Assistant manifest is invalid TOML") from exc
     required_root = {"shimpz", "network"}
-    if not required_root <= set(manifest) or set(manifest) - (
-        required_root | {"integrations", "stored_inputs"}
-    ):
+    if not required_root <= set(manifest) or set(manifest) - (required_root | {"integrations", "stored_inputs"}):
         raise ManifestError("Assistant manifest contains an unsupported top-level field")
     metadata = manifest["shimpz"]
     network = manifest["network"]

@@ -359,9 +359,7 @@ class ChatTurnService:
     _delete_all_integration_state = local_chat_state._delete_all_integration_state
     _delete_all_stored_input_state = local_chat_state._delete_all_stored_input_state
     _retain_declared_assistant_integration_state = local_chat_state._retain_declared_assistant_integration_state
-    _retain_declared_assistant_stored_input_state = (
-        local_chat_state._retain_declared_assistant_stored_input_state
-    )
+    _retain_declared_assistant_stored_input_state = local_chat_state._retain_declared_assistant_stored_input_state
     _raise_chat_continuation_problem = staticmethod(local_chat_state._raise_chat_continuation_problem)
     _persist_chat_continuation = local_chat_state._persist_chat_continuation
     _restore_chat_continuation = local_chat_state._restore_chat_continuation

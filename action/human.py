@@ -322,8 +322,7 @@ def _length_error(request: dict[str, object], limit: int) -> str | None:
     if set(request) != expected or not _input_base(request):
         return "shape"
     if "stored_input" in request and (
-        not isinstance(request["stored_input"], str)
-        or _STORED_INPUT_ID.fullmatch(request["stored_input"]) is None
+        not isinstance(request["stored_input"], str) or _STORED_INPUT_ID.fullmatch(request["stored_input"]) is None
     ):
         return "stored-input"
     placeholder = request["placeholder"]

@@ -338,9 +338,7 @@ class LocalSnapshotTests(unittest.TestCase):
             )
             icon_store = AssistantIconStore(root / "icons")
             lifecycle = SimpleNamespace(
-                install_assistant=mock.Mock(
-                    return_value={"assistant": "fixture-assistant", "installed": True}
-                ),
+                install_assistant=mock.Mock(return_value={"assistant": "fixture-assistant", "installed": True}),
             )
             controller = SimpleNamespace(
                 client=client,
@@ -394,9 +392,7 @@ class LocalSnapshotTests(unittest.TestCase):
                 registry=registry,
                 assistant_icons=icon_store,
                 assistant_lifecycle=SimpleNamespace(
-                    install_assistant=mock.Mock(
-                        side_effect=ApiProblemError(503, "failed", code="docker-start-failed")
-                    )
+                    install_assistant=mock.Mock(side_effect=ApiProblemError(503, "failed", code="docker-start-failed"))
                 ),
             )
 

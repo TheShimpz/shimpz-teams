@@ -561,9 +561,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             ("validate-network", team_id)
         )
         controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
-        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append(
-            "delete-stored-inputs"
-        )
+        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append("delete-stored-inputs")
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )
@@ -617,9 +615,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         controller.client.containers.list = lambda **_kwargs: [container]
         controller.chat_turn_service._delete_all_integration_state = lambda: events.append("delete-integrations")
-        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append(
-            "delete-stored-inputs"
-        )
+        controller.chat_turn_service._delete_all_stored_input_state = lambda: events.append("delete-stored-inputs")
         controller.assistant_lifecycle._remove_egress_policy = lambda team_id, assistant_id: events.append(
             ("remove-policy", team_id, assistant_id)
         )

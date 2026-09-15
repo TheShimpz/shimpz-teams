@@ -183,17 +183,12 @@ class ArtifactTrustTests(unittest.TestCase):
         tags: list[str] = []
         digests = iter(
             (
-                resolution["trust"]["signature_reference"].removeprefix(
-                    "ghcr.io/theshimpz/shimpz-assistant-trust@"
-                ),
-                resolution["trust"]["provenance_reference"].removeprefix(
-                    "ghcr.io/theshimpz/shimpz-assistant-trust@"
-                ),
+                resolution["trust"]["signature_reference"].removeprefix("ghcr.io/theshimpz/shimpz-assistant-trust@"),
+                resolution["trust"]["provenance_reference"].removeprefix("ghcr.io/theshimpz/shimpz-assistant-trust@"),
             )
         )
         images = types.SimpleNamespace(
-            get_registry_data=lambda tag, *, auth_config: tags.append(tag)
-            or types.SimpleNamespace(id=next(digests))
+            get_registry_data=lambda tag, *, auth_config: tags.append(tag) or types.SimpleNamespace(id=next(digests))
         )
         verifier = ArtifactTrustVerifier(
             types.SimpleNamespace(images=images),

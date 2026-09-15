@@ -128,9 +128,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            api._start_oauth_integration(
-                "team_1", "challenge", "assistant", "cloudflare", "binding", self.lease()
-            )
+            api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
 
         challenge = SimpleNamespace(payload=object())
         with (
@@ -138,9 +136,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(state._integration_challenges, "get", return_value=challenge),
             self.assertRaises(state.ApiError),
         ):
-            api._start_oauth_integration(
-                "team_1", "challenge", "assistant", "cloudflare", "binding", self.lease()
-            )
+            api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
 
         challenge.payload = self.pending()
         failures = (
@@ -155,9 +151,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
                 mock.patch.object(state._oauth_integrations, "authorization_url", side_effect=failure),
                 self.assertRaises(state.ApiError),
             ):
-                api._start_oauth_integration(
-                    "team_1", "challenge", "assistant", "cloudflare", "binding", self.lease()
-                )
+                api._start_oauth_integration("team_1", "challenge", "assistant", "cloudflare", "binding", self.lease())
 
     def test_callback_and_compensation_validate_resource_authority(self) -> None:
         body = {"state": "state", "session_binding": "binding"}

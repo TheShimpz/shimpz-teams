@@ -167,8 +167,7 @@ def _missing_candidate(
         (
             candidate
             for candidate in candidates
-            if candidate.assistant_id == selected_assistant
-            and candidate.integration_id == selected_integration
+            if candidate.assistant_id == selected_assistant and candidate.integration_id == selected_integration
         ),
         None,
     )

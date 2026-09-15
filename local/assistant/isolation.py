@@ -17,6 +17,7 @@ class ImageIdentity:
     reviewed: str
     provenance: str
 
+
 ASSISTANT_UID = "10001:10001"
 ASSISTANT_MEMORY = 128 * 1024 * 1024
 ASSISTANT_NANO_CPUS = 250_000_000
