@@ -343,6 +343,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertIsNone(handler._assistant_integration_route(path))
 
         stored_inputs = ["v1", "teams", "team_1", "assistant-stored-inputs"]
+        self.assertIsNone(handler._assistant_stored_input_route(["other"]))
         handler.command = "GET"
         self.assertEqual(handler._assistant_stored_input_route(stored_inputs)[2], "assistant-stored-input-list")
         handler.command = "DELETE"
@@ -350,6 +351,9 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertEqual(handler._assistant_stored_input_route(clear)[2], "assistant-stored-input-clear")
         handler.command = "POST"
         self.assertIsNone(handler._assistant_stored_input_route(stored_inputs))
+
+        handler.command = "PATCH"
+        self.assertIsNone(handler._local_assistant_route(["v1", "local-assistants"]))
 
         create = ["v1", "teams", "team_1", "create"]
         handler.command = "PATCH"

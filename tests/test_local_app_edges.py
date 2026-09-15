@@ -466,6 +466,27 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
         self.assertEqual(captured[1]["stored_inputs"], {"whatsapp-token": token})
         self.assertNotIn("responses", captured[1])
 
+    def test_stored_input_persistence_failure_is_redacted(self) -> None:
+        controller, spec, _container = self.controller()
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        spec.assistant_id = "assistant"
+        spec.actions = {"action": action_spec}
+        spec.stored_inputs = {}
+        with (
+            mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
+            mock.patch.object(local_app.action_execution, "project_rpc_result", return_value={"ok": True}),
+            mock.patch.object(local_app.local_audit, "record_request"),
+            mock.patch.object(
+                local_app.local_chat_execution,
+                "seal_stored_inputs",
+                side_effect=KeyError("private-token"),
+            ),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            controller.invoke("team_1", "assistant", "action", {})
+        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
+        self.assertNotIn("private-token", caught.exception.message)
+
 
 class LocalAppMainEdgeTests(unittest.TestCase):
     def test_main_maps_startup_failure_and_closes_successful_runtime(self) -> None:

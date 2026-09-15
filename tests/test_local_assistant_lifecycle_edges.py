@@ -487,6 +487,21 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
             {"kind": "local"},
         )
         subject._queue_residue.assert_called_once_with("sha256:" + "b" * 64)
+        with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance cannot be replaced"):
+            assistant_lifecycle._commit_replacement(
+                subject,
+                "team_1",
+                types.SimpleNamespace(provenance="unknown", binding_digest="invalid"),
+                {},
+            )
+
+    def test_local_stage_retention_rejects_invalid_image_identity(self) -> None:
+        binding = types.SimpleNamespace(
+            provenance="local",
+            local_record={"image_id": "latest"},
+        )
+        with self.assertRaisesRegex(bindings.DynamicAssistantError, "image id is invalid"):
+            assistant_lifecycle._local_stage_retention(binding)
 
     def test_recovery_target_covers_absent_current_unknown_and_removal_failures(self) -> None:
         target = types.SimpleNamespace(
