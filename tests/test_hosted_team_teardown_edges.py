@@ -224,6 +224,13 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         )
         self.assertFalse(lifecycle._teardown_assistant_integrations(TEAM_ID))
 
+        state._assistant_stored_inputs.delete_team = mock.Mock()
+        self.assertTrue(lifecycle._teardown_assistant_stored_inputs(TEAM_ID))
+        state._assistant_stored_inputs.delete_team.side_effect = (
+            lifecycle.action_stored_input.StoredInputStoreError("state")
+        )
+        self.assertFalse(lifecycle._teardown_assistant_stored_inputs(TEAM_ID))
+
     def test_database_drop_and_finalize_are_idempotent_and_contain_failures(self) -> None:
         dropped = _record(dropped=True)
         self.assertIs(lifecycle._drop_teardown_database(TEAM_ID, dropped), dropped)

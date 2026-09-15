@@ -275,6 +275,15 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
                 lifecycle._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, SPEC)
             self.assertEqual(cancel.call_count, int(pruned))
 
+    def test_stored_input_retention_maps_store_failure(self) -> None:
+        error = lifecycle.action_stored_input.StoredInputStoreError("state")
+        with (
+            mock.patch.object(state._assistant_stored_inputs, "retain_declared", side_effect=error),
+            self.assertRaises(state.ApiError) as caught,
+        ):
+            lifecycle._retain_admitted_assistant_stored_inputs(TEAM_ID, ASSISTANT_ID, SPEC)
+        self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+
     def test_list_and_icon_inventory_require_current_binding(self) -> None:
         lease = SimpleNamespace()
         container = _container()

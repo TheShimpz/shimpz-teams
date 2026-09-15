@@ -306,6 +306,39 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             )
         self.assertEqual(envelope.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 
+    def test_stored_input_resolution_generation_and_inventory_fail_closed(self) -> None:
+        declaration = SimpleNamespace(kind="password")
+        action = SimpleNamespace(stored_inputs=("whatsapp-token",))
+        contract = SimpleNamespace(
+            actions={ACTION_ID: action},
+            stored_inputs={"whatsapp-token": declaration},
+        )
+        active = _active(contract=contract)
+        store_error = assistants.action_stored_input.StoredInputStoreError("private-token")
+        with (
+            mock.patch.object(state._assistant_stored_inputs, "resolve", side_effect=store_error),
+            self.assertRaises(state.ApiError) as resolved,
+        ):
+            assistants._resolve_action_stored_inputs(TEAM_ID, active, ACTION_ID)
+        self.assertEqual(resolved.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertNotIn("private-token", resolved.exception.message)
+
+        request = assistants.brain_runtime_client.ActionRequest("interrupt", ASSISTANT_ID, ACTION_ID, {})
+        with (
+            mock.patch.object(state._assistant_stored_inputs, "resolve", side_effect=store_error),
+            self.assertRaises(assistants.action_journal.ActionJournalConflictError),
+        ):
+            assistants._action_stored_input_generations(TEAM_ID, active, request)
+
+        with (
+            mock.patch.object(resources, "_require_current_authorization"),
+            mock.patch.object(assistants, "_installed_assistant_specs", return_value=()),
+            mock.patch.object(state._assistant_stored_inputs, "inventory", side_effect=store_error),
+            self.assertRaises(state.ApiError) as inventory,
+        ):
+            assistants._assistant_stored_input_inventory(TEAM_ID, object())
+        self.assertEqual(inventory.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+
     def test_integration_inventory_maps_store_and_contract_failures(self) -> None:
         lease = object()
         for error, status in (
@@ -462,6 +495,86 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             )
         self.assertEqual(result["result"], {"ok": True})
         self.assertEqual(rpc.call_args.args[-1]["responses"], (response.payload(),))
+
+        with (
+            mock.patch.object(assistants, "_assistant_rpc", return_value={}),
+            mock.patch.object(assistants.action_execution, "project_rpc_result", return_value={"ok": True}),
+            mock.patch.object(assistants, "_seal_hosted_stored_inputs", side_effect=KeyError("private-token")),
+            self.assertRaises(state.ApiError) as persistence,
+        ):
+            assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
+        self.assertEqual(persistence.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertNotIn("private-token", persistence.exception.message)
+
+    def test_stored_input_rejection_and_sealing_preserve_secret_custody(self) -> None:
+        action = SimpleNamespace(
+            human_requests=("input:password",),
+            stored_inputs=("whatsapp-token",),
+        )
+        declaration = SimpleNamespace(kind="password")
+        contract = SimpleNamespace(
+            actions={ACTION_ID: action},
+            stored_inputs={"whatsapp-token": declaration},
+        )
+        request = assistants.ActionInvocationRequest(
+            TEAM_ID,
+            TURN_TOKEN,
+            ASSISTANT_ID,
+            contract,
+            _container(),
+            ACTION_ID,
+            {},
+        )
+        response = assistants.action_human.HumanResponse(
+            "input:password",
+            0,
+            "0" * 64,
+            "private-token",
+            "whatsapp-token",
+        )
+        transcript = assistants.action_human.ActionTranscript("interrupt", (response,))
+        private = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "a" * 64)
+
+        with (
+            mock.patch.object(
+                assistants.action_execution,
+                "project_rpc_result",
+                side_effect=assistants.action_execution.StoredInputRejectedError("whatsapp-token"),
+            ),
+            mock.patch.object(
+                state._assistant_stored_inputs,
+                "delete",
+                side_effect=assistants.action_stored_input.StoredInputStoreError("private-token"),
+            ),
+            mock.patch.object(assistants.audit, "log"),
+            self.assertRaises(state.ApiError) as rejected,
+        ):
+            assistants._project_hosted_action_result(request, {}, private)
+        self.assertEqual(rejected.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertNotIn("private-token", rejected.exception.message)
+
+        without_origin = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
+            assistants._seal_hosted_stored_inputs(request, without_origin)
+
+        undeclared_action = SimpleNamespace(human_requests=("input:password",), stored_inputs=())
+        undeclared_request = replace(request, contract=SimpleNamespace(
+            actions={ACTION_ID: undeclared_action},
+            stored_inputs={"whatsapp-token": declaration},
+        ))
+        with self.assertRaisesRegex(KeyError, "whatsapp-token"):
+            assistants._seal_hosted_stored_inputs(undeclared_request, private)
+
+        with mock.patch.object(state._assistant_stored_inputs, "seal") as seal:
+            assistants._seal_hosted_stored_inputs(request, private)
+        seal.assert_called_once_with(
+            TEAM_ID,
+            ASSISTANT_ID,
+            "whatsapp-token",
+            "password",
+            "private-token",
+            "a" * 64,
+        )
 
     def test_action_payload_file_and_storage_errors_are_normalized(self) -> None:
         active = _active()

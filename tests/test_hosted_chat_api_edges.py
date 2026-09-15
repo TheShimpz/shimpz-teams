@@ -311,6 +311,62 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             self.assertEqual(api._resume_chat_human("team_1", {}, None, self.lease()), {"reply": "human"})
         self.assertIs(resume.call_args.args[-1], api._exclusive_chat_turn)
 
+    def test_clear_stored_input_requires_current_declaration_and_store(self) -> None:
+        call = api._clear_assistant_stored_input.__wrapped__
+        lease = self.lease()
+        with (
+            mock.patch.object(state, "_lock_for", return_value=nullcontext()),
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
+            mock.patch.object(
+                api.assistant_lifecycle,
+                "_resolve_team_assistant",
+                side_effect=api.assistant_registry.AssistantSpecError("private"),
+            ),
+            self.assertRaises(state.ApiError) as absent,
+        ):
+            call("team_1", "assistant", "whatsapp-token", lease)
+        self.assertEqual(absent.exception.status, api.HTTPStatus.NOT_FOUND)
+
+        for stored_inputs, failure, expected in (
+            ({}, None, api.HTTPStatus.NOT_FOUND),
+            (
+                {"whatsapp-token": object()},
+                api.action_stored_input.StoredInputStoreError("private-token"),
+                api.HTTPStatus.SERVICE_UNAVAILABLE,
+            ),
+        ):
+            with (
+                self.subTest(status=expected),
+                mock.patch.object(state, "_lock_for", return_value=nullcontext()),
+                mock.patch.object(api.hosted_resources, "_require_current_authorization"),
+                mock.patch.object(
+                    api.assistant_lifecycle,
+                    "_resolve_team_assistant",
+                    return_value=("assistant", SimpleNamespace(contract=SimpleNamespace(stored_inputs=stored_inputs))),
+                ),
+                mock.patch.object(state._assistant_stored_inputs, "delete", side_effect=failure),
+                self.assertRaises(state.ApiError) as caught,
+            ):
+                call("team_1", "assistant", "whatsapp-token", lease)
+            self.assertEqual(caught.exception.status, expected)
+            self.assertNotIn("private-token", caught.exception.message)
+
+        with (
+            mock.patch.object(state, "_lock_for", return_value=nullcontext()),
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
+            mock.patch.object(
+                api.assistant_lifecycle,
+                "_resolve_team_assistant",
+                return_value=(
+                    "assistant",
+                    SimpleNamespace(contract=SimpleNamespace(stored_inputs={"whatsapp-token": object()})),
+                ),
+            ),
+            mock.patch.object(state._assistant_stored_inputs, "delete", return_value=True),
+        ):
+            result = call("team_1", "assistant", "whatsapp-token", lease)
+        self.assertTrue(result["cleared"])
+
     def test_stop_action_and_chat_cover_absent_changed_and_running_states(self) -> None:
         self.assertFalse(api._stop_active_action("team_1", None))
         with mock.patch.dict(state._active_action_container_ids, {}, clear=True):

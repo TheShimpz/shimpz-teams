@@ -109,6 +109,11 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         with self.assertRaises(state.ApiError):
             segment._execute_hosted_action(execution, action_request, object(), {}, object())
 
+        active = SimpleNamespace(contract=object(), container=object())
+        execution = segment.HostedActionExecution("team_1", "token", {"assistant": active}, {})
+        with self.assertRaises(segment.action_journal.ActionJournalConflictError):
+            segment._execute_hosted_action(execution, action_request, object(), {}, object())
+
     def test_integration_challenge_pause_and_human_pending_failures(self) -> None:
         challenge = SimpleNamespace(team_id="team_1", requirements=(SimpleNamespace(assistant_id="assistant"),))
         with (
