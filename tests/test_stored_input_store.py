@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 from action import stored_input
 
@@ -168,6 +169,10 @@ class StoredInputStoreTests(unittest.TestCase):
                 stored_input.StoredInputStore(root / "same" / "state", root / "same" / "key")
 
             store = self._store(root)
+            with self.assertRaises(stored_input.StoredInputValidationError):
+                store.seal("team_1", "whatsapp", "whatsapp-token", "text", TOKEN, ORIGIN)
+            with self.assertRaises(stored_input.StoredInputValidationError):
+                store.resolve("team_1", "whatsapp", "whatsapp-token", "text")
             for value in ("", "x" * (stored_input.MAX_VALUE_CHARACTERS + 1), object()):
                 with (
                     self.subTest(value_type=type(value).__name__),
@@ -184,6 +189,154 @@ class StoredInputStoreTests(unittest.TestCase):
             store.state_path.chmod(0o600)
             with self.assertRaises(stored_input.StoredInputStoreError):
                 store.metadata("team_1", "whatsapp", DECLARATIONS)
+
+    def test_identifier_kind_and_public_declaration_validation_fail_closed(self) -> None:
+        invalid_calls = (
+            lambda: stored_input._team_id("Team"),
+            lambda: stored_input._component_id("WhatsApp_Token", "Stored Input id"),
+            lambda: stored_input._kind("text"),
+            lambda: stored_input._public_text("", "label", 80),
+            lambda: stored_input._public_text(" padded ", "label", 80),
+            lambda: stored_input._public_text("x" * 81, "label", 80),
+            lambda: stored_input._public_text("line\nfeed", "label", 80),
+            lambda: stored_input._declarations(object()),
+            lambda: stored_input._declarations({"token": object()}),
+            lambda: stored_input._declared_ids("token"),
+            lambda: stored_input._declared_ids(("token", "token")),
+        )
+        for call in invalid_calls:
+            with self.subTest(call=call), self.assertRaises(stored_input.StoredInputValidationError):
+                call()
+
+        too_many = {
+            f"token-{index}": {"kind": "password", "label": "Token", "description": "Secret"}
+            for index in range(stored_input.MAX_STORED_INPUTS_PER_ASSISTANT + 1)
+        }
+        with self.assertRaises(stored_input.StoredInputValidationError):
+            stored_input._declarations(too_many)
+        with self.assertRaises(stored_input.StoredInputValidationError):
+            stored_input._declared_ids(too_many)
+        self.assertEqual(stored_input._declared_ids({"token": object()}), ("token",))
+
+    def test_state_shape_and_record_metadata_fail_closed(self) -> None:
+        valid_record = {
+            "kind": "password",
+            "generation": 1,
+            "updated_at": "2026-09-15T12:00:00Z",
+            "envelope": {
+                "algorithm": "AES-256-GCM",
+                "nonce": "AAAAAAAAAAAAAAAA",
+                "ciphertext": "AAAAAAAAAAAAAAAAAAAAAAA=",
+            },
+        }
+        malformed_records = (
+            None,
+            {key: value for key, value in valid_record.items() if key != "kind"},
+            {**valid_record, "kind": "text"},
+            {**valid_record, "generation": True},
+            {**valid_record, "updated_at": "now"},
+            {**valid_record, "envelope": []},
+            {**valid_record, "envelope": {"algorithm": "AES-256-GCM"}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "algorithm": "AES-128-GCM"}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "nonce": "invalid"}},
+            {**valid_record, "envelope": {**valid_record["envelope"], "ciphertext": "invalid"}},
+        )
+        for record in malformed_records:
+            with self.subTest(record=record), self.assertRaises(stored_input.StoredInputStoreError):
+                stored_input._validate_record(record)
+
+        malformed_states = (
+            None,
+            {},
+            {"schema": 2, "teams": {}},
+            {"schema": 1, "teams": []},
+        )
+        for state in malformed_states:
+            with self.subTest(state=state), self.assertRaises(stored_input.StoredInputStoreError):
+                stored_input._validate_state(state)
+
+        malformed_assistants = (
+            ("Team", {}),
+            ("team_1", []),
+            ("team_1", {"Bad": {}}),
+            ("team_1", {"whatsapp": []}),
+            ("team_1", {"whatsapp": {"Bad": valid_record}}),
+        )
+        for team, assistants in malformed_assistants:
+            with self.subTest(team=team, assistants=assistants), self.assertRaises(
+                stored_input.StoredInputStoreError
+            ):
+                stored_input._validate_assistants(team, assistants)
+
+        with mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 0), self.assertRaises(
+            stored_input.StoredInputStoreError
+        ):
+            stored_input._validate_assistants("team_1", {"whatsapp": {"token": valid_record}})
+        with mock.patch.object(stored_input, "MAX_TOTAL_RECORDS", 0), self.assertRaisesRegex(
+            stored_input.StoredInputStoreError,
+            "record limit",
+        ):
+            stored_input._validate_state(
+                {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}}
+            )
+
+    def test_storage_operational_limits_and_cache_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with (
+                mock.patch.object(stored_input.Path, "resolve", side_effect=OSError("offline")),
+                self.assertRaisesRegex(stored_input.StoredInputStoreError, "paths are unavailable"),
+            ):
+                self._store(root)
+
+            store = self._store(root)
+            unchanged = SimpleNamespace(unchanged=True, identity=None, payload=None)
+            with mock.patch.object(
+                stored_input.private_state.PrivateState,
+                "read_private_file_if_changed",
+                return_value=unchanged,
+            ), self.assertRaisesRegex(stored_input.StoredInputStoreError, "cache is unavailable"):
+                store._read_state()
+
+            with mock.patch.object(stored_input, "MAX_STATE_BYTES", 1), self.assertRaisesRegex(
+                stored_input.StoredInputStoreError,
+                "byte limit",
+            ):
+                store._write_state(stored_input.private_state.empty_state())
+            with mock.patch.object(stored_input, "MAX_PLAINTEXT_BYTES", 1), self.assertRaises(
+                stored_input.StoredInputValidationError
+            ):
+                store._plaintext("secret", ORIGIN)
+            with mock.patch.object(stored_input, "MAX_VALUE_BYTES", 1), self.assertRaises(
+                stored_input.StoredInputValidationError
+            ):
+                stored_input._secret_value("secret")
+
+            store.seal("team_1", "whatsapp", "token-one", "password", TOKEN, ORIGIN)
+            with mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 1), self.assertRaisesRegex(
+                stored_input.StoredInputStoreError,
+                "capacity reached",
+            ):
+                store.seal("team_1", "whatsapp", "token-two", "password", TOKEN, ORIGIN)
+
+    def test_decrypted_values_inventory_and_assistant_cleanup_fail_closed(self) -> None:
+        malformed_plaintexts = (
+            b"x" * (stored_input.MAX_PLAINTEXT_BYTES + 1),
+            b"[]",
+            b'{"origin":"bad","value":"secret"}',
+        )
+        for plaintext in malformed_plaintexts:
+            with self.subTest(plaintext=plaintext[:20]), self.assertRaises(stored_input.StoredInputStoreError):
+                stored_input.StoredInputStore._decrypted_value(plaintext)
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            store.seal("team_1", "whatsapp", "whatsapp-token", "password", TOKEN, ORIGIN)
+            duplicate = SimpleNamespace(assistant_id="whatsapp", stored_inputs=DECLARATIONS)
+            with self.assertRaisesRegex(stored_input.StoredInputValidationError, "ambiguous"):
+                store.inventory("team_1", (duplicate, duplicate))
+            self.assertTrue(store.delete_assistant("team_1", "whatsapp"))
+            self.assertFalse(store.delete_assistant("team_1", "whatsapp"))
 
 
 if __name__ == "__main__":

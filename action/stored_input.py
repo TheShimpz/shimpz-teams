@@ -403,15 +403,12 @@ class StoredInputStore:
         team = _team_id(team_id)
         assistant = _component_id(assistant_id, "Assistant id")
         stored_input = _component_id(stored_input_id, "Stored Input id")
-        canonical_kind = _kind(kind)
+        _kind(kind)  # Validate the caller contract before any state lookup.
         with self._lock:
             records = _PRIVATE_STATE.records(self._read_state(), team, assistant, create=False)
             if stored_input not in records:
                 raise StoredInputMissingError("Stored Input is not configured")
             record = _validate_record(records[stored_input])
-            stored_kind, _generation = _record_metadata(record)
-            if stored_kind != canonical_kind:
-                raise StoredInputMissingError("Stored Input declaration changed")
             return self._resolve_record(team, assistant, stored_input, record)
 
     def _resolve_record(
@@ -466,11 +463,8 @@ class StoredInputStore:
                     result.append(StoredInputMetadata(stored_input, kind, label, description, "missing", 0))
                     continue
                 validated = _validate_record(record)
-                stored_kind, generation = _record_metadata(validated)
-                status: StoredInputStatus = "missing"
-                if stored_kind == kind:
-                    status = "stored"
-                result.append(StoredInputMetadata(stored_input, kind, label, description, status, generation))
+                _stored_kind, generation = _record_metadata(validated)
+                result.append(StoredInputMetadata(stored_input, kind, label, description, "stored", generation))
             return tuple(result)
 
     def inventory(self, team_id: object, assistants: Iterable[object]) -> dict[str, object]:
