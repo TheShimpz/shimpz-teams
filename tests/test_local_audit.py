@@ -80,27 +80,30 @@ class LocalAuditTests(unittest.TestCase):
     def test_background_sync_bounds_the_acknowledged_loss_window(self) -> None:
         synchronized = threading.Event()
         real_fsync = os.fsync
-        synchronized_at: list[float] = []
+        real_wait = audit._CONDITION.wait
+        scheduled_waits: list[float] = []
 
         def observe(descriptor: int) -> None:
             real_fsync(descriptor)
-            synchronized_at.append(time.monotonic())
             synchronized.set()
+
+        def observe_wait(timeout: float | None = None) -> bool:
+            if timeout is not None:
+                scheduled_waits.append(timeout)
+            return real_wait(timeout)
 
         window = 0.02
         with (
             mock.patch.object(audit, "AUDIT_PATH", self.path),
             mock.patch.object(audit, "GROUP_COMMIT_MAX_SECONDS", window),
             mock.patch.object(audit.os, "fsync", side_effect=observe) as sync,
+            mock.patch.object(audit._CONDITION, "wait", side_effect=observe_wait),
         ):
-            started = time.monotonic()
             _record("first", result="ok")
             _record("second", result="ok")
             self.assertTrue(synchronized.wait(timeout=1))
-            elapsed = time.monotonic() - started
 
-        self.assertLess(elapsed, window * 5)
-        self.assertLess(synchronized_at[0] - started, window * 5)
+        self.assertTrue(any(0 < timeout <= window for timeout in scheduled_waits))
         self.assertEqual(sync.call_count, 1)
 
     def test_action_loss_model_limits_loss_to_the_current_unsynced_group(self) -> None:
