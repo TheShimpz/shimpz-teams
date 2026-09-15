@@ -8,6 +8,7 @@ from unittest import mock
 
 from docker.errors import DockerException
 
+from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
@@ -231,6 +232,29 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             spec,
         )
         subject.integration_challenges.cancel_team.assert_called_once_with("team_1")
+
+    def test_stored_input_state_mutations_map_store_failures(self) -> None:
+        failure = action_stored_input.StoredInputStoreError("unavailable")
+        operations = (
+            (local_chat_state._delete_assistant_stored_input_state, "delete_assistant", ("team_1", "assistant")),
+            (local_chat_state._delete_team_stored_input_state, "delete_team", ("team_1",)),
+            (local_chat_state._delete_all_stored_input_state, "delete_all", ()),
+        )
+        for operation, method, arguments in operations:
+            subject = types.SimpleNamespace(
+                assistant_stored_inputs=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)})
+            )
+            with self.subTest(operation=operation.__name__), self.assertRaises(local_app.ApiProblem) as caught:
+                operation(subject, *arguments)
+            self.assertEqual(caught.exception.code, "stored-input-state-unavailable")
+
+        spec = types.SimpleNamespace(assistant_id="assistant", stored_inputs={})
+        subject = types.SimpleNamespace(
+            assistant_stored_inputs=types.SimpleNamespace(retain_declared=mock.Mock(side_effect=failure))
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_state._retain_declared_assistant_stored_input_state(subject, "team_1", spec)
+        self.assertEqual(caught.exception.code, "stored-input-state-unavailable")
 
     def test_persistence_validates_lifetime_and_maps_codec_or_store_failures(self) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:

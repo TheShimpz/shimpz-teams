@@ -93,6 +93,23 @@ class LocalLeafContractTests(unittest.TestCase):
         ):
             chat_segment._run_chat_segment_with_metadata(controller, request, None)
 
+        def invalid_private_evidence(strategy: object, **_kwargs: object) -> object:
+            prepared = strategy.prepare()
+            return prepared.durable_batch._strategy.execute(
+                types.SimpleNamespace(assistant_id="helper", interrupt_id="interrupt"),
+                object(),
+            )
+
+        with (
+            mock.patch.object(
+                chat_segment.chat_turn_engine,
+                "run_segment",
+                side_effect=invalid_private_evidence,
+            ),
+            self.assertRaisesRegex(action_journal.ActionJournalConflictError, "private input evidence"),
+        ):
+            chat_segment._run_chat_segment_with_metadata(controller, request, None)
+
         controller.action_state.purge_replayable.side_effect = action_journal.ActionJournalError("unavailable")
         controller._raise_chat_problem = mock.Mock(side_effect=RuntimeError("mapped journal failure"))
         fresh_request = chat_segment.SegmentRequest(

@@ -145,6 +145,12 @@ class LocalActionLabelTests(unittest.TestCase):
 
     def test_snapshot_rejects_missing_assistant_provider_and_inference_state(self) -> None:
         subject = Subject()
+        subject.network.id = None
+        with self.assertRaises(ApiProblemError) as ownership:
+            capabilities._action_label_snapshot(subject, "team_1", "cloudflare-assistant", "openai")
+        self.assertEqual(ownership.exception.code, "ownership-conflict")
+
+        subject = Subject()
         subject._active_chat_assistants.return_value = ()
         with self.assertRaises(ApiProblemError) as missing:
             capabilities._action_label_snapshot(subject, "team_1", "cloudflare-assistant", "openai")

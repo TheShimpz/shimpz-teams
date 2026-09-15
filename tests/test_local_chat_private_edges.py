@@ -10,6 +10,7 @@ from docker.errors import DockerException
 
 from action import challenges as action_challenges
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
@@ -277,6 +278,19 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             )
         self.assertEqual(caught.exception.code, "assistant-integration-unavailable")
 
+        subject.assistant_stored_inputs = types.SimpleNamespace(
+            resolve=mock.Mock(side_effect=action_stored_input.StoredInputStoreError("unavailable"))
+        )
+        active.spec.actions = {"action": types.SimpleNamespace(stored_inputs=("token",))}
+        active.spec.stored_inputs = {"token": types.SimpleNamespace(kind="password")}
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_private._resolve_action_stored_inputs(subject, "team_1", active.spec, "action")
+        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
+
+        request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
+        with self.assertRaises(action_journal.ActionJournalConflictError):
+            local_chat_private._action_stored_input_generations(subject, "team_1", active, request)
+
     def test_rpc_envelope_and_inventory_errors_are_mapped(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         active = types.SimpleNamespace(spec=types.SimpleNamespace())
@@ -506,6 +520,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 _resolve=lambda *_args: spec,
             ),
             assistant_stored_inputs=store,
+            _raise_stored_input_problem=local_chat_private._raise_stored_input_problem,
         )
 
         self.assertEqual(
@@ -535,6 +550,22 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 "other-token",
             )
         self.assertEqual(missing.exception.code, "assistant-stored-input-not-found")
+
+        store.inventory.side_effect = action_stored_input.StoredInputStoreError("unavailable")
+        with self.assertRaises(local_app.ApiProblem) as unavailable:
+            local_chat_private.list_assistant_stored_inputs(subject, "team_1")
+        self.assertEqual(unavailable.exception.code, "assistant-stored-input-state-unavailable")
+
+        store.inventory.side_effect = None
+        store.delete.side_effect = action_stored_input.StoredInputStoreError("unavailable")
+        with self.assertRaises(local_app.ApiProblem) as unavailable:
+            local_chat_private.clear_assistant_stored_input(
+                subject,
+                "team_1",
+                "whatsapp",
+                "whatsapp-token",
+            )
+        self.assertEqual(unavailable.exception.code, "assistant-stored-input-state-unavailable")
 
 
 if __name__ == "__main__":

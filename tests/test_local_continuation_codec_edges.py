@@ -59,6 +59,8 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
         duplicate = action_human.ActionTranscript("interrupt")
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._transcripts_payload((duplicate, duplicate))
+        with self.assertRaises(continuation.ContinuationCodecError):
+            continuation._requests_used(-1)
 
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._identity_payload(())
@@ -229,6 +231,14 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         value = copy.deepcopy(self.raw_pending)
         value["provider"] = "anthropic"
         mutations.append(value)
+        value = copy.deepcopy(self.raw_pending)
+        transcript = action_human.ActionTranscript(
+            "interrupt",
+            (action_human.HumanResponse("approval", 0, "a" * 64, True),),
+        )
+        value["transcripts"] = continuation._transcripts_payload((transcript,))
+        value["requests_used"] = 0
+        mutations.append(value)
 
         for value in mutations:
             with self.subTest(provider=value.get("provider")), self.assertRaises(continuation.ContinuationCodecError):
@@ -303,7 +313,31 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation.decode(stored)
 
-        body["schema"] = 1
+        for kind in ("unknown", "integrations"):
+            body = {
+                "schema": continuation.SCHEMA_VERSION,
+                "kind": kind,
+                "requirements": [],
+                "pending": self.raw_pending,
+            }
+            stored = continuation_store.StoredContinuation(
+                "team_1",
+                kind,
+                "a" * 32,
+                2_000,
+                1,
+                ("binding",),
+                json.dumps(body).encode(),
+            )
+            with self.subTest(kind=kind), self.assertRaises(continuation.ContinuationCodecError):
+                continuation.decode(stored)
+
+        body = {
+            "schema": 1,
+            "kind": "integrations",
+            "requirements": [],
+            "pending": self.raw_pending,
+        }
         stored = continuation_store.StoredContinuation(
             "team_1",
             "integrations",

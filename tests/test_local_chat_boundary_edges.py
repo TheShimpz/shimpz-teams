@@ -9,6 +9,7 @@ from unittest import mock
 from action import challenges as action_challenges
 from action import human as action_human
 from action import journal as action_journal
+from action import stored_input as action_stored_input
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
@@ -490,6 +491,45 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 requirements,
             )
         self.assertEqual(caught.exception.code, "assistant-integration-contract-invalid")
+
+    def test_stored_input_sealing_requires_exact_evidence_and_maps_clear_failure(self) -> None:
+        transcript = action_human.ActionTranscript(
+            "interrupt",
+            (action_human.HumanResponse("input:password", 0, "a" * 64, "secret", "token"),),
+        )
+        spec = types.SimpleNamespace(stored_inputs={"token": types.SimpleNamespace(kind="password")})
+        action_spec = types.SimpleNamespace(stored_inputs=("token",))
+        missing_origin = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
+            local_chat_execution.seal_stored_inputs(
+                mock.Mock(),
+                "team_1",
+                "assistant",
+                spec,
+                action_spec,
+                missing_origin,
+            )
+
+        evidence = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "b" * 64)
+        with self.assertRaises(KeyError):
+            local_chat_execution.seal_stored_inputs(
+                mock.Mock(),
+                "team_1",
+                "assistant",
+                spec,
+                types.SimpleNamespace(stored_inputs=()),
+                evidence,
+            )
+
+        store = types.SimpleNamespace(
+            delete=mock.Mock(side_effect=action_stored_input.StoredInputStoreError("unavailable"))
+        )
+        with (
+            mock.patch.object(local_chat_execution.local_audit, "record_request"),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            local_chat_execution.clear_rejected_stored_input(store, "team_1", "assistant", "action", "token")
+        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
 
 
 if __name__ == "__main__":

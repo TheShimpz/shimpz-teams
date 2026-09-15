@@ -103,6 +103,10 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
             resources._trusted_image(controller, spec)
 
+        local_spec = types.SimpleNamespace(provenance="local")
+        with self.assertRaisesRegex(ApiProblemError, "published image provenance"):
+            resources._trusted_image(controller, local_spec)
+
     def test_staged_image_never_pulls_and_requires_exact_local_identity(self) -> None:
         controller = self._controller()
         controller._image_labels_valid = resources._image_labels_valid
@@ -135,6 +139,20 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "no longer available"):
             resources._staged_image(controller, spec)
         controller.client.images.pull.assert_not_called()
+
+        controller.client.images.get.side_effect = DockerException("unavailable")
+        with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
+            resources._staged_image(controller, spec)
+
+        published = types.SimpleNamespace(provenance="published")
+        with self.assertRaisesRegex(ApiProblemError, "Local image provenance"):
+            resources._staged_image(controller, published)
+        controller._trusted_image = mock.Mock(return_value="published")
+        controller._staged_image = mock.Mock(return_value="local")
+        self.assertEqual(resources._assistant_image(controller, published), "published")
+        self.assertEqual(resources._assistant_image(controller, spec), "local")
+        with self.assertRaisesRegex(ApiProblemError, "provenance is invalid"):
+            resources._assistant_image(controller, types.SimpleNamespace(provenance="unknown"))
 
     def test_egress_contract_rejects_invalid_manifest_and_environment(self) -> None:
         controller = types.SimpleNamespace(

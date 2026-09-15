@@ -99,9 +99,23 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         invalid = (
             {},
             {**plan_body(), "extra": True},
+            {**plan_body(), "candidates": None},
             {**plan_body(), "objective": " hidden "},
             {**plan_body(), "candidates": []},
             {**plan_body(), "candidates": list(reversed(plan_body()["candidates"]))},
+            {
+                **plan_body(),
+                "candidates": [{**plan_body()["candidates"][0], "actions": None}],
+            },
+            {
+                **plan_body(),
+                "candidates": [
+                    {
+                        **plan_body()["candidates"][0],
+                        "integrations": [{"id": "cloudflare"}],
+                    }
+                ],
+            },
             {
                 **plan_body(),
                 "candidates": [{**plan_body()["candidates"][0], "secret": "must-not-cross"}],
@@ -133,6 +147,12 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(drift.exception.status, HTTPStatus.CONFLICT)
 
     def test_snapshot_requires_current_team_and_provider_binding(self) -> None:
+        subject = Subject()
+        subject.network.id = None
+        with self.assertRaises(ApiProblemError) as ownership:
+            capabilities._capability_plan_snapshot(subject, "team_1", "openai")
+        self.assertEqual(ownership.exception.code, "ownership-conflict")
+
         subject = Subject()
         with self.assertRaises(ApiProblemError) as mismatch:
             capabilities._capability_plan_snapshot(subject, "team_1", "anthropic")
