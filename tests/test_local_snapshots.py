@@ -23,6 +23,7 @@ from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
 from tests.test_assistant_manifest import manifest
+from tests.test_local_publication_install import _runtime_resolution
 from tests.test_local_source_package import _packages
 
 IMAGE_ID = "sha256:" + ("a" * 64)
@@ -456,6 +457,189 @@ class LocalSnapshotTests(unittest.TestCase):
             caught.exception.message,
             f"Local Assistant snapshot {IMAGE_ID} carries the Local stage label but failed validation",
         )
+
+    def test_service_maps_snapshot_inventory_and_admission_failures(self) -> None:
+        inventory_failures = (
+            (
+                snapshots.LocalSnapshotUnavailableError("offline"),
+                "local-assistant-snapshots-unavailable",
+            ),
+            (snapshots.LocalSnapshotError("invalid"), "local-assistant-snapshots-invalid"),
+        )
+        for failure, code in inventory_failures:
+            with (
+                self.subTest(code=code),
+                mock.patch.object(service.snapshots, "list_candidates", side_effect=failure),
+                self.assertRaises(ApiProblemError) as caught,
+            ):
+                service.list_local_snapshots(SimpleNamespace(client=object()))
+            self.assertEqual(caught.exception.code, code)
+
+        with (
+            mock.patch.object(
+                service.snapshots,
+                "admit",
+                side_effect=snapshots.LocalSnapshotError("invalid"),
+            ),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(SimpleNamespace(client=object()), "team_1", IMAGE_ID)
+        self.assertEqual(caught.exception.code, "local-assistant-snapshot-invalid")
+
+    def test_service_rejects_provenance_conflicts_before_writing(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        registry = mock.Mock()
+        registry.binding.return_value = SimpleNamespace(provenance="published")
+        controller = SimpleNamespace(client=client, registry=registry)
+
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(controller, "team_1", IMAGE_ID)
+
+        self.assertEqual(caught.exception.code, "assistant-provenance-conflict")
+        registry.put_local.assert_not_called()
+
+    def test_service_maps_local_binding_and_icon_failures(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        candidate = bindings.binding_from_local_record("team_1", admitted.record, snapshots.validate_record)
+
+        def controller():
+            registry = mock.Mock()
+            registry.binding.return_value = None
+            registry.bindings.return_value = ()
+            return SimpleNamespace(
+                client=client,
+                registry=registry,
+                assistant_icons=mock.Mock(),
+                assistant_lifecycle=mock.Mock(),
+            )
+
+        rollback = controller()
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            mock.patch.object(
+                service,
+                "_apply_local_snapshot",
+                side_effect=ApiProblemError(503, "rollback", code="assistant-install-rollback-incomplete"),
+            ),
+            self.assertRaises(ApiProblemError),
+        ):
+            service.install_local_snapshot(rollback, "team_1", IMAGE_ID)
+        rollback.registry.delete.assert_not_called()
+        rollback.assistant_icons.discard_binding.assert_called_once_with(candidate, ())
+
+        binding_failure = controller()
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            mock.patch.object(
+                service,
+                "_apply_local_snapshot",
+                side_effect=bindings.DynamicAssistantError("conflict"),
+            ),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(binding_failure, "team_1", IMAGE_ID)
+        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
+        binding_failure.registry.delete.assert_called_once_with("team_1", "fixture-assistant")
+
+        replacement_failure = controller()
+        replacement_failure.registry.binding.return_value = candidate
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            mock.patch.object(
+                service,
+                "_apply_local_snapshot",
+                side_effect=bindings.DynamicAssistantError("conflict"),
+            ),
+            self.assertRaises(ApiProblemError),
+        ):
+            service.install_local_snapshot(replacement_failure, "team_1", IMAGE_ID)
+        replacement_failure.registry.delete.assert_not_called()
+
+        icon_failure = controller()
+        icon_failure.assistant_icons.put_local.side_effect = AssistantIconError("offline")
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(icon_failure, "team_1", IMAGE_ID)
+        self.assertEqual(caught.exception.code, "assistant-icon-unavailable")
+
+        discard_failure = controller()
+        discard_failure.assistant_icons.discard_binding.side_effect = AssistantIconError("offline")
+        with self.assertRaises(ApiProblemError) as caught:
+            service._discard_local_icon(discard_failure, candidate)
+        self.assertEqual(caught.exception.code, "assistant-icon-unavailable")
+
+    def test_apply_local_snapshot_handles_idempotence_and_binding_races(self) -> None:
+        client, _image_value, _container_value = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+        existing = bindings.binding_from_local_record("team_1", record, snapshots.validate_record)
+        spec = SimpleNamespace(assistant_id="fixture-assistant")
+        controller = SimpleNamespace(registry=mock.Mock(), assistant_lifecycle=mock.Mock())
+        controller.registry.local_replacement.return_value = (existing, spec)
+        controller.assistant_lifecycle.install_assistant.return_value = {"installed": True}
+
+        self.assertEqual(
+            service._apply_local_snapshot(controller, "team_1", existing, record),
+            {"installed": True},
+        )
+
+        changed = bindings.binding_from_local_record(
+            "team_1",
+            {**record, "summary": "Changed local summary"},
+            snapshots.validate_record,
+        )
+        controller.registry.local_replacement.return_value = (changed, spec)
+        with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "image id is unchanged"):
+            service._apply_local_snapshot(
+                controller,
+                "team_1",
+                existing,
+                {**record, "summary": "Changed local summary"},
+            )
+
+        replacement = {**record, "image_id": "sha256:" + ("c" * 64)}
+        replacement_binding = bindings.binding_from_local_record("team_1", replacement, snapshots.validate_record)
+        controller.registry.local_replacement.return_value = (replacement_binding, spec)
+        controller.registry.get.return_value = None
+        with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "changed before update"):
+            service._apply_local_snapshot(controller, "team_1", existing, replacement)
+
+    def test_registry_rejects_cross_provenance_replacements(self) -> None:
+        client, _image_value, _container_value = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+        publication = _runtime_resolution()
+        publication["assistant_id"] = "fixture-assistant"
+        with tempfile.TemporaryDirectory() as directory:
+            registry = assistant_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json",
+                    local_record_validator=snapshots.validate_record,
+                )
+            )
+            local_spec = registry.put_local("team_1", record)
+            local_binding = registry.binding("team_1", local_spec.assistant_id)
+            self.assertIsNotNone(local_binding)
+            with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance"):
+                registry.replacement("team_1", local_binding.binding_digest, publication)
+            with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "changed before replacement"):
+                registry.local_replacement("team_1", "sha256:" + ("0" * 64), record)
+
+            registry.delete("team_1", local_spec.assistant_id)
+            published_spec = registry.put("team_1", publication)
+            published_binding = registry.binding("team_1", published_spec.assistant_id)
+            self.assertIsNotNone(published_binding)
+            with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "provenance"):
+                registry.local_replacement("team_1", published_binding.binding_digest, record)
+
+        invalid = SimpleNamespace(provenance="unknown", document={}, assistant_id="fixture-assistant")
+        with self.assertRaisesRegex(bindings.DynamicAssistantError, "provenance is invalid"):
+            assistant_registry._runtime_identity(invalid)
 
     def test_service_installs_and_replaces_an_exact_local_snapshot(self) -> None:
         client, _image_value, _container_value = _client()

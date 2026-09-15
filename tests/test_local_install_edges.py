@@ -323,6 +323,19 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 )
             controller.assistant_icons.put.assert_not_called()
 
+    def test_publication_icon_failure_surfaces_after_trust_succeeds(self) -> None:
+        controller = types.SimpleNamespace(
+            developers=types.SimpleNamespace(
+                icon=mock.Mock(side_effect=developers.DevelopersError("icon unavailable")),
+            ),
+            artifact_trust=types.SimpleNamespace(verify=mock.Mock()),
+        )
+
+        with self.assertRaisesRegex(developers.DevelopersError, "icon unavailable"):
+            install_service._verify_publication_assets(controller, RESOLUTION["source_digest"], RESOLUTION)
+
+        controller.artifact_trust.verify.assert_called_once_with(RESOLUTION)
+
     def test_install_skips_redundant_icon_cleanup_only_after_success(self) -> None:
         controller = self._service_controller()
         resolution = _runtime_resolution()
