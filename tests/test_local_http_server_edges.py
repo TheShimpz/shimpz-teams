@@ -564,6 +564,20 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
             },
         )
 
+        controller.local_snapshot_icon.side_effect = ApiProblemError(
+            HTTPStatus.NOT_FOUND,
+            "Local Assistant preview is unavailable",
+            code="local-assistant-preview-unavailable",
+        )
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value="f" * 32),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            handler._authorized_route(http_audit.RequestAudit())
+        self.assertEqual(caught.exception.code, "local-assistant-preview-unavailable")
+
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
         controller = HandlerRouteEdgeTests.controller()
         handler = self.handler(method="DELETE", path="/v1/space/bootstrap", controller=controller)

@@ -281,6 +281,29 @@ class LocalSnapshotTests(unittest.TestCase):
         container.start.assert_not_called()
         container.remove.assert_called_once_with(force=True, v=False)
 
+    def test_preview_rejects_invalid_image_id_without_docker_access(self) -> None:
+        client, _image_value, _container = _client()
+
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
+            snapshots.preview_icon(client, "latest")
+
+        client.images.get.assert_not_called()
+
+    def test_preview_rejects_invalid_declaration_and_cleans_up(self) -> None:
+        client, _image_value, container = _client()
+
+        with (
+            mock.patch.object(
+                snapshots.assistant_manifest,
+                "parse_manifest_identity",
+                side_effect=assistant_manifest.ManifestError("invalid"),
+            ),
+            self.assertRaisesRegex(snapshots.LocalSnapshotError, "preview is invalid"),
+        ):
+            snapshots.preview_icon(client, IMAGE_ID)
+
+        container.remove.assert_called_once_with(force=True, v=False)
+
     def test_preview_rejects_display_label_drift_and_always_cleans_up(self) -> None:
         client, image, container = _client()
         image.attrs["Config"]["Labels"][snapshots.NAME_LABEL] = "Different name"
