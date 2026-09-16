@@ -121,7 +121,14 @@ class LocalAssistantLifecycleMixin:
         _, listed = self._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
         self.assertEqual(
             listed["assistants"],
-            [{"assistant": "shimpz-cloudflare", "assistant_version": "0.1.0", "status": "running"}],
+            [
+                {
+                    "assistant": "shimpz-cloudflare",
+                    "assistant_version": "0.1.0",
+                    "provenance": "published",
+                    "status": "running",
+                }
+            ],
         )
         account_status, account_inventory = self._api(
             flow.port,

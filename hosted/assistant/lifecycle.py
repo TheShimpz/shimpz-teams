@@ -757,6 +757,7 @@ def _list_assistants(
                 {
                     "assistant": assistant_id,
                     "assistant_version": bindings[assistant_id].resolution["assistant_version"],
+                    "provenance": "published",
                     "status": container.status,
                 }
             )

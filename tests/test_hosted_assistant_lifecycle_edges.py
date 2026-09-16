@@ -297,7 +297,14 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
             result = lifecycle._list_assistants(TEAM_ID, lease)
         self.assertEqual(
             result["assistants"],
-            [{"assistant": ASSISTANT_ID, "assistant_version": "0.1.0", "status": "running"}],
+            [
+                {
+                    "assistant": ASSISTANT_ID,
+                    "assistant_version": "0.1.0",
+                    "provenance": "published",
+                    "status": "running",
+                }
+            ],
         )
 
         with (
