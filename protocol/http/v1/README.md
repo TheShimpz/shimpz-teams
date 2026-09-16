@@ -31,9 +31,26 @@ with bounded public display identity, sorted Integration providers, and per-item
 Subsequent `installing` events preserve that identity while advancing a single sequential item through
 `installing` and `installed`; the terminal lifecycle state is `installed`, `failed`, or `stopped`. A failed
 event carries one bounded HTTP status and retains already-installed items without rollback. The browser
-never sends the plan id, Assistant ids, publication digest, or objective back to Admin. After every item
-is freshly proved running, Admin sends the original task exactly once with the admitted scope union.
-Socket loss drops the unstarted plan and task; reconnect never replays them.
+never sends the plan id, planned Assistant ids, or publication digest back to Admin. After every item is
+freshly proved running, Admin sends the original task exactly once with the admitted scope union.
+
+Socket loss still drops the active objective and every unstarted plan item; no server or lifecycle state
+persists or replays them. The Admin browser may retain one prior ordinary objective only in current-page
+memory and consume it once when the same Team and exact Assistant scope submit a closed capability-continuation
+message. That fresh authenticated request has this exact Admin-only shape:
+
+```json
+{"type":"resume-task","message":"Can you enable it?","objective":"List my DNS zones","files":[],"assistant_ids":[],"objective_assistant_ids":[]}
+```
+
+Both messages and both Assistant scopes satisfy the ordinary chat bounds, `files` is exactly empty, and the two
+Assistant scopes are identical. `message` must be one complete member of Admin's closed continuation vocabulary;
+`objective` must be neither a continuation nor an uninstall request. An active turn, pending human or Integration
+challenge, or pending uninstall decision rejects the frame. Admin plans only `objective`: no capability gap sends
+only `message` to Team, a completed installation sends only `objective` with the admitted union scope, and planner
+failure or Stop sends neither. The browser visibly attributes the resumed objective, clears it on Team change,
+scope change, uninstall proposal, page disposal, or consumption, and never writes it to browser storage. The
+retained Hosted Store backend does not accept `resume-task`.
 
 Local Admin may also emit the exact `assistant-uninstall` lifecycle. Its `proposed` event carries only
 Team-derived bounded display identity and the installed semantic version; later `uninstalling`,
