@@ -115,6 +115,24 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertFalse(self.store.delete("team_1", "hello-world"))
         self.assertEqual(self.store.list("team_1"), ())
 
+    def test_put_reports_ownership_and_conditional_delete_preserves_a_winner(self) -> None:
+        binding, created = self.store.put_with_status("team_1", copy.deepcopy(RESOLUTION))
+        repeated, repeated_created = self.store.put_with_status("team_1", copy.deepcopy(RESOLUTION))
+
+        self.assertTrue(created)
+        self.assertFalse(repeated_created)
+        self.assertEqual(repeated, binding)
+        self.assertFalse(
+            self.store.delete_if_matches(
+                "team_1",
+                "hello-world",
+                f"sha256:{'0' * 64}",
+            )
+        )
+        self.assertEqual(self.store.get("team_1", "hello-world"), binding)
+        self.assertTrue(self.store.delete_if_matches("team_1", "hello-world", binding.binding_digest))
+        self.assertIsNone(self.store.get("team_1", "hello-world"))
+
     def test_replace_is_atomic_and_fenced_by_the_previous_binding_digest(self) -> None:
         previous = self.store.put("team_1", copy.deepcopy(RESOLUTION))
         replacement = copy.deepcopy(RESOLUTION)

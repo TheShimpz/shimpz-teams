@@ -155,7 +155,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
     def _service_controller() -> types.SimpleNamespace:
         registry = types.SimpleNamespace(
             binding=mock.Mock(return_value=None),
-            delete=mock.Mock(),
+            delete_if_matches=mock.Mock(),
             bindings=mock.Mock(return_value=()),
             replacement=mock.Mock(),
             get=mock.Mock(),
@@ -165,7 +165,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             assistant_icons=types.SimpleNamespace(discard_unreferenced=mock.Mock()),
         )
 
-    def test_install_service_maps_each_boundary_failure_and_rolls_back_new_binding(self) -> None:
+    def test_install_service_maps_each_boundary_failure_without_deleting_foreign_bindings(self) -> None:
         failures = (
             ApiProblemError(409, "install failed", code="install-failed"),
             developers.PublicationNotInstallableError("missing"),
@@ -183,10 +183,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 self.assertRaises(ApiProblemError),
             ):
                 install_service.install_publication(controller, "team_1", "helper", f"sha256:{'1' * 64}")
-            if isinstance(failure, ApiProblemError | developers.PublicationNotInstallableError):
-                controller.registry.delete.assert_called_once_with("team_1", "helper")
-            else:
-                controller.registry.delete.assert_not_called()
+            controller.registry.delete_if_matches.assert_not_called()
 
         controller = self._service_controller()
         with (
@@ -208,7 +205,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             self.assertRaises(ApiProblemError),
         ):
             install_service.install_publication(controller, "team_1", "helper", f"sha256:{'1' * 64}")
-        controller.registry.delete.assert_not_called()
+        controller.registry.delete_if_matches.assert_not_called()
 
         controller = self._service_controller()
         controller.registry.binding.return_value = types.SimpleNamespace(
@@ -223,7 +220,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
             self.assertRaises(ApiProblemError),
         ):
             install_service.install_publication(controller, "team_1", "helper", f"sha256:{'1' * 64}")
-        controller.registry.delete.assert_not_called()
+        controller.registry.delete_if_matches.assert_not_called()
 
     def test_install_service_rejects_identity_downgrade_and_binding_races(self) -> None:
         controller = types.SimpleNamespace(

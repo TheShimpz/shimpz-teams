@@ -94,12 +94,12 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
             result = self.assistant_lifecycle.replace_published_with_local(
                 team_id,
                 existing,
-                lambda install_assistant: _install_fresh_local_snapshot(
+                lambda install_assistant: _apply_local_snapshot(
                     self,
                     team_id,
+                    None,
                     admitted.record,
-                    install_assistant,
-                    cleanup_binding_on_failure=True,
+                    install_assistant=install_assistant,
                 ),
             )
             existing = None
@@ -107,24 +107,20 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
             result = self.assistant_lifecycle.install_fresh_local(
                 team_id,
                 assistant_id,
-                lambda install_assistant: _install_fresh_local_snapshot(
+                lambda install_assistant: _apply_local_snapshot(
                     self,
                     team_id,
+                    None,
                     admitted.record,
-                    install_assistant,
-                    cleanup_binding_on_failure=False,
+                    install_assistant=install_assistant,
                 ),
             )
         else:
             result = _apply_local_snapshot(self, team_id, existing, admitted.record)
-    except ApiProblem as exc:
-        if existing is None and exc.code != "assistant-install-rollback-incomplete":
-            self.registry.delete(team_id, assistant_id)
+    except ApiProblem:
         _discard_local_icon(self, candidate)
         raise
     except bindings.DynamicAssistantError as exc:
-        if existing is None:
-            self.registry.delete(team_id, assistant_id)
         _discard_local_icon(self, candidate)
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -145,33 +141,6 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
         "image_id": image_id,
         "unpublished": True,
     }
-
-
-def _install_fresh_local_snapshot(
-    self,
-    team_id: str,
-    record: dict[str, object],
-    install_assistant: Callable[..., dict[str, object]],
-    *,
-    cleanup_binding_on_failure: bool,
-) -> dict[str, object]:
-    assistant_id = str(record["assistant_id"])
-    try:
-        return _apply_local_snapshot(
-            self,
-            team_id,
-            None,
-            record,
-            install_assistant=install_assistant,
-        )
-    except ApiProblem as exc:
-        if cleanup_binding_on_failure and exc.code != "assistant-install-rollback-incomplete":
-            self.registry.delete(team_id, assistant_id)
-        raise
-    except bindings.DynamicAssistantError:
-        if cleanup_binding_on_failure:
-            self.registry.delete(team_id, assistant_id)
-        raise
 
 
 def _admit_local_snapshot(self, image_id: str) -> snapshots.AdmittedLocalSnapshot:
@@ -201,9 +170,18 @@ def _apply_local_snapshot(
 ) -> dict[str, object]:
     assistant_id = str(record["assistant_id"])
     if existing is None:
-        spec = self.registry.put_local(team_id, record)
+        spec, binding, created = self.registry.put_local_with_status(team_id, record)
         installer = install_assistant or self.assistant_lifecycle.install_assistant
-        return installer(team_id, spec.assistant_id)
+        try:
+            return installer(team_id, spec.assistant_id)
+        except ApiProblem as exc:
+            if created and exc.code != "assistant-install-rollback-incomplete":
+                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
+            raise
+        except bindings.DynamicAssistantError:
+            if created:
+                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
+            raise
     candidate, successor = self.registry.local_replacement(
         team_id,
         existing.binding_digest,
@@ -259,13 +237,9 @@ def install_publication(
         resolution = _resolved_publication(self, assistant_id, source_digest)
         publication_resolved = True
         result = _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution)
-    except ApiProblem as exc:
-        if existing is None and exc.code != "assistant-install-rollback-incomplete":
-            self.registry.delete(team_id, assistant_id)
+    except ApiProblem:
         raise
     except developers.DevelopersError as exc:
-        if existing is None and isinstance(exc, developers.PublicationNotInstallableError):
-            self.registry.delete(team_id, assistant_id)
         raise _developers_problem(exc) from exc
     except artifact_trust.ArtifactTrustError as exc:
         raise ApiProblem(
@@ -366,12 +340,21 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
             raise developers.PublicationNotInstallableError("publication changed before installation")
 
     if existing is None:
-        spec = self.registry.put(team_id, resolution)
-        return self.assistant_lifecycle.install_assistant(
-            team_id,
-            spec.assistant_id,
-            authorize_start=authorize_start,
-        )
+        spec, binding, created = self.registry.put_with_status(team_id, resolution)
+        try:
+            return self.assistant_lifecycle.install_assistant(
+                team_id,
+                spec.assistant_id,
+                authorize_start=authorize_start,
+            )
+        except ApiProblem as exc:
+            if created and exc.code != "assistant-install-rollback-incomplete":
+                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
+            raise
+        except (developers.DevelopersError, bindings.DynamicAssistantError):
+            if created:
+                self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
+            raise
     return self._install_bound_publication(
         team_id,
         assistant_id,

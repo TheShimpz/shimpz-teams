@@ -656,7 +656,7 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertRaises(ApiProblemError),
         ):
             service.install_local_snapshot(rollback, "team_1", IMAGE_ID)
-        rollback.registry.delete.assert_not_called()
+        rollback.registry.delete_if_matches.assert_not_called()
         rollback.assistant_icons.discard_binding.assert_called_once_with(candidate, ())
 
         binding_failure = controller()
@@ -671,7 +671,19 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             service.install_local_snapshot(binding_failure, "team_1", IMAGE_ID)
         self.assertEqual(caught.exception.code, "assistant-binding-conflict")
-        binding_failure.registry.delete.assert_called_once_with("team_1", "fixture-assistant")
+        binding_failure.registry.delete_if_matches.assert_not_called()
+
+        concurrent_winner = controller()
+        concurrent_winner.assistant_lifecycle.install_fresh_local = mock.Mock(
+            side_effect=ApiProblemError(409, "changed", code="assistant-binding-conflict")
+        )
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_local_snapshot(concurrent_winner, "team_1", IMAGE_ID)
+        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
+        concurrent_winner.registry.delete_if_matches.assert_not_called()
 
         replacement_failure = controller()
         replacement_failure.registry.binding.return_value = candidate
@@ -685,7 +697,7 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertRaises(ApiProblemError),
         ):
             service.install_local_snapshot(replacement_failure, "team_1", IMAGE_ID)
-        replacement_failure.registry.delete.assert_not_called()
+        replacement_failure.registry.delete_if_matches.assert_not_called()
 
         icon_failure = controller()
         icon_failure.assistant_icons.put_local.side_effect = AssistantIconError("offline")
@@ -736,6 +748,34 @@ class LocalSnapshotTests(unittest.TestCase):
         controller.registry.get.return_value = None
         with self.assertRaisesRegex(bindings.DynamicAssistantConflictError, "changed before update"):
             service._apply_local_snapshot(controller, "team_1", existing, replacement)
+
+    def test_failing_identical_fresh_install_preserves_the_existing_binding(self) -> None:
+        client, _image_value, _container_value = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+        with tempfile.TemporaryDirectory() as directory:
+            registry = assistant_registry.AssistantRegistry(
+                DynamicAssistantStore(
+                    Path(directory) / "bindings.json",
+                    local_record_validator=snapshots.validate_record,
+                )
+            )
+            registry.put_local("team_1", record)
+            existing = registry.binding("team_1", "fixture-assistant")
+            controller = SimpleNamespace(registry=registry, assistant_lifecycle=mock.Mock())
+
+            with self.assertRaises(ApiProblemError) as caught:
+                service._apply_local_snapshot(
+                    controller,
+                    "team_1",
+                    None,
+                    record,
+                    install_assistant=mock.Mock(
+                        side_effect=ApiProblemError(503, "failed", code="docker-start-failed")
+                    ),
+                )
+
+            self.assertEqual(caught.exception.code, "docker-start-failed")
+            self.assertEqual(registry.binding("team_1", "fixture-assistant"), existing)
 
     def test_registry_rejects_cross_provenance_replacements(self) -> None:
         client, _image_value, _container_value = _client()

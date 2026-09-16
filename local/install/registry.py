@@ -29,8 +29,24 @@ class AssistantRegistry:
     def put(self, team_id: str, resolution: dict[str, object]) -> AssistantSpec:
         return _spec(self._store.put(team_id, resolution))
 
+    def put_with_status(
+        self,
+        team_id: str,
+        resolution: dict[str, object],
+    ) -> tuple[AssistantSpec, bindings.DynamicAssistantBinding, bool]:
+        binding, created = self._store.put_with_status(team_id, resolution)
+        return _spec(binding), binding, created
+
     def put_local(self, team_id: str, record: dict[str, object]) -> AssistantSpec:
         return _spec(self._store.put_local(team_id, record))
+
+    def put_local_with_status(
+        self,
+        team_id: str,
+        record: dict[str, object],
+    ) -> tuple[AssistantSpec, bindings.DynamicAssistantBinding, bool]:
+        binding, created = self._store.put_local_with_status(team_id, record)
+        return _spec(binding), binding, created
 
     def get(self, team_id: str, assistant_id: str) -> AssistantSpec | None:
         binding = self._store.get(team_id, assistant_id)
@@ -101,6 +117,9 @@ class AssistantRegistry:
 
     def delete(self, team_id: str, assistant_id: str) -> bool:
         return self._store.delete(team_id, assistant_id)
+
+    def delete_if_matches(self, team_id: str, assistant_id: str, expected_binding_digest: str) -> bool:
+        return self._store.delete_if_matches(team_id, assistant_id, expected_binding_digest)
 
     def identities(self) -> set[tuple[str, str]]:
         return {(binding.team_id, binding.assistant_id) for binding in self._store.snapshot()}

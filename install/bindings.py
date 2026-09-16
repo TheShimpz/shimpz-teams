@@ -70,26 +70,42 @@ class DynamicAssistantStore:
         self._local_record_validator = local_record_validator
 
     def put(self, team_id: str, resolution: dict[str, Any]) -> DynamicAssistantBinding:
+        binding, _created = self.put_with_status(team_id, resolution)
+        return binding
+
+    def put_with_status(
+        self,
+        team_id: str,
+        resolution: dict[str, Any],
+    ) -> tuple[DynamicAssistantBinding, bool]:
         binding = binding_from_resolution(team_id, resolution)
         return self._put(binding)
 
     def put_local(self, team_id: str, record: dict[str, Any]) -> DynamicAssistantBinding:
+        binding, _created = self.put_local_with_status(team_id, record)
+        return binding
+
+    def put_local_with_status(
+        self,
+        team_id: str,
+        record: dict[str, Any],
+    ) -> tuple[DynamicAssistantBinding, bool]:
         binding = binding_from_local_record(team_id, record, self._local_record_validator)
         return self._put(binding)
 
-    def _put(self, binding: DynamicAssistantBinding) -> DynamicAssistantBinding:
+    def _put(self, binding: DynamicAssistantBinding) -> tuple[DynamicAssistantBinding, bool]:
         with self._exclusive_lock():
             bindings = self._read()
             existing = _find(bindings, binding.team_id, binding.assistant_id)
             if existing is not None:
                 if existing == binding:
-                    return existing
+                    return existing, False
                 raise DynamicAssistantConflictError("the Team already binds this Assistant id to another artifact")
             if len(bindings) >= _MAX_BINDINGS:
                 raise DynamicAssistantError("the dynamic Assistant registry is full")
             bindings.append(binding)
             self._write(bindings)
-        return binding
+        return binding, True
 
     def get(self, team_id: str, assistant_id: str) -> DynamicAssistantBinding | None:
         _validate_identity(team_id, assistant_id)
@@ -155,6 +171,19 @@ class DynamicAssistantStore:
             if len(retained) == len(bindings):
                 return False
             self._write(retained)
+        return True
+
+    def delete_if_matches(self, team_id: str, assistant_id: str, expected_binding_digest: str) -> bool:
+        _validate_identity(team_id, assistant_id)
+        if _DIGEST_RE.fullmatch(expected_binding_digest) is None:
+            raise DynamicAssistantConflictError("the expected Assistant binding digest is invalid")
+        with self._exclusive_lock():
+            bindings = self._read()
+            existing = _find(bindings, team_id, assistant_id)
+            if existing is None or existing.binding_digest != expected_binding_digest:
+                return False
+            bindings.remove(existing)
+            self._write(bindings)
         return True
 
     def _exclusive_lock(self):
