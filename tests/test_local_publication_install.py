@@ -147,6 +147,21 @@ class LocalPublicationInstallTests(unittest.TestCase):
         ):
             DevelopersClient().resolve(RESOLUTION["source_digest"])
 
+    def test_resolution_rejects_a_publication_without_stored_inputs(self) -> None:
+        missing_stored_inputs = copy.deepcopy(RESOLUTION)
+        missing_stored_inputs.pop("stored_inputs")
+        for action in missing_stored_inputs["machine_contract"]["actions"]:
+            action.pop("stored_inputs")
+        _Connection.response = _Response(200, missing_stored_inputs)
+
+        with (
+            mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection),
+            self.assertRaises(DevelopersProtocolError) as raised,
+        ):
+            DevelopersClient().resolve(RESOLUTION["source_digest"])
+
+        self.assertEqual(raised.exception.__cause__.code, "schema_violation")
+
     def test_registry_binds_publications_independently_per_team(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
