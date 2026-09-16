@@ -128,6 +128,13 @@ class AutomaticAssistantUpdater:
                 binding.assistant_id,
             )
             self._record_result(binding.team_id, binding.assistant_id, "ok", "deferred:no-candidate")
+        except developers.DevelopersProtocolError:
+            log.warning(
+                "Automatic Assistant update deferred for %s/%s: Developers response violates the protocol",
+                binding.team_id,
+                binding.assistant_id,
+            )
+            self._record_result(binding.team_id, binding.assistant_id, "error", "deferred:developers-protocol-invalid")
         except developers.DevelopersError:
             log.warning(
                 "Automatic Assistant update deferred for %s/%s: Developers is unavailable",

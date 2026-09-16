@@ -10,7 +10,7 @@ from install import bindings
 from local.errors import ApiProblemError as ApiProblem
 from local.install import automatic
 from local.install.automatic import AutomaticAssistantUpdater
-from local.install.developers import DevelopersError, PublicationNotInstallableError
+from local.install.developers import DevelopersError, DevelopersProtocolError, PublicationNotInstallableError
 
 
 def _candidate(version: str = "0.2.0") -> dict[str, str]:
@@ -118,7 +118,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             ],
         )
 
-    def test_no_candidate_is_distinct_from_developers_unavailability(self) -> None:
+    def test_candidate_absence_protocol_failure_and_unavailability_are_distinct(self) -> None:
         binding = _published_binding(
             team_id="team_1",
             assistant_id="hello-world",
@@ -126,25 +126,36 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             resolution={"assistant_version": "0.1.0", "source_digest": f"sha256:{'a' * 64}"},
         )
         audits: list[tuple[str, str, str, str]] = []
-        errors = iter((PublicationNotInstallableError("absent"), DevelopersError("offline")))
+        errors = iter(
+            (
+                PublicationNotInstallableError("absent"),
+                DevelopersProtocolError("invalid"),
+                DevelopersError("offline"),
+            )
+        )
         controller = SimpleNamespace(
             developers=SimpleNamespace(latest=lambda _digest: (_ for _ in ()).throw(next(errors))),
             registry=SimpleNamespace(bindings=lambda: (binding,)),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
         )
+        checks = iter((0.0, 1.0, 2.0, 3.0))
         updater = AutomaticAssistantUpdater(
             controller,
             interval_seconds=1,
-            clock=lambda: float(len(audits)),
+            clock=lambda: next(checks),
             record=lambda *event: audits.append(event),
         )
 
         self.assertTrue(updater.run_once())
         self.assertTrue(updater.run_once())
+        self.assertTrue(updater.run_once())
+        self.assertEqual(len(audits), 2)
+        self.assertTrue(updater.run_once())
         self.assertEqual(
             audits,
             [
                 ("team_1", "hello-world", "ok", "deferred:no-candidate"),
+                ("team_1", "hello-world", "error", "deferred:developers-protocol-invalid"),
                 ("team_1", "hello-world", "error", "deferred:developers-unavailable"),
             ],
         )
