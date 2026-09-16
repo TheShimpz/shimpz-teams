@@ -163,6 +163,7 @@ class AssistantLifecycle:
     recover_updates = local_assistant_lifecycle.recover_updates
     resume_assistants = local_assistant_lifecycle.resume_assistants
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
+    install_fresh_local = local_assistant_lifecycle.install_fresh_local
     replace_published_with_local = local_assistant_lifecycle.replace_published_with_local
 
     _assistant_filters = local_assistant_resources._assistant_filters

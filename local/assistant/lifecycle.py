@@ -760,6 +760,22 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
 
 
 @_serialize_against_local_team_chat
+def install_fresh_local(
+    self,
+    team_id: str,
+    assistant_id: str,
+    install_successor: Callable[[Callable[..., dict[str, object]]], dict[str, object]],
+) -> dict[str, object]:
+    if self.registry.binding(team_id, assistant_id) is not None:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant binding changed before Local installation",
+            code="assistant-binding-conflict",
+        )
+    return install_successor(self._install_assistant_unguarded)
+
+
+@_serialize_against_local_team_chat
 def replace_published_with_local(
     self,
     team_id: str,

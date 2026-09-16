@@ -99,9 +99,22 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
                     team_id,
                     admitted.record,
                     install_assistant,
+                    cleanup_binding_on_failure=True,
                 ),
             )
             existing = None
+        elif existing is None:
+            result = self.assistant_lifecycle.install_fresh_local(
+                team_id,
+                assistant_id,
+                lambda install_assistant: _install_fresh_local_snapshot(
+                    self,
+                    team_id,
+                    admitted.record,
+                    install_assistant,
+                    cleanup_binding_on_failure=False,
+                ),
+            )
         else:
             result = _apply_local_snapshot(self, team_id, existing, admitted.record)
     except ApiProblem as exc:
@@ -139,6 +152,8 @@ def _install_fresh_local_snapshot(
     team_id: str,
     record: dict[str, object],
     install_assistant: Callable[..., dict[str, object]],
+    *,
+    cleanup_binding_on_failure: bool,
 ) -> dict[str, object]:
     assistant_id = str(record["assistant_id"])
     try:
@@ -150,11 +165,12 @@ def _install_fresh_local_snapshot(
             install_assistant=install_assistant,
         )
     except ApiProblem as exc:
-        if exc.code != "assistant-install-rollback-incomplete":
+        if cleanup_binding_on_failure and exc.code != "assistant-install-rollback-incomplete":
             self.registry.delete(team_id, assistant_id)
         raise
     except bindings.DynamicAssistantError:
-        self.registry.delete(team_id, assistant_id)
+        if cleanup_binding_on_failure:
+            self.registry.delete(team_id, assistant_id)
         raise
 
 
