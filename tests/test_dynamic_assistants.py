@@ -133,6 +133,9 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         self.assertTrue(self.store.delete_if_matches("team_1", "hello-world", binding.binding_digest))
         self.assertIsNone(self.store.get("team_1", "hello-world"))
 
+        with self.assertRaisesRegex(DynamicAssistantConflictError, "digest is invalid"):
+            self.store.delete_if_matches("team_1", "hello-world", "invalid")
+
     def test_replace_is_atomic_and_fenced_by_the_previous_binding_digest(self) -> None:
         previous = self.store.put("team_1", copy.deepcopy(RESOLUTION))
         replacement = copy.deepcopy(RESOLUTION)

@@ -351,7 +351,7 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
             if created and exc.code != "assistant-install-rollback-incomplete":
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
-        except (developers.DevelopersError, bindings.DynamicAssistantError):
+        except developers.DevelopersError, bindings.DynamicAssistantError:
             if created:
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise

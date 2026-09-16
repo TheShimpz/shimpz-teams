@@ -222,6 +222,50 @@ class LocalInstallEdgeTests(unittest.TestCase):
             install_service.install_publication(controller, "team_1", "helper", f"sha256:{'1' * 64}")
         controller.registry.delete_if_matches.assert_not_called()
 
+    def test_fresh_publication_failure_cleanup_is_fenced_by_binding_ownership(self) -> None:
+        digest = f"sha256:{'a' * 64}"
+        failure_cases = (
+            (ApiProblemError(503, "failed", code="docker-start-failed"), True, True),
+            (ApiProblemError(503, "failed", code="docker-start-failed"), False, False),
+            (
+                ApiProblemError(500, "rollback", code="assistant-install-rollback-incomplete"),
+                True,
+                False,
+            ),
+            (developers.DevelopersError("changed"), True, True),
+            (bindings.DynamicAssistantError("changed"), False, False),
+        )
+        for failure, created, should_delete in failure_cases:
+            binding = types.SimpleNamespace(binding_digest=digest)
+            registry = types.SimpleNamespace(
+                put_with_status=mock.Mock(
+                    return_value=(types.SimpleNamespace(assistant_id="helper"), binding, created)
+                ),
+                delete_if_matches=mock.Mock(),
+            )
+            controller = types.SimpleNamespace(
+                registry=registry,
+                assistant_lifecycle=types.SimpleNamespace(
+                    install_assistant=mock.Mock(side_effect=failure),
+                ),
+            )
+
+            with self.subTest(failure=type(failure).__name__, created=created):
+                with self.assertRaises(type(failure)):
+                    install_service._apply_publication(
+                        controller,
+                        "team_1",
+                        "helper",
+                        RESOLUTION["source_digest"],
+                        None,
+                        _runtime_resolution(),
+                    )
+
+                if should_delete:
+                    registry.delete_if_matches.assert_called_once_with("team_1", "helper", digest)
+                else:
+                    registry.delete_if_matches.assert_not_called()
+
     def test_install_service_rejects_identity_downgrade_and_binding_races(self) -> None:
         controller = types.SimpleNamespace(
             developers=types.SimpleNamespace(

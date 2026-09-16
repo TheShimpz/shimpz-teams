@@ -46,8 +46,8 @@ MACHINE_CONTRACT = {
 
 def _fresh_installing_lifecycle(install_assistant: mock.Mock) -> SimpleNamespace:
     lifecycle = SimpleNamespace(install_assistant=install_assistant)
-    lifecycle.install_fresh_local = (
-        lambda _team_id, _assistant_id, install_successor: install_successor(lifecycle.install_assistant)
+    lifecycle.install_fresh_local = lambda _team_id, _assistant_id, install_successor: install_successor(
+        lifecycle.install_assistant
     )
     return lifecycle
 
@@ -595,8 +595,8 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         registry.bindings.return_value = ()
         lifecycle = mock.Mock()
-        lifecycle.replace_published_with_local.side_effect = (
-            lambda _team_id, _previous, install_successor: install_successor(lifecycle.install_assistant)
+        lifecycle.replace_published_with_local.side_effect = lambda _team_id, _previous, install_successor: (
+            install_successor(lifecycle.install_assistant)
         )
         controller = SimpleNamespace(
             client=client,
@@ -769,13 +769,55 @@ class LocalSnapshotTests(unittest.TestCase):
                     "team_1",
                     None,
                     record,
-                    install_assistant=mock.Mock(
-                        side_effect=ApiProblemError(503, "failed", code="docker-start-failed")
-                    ),
+                    install_assistant=mock.Mock(side_effect=ApiProblemError(503, "failed", code="docker-start-failed")),
                 )
 
             self.assertEqual(caught.exception.code, "docker-start-failed")
             self.assertEqual(registry.binding("team_1", "fixture-assistant"), existing)
+
+    def test_fresh_local_binding_failure_cleanup_is_fenced_by_ownership(self) -> None:
+        client, _image_value, _container_value = _client()
+        record = snapshots.admit(client, IMAGE_ID).record
+        digest = "sha256:" + ("a" * 64)
+        failure_cases = (
+            (ApiProblemError(503, "failed", code="docker-start-failed"), True, True),
+            (ApiProblemError(503, "failed", code="docker-start-failed"), False, False),
+            (
+                ApiProblemError(500, "rollback", code="assistant-install-rollback-incomplete"),
+                True,
+                False,
+            ),
+            (bindings.DynamicAssistantError("changed"), True, True),
+            (bindings.DynamicAssistantError("changed"), False, False),
+        )
+        for failure, created, should_delete in failure_cases:
+            delete_if_matches = mock.Mock()
+            registry = SimpleNamespace(
+                put_local_with_status=mock.Mock(
+                    return_value=(
+                        SimpleNamespace(assistant_id="fixture-assistant"),
+                        SimpleNamespace(binding_digest=digest),
+                        created,
+                    )
+                ),
+                delete_if_matches=delete_if_matches,
+            )
+            controller = SimpleNamespace(registry=registry, assistant_lifecycle=mock.Mock())
+
+            with self.subTest(failure=type(failure).__name__, created=created):
+                with self.assertRaises(type(failure)):
+                    service._apply_local_snapshot(
+                        controller,
+                        "team_1",
+                        None,
+                        record,
+                        install_assistant=mock.Mock(side_effect=failure),
+                    )
+
+                if should_delete:
+                    delete_if_matches.assert_called_once_with("team_1", "fixture-assistant", digest)
+                else:
+                    delete_if_matches.assert_not_called()
 
     def test_registry_rejects_cross_provenance_replacements(self) -> None:
         client, _image_value, _container_value = _client()
