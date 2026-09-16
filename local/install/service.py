@@ -213,20 +213,10 @@ def install_publication(
         if existing is None and exc.code != "assistant-install-rollback-incomplete":
             self.registry.delete(team_id, assistant_id)
         raise
-    except developers.PublicationNotInstallableError as exc:
-        if existing is None:
-            self.registry.delete(team_id, assistant_id)
-        raise ApiProblem(
-            HTTPStatus.NOT_FOUND,
-            "Assistant publication is not installable",
-            code="assistant-not-installable",
-        ) from exc
     except developers.DevelopersError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Developers is unavailable",
-            code="developers-unavailable",
-        ) from exc
+        if existing is None and isinstance(exc, developers.PublicationNotInstallableError):
+            self.registry.delete(team_id, assistant_id)
+        raise _developers_problem(exc) from exc
     except artifact_trust.ArtifactTrustError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
@@ -257,6 +247,26 @@ def install_publication(
             publication_resolved=publication_resolved,
             installation_completed=installation_completed,
         )
+
+
+def _developers_problem(exc: developers.DevelopersError) -> ApiProblem:
+    if isinstance(exc, developers.PublicationNotInstallableError):
+        return ApiProblem(
+            HTTPStatus.NOT_FOUND,
+            "Assistant publication is not installable",
+            code="assistant-not-installable",
+        )
+    if isinstance(exc, developers.DevelopersProtocolError):
+        return ApiProblem(
+            HTTPStatus.BAD_GATEWAY,
+            "Developers response violates the Assistant publication contract",
+            code="developers-protocol-invalid",
+        )
+    return ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "Developers is unavailable",
+        code="developers-unavailable",
+    )
 
 
 def _discard_failed_publication(

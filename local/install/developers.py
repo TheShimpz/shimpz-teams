@@ -26,6 +26,10 @@ class DevelopersError(RuntimeError):
     """Developers could not provide a trustworthy current publication."""
 
 
+class DevelopersProtocolError(DevelopersError):
+    """Developers returned a response that violates the current protocol."""
+
+
 class PublicationNotInstallableError(DevelopersError):
     """The exact publication is not currently installable."""
 
@@ -37,7 +41,7 @@ class DevelopersClient:
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}")
         value = _resolution(status, raw)
         if value["source_digest"] != source_digest:
-            raise DevelopersError("Developers response does not match the requested digest")
+            raise DevelopersProtocolError("Developers response does not match the requested digest")
         return value
 
     def latest(self, source_digest: str) -> dict[str, Any]:
@@ -58,7 +62,7 @@ class DevelopersClient:
         if status == 404:
             raise PublicationNotInstallableError("publication icon is not installable")
         if status != 200 or f"sha256:{hashlib.sha256(raw).hexdigest()}" != icon_digest:
-            raise DevelopersError("Developers icon violates its publication digest")
+            raise DevelopersProtocolError("Developers icon violates its publication digest")
         return raw
 
     @staticmethod
@@ -96,7 +100,7 @@ def _resolution(status: int, raw: bytes) -> dict[str, Any]:
         value = json.loads(raw)
         _CONTRACTS.validate("resolve-response.schema.json", value)
     except (UnicodeError, json.JSONDecodeError, ContractValidationError) as exc:
-        raise DevelopersError("Developers response violates its contract") from exc
+        raise DevelopersProtocolError("Developers response violates its contract") from exc
     if not isinstance(value, dict):
-        raise DevelopersError("Developers response violates its contract")
+        raise DevelopersProtocolError("Developers response violates its contract")
     return value

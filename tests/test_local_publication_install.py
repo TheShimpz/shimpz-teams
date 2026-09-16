@@ -18,7 +18,12 @@ from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from local import app as local_app
 from local.assistant import resources as local_resources
-from local.install.developers import DevelopersClient, DevelopersError, PublicationNotInstallableError
+from local.install.developers import (
+    DevelopersClient,
+    DevelopersError,
+    DevelopersProtocolError,
+    PublicationNotInstallableError,
+)
 from local.install.registry import AssistantRegistry
 
 RESOLUTION = json.loads((CONTRACT_ROOT / "vectors.json").read_bytes())["fixtures"]["resolve_response"]["value"]
@@ -138,7 +143,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
         _Connection.response = _Response(200, malformed)
         with (
             mock.patch("local.install.developers.http.client.HTTPSConnection", _Connection),
-            self.assertRaises(DevelopersError),
+            self.assertRaises(DevelopersProtocolError),
         ):
             DevelopersClient().resolve(RESOLUTION["source_digest"])
 

@@ -41,7 +41,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
         _Connection.response = _Response(200, mismatched)
         with (
             mock.patch.object(developers.http.client, "HTTPSConnection", _Connection),
-            self.assertRaisesRegex(developers.DevelopersError, "does not match"),
+            self.assertRaisesRegex(developers.DevelopersProtocolError, "does not match"),
         ):
             client.resolve(RESOLUTION["source_digest"])
 
@@ -80,7 +80,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
 
         with (
             mock.patch.object(developers._CONTRACTS, "validate"),
-            self.assertRaisesRegex(developers.DevelopersError, "violates its contract"),
+            self.assertRaisesRegex(developers.DevelopersProtocolError, "violates its contract"),
         ):
             developers._resolution(200, b"[]")
 
@@ -169,6 +169,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
         failures = (
             ApiProblemError(409, "install failed", code="install-failed"),
             developers.PublicationNotInstallableError("missing"),
+            developers.DevelopersProtocolError("invalid protocol"),
             developers.DevelopersError("offline"),
             artifact_trust.ArtifactTrustError("untrusted"),
             bindings.DynamicAssistantError("binding"),
@@ -186,6 +187,19 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 controller.registry.delete.assert_called_once_with("team_1", "helper")
             else:
                 controller.registry.delete.assert_not_called()
+
+        controller = self._service_controller()
+        with (
+            mock.patch.object(
+                install_service,
+                "_resolved_publication",
+                side_effect=developers.DevelopersProtocolError("invalid protocol"),
+            ),
+            self.assertRaises(ApiProblemError) as raised,
+        ):
+            install_service.install_publication(controller, "team_1", "helper", f"sha256:{'1' * 64}")
+        self.assertEqual(raised.exception.status, 502)
+        self.assertEqual(raised.exception.code, "developers-protocol-invalid")
 
         controller = self._service_controller()
         rollback_failure = ApiProblemError(503, "rollback", code="assistant-install-rollback-incomplete")
