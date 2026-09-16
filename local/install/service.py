@@ -87,15 +87,12 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
     admitted = _admit_local_snapshot(self, image_id)
     assistant_id = admitted.record["assistant_id"]
     existing = self.registry.binding(team_id, assistant_id)
-    if existing is not None and existing.provenance != "local":
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Uninstall the published Assistant before installing a Local snapshot",
-            code="assistant-provenance-conflict",
-        )
     candidate = bindings.binding_from_local_record(team_id, admitted.record, snapshots.validate_record)
     try:
         self.assistant_icons.put_local(admitted.record, admitted.icon)
+        if existing is not None and existing.provenance == "published":
+            self.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
+            existing = None
         result = _apply_local_snapshot(self, team_id, existing, admitted.record)
     except ApiProblem as exc:
         if existing is None and exc.code != "assistant-install-rollback-incomplete":

@@ -577,21 +577,36 @@ class LocalSnapshotTests(unittest.TestCase):
                 service.local_snapshot_icon(controller, IMAGE_ID)
             self.assertEqual(caught.exception.code, code)
 
-    def test_service_rejects_provenance_conflicts_before_writing(self) -> None:
+    def test_service_admits_then_replaces_a_published_binding_with_local(self) -> None:
         client, _image_value, _container_value = _client()
         admitted = snapshots.admit(client, IMAGE_ID)
         registry = mock.Mock()
-        registry.binding.return_value = SimpleNamespace(provenance="published")
-        controller = SimpleNamespace(client=client, registry=registry)
+        registry.binding.return_value = SimpleNamespace(
+            provenance="published",
+            assistant_id="fixture-assistant",
+        )
+        registry.bindings.return_value = ()
+        lifecycle = mock.Mock()
+        controller = SimpleNamespace(
+            client=client,
+            registry=registry,
+            assistant_icons=mock.Mock(),
+            assistant_lifecycle=lifecycle,
+        )
 
         with (
             mock.patch.object(service.snapshots, "admit", return_value=admitted),
-            self.assertRaises(ApiProblemError) as caught,
+            mock.patch.object(
+                service,
+                "_apply_local_snapshot",
+                return_value={"assistant": "fixture-assistant", "installed": True},
+            ) as apply_local,
         ):
-            service.install_local_snapshot(controller, "team_1", IMAGE_ID)
+            result = service.install_local_snapshot(controller, "team_1", IMAGE_ID)
 
-        self.assertEqual(caught.exception.code, "assistant-provenance-conflict")
-        registry.put_local.assert_not_called()
+        lifecycle.uninstall_assistant.assert_called_once_with("team_1", "fixture-assistant")
+        apply_local.assert_called_once_with(controller, "team_1", None, admitted.record)
+        self.assertEqual(result["provenance"], "local")
 
     def test_service_maps_local_binding_and_icon_failures(self) -> None:
         client, _image_value, _container_value = _client()
