@@ -57,7 +57,7 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/c
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py \
     local/chat/state.py local/chat/types.py ./local/chat/
-COPY local/http/__init__.py local/http/dispatch.py local/http/server.py ./local/http/
+COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/server.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/update.py \
     install/registry_auth.py ./install/
 COPY protocol/install/upstream.json ./protocol/install/

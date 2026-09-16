@@ -13,6 +13,7 @@ from core.http import strict as strict_http
 from integrations import broker as integration_broker
 from local import authority
 from local.errors import ApiProblemError
+from local.http import audit as http_audit
 from local.http import server
 
 TEST_TOKEN = "t" * 32
@@ -496,11 +497,11 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler._capture_body = mock.Mock(return_value={})
         handler._model_binding = mock.Mock(return_value=None)
         handler._expected_human_assurance = mock.Mock(return_value=None)
-        audit = server._RequestAudit()
+        audit = http_audit.RequestAudit()
         with (
             mock.patch.object(authority, "credential_state", return_value="assertion_present"),
             mock.patch.object(authority, "verify", side_effect=authority.SupervisorDeniedError("denied")),
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
             self.assertRaises(ApiProblemError),
         ):
             handler._authorized_route(audit)
@@ -509,10 +510,10 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         with (
             mock.patch.object(authority, "credential_state", return_value="assertion_absent_or_malformed"),
             mock.patch.object(authority, "verify", side_effect=authority.SupervisorUnavailableError("missing")),
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
             self.assertRaises(ApiProblemError) as caught,
         ):
-            handler._authorized_route(server._RequestAudit())
+            handler._authorized_route(http_audit.RequestAudit())
         self.assertEqual(caught.exception.code, "supervisor-unavailable")
 
         icon_route = self.route("assistant-icon", team_id="team_1", assistant_id="assistant")
@@ -521,9 +522,9 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         with (
             mock.patch.object(authority, "credential_state", return_value="assertion_present"),
             mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
         ):
-            self.assertIsNone(handler._authorized_route(server._RequestAudit()))
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         handler._send_icon.assert_called_once_with(b"png")
 
         local_icon_route = self.route(
@@ -535,9 +536,9 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         with (
             mock.patch.object(authority, "credential_state", return_value="assertion_present"),
             mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
         ):
-            self.assertIsNone(handler._authorized_route(server._RequestAudit()))
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         controller.local_snapshot_icon.assert_called_once_with("sha256:" + "a" * 64)
         handler._send_icon.assert_called_once_with(b"local-png")
 
@@ -550,9 +551,9 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         with (
             mock.patch.object(authority, "credential_state", return_value="assertion_present"),
             mock.patch.object(authority, "verify", return_value=self.evidence()),
-            mock.patch.object(server.local_audit, "record", return_value="e" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="e" * 32),
         ):
-            self.assertIsNone(handler._authorized_route(server._RequestAudit()))
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
         handler._send.assert_called_once_with(
             HTTPStatus.SERVICE_UNAVAILABLE,
             {
@@ -576,9 +577,9 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         with (
             mock.patch.object(authority, "require_supervisor_absent"),
             mock.patch.object(authority, "verify") as verify,
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
         ):
-            result = handler._authorized_route(server._RequestAudit())
+            result = handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(result[2], "space-bootstrap-reset")
         verify.assert_not_called()
@@ -612,7 +613,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler = self.handler()
         handler._authorized = mock.Mock(return_value=False)
         handler._send = mock.Mock()
-        with mock.patch.object(server.local_audit, "record", return_value="d" * 32):
+        with mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32):
             handler._handle()
         handler._send.assert_called_once()
 

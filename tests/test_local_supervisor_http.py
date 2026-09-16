@@ -13,6 +13,7 @@ from unittest import mock
 
 from local import authority
 from local.errors import ApiProblemError
+from local.http import audit as http_audit
 from local.http import server
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as contract
@@ -65,11 +66,11 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def test_health_is_the_only_bearer_only_fixed_read(self) -> None:
         controller = SimpleNamespace(health=lambda: {"status": "ok"})
         handler = self._handler("GET", "/healthz", controller)
-        request_audit = server._RequestAudit()
+        request_audit = http_audit.RequestAudit()
 
         with (
             mock.patch.object(authority, "verify") as verify,
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32) as record,
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as record,
         ):
             result = handler._authorized_route(request_audit)
 
@@ -82,10 +83,10 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def test_human_route_denies_missing_assertion_before_execution(self) -> None:
         list_teams = mock.Mock(return_value={"teams": []})
         handler = self._handler("GET", "/v1/teams", SimpleNamespace(list_teams=list_teams))
-        request_audit = server._RequestAudit()
+        request_audit = http_audit.RequestAudit()
 
         with (
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32) as record,
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as record,
             self.assertRaises(ApiProblemError) as caught,
         ):
             handler._authorized_route(request_audit)
@@ -105,11 +106,11 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             SimpleNamespace(list_teams=list_teams),
             headers=((contract.ASSERTION_HEADER, "Bearer assertion"),),
         )
-        request_audit = server._RequestAudit()
+        request_audit = http_audit.RequestAudit()
 
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32) as record,
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32) as record,
         ):
             result = handler._authorized_route(request_audit)
             request_audit.record(result[2], result="ok")
@@ -145,17 +146,17 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         handler._capture_body = mock.Mock()
 
         def route(_parts, resolved):
-            server.local_audit.record_request(
+            http_audit.local_audit.record_request(
                 resolved.operation,
                 result="ok",
             )
             return HTTPStatus.OK, {"connected": True}, resolved.operation, None, None
 
         handler._route = route
-        request_audit = server._RequestAudit()
+        request_audit = http_audit.RequestAudit()
 
         with mock.patch.object(
-            server.local_audit,
+            http_audit.local_audit,
             "record",
             return_value="e" * 32,
         ) as record:
@@ -197,9 +198,9 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(server.local_audit, "record", return_value="c" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
         ):
-            handler._authorized_route(server._RequestAudit())
+            handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(
             verify.call_args.kwargs["request"].body,
@@ -265,10 +266,10 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(server.local_audit, "record", return_value="c" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
             mock.patch.object(handler, "_stream_chat_route"),
         ):
-            handler._authorized_route(server._RequestAudit())
+            handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(
             verify.call_args.kwargs["request"].assurance,
@@ -330,9 +331,9 @@ class LocalSupervisorHttpTests(unittest.TestCase):
 
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
-            mock.patch.object(server.local_audit, "record", return_value="c" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
         ):
-            handler._authorized_route(server._RequestAudit())
+            handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(verify.call_args.kwargs["request"].body["length"], len(raw))
         self.assertEqual(chat.call_args.args[1]["message"], message)
@@ -359,12 +360,12 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         with (
             mock.patch.object(authority, "verify", return_value=self._evidence()),
             mock.patch.object(
-                server.local_audit,
+                http_audit.local_audit,
                 "record",
                 side_effect=("d" * 32, RuntimeError("disk full"), RuntimeError("disk full")),
             ),
         ):
-            result = handler._authorized_route(server._RequestAudit())
+            result = handler._authorized_route(http_audit.RequestAudit())
 
         response = handler.wfile.getvalue()
         self.assertIsNone(result)
@@ -394,10 +395,10 @@ class LocalSupervisorHttpTests(unittest.TestCase):
                 "verify",
                 side_effect=authority.SupervisorDeniedError("rejected"),
             ),
-            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+            mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32),
             self.assertRaises(ApiProblemError),
         ):
-            handler._authorized_route(server._RequestAudit())
+            handler._authorized_route(http_audit.RequestAudit())
 
         self.assertEqual(handler.rfile.tell(), 0)
         put_file.assert_not_called()

@@ -4,7 +4,6 @@ import contextlib
 import hashlib
 import json
 import threading
-from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -20,6 +19,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
+from local.http.audit import RequestAudit
 from local.validation import (
     validate_model_credential_headers,
     validate_team_id,
@@ -55,58 +55,6 @@ _JSON_BODY_LIMITS = {
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
 }
-
-
-@dataclass(slots=True)
-class _RequestAudit:
-    operation: str = "request"
-    principal_id: str | None = None
-    principal_class: str = "absent"
-    credential_state: str = "machine_bearer_present"
-    trace_id: str | None = None
-
-    def machine(self) -> None:
-        self.principal_id = "admin"
-        self.principal_class = "machine"
-        self.credential_state = "machine_bearer_present"
-
-    def human(self, evidence: local_authority.Evidence) -> None:
-        self.principal_id = evidence.supervisor_id
-        self.principal_class = "human"
-        self.credential_state = "assertion_present"
-
-    def absent(self, credential_state: str) -> None:
-        self.principal_id = None
-        self.principal_class = "absent"
-        self.credential_state = credential_state
-
-    def principal(self) -> local_audit.AuditPrincipal:
-        return local_audit.AuditPrincipal(
-            principal_id=self.principal_id,
-            principal_class=self.principal_class,
-            credential_state=self.credential_state,
-            trace_id=self.trace_id,
-        )
-
-    def record(
-        self,
-        operation: str,
-        *,
-        result: str,
-        team_id: str | None = None,
-        assistant: str | None = None,
-        detail: str | None = None,
-    ) -> str:
-        selected_operation = self.operation if operation == "request" else operation
-        self.trace_id = local_audit.record(
-            selected_operation,
-            result=result,
-            principal=self.principal(),
-            team_id=team_id,
-            assistant=assistant,
-            detail=detail,
-        )
-        return self.trace_id
 
 
 class BoundedServer(ThreadingHTTPServer):
@@ -579,7 +527,7 @@ class Handler(BaseHTTPRequestHandler):
         self,
         parts: list[str],
         route: strict_http.ControllerRouteMatch,
-        request_audit: _RequestAudit,
+        request_audit: RequestAudit,
     ) -> None:
         """Contain stream failures after the first response byte and never re-enter HTTP dispatch."""
         completed = False
@@ -593,7 +541,7 @@ class Handler(BaseHTTPRequestHandler):
         self,
         parts: list[str],
         route: strict_http.ControllerRouteMatch,
-        request_audit: _RequestAudit,
+        request_audit: RequestAudit,
     ) -> None:
         """Push advisory progress followed by one authoritative terminal record."""
         self.send_response(HTTPStatus.OK)
@@ -851,7 +799,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _authorized_route(
         self,
-        request_audit: _RequestAudit,
+        request_audit: RequestAudit,
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
@@ -971,7 +919,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle(self) -> None:
         self.close_connection = True
-        request_audit = _RequestAudit()
+        request_audit = RequestAudit()
         if not self._authorized():
             request_audit.absent("machine_bearer_rejected")
             trace_id = request_audit.record("authentication", result="denied", detail="invalid-bearer")
