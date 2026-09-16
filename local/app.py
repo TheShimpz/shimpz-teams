@@ -406,6 +406,7 @@ class LocalController:
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
     list_local_snapshots = local_install_service.list_local_snapshots
+    local_snapshot_icon = local_install_service.local_snapshot_icon
     install_local_snapshot = local_install_service.install_local_snapshot
 
     _purge_action_generation = local_team_lifecycle._purge_action_generation

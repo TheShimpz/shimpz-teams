@@ -14,10 +14,13 @@ from install import bindings
 from local.install import source_package
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
-LOCAL_STAGE_VALUE = "assistant-v1"
+LOCAL_STAGE_VALUE = "assistant-v2"
 ASSISTANT_LABEL = "org.shimpz.assistant.id"
 SOURCE_LABEL = "org.shimpz.source.digest"
 VERSION_LABEL = "org.shimpz.assistant.version"
+NAME_LABEL = "org.shimpz.assistant.name"
+SUMMARY_LABEL = "org.shimpz.assistant.summary"
+DECLARED_CREATORS_LABEL = "org.shimpz.assistant.declared-creators"
 BUILD_LABEL = "org.shimpz.local.build.digest"
 SOURCE_PATH = "/opt/shimpz/.shimpz/source.package"
 ICON_PATH = "/opt/shimpz/icon.png"
@@ -63,6 +66,9 @@ class InvalidLabeledSnapshotError(LocalSnapshotError):
 class LocalSnapshotCandidate:
     assistant_id: str
     version: str
+    name: str
+    summary: str
+    declared_creators: tuple[str, ...]
     image_id: str
     platform: str
     created_at: str
@@ -126,6 +132,31 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
         raise LocalSnapshotError("the Local Assistant declaration is invalid") from exc
     validate_record(record)
     return AdmittedLocalSnapshot(record=record, icon=package.icon)
+
+
+def preview_icon(client, image_id: str) -> bytes:
+    """Return a validated icon from an exact staged image without starting it."""
+    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+        raise LocalSnapshotError("the Local Assistant image id is invalid")
+    image = _exact_image(client, image_id)
+    candidate = _candidate(image, _daemon_platform(client))
+    extracted = _extract_preview_files(client, image_id)
+    try:
+        manifest = extracted[assistant_manifest.MANIFEST_PATH]
+        identity = assistant_manifest.parse_manifest_identity(manifest)
+        creators = assistant_manifest.parse_manifest_creators(manifest)[:4]
+        source_package.validate_icon(extracted[ICON_PATH])
+    except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
+        raise LocalSnapshotError("the Local Assistant preview is invalid") from exc
+    if (
+        identity.assistant_id != candidate.assistant_id
+        or identity.version != candidate.version
+        or identity.name != candidate.name
+        or identity.summary != candidate.summary
+        or creators != candidate.declared_creators
+    ):
+        raise LocalSnapshotError("the Local Assistant preview does not match its image labels")
+    return extracted[ICON_PATH]
 
 
 def validate_record(record: dict[str, Any]) -> None:
@@ -193,8 +224,12 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         identity = assistant_manifest.canonical_manifest_identity(
             assistant_id=labels[ASSISTANT_LABEL],
             version=labels[VERSION_LABEL],
-            name=labels[ASSISTANT_LABEL],
-            summary="Unpublished Local Assistant snapshot",
+            name=labels[NAME_LABEL],
+            summary=labels[SUMMARY_LABEL],
+        )
+        declared_creators = assistant_manifest.canonical_manifest_creators(
+            labels[DECLARED_CREATORS_LABEL].split(","),
+            maximum=4,
         )
     except (KeyError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid") from exc
@@ -204,7 +239,16 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         or _IMAGE_ID_RE.fullmatch(str(labels.get(BUILD_LABEL))) is None
     ):
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid")
-    return LocalSnapshotCandidate(identity.assistant_id, identity.version, image_id, platform, created)
+    return LocalSnapshotCandidate(
+        identity.assistant_id,
+        identity.version,
+        identity.name,
+        identity.summary,
+        declared_creators,
+        image_id,
+        platform,
+        created,
+    )
 
 
 def _exact_image(client, image_id: str):
@@ -243,36 +287,47 @@ def _labels(image) -> dict[str, str]:
 
 
 def _extract_files(client, image_id: str) -> dict[str, bytes]:
+    return _extract_paths(
+        client,
+        image_id,
+        (
+            (SOURCE_PATH, "source.package", 32 * 1024 * 1024),
+            (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
+            (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
+            (ICON_PATH, "icon.png", 1024 * 1024),
+        ),
+    )
+
+
+def _extract_preview_files(client, image_id: str) -> dict[str, bytes]:
+    return _extract_paths(
+        client,
+        image_id,
+        (
+            (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
+            (ICON_PATH, "icon.png", 1024 * 1024),
+        ),
+    )
+
+
+def _extract_paths(
+    client,
+    image_id: str,
+    paths: tuple[tuple[str, str, int], ...],
+) -> dict[str, bytes]:
     container = None
     failure: Exception | None = None
     extracted: dict[str, bytes] = {}
     try:
         container = client.containers.create(image=image_id, network_mode="none")
         extracted = {
-            SOURCE_PATH: assistant_manifest.read_container_file(
+            path: assistant_manifest.read_container_file(
                 container,
-                path=SOURCE_PATH,
-                name="source.package",
-                maximum=32 * 1024 * 1024,
-            ),
-            assistant_manifest.MANIFEST_PATH: assistant_manifest.read_container_file(
-                container,
-                path=assistant_manifest.MANIFEST_PATH,
-                name="shimpz.toml",
-                maximum=assistant_manifest.MAX_MANIFEST_BYTES,
-            ),
-            assistant_manifest.CONTRACT_PATH: assistant_manifest.read_container_file(
-                container,
-                path=assistant_manifest.CONTRACT_PATH,
-                name="shimpz.contract.json",
-                maximum=assistant_manifest.MAX_CONTRACT_BYTES,
-            ),
-            ICON_PATH: assistant_manifest.read_container_file(
-                container,
-                path=ICON_PATH,
-                name="icon.png",
-                maximum=1024 * 1024,
-            ),
+                path=path,
+                name=name,
+                maximum=maximum,
+            )
+            for path, name, maximum in paths
         }
     except (DockerException, assistant_manifest.ManifestError) as exc:
         failure = exc

@@ -633,14 +633,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     _public_text(metadata["name"], kind="name", maximum=80)
     _public_text(metadata["summary"], kind="summary", maximum=160)
     _genesis(metadata["genesis"])
-    creators = metadata["creators"]
-    if (
-        not isinstance(creators, list)
-        or not 1 <= len(creators) <= 16
-        or any(not isinstance(creator, str) or _CREATOR_RE.fullmatch(creator) is None for creator in creators)
-        or len(creators) != len(set(creators))
-    ):
-        raise ManifestError("Assistant creators are invalid")
+    canonical_manifest_creators(metadata["creators"])
     github = metadata["github"]
     if not isinstance(github, str) or _GITHUB_RE.fullmatch(github) is None:
         raise ManifestError("Assistant github repository is invalid")
@@ -675,6 +668,24 @@ def parse_manifest_identity(raw: bytes) -> ManifestIdentity:
         name=metadata["name"],
         summary=metadata["summary"],
     )
+
+
+def parse_manifest_creators(raw: bytes) -> tuple[str, ...]:
+    """Parse self-declared Creator handles after complete manifest admission."""
+    parse_manifest_contract(raw)
+    return canonical_manifest_creators(_manifest_table(raw)["shimpz"]["creators"])
+
+
+def canonical_manifest_creators(value: object, *, maximum: int = 16) -> tuple[str, ...]:
+    """Validate bounded manifest Creator handles without granting identity authority."""
+    if (
+        not isinstance(value, list | tuple)
+        or not 1 <= len(value) <= maximum
+        or any(not isinstance(creator, str) or _CREATOR_RE.fullmatch(creator) is None for creator in value)
+        or len(value) != len(set(value))
+    ):
+        raise ManifestError("Assistant creators are invalid")
+    return tuple(value)
 
 
 def canonical_manifest_identity(

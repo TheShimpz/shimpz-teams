@@ -100,6 +100,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                     "assistant": assistant_id,
                     "assistant_version": version,
                     "status": status,
+                    "provenance": spec.provenance,
                 }
             )
         output.sort(key=lambda item: item["assistant"])

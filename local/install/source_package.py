@@ -53,7 +53,7 @@ def admit(raw: bytes) -> SourcePackage:
     if _build_archive(records) != raw:
         raise SourcePackageError("the Local Assistant source package is not canonical")
     icon = files["icon.png"]
-    _validate_icon(icon)
+    validate_icon(icon)
     return SourcePackage(
         digest=f"sha256:{hashlib.sha256(raw).hexdigest()}",
         manifest=files["shimpz.toml"],
@@ -199,7 +199,8 @@ def _octal(value: int, width: int) -> bytes:
     return encoded
 
 
-def _validate_icon(contents: bytes) -> None:
+def validate_icon(contents: bytes) -> None:
+    """Validate one bounded canonical Assistant PNG icon."""
     chunks = _icon_chunks(contents)
     kinds = [kind for kind, _data in chunks]
     if (

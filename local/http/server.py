@@ -912,6 +912,31 @@ class Handler(BaseHTTPRequestHandler):
                 request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
                 self._send_icon(contents)
                 return None
+            if route.operation == "local-assistant-icon":
+                image_id = f"sha256:{route.params['image_hash']}"
+                try:
+                    contents = self.server.controller.local_snapshot_icon(image_id)
+                except ApiProblem as exc:
+                    if exc.code != "local-assistant-preview-busy":
+                        raise
+                    trace_id = request_audit.record(
+                        "local-assistant-icon",
+                        result="error",
+                        detail=exc.code,
+                    )
+                    self._send(
+                        exc.status,
+                        {
+                            "error": exc.message,
+                            "code": exc.code,
+                            "retry_after_ms": 250,
+                            "trace_id": trace_id,
+                        },
+                    )
+                    return None
+                request_audit.record("local-assistant-icon", result="ok")
+                self._send_icon(contents)
+                return None
             return self._route(parts, route)
 
     def _expected_human_assurance(

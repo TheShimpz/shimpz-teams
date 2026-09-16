@@ -206,6 +206,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             chat_turn_service=service,
             list_registry=mock.Mock(return_value={"assistants": []}),
             list_local_snapshots=mock.Mock(return_value={"assistants": []}),
+            local_snapshot_icon=mock.Mock(return_value=b"local-png"),
             reset_space=mock.Mock(return_value={"reset": True}),
             list_files=mock.Mock(return_value={"files": []}),
             put_file=mock.Mock(return_value={"file": {}}),
@@ -486,7 +487,10 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         self.assertTrue(handler.close_connection)
 
     def test_authority_unavailable_icon_and_rejected_assertion_paths(self) -> None:
-        controller = SimpleNamespace(assistant_icon=mock.Mock(return_value=b"png"))
+        controller = SimpleNamespace(
+            assistant_icon=mock.Mock(return_value=b"png"),
+            local_snapshot_icon=mock.Mock(return_value=b"local-png"),
+        )
         handler = self.handler(controller=controller)
         handler._resolved_route = mock.Mock(return_value=([], self.route("team-list")))
         handler._capture_body = mock.Mock(return_value={})
@@ -521,6 +525,43 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         ):
             self.assertIsNone(handler._authorized_route(server._RequestAudit()))
         handler._send_icon.assert_called_once_with(b"png")
+
+        local_icon_route = self.route(
+            "local-assistant-icon",
+            image_hash="a" * 64,
+        )
+        handler._resolved_route.return_value = ([], local_icon_route)
+        handler._send_icon.reset_mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(server.local_audit, "record", return_value="d" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(server._RequestAudit()))
+        controller.local_snapshot_icon.assert_called_once_with("sha256:" + "a" * 64)
+        handler._send_icon.assert_called_once_with(b"local-png")
+
+        controller.local_snapshot_icon.side_effect = ApiProblemError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview capacity is busy",
+            code="local-assistant-preview-busy",
+        )
+        handler._send = mock.Mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(server.local_audit, "record", return_value="e" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(server._RequestAudit()))
+        handler._send.assert_called_once_with(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            {
+                "error": "Local Assistant preview capacity is busy",
+                "code": "local-assistant-preview-busy",
+                "retry_after_ms": 250,
+                "trace_id": "e" * 32,
+            },
+        )
 
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
         controller = HandlerRouteEdgeTests.controller()

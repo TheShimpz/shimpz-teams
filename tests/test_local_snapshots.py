@@ -71,6 +71,9 @@ def _image(source_digest: str):
         snapshots.ASSISTANT_LABEL: "fixture-assistant",
         snapshots.SOURCE_LABEL: source_digest,
         snapshots.VERSION_LABEL: "0.1.0",
+        snapshots.NAME_LABEL: "Fixture Assistant",
+        snapshots.SUMMARY_LABEL: "Exercise immutable admission.",
+        snapshots.DECLARED_CREATORS_LABEL: "@fixture",
         snapshots.BUILD_LABEL: BUILD_DIGEST,
     }
     attrs = {
@@ -208,6 +211,9 @@ class LocalSnapshotTests(unittest.TestCase):
                 snapshots.LocalSnapshotCandidate(
                     "fixture-assistant",
                     "0.1.0",
+                    "Fixture Assistant",
+                    "Exercise immutable admission.",
+                    ("@fixture",),
                     IMAGE_ID,
                     "linux/amd64",
                     CREATED,
@@ -260,6 +266,28 @@ class LocalSnapshotTests(unittest.TestCase):
         client.images.get.assert_called_once_with(IMAGE_ID)
         client.containers.create.assert_called_once_with(image=IMAGE_ID, network_mode="none")
         container.start.assert_not_called()
+        container.remove.assert_called_once_with(force=True, v=False)
+
+    def test_previews_only_the_validated_manifest_icon_pair(self) -> None:
+        client, _image_value, container = _client()
+
+        icon = snapshots.preview_icon(client, IMAGE_ID)
+
+        self.assertTrue(icon.startswith(b"\x89PNG"))
+        self.assertEqual(
+            [call.args[0] for call in container.get_archive.call_args_list],
+            [assistant_manifest.MANIFEST_PATH, snapshots.ICON_PATH],
+        )
+        container.start.assert_not_called()
+        container.remove.assert_called_once_with(force=True, v=False)
+
+    def test_preview_rejects_display_label_drift_and_always_cleans_up(self) -> None:
+        client, image, container = _client()
+        image.attrs["Config"]["Labels"][snapshots.NAME_LABEL] = "Different name"
+
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "does not match"):
+            snapshots.preview_icon(client, IMAGE_ID)
+
         container.remove.assert_called_once_with(force=True, v=False)
 
     def test_rejects_source_mismatch_and_always_removes_container(self) -> None:
@@ -446,6 +474,9 @@ class LocalSnapshotTests(unittest.TestCase):
                     {
                         "assistant_id": "fixture-assistant",
                         "assistant_version": "0.1.0",
+                        "name": "Fixture Assistant",
+                        "summary": "Exercise immutable admission.",
+                        "declared_creators": ["@fixture"],
                         "image_id": IMAGE_ID,
                         "platform": "linux/amd64",
                         "created_at": CREATED,
@@ -497,6 +528,31 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             service.install_local_snapshot(SimpleNamespace(client=object()), "team_1", IMAGE_ID)
         self.assertEqual(caught.exception.code, "local-assistant-snapshot-invalid")
+
+    def test_service_bounds_and_maps_local_preview_work(self) -> None:
+        client, _image_value, _container_value = _client()
+        controller = SimpleNamespace(client=client)
+
+        self.assertTrue(service.local_snapshot_icon(controller, IMAGE_ID).startswith(b"\x89PNG"))
+
+        with (
+            mock.patch.object(service._LOCAL_PREVIEW_SLOTS, "acquire", return_value=False),
+            self.assertRaises(ApiProblemError) as busy,
+        ):
+            service.local_snapshot_icon(controller, IMAGE_ID)
+        self.assertEqual(busy.exception.code, "local-assistant-preview-busy")
+
+        for failure, code in (
+            (snapshots.LocalSnapshotUnavailableError("offline"), "local-assistant-preview-unavailable"),
+            (snapshots.LocalSnapshotError("invalid"), "local-assistant-preview-invalid"),
+        ):
+            with (
+                self.subTest(code=code),
+                mock.patch.object(service.snapshots, "preview_icon", side_effect=failure),
+                self.assertRaises(ApiProblemError) as caught,
+            ):
+                service.local_snapshot_icon(controller, IMAGE_ID)
+            self.assertEqual(caught.exception.code, code)
 
     def test_service_rejects_provenance_conflicts_before_writing(self) -> None:
         client, _image_value, _container_value = _client()

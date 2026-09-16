@@ -204,7 +204,7 @@ class LocalLeafContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
             assistant_api.list_assistants(controller, "team_1")
 
-        controller.registry.get_versioned.return_value = (object(), "0.1.0")
+        controller.registry.get_versioned.return_value = (types.SimpleNamespace(provenance="published"), "0.1.0")
         lifecycle._validate_container_egress = mock.Mock(
             side_effect=ApiProblemError(409, "unexpected egress failure", code="unexpected")
         )
@@ -214,7 +214,16 @@ class LocalLeafContractTests(unittest.TestCase):
         lifecycle._validate_container_egress.side_effect = None
         self.assertEqual(
             assistant_api.list_assistants(controller, "team_1"),
-            {"assistants": [{"assistant": "helper", "assistant_version": "0.1.0", "status": "running"}]},
+            {
+                "assistants": [
+                    {
+                        "assistant": "helper",
+                        "assistant_version": "0.1.0",
+                        "status": "running",
+                        "provenance": "published",
+                    }
+                ]
+            },
         )
 
     def test_assistant_rpc_maps_absence_encoding_and_readiness_states(self) -> None:

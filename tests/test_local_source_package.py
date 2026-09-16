@@ -237,7 +237,7 @@ class LocalSourcePackageTests(unittest.TestCase):
                     "icon",
                 ),
             ):
-                source_package._validate_icon(b"ignored")
+                source_package.validate_icon(b"ignored")
 
         invalid_headers = (
             b"short",

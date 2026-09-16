@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
@@ -12,6 +13,8 @@ from local.errors import ApiProblemError as ApiProblem
 from local.install import developers, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
+
+_LOCAL_PREVIEW_SLOTS = threading.BoundedSemaphore(2)
 
 
 def list_local_snapshots(self) -> dict[str, object]:
@@ -40,6 +43,9 @@ def list_local_snapshots(self) -> dict[str, object]:
             {
                 "assistant_id": candidate.assistant_id,
                 "assistant_version": candidate.version,
+                "name": candidate.name,
+                "summary": candidate.summary,
+                "declared_creators": list(candidate.declared_creators),
                 "image_id": candidate.image_id,
                 "platform": candidate.platform,
                 "created_at": candidate.created_at,
@@ -49,6 +55,31 @@ def list_local_snapshots(self) -> dict[str, object]:
             for candidate in candidates
         ]
     }
+
+
+def local_snapshot_icon(self, image_id: str) -> bytes:
+    if not _LOCAL_PREVIEW_SLOTS.acquire(blocking=False):
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview capacity is busy",
+            code="local-assistant-preview-busy",
+        )
+    try:
+        return snapshots.preview_icon(self.client, image_id)
+    except snapshots.LocalSnapshotUnavailableError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview is unavailable",
+            code="local-assistant-preview-unavailable",
+        ) from exc
+    except snapshots.LocalSnapshotError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Local Assistant preview failed admission",
+            code="local-assistant-preview-invalid",
+        ) from exc
+    finally:
+        _LOCAL_PREVIEW_SLOTS.release()
 
 
 def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, object]:
