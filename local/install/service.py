@@ -91,9 +91,19 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
     try:
         self.assistant_icons.put_local(admitted.record, admitted.icon)
         if existing is not None and existing.provenance == "published":
-            self.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
+            result = self.assistant_lifecycle.replace_published_with_local(
+                team_id,
+                existing,
+                lambda install_assistant: _install_fresh_local_snapshot(
+                    self,
+                    team_id,
+                    admitted.record,
+                    install_assistant,
+                ),
+            )
             existing = None
-        result = _apply_local_snapshot(self, team_id, existing, admitted.record)
+        else:
+            result = _apply_local_snapshot(self, team_id, existing, admitted.record)
     except ApiProblem as exc:
         if existing is None and exc.code != "assistant-install-rollback-incomplete":
             self.registry.delete(team_id, assistant_id)
@@ -124,6 +134,30 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
     }
 
 
+def _install_fresh_local_snapshot(
+    self,
+    team_id: str,
+    record: dict[str, object],
+    install_assistant: Callable[..., dict[str, object]],
+) -> dict[str, object]:
+    assistant_id = str(record["assistant_id"])
+    try:
+        return _apply_local_snapshot(
+            self,
+            team_id,
+            None,
+            record,
+            install_assistant=install_assistant,
+        )
+    except ApiProblem as exc:
+        if exc.code != "assistant-install-rollback-incomplete":
+            self.registry.delete(team_id, assistant_id)
+        raise
+    except bindings.DynamicAssistantError:
+        self.registry.delete(team_id, assistant_id)
+        raise
+
+
 def _admit_local_snapshot(self, image_id: str) -> snapshots.AdmittedLocalSnapshot:
     try:
         return snapshots.admit(self.client, image_id)
@@ -146,11 +180,14 @@ def _apply_local_snapshot(
     team_id: str,
     existing: bindings.DynamicAssistantBinding | None,
     record: dict[str, object],
+    *,
+    install_assistant: Callable[..., dict[str, object]] | None = None,
 ) -> dict[str, object]:
     assistant_id = str(record["assistant_id"])
     if existing is None:
         spec = self.registry.put_local(team_id, record)
-        return self.assistant_lifecycle.install_assistant(team_id, spec.assistant_id)
+        installer = install_assistant or self.assistant_lifecycle.install_assistant
+        return installer(team_id, spec.assistant_id)
     candidate, successor = self.registry.local_replacement(
         team_id,
         existing.binding_digest,

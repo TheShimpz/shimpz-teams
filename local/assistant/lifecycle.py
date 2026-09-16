@@ -44,20 +44,32 @@ def _serialize_against_local_team_chat(
     """Reject Assistant mutation before its first side effect while a Team turn owns the slot."""
 
     def guarded(controller, team_id: str, *args, **kwargs) -> dict[str, object]:
-        team_id = validate_team_id(team_id)
-        lock = controller.chat_turn_service._chat_lock(team_id)
-        if not lock.acquire(blocking=False):
-            raise ApiProblem(
-                HTTPStatus.CONFLICT,
-                "Assistant lifecycle cannot change during an active Team chat turn",
-                code="chat-active",
-            )
-        try:
-            return operation(controller, team_id, *args, **kwargs)
-        finally:
-            lock.release()
+        return _run_against_local_team_chat(
+            controller,
+            team_id,
+            lambda: operation(controller, team_id, *args, **kwargs),
+        )
 
     return guarded
+
+
+def _run_against_local_team_chat(
+    self,
+    team_id: str,
+    operation: Callable[[], dict[str, object]],
+) -> dict[str, object]:
+    team_id = validate_team_id(team_id)
+    lock = self.chat_turn_service._chat_lock(team_id)
+    if not lock.acquire(blocking=False):
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant lifecycle cannot change during an active Team chat turn",
+            code="chat-active",
+        )
+    try:
+        return operation()
+    finally:
+        lock.release()
 
 
 def _rollback_assistant_install(
@@ -595,8 +607,7 @@ def resume_assistants(self) -> None:
             )
 
 
-@_serialize_against_local_team_chat
-def install_assistant(
+def _install_assistant_unguarded(
     self,
     team_id: str,
     assistant_id: str,
@@ -662,7 +673,22 @@ def install_assistant(
 
 
 @_serialize_against_local_team_chat
-def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
+def install_assistant(
+    self,
+    team_id: str,
+    assistant_id: str,
+    *,
+    authorize_start: Callable[[], None] | None = None,
+) -> dict[str, object]:
+    return _install_assistant_unguarded(
+        self,
+        team_id,
+        assistant_id,
+        authorize_start=authorize_start,
+    )
+
+
+def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dict[str, object]:
     spec = self._resolve(team_id, assistant_id)
     binding = self.registry.binding(team_id, assistant_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
@@ -726,6 +752,29 @@ def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, obje
             "uninstalled": True,
             **_local_stage_retention(binding),
         }
+
+
+@_serialize_against_local_team_chat
+def uninstall_assistant(self, team_id: str, assistant_id: str) -> dict[str, object]:
+    return _uninstall_assistant_unguarded(self, team_id, assistant_id)
+
+
+@_serialize_against_local_team_chat
+def replace_published_with_local(
+    self,
+    team_id: str,
+    previous_binding: bindings.DynamicAssistantBinding,
+    install_successor: Callable[[Callable[..., dict[str, object]]], dict[str, object]],
+) -> dict[str, object]:
+    current = self.registry.binding(team_id, previous_binding.assistant_id)
+    if current != previous_binding or current.provenance != "published":
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant binding changed before Local replacement",
+            code="assistant-binding-conflict",
+        )
+    self._uninstall_assistant_unguarded(team_id, previous_binding.assistant_id)
+    return install_successor(self._install_assistant_unguarded)
 
 
 def _local_stage_retention(binding: bindings.DynamicAssistantBinding | None) -> dict[str, object]:

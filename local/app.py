@@ -154,12 +154,16 @@ class AssistantLifecycle:
     _queue_residue = local_assistant_lifecycle._queue_residue
     _queue_failed_successor = local_assistant_lifecycle._queue_failed_successor
     _commit_replacement = local_assistant_lifecycle._commit_replacement
+    _run_against_local_team_chat = local_assistant_lifecycle._run_against_local_team_chat
+    _install_assistant_unguarded = local_assistant_lifecycle._install_assistant_unguarded
+    _uninstall_assistant_unguarded = local_assistant_lifecycle._uninstall_assistant_unguarded
     install_assistant = local_assistant_lifecycle.install_assistant
     update_assistant = local_assistant_lifecycle.update_assistant
     _recover_update_target = local_assistant_lifecycle._recover_update_target
     recover_updates = local_assistant_lifecycle.recover_updates
     resume_assistants = local_assistant_lifecycle.resume_assistants
     uninstall_assistant = local_assistant_lifecycle.uninstall_assistant
+    replace_published_with_local = local_assistant_lifecycle.replace_published_with_local
 
     _assistant_filters = local_assistant_resources._assistant_filters
     _assistant_container = local_assistant_resources._assistant_container

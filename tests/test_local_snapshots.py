@@ -7,6 +7,7 @@ import io
 import json
 import tarfile
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ from install import bindings
 from install.bindings import DynamicAssistantError, DynamicAssistantStore
 from install.icons import AssistantIconError, AssistantIconStore
 from install.update import AssistantUpdateStore
+from local.assistant import lifecycle as assistant_lifecycle
 from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
@@ -587,6 +589,9 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         registry.bindings.return_value = ()
         lifecycle = mock.Mock()
+        lifecycle.replace_published_with_local.side_effect = (
+            lambda _team_id, _previous, install_successor: install_successor(lifecycle.install_assistant)
+        )
         controller = SimpleNamespace(
             client=client,
             registry=registry,
@@ -604,9 +609,85 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             result = service.install_local_snapshot(controller, "team_1", IMAGE_ID)
 
-        lifecycle.uninstall_assistant.assert_called_once_with("team_1", "fixture-assistant")
-        apply_local.assert_called_once_with(controller, "team_1", None, admitted.record)
+        lifecycle.replace_published_with_local.assert_called_once_with(
+            "team_1",
+            registry.binding.return_value,
+            mock.ANY,
+        )
+        apply_local.assert_called_once_with(
+            controller,
+            "team_1",
+            None,
+            admitted.record,
+            install_assistant=lifecycle.install_assistant,
+        )
         self.assertEqual(result["provenance"], "local")
+
+    def test_published_to_local_cutover_holds_one_chat_slot(self) -> None:
+        lock = threading.Lock()
+        previous = SimpleNamespace(
+            provenance="published",
+            assistant_id="fixture-assistant",
+            binding_digest="sha256:" + ("1" * 64),
+        )
+        events: list[str] = []
+        lifecycle = SimpleNamespace(
+            registry=SimpleNamespace(binding=lambda _team_id, _assistant_id: previous),
+            chat_turn_service=SimpleNamespace(_chat_lock=lambda _team_id: lock),
+        )
+
+        def uninstall(_team_id: str, _assistant_id: str) -> None:
+            events.append("uninstall")
+            self.assertFalse(lock.acquire(blocking=False))
+
+        def install(_team_id: str, _assistant_id: str) -> dict[str, object]:
+            events.append("install")
+            self.assertTrue(lock.locked())
+            return {"assistant": "fixture-assistant", "installed": True}
+
+        lifecycle._uninstall_assistant_unguarded = uninstall
+        lifecycle._install_assistant_unguarded = install
+
+        result = assistant_lifecycle.replace_published_with_local(
+            lifecycle,
+            "team_1",
+            previous,
+            lambda install_successor: install_successor("team_1", "fixture-assistant"),
+        )
+
+        self.assertEqual(events, ["uninstall", "install"])
+        self.assertEqual(result, {"assistant": "fixture-assistant", "installed": True})
+        self.assertFalse(lock.locked())
+
+    def test_published_to_local_cutover_rejects_a_changed_binding_before_uninstall(self) -> None:
+        previous = SimpleNamespace(
+            provenance="published",
+            assistant_id="fixture-assistant",
+            binding_digest="sha256:" + ("1" * 64),
+        )
+        lifecycle = SimpleNamespace(
+            registry=SimpleNamespace(
+                binding=lambda _team_id, _assistant_id: SimpleNamespace(
+                    provenance="published",
+                    assistant_id="fixture-assistant",
+                    binding_digest="sha256:" + ("2" * 64),
+                )
+            ),
+            chat_turn_service=SimpleNamespace(_chat_lock=lambda _team_id: threading.Lock()),
+            _uninstall_assistant_unguarded=mock.Mock(),
+            _install_assistant_unguarded=mock.Mock(),
+        )
+
+        with self.assertRaises(ApiProblemError) as caught:
+            assistant_lifecycle.replace_published_with_local(
+                lifecycle,
+                "team_1",
+                previous,
+                mock.Mock(),
+            )
+
+        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
+        lifecycle._uninstall_assistant_unguarded.assert_not_called()
 
     def test_service_maps_local_binding_and_icon_failures(self) -> None:
         client, _image_value, _container_value = _client()
