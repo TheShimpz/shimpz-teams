@@ -18,6 +18,7 @@ from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
+LOCAL_IMAGE = "sha256:" + "c" * 64
 TURN = brain_runtime_client.RuntimeTurn(
     status="action-required",
     reply="",
@@ -32,7 +33,7 @@ TURN = brain_runtime_client.RuntimeTurn(
 )
 
 
-def pending() -> local_chat_continuations.PendingLocalChat:
+def pending(image: str = IMAGE) -> local_chat_continuations.PendingLocalChat:
     return local_chat_continuations.PendingLocalChat(
         continuation=chat_orchestrator.ChatContinuation(
             turn=TURN,
@@ -46,7 +47,7 @@ def pending() -> local_chat_continuations.PendingLocalChat:
         identity=(
             "Demo Team",
             "network-id",
-            (("demo-assistant", IMAGE, "container-id"),),
+            (("demo-assistant", image, "container-id"),),
             [
                 {
                     "id": "a" * 32,
@@ -87,6 +88,61 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ),
         )
         self._round_trip("integrations", requirements)
+
+    def test_round_trips_a_local_snapshot_integration_suspension(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant",
+                "Demo Assistant",
+                ("publish",),
+                (("cloudflare", "cloudflare", ("dns.read", "zone.read")),),
+            ),
+        )
+        state = pending(LOCAL_IMAGE)
+        bindings, payload = local_chat_continuations.encode("integrations", requirements, state)
+        decoded = local_chat_continuations.decode(
+            local_chat_continuation_store.StoredContinuation(
+                "team_1",
+                "integrations",
+                "c" * 32,
+                1_300,
+                1,
+                bindings,
+                payload,
+            )
+        )
+
+        self.assertEqual(decoded.requirements, requirements)
+        self.assertEqual(decoded.pending, state)
+        self.assertEqual(bindings, (f"demo-assistant/publish/{LOCAL_IMAGE}/-",))
+
+    def test_rejects_mutable_or_malformed_image_identities(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant",
+                "Demo Assistant",
+                ("publish",),
+                (("cloudflare", "cloudflare", ("dns.read",)),),
+            ),
+        )
+        invalid = (
+            "registry.example/assistant:latest",
+            "registry.example/assistant",
+            "@sha256:" + "a" * 64,
+            "sha256:" + "A" * 64,
+            "sha256:" + "a" * 63,
+            "sha256:" + "a" * 65,
+            "a" * 64,
+        )
+        for image in invalid:
+            with (
+                self.subTest(image=image),
+                self.assertRaisesRegex(
+                    local_chat_continuations.ContinuationCodecError,
+                    "release is malformed",
+                ),
+            ):
+                local_chat_continuations.encode("integrations", requirements, pending(image))
 
     def test_round_trips_human_suspension_and_nonsecret_transcript(self) -> None:
         first = {

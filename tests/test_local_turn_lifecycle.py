@@ -55,6 +55,34 @@ class LocalTurnLifecycleTests(LocalContractCase):
         descriptor["fingerprint"] = action_human._fingerprint(descriptor)
         return action_human.validate_request(descriptor, ("approval",))
 
+    def test_local_snapshot_persists_an_integration_pause(self) -> None:
+        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
+
+            def resume(self, _context, _results):
+                raise AssertionError("the missing Integration must pause before Brain resume")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
+            paused = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                "openai",
+                "sk-test-0123456789",
+            )
+            stored = controller.chat_continuations.current("team_1")
+            state_exists = controller.chat_continuations.state_path.is_file()
+            key_exists = controller.chat_continuations.key_path.is_file()
+
+        self.assertEqual(paused["status"], "integrations-required")
+        self.assertEqual(paused["challenge_id"], stored.challenge_id)
+        self.assertTrue(state_exists)
+        self.assertTrue(key_exists)
+
     def test_local_human_approval_replays_the_same_action_before_brain_resume(self) -> None:
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 

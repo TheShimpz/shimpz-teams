@@ -23,7 +23,7 @@ MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
 _FILE_ID = re.compile(r"[0-9a-f]{32}\Z")
-_IMAGE = re.compile(r"[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64}\Z")
+_IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64})\Z")
 _NETWORK_ID = re.compile(r"[^\s\x00-\x1f\x7f]{1,256}\Z")
 _CONTAINER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
 

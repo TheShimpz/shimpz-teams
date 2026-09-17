@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,10 +63,15 @@ class LocalContractCase(unittest.TestCase):
         directory: str,
         runtime,
     ) -> local_app.LocalController:
-        image = "127.0.0.1:5000/shimpz/shimpz-cloudflare@sha256:" + "a" * 64
+        image = "sha256:" + "a" * 64
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.registry = self._registry(image)
+        controller.registry["shimpz-cloudflare"] = replace(
+            controller.registry["shimpz-cloudflare"],
+            provenance="local",
+            platform="linux/amd64",
+        )
         controller.storage = SimpleNamespace(
             metadata=lambda _team_id, _files, _connection=None: [],
             metadata_connection=lambda _team_id, _files: nullcontext(None),
