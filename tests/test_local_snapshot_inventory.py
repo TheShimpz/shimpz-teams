@@ -128,12 +128,53 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertEqual(cache.candidates(), CURRENT)
         self.assertTrue(events.closed)
 
-    def test_age_ceiling_returns_cache_and_refreshes_in_background(self) -> None:
+    def test_expired_cache_refreshes_before_returning_when_old_events_aged_out(self) -> None:
+        client = mock.Mock()
+        client.events.return_value = ()
+        loader = mock.Mock(side_effect=(EMPTY, CURRENT))
+        values = iter((100, 200))
+        cache = inventory.LocalSnapshotInventory(
+            client,
+            "linux/amd64",
+            loader=loader,
+            clock_ns=lambda: next(values),
+            monotonic=mock.Mock(side_effect=(0.0, 31.0, 32.0)),
+        )
+
+        self.assertEqual(cache.candidates(), EMPTY)
+        self.assertEqual(cache.candidates(), CURRENT)
+
+        self.assertEqual(loader.call_count, 2)
+        client.events.assert_not_called()
+
+    def test_expired_cache_failure_never_serves_stale_candidates(self) -> None:
+        client = mock.Mock()
+        loader = mock.Mock(side_effect=(EMPTY, snapshots.LocalSnapshotUnavailableError("offline")))
+        cache = inventory.LocalSnapshotInventory(
+            client,
+            "linux/amd64",
+            loader=loader,
+            clock_ns=mock.Mock(side_effect=(100, 200, 300)),
+            monotonic=mock.Mock(side_effect=(0.0, 31.0)),
+        )
+        self.assertEqual(cache.candidates(), EMPTY)
+
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "offline"):
+            cache.candidates()
+
+        with cache._condition:
+            self.assertFalse(cache._refreshing)
+            self.assertEqual(cache._candidates, EMPTY)
+        cache._loader = mock.Mock(return_value=CURRENT)
+        cache._monotonic = mock.Mock(side_effect=(31.0, 32.0))
+        self.assertEqual(cache.candidates(), CURRENT)
+        client.events.assert_not_called()
+
+    def test_concurrent_expired_readers_single_flight_without_serving_stale_candidates(self) -> None:
         client = mock.Mock()
         client.events.return_value = ()
         refresh_started = threading.Event()
         release_refresh = threading.Event()
-        loaded_at_updated = threading.Event()
         calls = 0
 
         def load(_client, _platform):
@@ -145,30 +186,22 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
             self.assertTrue(release_refresh.wait(timeout=1))
             return CURRENT
 
-        monotonic_values = iter((0.0, 31.0, 32.0))
-
-        def monotonic() -> float:
-            value = next(monotonic_values)
-            if value == 32.0:
-                loaded_at_updated.set()
-            return value
-
-        values = iter((100, 200, 300))
         cache = inventory.LocalSnapshotInventory(
             client,
             "linux/amd64",
             loader=load,
-            clock_ns=lambda: next(values),
-            monotonic=monotonic,
+            clock_ns=mock.Mock(side_effect=range(100, 110)),
+            monotonic=mock.Mock(return_value=0.0),
         )
+        self.assertEqual(cache.candidates(), EMPTY)
+        cache._monotonic = mock.Mock(return_value=31.0)
 
-        self.assertEqual(cache.candidates(), EMPTY)
-        self.assertEqual(cache.candidates(), EMPTY)
-        self.assertTrue(refresh_started.wait(timeout=1))
-        release_refresh.set()
-        self.assertTrue(loaded_at_updated.wait(timeout=1))
-        with cache._condition:
-            self.assertEqual(cache._candidates, CURRENT)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = [executor.submit(cache.candidates) for _ in range(4)]
+            self.assertTrue(refresh_started.wait(timeout=1))
+            release_refresh.set()
+            self.assertEqual([future.result(timeout=1) for future in futures], [CURRENT] * 4)
+
         self.assertEqual(calls, 2)
 
     def test_warmup_single_flies_concurrent_cold_readers(self) -> None:

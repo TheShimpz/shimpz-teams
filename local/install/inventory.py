@@ -62,7 +62,15 @@ class LocalSnapshotInventory:
             snapshot = self._snapshot_or_claim_cold_refresh()
             if snapshot is None:
                 return self._refresh()
-            cached, cursor_ns = snapshot
+            _, cursor_ns = snapshot
+            with self._condition:
+                if self._cursor_ns != cursor_ns or self._candidates is None:
+                    continue
+                expired = self._monotonic() - self._loaded_at >= self._max_age_seconds
+            if expired:
+                if self._claim_refresh(cursor_ns):
+                    return self._refresh()
+                continue
             changed, next_cursor_ns = self._validate(cursor_ns)
             if changed:
                 if self._claim_refresh(cursor_ns):
@@ -72,10 +80,7 @@ class LocalSnapshotInventory:
                 if self._cursor_ns != cursor_ns or self._candidates is None:
                     continue
                 self._cursor_ns = next_cursor_ns
-                cached = self._candidates
-                if self._monotonic() - self._loaded_at >= self._max_age_seconds:
-                    self._start_background_locked()
-                return cached
+                return self._candidates
 
     def _snapshot_or_claim_cold_refresh(
         self,
