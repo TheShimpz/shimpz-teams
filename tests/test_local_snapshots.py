@@ -27,12 +27,12 @@ from tests.test_local_publication_install import _runtime_resolution
 
 class LocalSnapshotTests(unittest.TestCase):
     def test_snapshot_inventory_and_platform_fail_closed(self) -> None:
-        client, image, _container_value = _client()
-        client.images.list.side_effect = DockerException("offline")
+        client, _image_value, _container_value = _client()
+        client.api.images.side_effect = DockerException("offline")
         with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot enumerate"):
             snapshots.list_candidates(client)
 
-        client, image, _container_value = _client()
+        client, _image_value, _container_value = _client()
         with (
             mock.patch.object(
                 snapshots,
@@ -43,8 +43,8 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             snapshots.list_candidates(client)
 
-        client, image, _container_value = _client()
-        client.images.list.return_value = [image, image]
+        client, _image_value, _container_value = _client()
+        client.api.images.return_value = [{"Id": IMAGE_ID}, {"Id": IMAGE_ID}]
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "duplicate images"):
             snapshots.list_candidates(client)
 
@@ -60,8 +60,8 @@ class LocalSnapshotTests(unittest.TestCase):
 
     def test_candidate_inspection_and_labels_fail_closed(self) -> None:
         client, image, _container_value = _client()
-        image.reload.side_effect = DockerException("offline")
-        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot inspect"):
+        client.images.get.side_effect = DockerException("offline")
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "cannot resolve"):
             snapshots.list_candidates(client)
 
         client, image, _container_value = _client()
@@ -129,20 +129,21 @@ class LocalSnapshotTests(unittest.TestCase):
                 ),
             ),
         )
-        client.images.list.assert_called_once_with(
+        client.api.images.assert_called_once_with(
             all=True,
             filters={"label": [f"{snapshots.LOCAL_STAGE_LABEL}={snapshots.LOCAL_STAGE_VALUE}"]},
         )
+        client.images.get.assert_called_once_with(IMAGE_ID)
         client.containers.create.assert_not_called()
 
     def test_candidate_overflow_fails_before_deep_inspection(self) -> None:
-        client, image, _container_value = _client()
-        client.images.list.return_value = [image] * (snapshots.MAX_CANDIDATES + 1)
+        client, _image_value, _container_value = _client()
+        client.api.images.return_value = [{"Id": IMAGE_ID}] * (snapshots.MAX_CANDIDATES + 1)
 
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "too large"):
             snapshots.list_candidates(client)
 
-        image.reload.assert_not_called()
+        client.images.get.assert_not_called()
 
     def test_names_only_a_canonical_invalid_stage_labeled_image(self) -> None:
         client, image, _container_value = _client()

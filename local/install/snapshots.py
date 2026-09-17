@@ -88,18 +88,20 @@ class AdmittedLocalSnapshot:
 def list_candidates(client) -> tuple[LocalSnapshotCandidate, ...]:
     """Return only bounded stage-labeled images, never general daemon inventory."""
     try:
-        images = client.images.list(
+        summaries = client.api.images(
             all=True,
             filters={"label": [f"{LOCAL_STAGE_LABEL}={LOCAL_STAGE_VALUE}"]},
         )
     except DockerException as exc:
         raise LocalSnapshotUnavailableError("Docker cannot enumerate Local Assistant snapshots") from exc
-    if not isinstance(images, list) or len(images) > MAX_CANDIDATES:
+    if not isinstance(summaries, list) or len(summaries) > MAX_CANDIDATES:
         raise LocalSnapshotError("the Local Assistant snapshot inventory is invalid or too large")
     platform = _daemon_platform(client)
     candidates = []
-    for image in images:
+    for summary in summaries:
+        image = None
         try:
+            image = _summary_image(client, summary)
             candidates.append(_candidate(image, platform))
         except LocalSnapshotUnavailableError:
             raise
@@ -198,10 +200,6 @@ def validate_record(record: dict[str, Any]) -> None:
 
 
 def _candidate(image, platform: str) -> LocalSnapshotCandidate:
-    try:
-        image.reload()
-    except DockerException as exc:
-        raise LocalSnapshotUnavailableError("Docker cannot inspect a Local Assistant snapshot") from exc
     attrs = image.attrs
     labels = _labels(image)
     image_id = image.id
@@ -282,6 +280,18 @@ def _exact_image(client, image_id: str):
     if image.id != image_id:
         raise LocalSnapshotError("Docker did not resolve the exact Local Assistant image id")
     return image
+
+
+def _summary_image(client, summary):
+    image_id = summary.get("Id") if isinstance(summary, dict) else None
+    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+        raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
+    try:
+        return client.images.get(image_id)
+    except ImageNotFound as exc:
+        raise LocalSnapshotUnavailableError("the Local Assistant snapshot is no longer available") from exc
+    except DockerException as exc:
+        raise LocalSnapshotUnavailableError("Docker cannot resolve the Local Assistant snapshot") from exc
 
 
 def _daemon_platform(client) -> str:

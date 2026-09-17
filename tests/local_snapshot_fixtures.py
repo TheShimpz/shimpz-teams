@@ -118,6 +118,6 @@ def client(*, source_digest: str | None = None):
     docker_client = mock.Mock()
     docker_client.info.return_value = {"Architecture": "x86_64"}
     docker_client.images.get.return_value = image
-    docker_client.images.list.return_value = [image]
+    docker_client.api.images.return_value = [{"Id": IMAGE_ID}]
     docker_client.containers.create.return_value = container
     return docker_client, image, container
