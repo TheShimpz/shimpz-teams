@@ -104,7 +104,7 @@ class LocalSnapshotInventory:
                 decode=True,
             )
             events = tuple(stream)
-        except (DockerException, OSError, TypeError, ValueError):
+        except DockerException, OSError, TypeError, ValueError:
             log.warning("Docker image event validation failed; refreshing directly", exc_info=True)
             return True, next_cursor_ns
         finally:
@@ -122,9 +122,7 @@ class LocalSnapshotInventory:
                 self._refreshing = True
                 return True
             if not self._condition.wait(timeout=REFRESH_WAIT_SECONDS):
-                raise snapshots.LocalSnapshotUnavailableError(
-                    "Local Assistant snapshot inventory refresh timed out"
-                )
+                raise snapshots.LocalSnapshotUnavailableError("Local Assistant snapshot inventory refresh timed out")
             return False
 
     def _refresh(self) -> tuple[snapshots.LocalSnapshotCandidate, ...]:
@@ -162,7 +160,7 @@ class LocalSnapshotInventory:
     def _background_refresh(self) -> None:
         try:
             self._refresh()
-        except (DockerException, OSError, snapshots.LocalSnapshotError):
+        except DockerException, OSError, snapshots.LocalSnapshotError:
             log.warning("Local Assistant snapshot inventory background refresh deferred", exc_info=True)
 
 

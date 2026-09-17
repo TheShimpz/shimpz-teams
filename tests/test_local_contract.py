@@ -201,10 +201,12 @@ class LocalContractTests(LocalContractCase):
             mock.patch.object(
                 local_app,
                 "LocalController",
-                side_effect=lambda *_args: events.append("controller")
-                or SimpleNamespace(
-                    local_snapshot_inventory=SimpleNamespace(
-                        warm=lambda: events.append("snapshots-warm"),
+                side_effect=lambda *_args: (
+                    events.append("controller")
+                    or SimpleNamespace(
+                        local_snapshot_inventory=SimpleNamespace(
+                            warm=lambda: events.append("snapshots-warm"),
+                        )
                     )
                 ),
             ),
