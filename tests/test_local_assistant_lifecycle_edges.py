@@ -342,9 +342,35 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         subject._remove_retired_image = mock.Mock(return_value=False)
         assistant_lifecycle._queue_residue(subject, "image")
         subject._remove_retired_image.assert_called_once_with("image")
-
         subject._remove_retired_image.return_value = True
         assistant_lifecycle._queue_residue(subject, "image")
+
+    def test_local_retirement_compensation_preserves_intent_after_binding_change(self) -> None:
+        binding = types.SimpleNamespace(assistant_id="assistant")
+        residue = types.SimpleNamespace(image_id="sha256:" + "a" * 64)
+        subject = types.SimpleNamespace(
+            registry=types.SimpleNamespace(binding=mock.Mock(return_value=None)),
+            residues=types.SimpleNamespace(clear=mock.Mock()),
+        )
+
+        assistant_lifecycle._cancel_local_image_retirement(
+            subject,
+            "team_1",
+            binding,
+            residue,
+        )
+
+        subject.residues.clear.assert_not_called()
+        subject.registry.binding.side_effect = bindings.DynamicAssistantError("unavailable")
+        self.assertIsNone(
+            assistant_lifecycle._cancel_local_image_retirement(
+                subject,
+                "team_1",
+                binding,
+                residue,
+            )
+        )
+        subject.residues.clear.assert_not_called()
 
 
 class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
@@ -809,7 +835,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
     def test_uninstall_local_binding_retires_exact_staged_image(self) -> None:
         controller, _container, events = self._lifecycle_controller()
-        image_id = "sha256:" + "a" * 64
+        image_id = "sha256:" + "c" * 64
         binding = types.SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             provenance="local",
@@ -820,7 +846,17 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         residue = types.SimpleNamespace(image_id=image_id)
         controller.assistant_lifecycle.residues = types.SimpleNamespace(
             add=lambda value: events.append(("residue-add", value)) or residue,
+            list=lambda: (residue,),
             clear=lambda value: events.append(("residue-clear", value.image_id)),
+        )
+        remove_image = mock.Mock()
+        controller.client = types.SimpleNamespace(
+            containers=types.SimpleNamespace(list=lambda **_kwargs: []),
+            images=types.SimpleNamespace(remove=remove_image),
+        )
+        controller.assistant_lifecycle.client = controller.client
+        controller.assistant_lifecycle.sweep_residues = (
+            local_app.AssistantLifecycle.sweep_residues.__get__(controller.assistant_lifecycle)
         )
         controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
@@ -832,7 +868,8 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": True})
         self.assertIn(("residue-add", image_id), events)
-        self.assertNotIn(("residue-clear", image_id), events)
+        remove_image.assert_called_once_with(image=image_id, force=False, noprune=True)
+        self.assertIn(("residue-clear", image_id), events)
 
     def test_uninstall_local_binding_without_container_still_retires_image(self) -> None:
         controller, _container, events = self._lifecycle_controller()

@@ -11,13 +11,19 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
+import threading
 import time
 import unittest
 import urllib.error
 import urllib.request
+from contextlib import nullcontext, suppress
 from pathlib import Path
+from types import SimpleNamespace
 
+import docker
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+from docker.errors import ImageNotFound
 
 TEAM = Path(__file__).resolve().parents[1]
 FIXTURE = TEAM / "tests" / "fixtures" / "reference-assistant"
@@ -43,6 +49,8 @@ from local_controller_docker_fixture import (
     supervisor_header,
 )
 
+from install import update as assistant_update
+from local import app as local_app
 from protocol.http.v1 import supervisor as supervisor_contract
 
 
@@ -835,6 +843,71 @@ class DockerFlowTests(
         self._remove("buildx", "rm", "--force", flow.builder)
         self.assertEqual(owned_containers, [])
         self.assertEqual(owned_networks, [])
+
+    @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
+    def test_local_uninstall_removes_exact_staged_image_from_daemon(self) -> None:
+        client = docker.from_env()
+        image_id = ""
+        try:
+            with (
+                tempfile.TemporaryDirectory() as build_root,
+                tempfile.TemporaryDirectory() as residue_root,
+            ):
+                Path(build_root, "Dockerfile").write_text(
+                    "FROM scratch\nLABEL org.shimpz.test.local-retirement=1\n",
+                    encoding="utf-8",
+                )
+                image, _logs = client.images.build(path=build_root, rm=True, forcerm=True)
+                image_id = image.id
+                assistant_id = "local-retirement-proof"
+                spec = SimpleNamespace(assistant_id=assistant_id, allowed_hosts=())
+                binding = SimpleNamespace(
+                    assistant_id=assistant_id,
+                    provenance="local",
+                    local_record={"image_id": image_id},
+                )
+                state = {"binding": binding}
+
+                def delete(_team_id: str, _assistant_id: str) -> bool:
+                    existed = state["binding"] is not None
+                    state["binding"] = None
+                    return existed
+
+                registry = SimpleNamespace(
+                    get=lambda _team_id, _assistant_id: spec if state["binding"] is not None else None,
+                    binding=lambda _team_id, _assistant_id: state["binding"],
+                    bindings=lambda: () if state["binding"] is None else (state["binding"],),
+                    all=lambda: () if state["binding"] is None else (spec,),
+                    delete=delete,
+                )
+                lifecycle = object.__new__(local_app.AssistantLifecycle)
+                lifecycle.client = client
+                lifecycle.registry = registry
+                lifecycle.residues = assistant_update.AssistantResidueStore(Path(residue_root))
+                lifecycle.icons = SimpleNamespace(discard_binding=lambda *_args: None)
+                lifecycle._lock = lambda _team_id: nullcontext()
+                lifecycle._network = lambda _team_id: SimpleNamespace(name="unused")
+                lifecycle._assistant_container = lambda *_args, **_kwargs: None
+                lifecycle._egress_token = lambda *_args, **_kwargs: None
+                lifecycle.chat_turn_service = SimpleNamespace(
+                    _chat_lock=lambda _team_id: threading.Lock(),
+                    _delete_chat_continuation=lambda _team_id: None,
+                    _delete_assistant_integration_state=lambda _team_id, _assistant_id: None,
+                    _delete_assistant_stored_input_state=lambda _team_id, _assistant_id: None,
+                )
+
+                result = lifecycle.uninstall_assistant("team_1", assistant_id)
+
+                self.assertEqual(result, {"assistant": assistant_id, "uninstalled": False})
+                self.assertIsNone(state["binding"])
+                self.assertEqual(lifecycle.residues.list(), ())
+                with self.assertRaises(ImageNotFound):
+                    client.images.get(image_id)
+        finally:
+            if image_id:
+                with suppress(ImageNotFound):
+                    client.images.remove(image=image_id, force=True, noprune=False)
+            client.close()
 
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
     def test_real_pull_isolation_lifecycle_and_space_reset(self) -> None:
