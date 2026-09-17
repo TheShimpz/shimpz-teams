@@ -64,6 +64,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import automatic as local_automatic_updates
 from local.install import developers as local_developers
+from local.install import inventory as local_snapshot_inventory
 from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
 from local.install.registry import AssistantRegistry
@@ -489,6 +490,11 @@ class LocalController:
         self._locks = tuple(threading.RLock() for _ in range(64))
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
+        try:
+            local_platform = local_snapshots.platform_from_info(daemon_info)
+        except local_snapshots.LocalSnapshotError as exc:
+            raise RuntimeError("the Docker daemon architecture is unsupported") from exc
+        self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self._wire_collaborators()
         self.assistant_lifecycle._reconcile_egress_proxy_attachments()
         self.assistant_lifecycle.recover_updates()
@@ -936,6 +942,7 @@ def main() -> int:
             ),
         )
         server = BoundedServer(("0.0.0.0", LISTEN_PORT), Handler, controller, token)
+        controller.local_snapshot_inventory.warm()
         updater = local_automatic_updates.AutomaticAssistantUpdater(
             controller,
             record=_record_automatic_update,

@@ -201,7 +201,12 @@ class LocalContractTests(LocalContractCase):
             mock.patch.object(
                 local_app,
                 "LocalController",
-                side_effect=lambda *_args: events.append("controller") or SimpleNamespace(),
+                side_effect=lambda *_args: events.append("controller")
+                or SimpleNamespace(
+                    local_snapshot_inventory=SimpleNamespace(
+                        warm=lambda: events.append("snapshots-warm"),
+                    )
+                ),
             ),
             mock.patch.object(
                 local_app,
@@ -228,6 +233,7 @@ class LocalContractTests(LocalContractCase):
                 "storage",
                 "controller",
                 "server",
+                "snapshots-warm",
                 "updates",
                 "updates-start",
                 "serve",
@@ -258,7 +264,7 @@ class LocalContractTests(LocalContractCase):
     def test_local_controller_accepts_an_injected_action_journal(self) -> None:
         injected = SimpleNamespace()
         client = SimpleNamespace(
-            info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
+            info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
             networks=SimpleNamespace(list=lambda **_kwargs: []),
         )
 

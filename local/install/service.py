@@ -19,7 +19,7 @@ _LOCAL_PREVIEW_SLOTS = threading.BoundedSemaphore(2)
 
 def list_local_snapshots(self) -> dict[str, object]:
     try:
-        candidates = snapshots.list_candidates(self.client)
+        candidates = self.local_snapshot_inventory.candidates()
     except snapshots.LocalSnapshotUnavailableError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,

@@ -479,6 +479,20 @@ class DockerFlowTests(
             controller_logs = (log_result.stdout + log_result.stderr)[-2000:]
         self.assertEqual(status, 200, f"{catalog}\n{controller_logs}")
         self.assertEqual(catalog["assistants"], [])
+        self._assert_local_snapshot_fast_path(flow)
+
+    def _assert_local_snapshot_fast_path(self, flow: DockerFlow) -> None:
+        local_status, local_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+        self.assertEqual(local_status, 200, local_catalog)
+        started = time.monotonic()
+        warm_status, warm_catalog = self._api(flow.port, flow.token, "GET", "/v1/local-assistants")
+        warm_elapsed = time.monotonic() - started
+        self.assertEqual(warm_status, 200, warm_catalog)
+        self.assertEqual(warm_catalog["assistants"], local_catalog["assistants"])
+        self.assertLess(warm_elapsed, 0.5, f"warm Local snapshot inventory took {warm_elapsed:.3f}s")
+        log_result = self._run("logs", flow.controller)
+        logs = log_result.stdout + log_result.stderr
+        self.assertNotIn("Docker image event validation failed", logs)
 
     def _exercise_team_storage(self, flow: DockerFlow) -> None:
         status, created = self._api(

@@ -109,7 +109,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         injected_challenges = integration_challenges.IntegrationChallengeStore()
         controller = local_app.LocalController(
             SimpleNamespace(
-                info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
+                info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
                 networks=SimpleNamespace(list=lambda **_kwargs: []),
             ),
             "local-space",
@@ -250,7 +250,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         ):
             controller = local_app.LocalController(
                 SimpleNamespace(
-                    info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2},
+                    info=lambda: {"SecurityOptions": ["name=seccomp"], "NCPU": 2, "Architecture": "x86_64"},
                     networks=SimpleNamespace(list=lambda **_kwargs: []),
                 ),
                 "local-space",

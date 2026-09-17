@@ -404,8 +404,9 @@ class LocalSnapshotTests(unittest.TestCase):
 
     def test_service_lists_only_public_candidate_fields(self) -> None:
         client, _image_value, _container_value = _client()
+        local_snapshot_inventory = SimpleNamespace(candidates=lambda: snapshots.list_candidates(client))
 
-        result = service.list_local_snapshots(SimpleNamespace(client=client))
+        result = service.list_local_snapshots(SimpleNamespace(local_snapshot_inventory=local_snapshot_inventory))
 
         self.assertEqual(
             result,
@@ -433,9 +434,10 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_service_surfaces_the_canonical_invalid_stage_labeled_image(self) -> None:
         client, image, _container_value = _client()
         image.attrs["Config"]["User"] = "0:0"
+        local_snapshot_inventory = SimpleNamespace(candidates=lambda: snapshots.list_candidates(client))
 
         with self.assertRaises(ApiProblemError) as caught:
-            service.list_local_snapshots(SimpleNamespace(client=client))
+            service.list_local_snapshots(SimpleNamespace(local_snapshot_inventory=local_snapshot_inventory))
 
         self.assertEqual(caught.exception.code, "local-assistant-snapshots-invalid")
         self.assertEqual(
@@ -454,10 +456,11 @@ class LocalSnapshotTests(unittest.TestCase):
         for failure, code in inventory_failures:
             with (
                 self.subTest(code=code),
-                mock.patch.object(service.snapshots, "list_candidates", side_effect=failure),
                 self.assertRaises(ApiProblemError) as caught,
             ):
-                service.list_local_snapshots(SimpleNamespace(client=object()))
+                service.list_local_snapshots(
+                    SimpleNamespace(local_snapshot_inventory=SimpleNamespace(candidates=mock.Mock(side_effect=failure)))
+                )
             self.assertEqual(caught.exception.code, code)
 
         with (

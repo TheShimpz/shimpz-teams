@@ -85,7 +85,7 @@ class AdmittedLocalSnapshot:
     icon: bytes
 
 
-def list_candidates(client) -> tuple[LocalSnapshotCandidate, ...]:
+def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapshotCandidate, ...]:
     """Return only bounded stage-labeled images, never general daemon inventory."""
     try:
         summaries = client.api.images(
@@ -96,7 +96,7 @@ def list_candidates(client) -> tuple[LocalSnapshotCandidate, ...]:
         raise LocalSnapshotUnavailableError("Docker cannot enumerate Local Assistant snapshots") from exc
     if not isinstance(summaries, list) or len(summaries) > MAX_CANDIDATES:
         raise LocalSnapshotError("the Local Assistant snapshot inventory is invalid or too large")
-    platform = _daemon_platform(client)
+    platform = _daemon_platform(client) if platform is None else platform
     candidates = []
     for summary in summaries:
         image = None
@@ -299,6 +299,10 @@ def _daemon_platform(client) -> str:
         info = client.info()
     except DockerException as exc:
         raise LocalSnapshotUnavailableError("Docker cannot report its Local Assistant platform") from exc
+    return platform_from_info(info)
+
+
+def platform_from_info(info) -> str:
     architecture = info.get("Architecture") if isinstance(info, dict) else None
     try:
         return _PLATFORMS[architecture]

@@ -512,7 +512,13 @@ class LocalAppMainEdgeTests(unittest.TestCase):
             mock.patch.object(local_app.assistant_update, "AssistantUpdateStore", return_value=object()),
             mock.patch.object(local_app.assistant_update, "AssistantResidueStore", return_value=object()),
             mock.patch.object(local_app.icons, "AssistantIconStore", return_value=object()),
-            mock.patch.object(local_app, "LocalController", return_value=object()),
+            mock.patch.object(
+                local_app,
+                "LocalController",
+                return_value=types.SimpleNamespace(
+                    local_snapshot_inventory=types.SimpleNamespace(warm=mock.Mock()),
+                ),
+            ),
             mock.patch.object(local_app, "BoundedServer", return_value=server),
             mock.patch.object(
                 local_app.local_automatic_updates,
