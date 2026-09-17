@@ -439,6 +439,12 @@ CONTROLLER_ROUTES = (
     ),
     _controller_route(
         "POST",
+        "/v1/teams/:team_id/assistants/local/fresh",
+        "local-assistant-fresh-install",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST",
         "/v1/teams/:team_id/assistants/:assistant_id/action-labels",
         "assistant-action-labels",
         _LOCAL_CONTROLLER_ONLY,

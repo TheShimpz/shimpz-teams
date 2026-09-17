@@ -100,6 +100,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 "/v1/teams/team_1/assistants/local",
                 "local-assistant-install",
             ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "POST",
+                "/v1/teams/team_1/assistants/local/fresh",
+                "local-assistant-fresh-install",
+            ),
         )
         for profile, method, path, operation in cases:
             with self.subTest(profile=profile, path=path):
@@ -123,6 +129,28 @@ class ControllerRoutingTests(unittest.TestCase):
                 _parts("/v1/teams/t/files/id/extra"),
             )
         )
+        fresh_path = "/v1/teams/team_1/assistants/local/fresh"
+        self.assertIsNone(
+            strict_http.resolve_controller_route(
+                strict_http.LOCAL_CONTROLLER,
+                "GET",
+                _parts(fresh_path),
+            )
+        )
+        self.assertIsNone(
+            strict_http.resolve_controller_route(
+                strict_http.LOCAL_CONTROLLER,
+                "POST",
+                _parts(f"{fresh_path}/extra"),
+            )
+        )
+        action_labels = strict_http.resolve_controller_route(
+            strict_http.LOCAL_CONTROLLER,
+            "POST",
+            _parts("/v1/teams/team_1/assistants/local/action-labels"),
+        )
+        self.assertEqual(action_labels.operation, "assistant-action-labels")
+        self.assertEqual(action_labels.params["assistant_id"], "local")
         with self.assertRaises(ValueError):
             strict_http.resolve_controller_route("unknown", "GET", _parts("/v1/teams"))
 

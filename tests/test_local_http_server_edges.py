@@ -74,6 +74,17 @@ class BoundedServerEdgeTests(unittest.TestCase):
 
 
 class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
+    def test_json_body_limits_cover_every_local_body_route(self) -> None:
+        body_operations = {
+            route.operation
+            for route in strict_http.CONTROLLER_ROUTES
+            if strict_http.LOCAL_CONTROLLER in route.profiles and route.method in {"POST", "PUT"}
+        }
+        body_operations.remove("file-upload")
+        body_operations.add("assistant-integration-cancel")
+
+        self.assertEqual(set(server._JSON_BODY_LIMITS), body_operations)
+
     def test_setup_authorization_and_response_writers(self) -> None:
         handler = self.handler()
         handler.connection = SimpleNamespace(settimeout=mock.Mock())
@@ -233,7 +244,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
         self.assertEqual(
             handler._local_assistant_route(["v1", "teams", "team_1", "assistants", "local", "fresh"])[2],
-            "local-assistant-install",
+            "local-assistant-fresh-install",
         )
         controller.install_fresh_local_snapshot.assert_called_once()
         handler.command = "DELETE"
@@ -248,6 +259,20 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._body.return_value = {"state": "s", "claim": "c", "session_binding": "b"}
         self.assertEqual(handler._fixed_route(["v1", "oauth", "cloudflare", "callback"])[1], {"connected": True})
         self.assertIsNone(handler._fixed_route(["other"]))
+
+    def test_fresh_local_install_resolves_and_dispatches_through_the_public_route(self) -> None:
+        controller = self.controller()
+        path = "/v1/teams/team_1/assistants/local/fresh"
+        handler = self.handler("POST", path, controller)
+        image_id = "sha256:" + ("a" * 64)
+        handler._local_install_body = mock.Mock(return_value=image_id)
+
+        parts, route = handler._resolved_route()
+        self.assertEqual(route.operation, "local-assistant-fresh-install")
+        result = handler._route(parts, route)
+
+        self.assertEqual(result[2], "local-assistant-fresh-install")
+        controller.install_fresh_local_snapshot.assert_called_once_with("team_1", image_id)
 
     def test_bootstrap_reset_maps_supervisor_state_before_cleanup(self) -> None:
         controller = self.controller()

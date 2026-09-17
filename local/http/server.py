@@ -42,6 +42,7 @@ _MACHINE_ONLY_OPERATIONS = frozenset({"health", "space-bootstrap-reset", "assist
 _JSON_BODY_LIMITS = {
     "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
+    "local-assistant-fresh-install": MAX_BODY_BYTES,
     "local-assistant-install": MAX_BODY_BYTES,
     "assistant-integration-authorize": MAX_BODY_BYTES,
     "assistant-integration-cancel": MAX_BODY_BYTES,
@@ -343,7 +344,7 @@ class Handler(BaseHTTPRequestHandler):
         ):
             team_id = validate_team_id(parts[2])
             result = controller.install_fresh_local_snapshot(team_id, self._local_install_body())
-            return HTTPStatus.OK, result, "local-assistant-install", team_id, str(result["assistant"])
+            return HTTPStatus.OK, result, "local-assistant-fresh-install", team_id, str(result["assistant"])
         if (
             self.command != "POST"
             or len(parts) != 5
