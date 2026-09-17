@@ -336,6 +336,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.command == "GET" and parts == ["v1", "local-assistants"]:
             return HTTPStatus.OK, controller.list_local_snapshots(), "local-assistant-list", None, None
         if (
+            self.command == "POST"
+            and len(parts) == 6
+            and parts[:2] == ["v1", "teams"]
+            and parts[3:] == ["assistants", "local", "fresh"]
+        ):
+            team_id = validate_team_id(parts[2])
+            result = controller.install_fresh_local_snapshot(team_id, self._local_install_body())
+            return HTTPStatus.OK, result, "local-assistant-install", team_id, str(result["assistant"])
+        if (
             self.command != "POST"
             or len(parts) != 5
             or parts[:2] != ["v1", "teams"]

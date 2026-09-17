@@ -85,6 +85,15 @@ def local_snapshot_icon(self, image_id: str) -> bytes:
 
 
 def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, object]:
+    return _install_local_snapshot(self, team_id, image_id, fresh_only=False)
+
+
+def install_fresh_local_snapshot(self, team_id: str, image_id: str) -> dict[str, object]:
+    """Install one exact snapshot only while the Assistant identity remains unbound."""
+    return _install_local_snapshot(self, team_id, image_id, fresh_only=True)
+
+
+def _install_local_snapshot(self, team_id: str, image_id: str, *, fresh_only: bool) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     admitted = _admit_local_snapshot(self, image_id)
     assistant_id = admitted.record["assistant_id"]
@@ -92,6 +101,8 @@ def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, objec
     candidate = bindings.binding_from_local_record(team_id, admitted.record, snapshots.validate_record)
     try:
         self.assistant_icons.put_local(admitted.record, admitted.icon)
+        if fresh_only and existing is not None:
+            raise bindings.DynamicAssistantConflictError("automatic Local install requires an unbound Assistant")
         if existing is not None and existing.provenance == "published":
             result = self.assistant_lifecycle.replace_published_with_local(
                 team_id,

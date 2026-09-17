@@ -649,6 +649,33 @@ class LocalSnapshotTests(unittest.TestCase):
         )
         self.assertEqual(result["provenance"], "local")
 
+    def test_automatic_local_install_refuses_every_existing_binding(self) -> None:
+        client, _image_value, _container_value = _client()
+        admitted = snapshots.admit(client, IMAGE_ID)
+        registry = mock.Mock()
+        registry.binding.return_value = bindings.binding_from_local_record(
+            "team_1",
+            admitted.record,
+            snapshots.validate_record,
+        )
+        registry.bindings.return_value = (registry.binding.return_value,)
+        lifecycle = mock.Mock()
+        controller = SimpleNamespace(
+            client=client,
+            registry=registry,
+            assistant_icons=mock.Mock(),
+            assistant_lifecycle=lifecycle,
+        )
+
+        with (
+            mock.patch.object(service.snapshots, "admit", return_value=admitted),
+            self.assertRaises(ApiProblemError) as caught,
+        ):
+            service.install_fresh_local_snapshot(controller, "team_1", IMAGE_ID)
+
+        self.assertEqual(caught.exception.code, "assistant-binding-conflict")
+        lifecycle.install_fresh_local.assert_not_called()
+
     def test_service_maps_local_binding_and_icon_failures(self) -> None:
         client, _image_value, _container_value = _client()
         admitted = snapshots.admit(client, IMAGE_ID)

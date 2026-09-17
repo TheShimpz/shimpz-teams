@@ -219,6 +219,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             list_assistants=mock.Mock(return_value={"assistants": []}),
             install_publication=mock.Mock(return_value={"installed": True}),
             install_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
+            install_fresh_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
             assistant_lifecycle=SimpleNamespace(uninstall_assistant=mock.Mock(return_value={"uninstalled": True})),
             invoke=mock.Mock(return_value={"result": "ok"}),
         )
@@ -228,6 +229,15 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler(controller=controller)
         self.assertEqual(handler._fixed_route(["v1", "assistants"])[2], "registry-list")
         self.assertEqual(handler._local_assistant_route(["v1", "local-assistants"])[2], "local-assistant-list")
+        handler.command = "POST"
+        handler._body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
+        self.assertEqual(
+            handler._local_assistant_route(
+                ["v1", "teams", "team_1", "assistants", "local", "fresh"]
+            )[2],
+            "local-assistant-install",
+        )
+        controller.install_fresh_local_snapshot.assert_called_once()
         handler.command = "DELETE"
         self.assertIsNone(handler._fixed_route(["v1", "space", "unknown"]))
         with mock.patch.object(authority, "require_supervisor_absent"):

@@ -413,6 +413,7 @@ class LocalController:
     list_local_snapshots = local_install_service.list_local_snapshots
     local_snapshot_icon = local_install_service.local_snapshot_icon
     install_local_snapshot = local_install_service.install_local_snapshot
+    install_fresh_local_snapshot = local_install_service.install_fresh_local_snapshot
 
     _purge_action_generation = local_team_lifecycle._purge_action_generation
     _team_assistant_containers = local_team_lifecycle._team_assistant_containers
