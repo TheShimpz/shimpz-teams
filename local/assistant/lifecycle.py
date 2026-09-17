@@ -780,7 +780,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 self.icons.discard_binding(binding, self.registry.bindings())
             self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": True}
-    except (ApiProblem, bindings.DynamicAssistantError, DockerException, icons.AssistantIconError):
+    except ApiProblem, bindings.DynamicAssistantError, DockerException, icons.AssistantIconError:
         if binding is not None and retirement is not None:
             _cancel_local_image_retirement(self, team_id, binding, retirement)
         raise

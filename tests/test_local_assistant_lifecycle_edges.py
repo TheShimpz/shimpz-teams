@@ -855,8 +855,8 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
             images=types.SimpleNamespace(remove=remove_image),
         )
         controller.assistant_lifecycle.client = controller.client
-        controller.assistant_lifecycle.sweep_residues = (
-            local_app.AssistantLifecycle.sweep_residues.__get__(controller.assistant_lifecycle)
+        controller.assistant_lifecycle.sweep_residues = local_app.AssistantLifecycle.sweep_residues.__get__(
+            controller.assistant_lifecycle
         )
         controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
