@@ -83,6 +83,8 @@ def _image(source_digest: str):
         snapshots.SUMMARY_LABEL: "Exercise immutable admission.",
         snapshots.DECLARED_CREATORS_LABEL: "@fixture",
         snapshots.BUILD_LABEL: BUILD_DIGEST,
+        snapshots.ACTIONS_LABEL: "ping",
+        snapshots.INTEGRATIONS_LABEL: "",
     }
     attrs = {
         "Id": IMAGE_ID,
@@ -187,6 +189,13 @@ class LocalSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
             snapshots.list_candidates(client)
 
+        for value in ("", "Ping", "ping,ping", "later,earlier"):
+            with self.subTest(actions=value):
+                client, image, _container_value = _client()
+                image.attrs["Config"]["Labels"][snapshots.ACTIONS_LABEL] = value
+                with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
+                    snapshots.list_candidates(client)
+
     def test_exact_image_resolution_fails_closed(self) -> None:
         client, _image_value, _container_value = _client()
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
@@ -222,6 +231,8 @@ class LocalSnapshotTests(unittest.TestCase):
                     "Fixture Assistant",
                     "Exercise immutable admission.",
                     ("@fixture",),
+                    ("ping",),
+                    (),
                     IMAGE_ID,
                     "linux/amd64",
                     CREATED,
@@ -275,6 +286,13 @@ class LocalSnapshotTests(unittest.TestCase):
         client.containers.create.assert_called_once_with(image=IMAGE_ID, network_mode="none")
         container.start.assert_not_called()
         container.remove.assert_called_once_with(force=True, v=False)
+
+    def test_admission_requires_capability_labels_to_match_the_contract(self) -> None:
+        client, image, _container_value = _client()
+        image.attrs["Config"]["Labels"][snapshots.ACTIONS_LABEL] = "other-action"
+
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "do not match"):
+            snapshots.admit(client, IMAGE_ID)
 
     def test_previews_only_the_validated_manifest_icon_pair(self) -> None:
         client, _image_value, container = _client()
@@ -508,6 +526,8 @@ class LocalSnapshotTests(unittest.TestCase):
                         "name": "Fixture Assistant",
                         "summary": "Exercise immutable admission.",
                         "declared_creators": ["@fixture"],
+                        "actions": ["ping"],
+                        "integrations": [],
                         "image_id": IMAGE_ID,
                         "platform": "linux/amd64",
                         "created_at": CREATED,

@@ -46,6 +46,8 @@ def list_local_snapshots(self) -> dict[str, object]:
                 "name": candidate.name,
                 "summary": candidate.summary,
                 "declared_creators": list(candidate.declared_creators),
+                "actions": list(candidate.actions),
+                "integrations": list(candidate.integrations),
                 "image_id": candidate.image_id,
                 "platform": candidate.platform,
                 "created_at": candidate.created_at,

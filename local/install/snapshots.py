@@ -14,7 +14,7 @@ from install import bindings
 from local.install import source_package
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
-LOCAL_STAGE_VALUE = "assistant-v2"
+LOCAL_STAGE_VALUE = "assistant-v3"
 ASSISTANT_LABEL = "org.shimpz.assistant.id"
 SOURCE_LABEL = "org.shimpz.source.digest"
 VERSION_LABEL = "org.shimpz.assistant.version"
@@ -22,6 +22,8 @@ NAME_LABEL = "org.shimpz.assistant.name"
 SUMMARY_LABEL = "org.shimpz.assistant.summary"
 DECLARED_CREATORS_LABEL = "org.shimpz.assistant.declared-creators"
 BUILD_LABEL = "org.shimpz.local.build.digest"
+ACTIONS_LABEL = "org.shimpz.assistant.actions"
+INTEGRATIONS_LABEL = "org.shimpz.assistant.integrations"
 SOURCE_PATH = "/opt/shimpz/.shimpz/source.package"
 ICON_PATH = "/opt/shimpz/icon.png"
 RUNTIME_USER = "10001:10001"
@@ -29,6 +31,7 @@ RUNTIME_ENTRYPOINT = ["/opt/shimpz/runtime/bin/python3.14", "-c", "import signal
 MAX_CANDIDATES = 50
 _IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CREATED_RE = re.compile(r"^[0-9TZ:+.-]{20,64}$")
+_CAPABILITY_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _PLATFORMS = {"amd64": "linux/amd64", "x86_64": "linux/amd64", "arm64": "linux/arm64", "aarch64": "linux/arm64"}
 _RECORD_FIELDS = {
     "version",
@@ -69,6 +72,8 @@ class LocalSnapshotCandidate:
     name: str
     summary: str
     declared_creators: tuple[str, ...]
+    actions: tuple[str, ...]
+    integrations: tuple[str, ...]
     image_id: str
     platform: str
     created_at: str
@@ -231,6 +236,8 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
             labels[DECLARED_CREATORS_LABEL].split(","),
             maximum=4,
         )
+        actions = _capability_ids(labels[ACTIONS_LABEL], maximum=128, required=True)
+        integrations = _capability_ids(labels[INTEGRATIONS_LABEL], maximum=16, required=False)
     except (KeyError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid") from exc
     if (
@@ -245,10 +252,24 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         identity.name,
         identity.summary,
         declared_creators,
+        actions,
+        integrations,
         image_id,
         platform,
         created,
     )
+
+
+def _capability_ids(value: str, *, maximum: int, required: bool) -> tuple[str, ...]:
+    values = tuple(value.split(",")) if value else ()
+    if (
+        (required and not values)
+        or len(values) > maximum
+        or values != tuple(sorted(set(values)))
+        or any(len(item) > 80 or _CAPABILITY_ID_RE.fullmatch(item) is None for item in values)
+    ):
+        raise LocalSnapshotError("the Local Assistant capability labels are invalid")
+    return values
 
 
 def _exact_image(client, image_id: str):
@@ -366,6 +387,11 @@ def _record(
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
     )
+    if (
+        candidate.actions != tuple(action["id"] for action in machine_contract["actions"])
+        or candidate.integrations != tuple(value.provider for value in manifest_contract.integrations)
+    ):
+        raise LocalSnapshotError("the Local Assistant capability labels do not match its contract")
     return {
         "version": 1,
         "assistant_id": identity.assistant_id,
