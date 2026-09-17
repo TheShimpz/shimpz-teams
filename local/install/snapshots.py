@@ -387,10 +387,9 @@ def _record(
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
     )
-    if (
-        candidate.actions != tuple(action["id"] for action in machine_contract["actions"])
-        or candidate.integrations != tuple(value.provider for value in manifest_contract.integrations)
-    ):
+    if candidate.actions != tuple(
+        action["id"] for action in machine_contract["actions"]
+    ) or candidate.integrations != tuple(value.provider for value in manifest_contract.integrations):
         raise LocalSnapshotError("the Local Assistant capability labels do not match its contract")
     return {
         "version": 1,

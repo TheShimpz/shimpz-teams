@@ -232,9 +232,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "POST"
         handler._body = mock.Mock(return_value={"image_id": "sha256:" + ("a" * 64)})
         self.assertEqual(
-            handler._local_assistant_route(
-                ["v1", "teams", "team_1", "assistants", "local", "fresh"]
-            )[2],
+            handler._local_assistant_route(["v1", "teams", "team_1", "assistants", "local", "fresh"])[2],
             "local-assistant-install",
         )
         controller.install_fresh_local_snapshot.assert_called_once()
