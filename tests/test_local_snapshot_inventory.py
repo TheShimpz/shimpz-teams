@@ -28,6 +28,15 @@ CURRENT = (CANDIDATE,)
 
 
 class LocalSnapshotInventoryTests(unittest.TestCase):
+    def test_default_loader_forwards_the_validated_platform(self) -> None:
+        client = mock.Mock()
+        with mock.patch.object(inventory.snapshots, "list_candidates", return_value=CURRENT) as list_candidates:
+            cache = inventory.LocalSnapshotInventory(client, "linux/amd64")
+
+            self.assertEqual(cache.candidates(), CURRENT)
+
+        list_candidates.assert_called_once_with(client, platform="linux/amd64")
+
     def test_warm_read_uses_exact_event_cursor_without_reloading(self) -> None:
         client = mock.Mock()
         stream = mock.MagicMock()
@@ -217,6 +226,83 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         self.assertEqual(cache.candidates(), EMPTY)
         self.assertEqual(cache.candidates(), CURRENT)
         client.events.assert_not_called()
+
+    def test_retry_observes_a_refresh_completed_by_another_reader(self) -> None:
+        cache = inventory.LocalSnapshotInventory(
+            mock.Mock(),
+            "linux/amd64",
+            loader=mock.Mock(return_value=CURRENT),
+            clock_ns=mock.Mock(return_value=100),
+            monotonic=mock.Mock(return_value=0.0),
+        )
+        self.assertEqual(cache.candidates(), CURRENT)
+        with (
+            mock.patch.object(cache, "_validate", side_effect=((True, 200), (False, 300))),
+            mock.patch.object(cache, "_claim_refresh", return_value=False),
+        ):
+            self.assertEqual(cache.candidates(), CURRENT)
+
+    def test_retry_discards_a_validator_result_for_an_older_cursor(self) -> None:
+        cache = inventory.LocalSnapshotInventory(
+            mock.Mock(),
+            "linux/amd64",
+            loader=mock.Mock(return_value=CURRENT),
+            clock_ns=mock.Mock(return_value=100),
+            monotonic=mock.Mock(return_value=0.0),
+        )
+        self.assertEqual(cache.candidates(), CURRENT)
+        validations = 0
+
+        def validate(cursor_ns: int) -> tuple[bool, int]:
+            nonlocal validations
+            validations += 1
+            if validations == 1:
+                cache._cursor_ns = cursor_ns + 1
+            return False, cursor_ns + 2
+
+        with mock.patch.object(cache, "_validate", side_effect=validate):
+            self.assertEqual(cache.candidates(), CURRENT)
+        self.assertEqual(validations, 2)
+
+    def test_refresh_waits_are_bounded_and_cursor_fenced(self) -> None:
+        cache = inventory.LocalSnapshotInventory(mock.Mock(), "linux/amd64", loader=mock.Mock(return_value=CURRENT))
+        cache._refreshing = True
+        with (
+            mock.patch.object(cache._condition, "wait", return_value=False),
+            self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "timed out"),
+        ):
+            cache._snapshot_or_claim_cold_refresh()
+
+        cache._candidates = CURRENT
+        cache._cursor_ns = 100
+        self.assertFalse(cache._claim_refresh(99))
+        with mock.patch.object(cache._condition, "wait", return_value=True):
+            self.assertFalse(cache._claim_refresh(100))
+        with (
+            mock.patch.object(cache._condition, "wait", return_value=False),
+            self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "timed out"),
+        ):
+            cache._claim_refresh(100)
+
+    def test_background_start_is_idempotent_and_recovers_from_thread_failure(self) -> None:
+        cache = inventory.LocalSnapshotInventory(mock.Mock(), "linux/amd64", loader=mock.Mock(return_value=CURRENT))
+        cache._refreshing = True
+        with mock.patch.object(inventory.threading, "Thread") as thread:
+            cache._start_background_locked()
+        thread.assert_not_called()
+
+        cache._refreshing = False
+        with mock.patch.object(inventory.threading, "Thread") as thread:
+            thread.return_value.start.side_effect = RuntimeError("unavailable")
+            cache.warm()
+        self.assertFalse(cache._refreshing)
+
+    def test_warm_is_a_noop_after_inventory_is_available(self) -> None:
+        cache = inventory.LocalSnapshotInventory(mock.Mock(), "linux/amd64", loader=mock.Mock(return_value=CURRENT))
+        self.assertEqual(cache.candidates(), CURRENT)
+        with mock.patch.object(cache, "_start_background_locked") as start:
+            cache.warm()
+        start.assert_not_called()
 
 
 if __name__ == "__main__":

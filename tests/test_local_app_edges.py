@@ -90,6 +90,35 @@ class LocalControllerConstructionEdgeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "default seccomp"):
             controller._require_default_seccomp()
 
+    def test_controller_rejects_an_unsupported_local_daemon_platform(self) -> None:
+        dependencies = local_app.LocalControllerDependencies(
+            inference_store=object(),
+            brain_runtime=object(),
+            action_state=object(),
+            assistant_integrations=object(),
+            assistant_stored_inputs=object(),
+            integration_challenges=object(),
+            human_challenges=object(),
+            oauth_pkce=object(),
+            oauth_broker=object(),
+            oauth_service=object(),
+            chat_continuations=object(),
+            developers=object(),
+            artifact_trust=object(),
+            assistant_updates=object(),
+            assistant_residues=object(),
+            assistant_icons=object(),
+        )
+        with (
+            mock.patch.object(
+                local_app.LocalController,
+                "_require_default_seccomp",
+                return_value={"Architecture": "riscv64", "NCPU": 2},
+            ),
+            self.assertRaisesRegex(RuntimeError, "architecture is unsupported"),
+        ):
+            local_app.LocalController(object(), "local-space", object(), object(), dependencies)
+
 
 class LocalControllerResourceEdgeTests(unittest.TestCase):
     @staticmethod

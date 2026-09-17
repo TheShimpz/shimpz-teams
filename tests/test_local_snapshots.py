@@ -86,6 +86,17 @@ class LocalSnapshotTests(unittest.TestCase):
                 with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
                     snapshots.list_candidates(client)
 
+    def test_snapshot_summary_resolution_fails_closed(self) -> None:
+        client, _image_value, _container_value = _client()
+        client.api.images.return_value = [{"Id": "latest"}]
+        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "identity is invalid"):
+            snapshots.list_candidates(client)
+
+        client, _image_value, _container_value = _client()
+        client.images.get.side_effect = ImageNotFound("missing")
+        with self.assertRaisesRegex(snapshots.LocalSnapshotUnavailableError, "no longer available"):
+            snapshots.list_candidates(client)
+
     def test_exact_image_resolution_fails_closed(self) -> None:
         client, _image_value, _container_value = _client()
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
