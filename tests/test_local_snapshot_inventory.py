@@ -275,6 +275,26 @@ class LocalSnapshotInventoryTests(unittest.TestCase):
         ):
             self.assertEqual(cache.candidates(), CURRENT)
 
+    def test_retry_discards_a_snapshot_replaced_before_freshness_check(self) -> None:
+        cache = inventory.LocalSnapshotInventory(
+            mock.Mock(),
+            "linux/amd64",
+            loader=mock.Mock(return_value=CURRENT),
+            clock_ns=mock.Mock(return_value=100),
+            monotonic=mock.Mock(return_value=0.0),
+        )
+        self.assertEqual(cache.candidates(), CURRENT)
+        with (
+            mock.patch.object(
+                cache,
+                "_snapshot_or_claim_cold_refresh",
+                side_effect=((CURRENT, 99), (CURRENT, 100)),
+            ),
+            mock.patch.object(cache, "_validate", return_value=(False, 101)) as validate,
+        ):
+            self.assertEqual(cache.candidates(), CURRENT)
+        validate.assert_called_once_with(100)
+
     def test_retry_discards_a_validator_result_for_an_older_cursor(self) -> None:
         cache = inventory.LocalSnapshotInventory(
             mock.Mock(),
