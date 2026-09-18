@@ -51,6 +51,7 @@ from local_controller_docker_fixture import (
 
 from install import update as assistant_update
 from local import app as local_app
+from local.install import snapshots
 from protocol.http.v1 import supervisor as supervisor_contract
 
 
@@ -845,7 +846,7 @@ class DockerFlowTests(
         self.assertEqual(owned_networks, [])
 
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
-    def test_local_uninstall_removes_exact_staged_image_from_daemon(self) -> None:
+    def test_local_uninstall_preserves_exact_staged_image_in_daemon(self) -> None:
         client = docker.from_env()
         image_id = ""
         try:
@@ -854,7 +855,7 @@ class DockerFlowTests(
                 tempfile.TemporaryDirectory() as residue_root,
             ):
                 Path(build_root, "Dockerfile").write_text(
-                    "FROM scratch\nLABEL org.shimpz.test.local-retirement=1\n",
+                    f"FROM scratch\nLABEL {snapshots.LOCAL_STAGE_LABEL}={snapshots.LOCAL_STAGE_VALUE}\n",
                     encoding="utf-8",
                 )
                 image, _logs = client.images.build(path=build_root, rm=True, forcerm=True)
@@ -901,8 +902,13 @@ class DockerFlowTests(
                 self.assertEqual(result, {"assistant": assistant_id, "uninstalled": False})
                 self.assertIsNone(state["binding"])
                 self.assertEqual(lifecycle.residues.list(), ())
-                with self.assertRaises(ImageNotFound):
-                    client.images.get(image_id)
+                self.assertEqual(client.images.get(image_id).id, image_id)
+
+                lifecycle._queue_residue(image_id)
+                lifecycle.sweep_residues()
+
+                self.assertEqual(lifecycle.residues.list(), ())
+                self.assertEqual(client.images.get(image_id).id, image_id)
         finally:
             if image_id:
                 with suppress(ImageNotFound):

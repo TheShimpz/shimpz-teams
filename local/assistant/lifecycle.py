@@ -11,11 +11,11 @@ from docker.types import LogConfig, Ulimit
 
 from action import execution as action_execution
 from assistant import manifest as assistant_manifest
-from install import bindings, icons
-from install import update as assistant_update
+from install import bindings
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
+from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
 
@@ -316,7 +316,33 @@ def _binding_uses_image(self, image_id: str) -> bool | None:
     return False
 
 
+def _inspect_retired_image(self, image_id: str) -> tuple[bool, bool] | None:
+    try:
+        image = self.client.images.get(image_id)
+    except ImageNotFound:
+        return False, False
+    except DockerException:
+        log.warning("Assistant update residue cleanup deferred: image metadata is unavailable")
+        return None
+    attributes = image.attrs
+    config = attributes.get("Config") if isinstance(attributes, dict) else None
+    labels = config.get("Labels") if isinstance(config, dict) else None
+    if labels is not None and not isinstance(labels, dict):
+        log.warning("Assistant update residue cleanup deferred: image labels are invalid")
+        return None
+    is_local_snapshot = (
+        isinstance(labels, dict) and labels.get(local_snapshots.LOCAL_STAGE_LABEL) == local_snapshots.LOCAL_STAGE_VALUE
+    )
+    return True, is_local_snapshot
+
+
 def _delete_retired_image(self, image_id: str) -> bool:
+    inspection = _inspect_retired_image(self, image_id)
+    if inspection is None:
+        return False
+    exists, is_local_snapshot = inspection
+    if not exists or is_local_snapshot:
+        return True
     try:
         self.client.images.remove(image=image_id, force=False, noprune=True)
     except ImageNotFound:
@@ -370,39 +396,6 @@ def _queue_residue(self, image_id: str) -> None:
         log.exception("Assistant update residue could not be queued")
         if not self._remove_retired_image(image_id):
             log.warning("Assistant update left one unqueued image residue")
-
-
-def _prepare_local_image_retirement(
-    self,
-    binding: bindings.DynamicAssistantBinding | None,
-) -> assistant_update.AssistantResidue | None:
-    if binding is None or binding.provenance != "local":
-        return None
-    image_id = binding.local_record.get("image_id")
-    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
-        raise bindings.DynamicAssistantError("the Local Assistant image id is invalid")
-    try:
-        return self.residues.add(image_id)
-    except (bindings.DynamicAssistantError, OSError) as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "The Local Assistant image cleanup queue is unavailable",
-            code="assistant-cleanup-unavailable",
-        ) from exc
-
-
-def _cancel_local_image_retirement(
-    self,
-    team_id: str,
-    binding: bindings.DynamicAssistantBinding,
-    residue: assistant_update.AssistantResidue,
-) -> None:
-    try:
-        if self.registry.binding(team_id, binding.assistant_id) != binding:
-            return
-        self.residues.clear(residue)
-    except bindings.DynamicAssistantError:
-        log.warning("Local Assistant image cleanup intent could not be cancelled")
 
 
 def _queue_failed_successor(
@@ -725,48 +718,13 @@ def install_assistant(
 def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dict[str, object]:
     spec = self._resolve(team_id, assistant_id)
     binding = self.registry.binding(team_id, assistant_id)
-    retirement = _prepare_local_image_retirement(self, binding)
-    try:
-        self.chat_turn_service._delete_chat_continuation(team_id)
-        with self._lock(team_id):
-            network = self._network(team_id)
-            container = self._assistant_container(team_id, assistant_id, required=False)
-            if container is None:
-                if self._egress_token(team_id, assistant_id, create=False) is not None:
-                    remaining_egress = self._team_has_egress_assistant(team_id, excluding=assistant_id)
-                    self._release_assistant_egress(
-                        team_id,
-                        assistant_id,
-                        network,
-                        remaining_egress=remaining_egress,
-                    )
-                self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
-                self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
-                self.registry.delete(team_id, assistant_id)
-                if binding is not None:
-                    self.icons.discard_binding(binding, self.registry.bindings())
-                self.sweep_residues()
-                return {"assistant": assistant_id, "uninstalled": False}
-            self._validate_container_profile(container, team_id, spec, network.name)
-            retired_image_id = _retired_image_id(container)
-            remaining_egress = (
-                self._team_has_egress_assistant(team_id, excluding=assistant_id) if spec.allowed_hosts else None
-            )
-            try:
-                container.remove(force=True)
-            except DockerException as exc:
-                raise ApiProblem(
-                    HTTPStatus.SERVICE_UNAVAILABLE,
-                    "Docker could not uninstall the Assistant",
-                    code="docker-remove-failed",
-                ) from exc
-            self._blocked_action_workloads.discard(container.id)
-            self._assistant_genesis_cache.discard(container.id)
-            self._assistant_allowed_hosts_cache.discard(container.id)
-            self._assistant_machine_contract_cache.discard(container.id)
-            if retired_image_id is not None and (binding is None or binding.provenance == "published"):
-                self._queue_residue(retired_image_id)
-            if spec.allowed_hosts:
+    self.chat_turn_service._delete_chat_continuation(team_id)
+    with self._lock(team_id):
+        network = self._network(team_id)
+        container = self._assistant_container(team_id, assistant_id, required=False)
+        if container is None:
+            if self._egress_token(team_id, assistant_id, create=False) is not None:
+                remaining_egress = self._team_has_egress_assistant(team_id, excluding=assistant_id)
                 self._release_assistant_egress(
                     team_id,
                     assistant_id,
@@ -779,11 +737,40 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
             if binding is not None:
                 self.icons.discard_binding(binding, self.registry.bindings())
             self.sweep_residues()
-            return {"assistant": assistant_id, "uninstalled": True}
-    except ApiProblem, bindings.DynamicAssistantError, DockerException, icons.AssistantIconError:
-        if binding is not None and retirement is not None:
-            _cancel_local_image_retirement(self, team_id, binding, retirement)
-        raise
+            return {"assistant": assistant_id, "uninstalled": False}
+        self._validate_container_profile(container, team_id, spec, network.name)
+        retired_image_id = _retired_image_id(container)
+        remaining_egress = (
+            self._team_has_egress_assistant(team_id, excluding=assistant_id) if spec.allowed_hosts else None
+        )
+        try:
+            container.remove(force=True)
+        except DockerException as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Docker could not uninstall the Assistant",
+                code="docker-remove-failed",
+            ) from exc
+        self._blocked_action_workloads.discard(container.id)
+        self._assistant_genesis_cache.discard(container.id)
+        self._assistant_allowed_hosts_cache.discard(container.id)
+        self._assistant_machine_contract_cache.discard(container.id)
+        if retired_image_id is not None and (binding is None or binding.provenance == "published"):
+            self._queue_residue(retired_image_id)
+        if spec.allowed_hosts:
+            self._release_assistant_egress(
+                team_id,
+                assistant_id,
+                network,
+                remaining_egress=remaining_egress,
+            )
+        self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
+        self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
+        self.registry.delete(team_id, assistant_id)
+        if binding is not None:
+            self.icons.discard_binding(binding, self.registry.bindings())
+        self.sweep_residues()
+        return {"assistant": assistant_id, "uninstalled": True}
 
 
 @_serialize_against_local_team_chat

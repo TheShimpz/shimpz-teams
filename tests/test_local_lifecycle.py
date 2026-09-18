@@ -233,7 +233,10 @@ class LocalLifecycleTests(LocalContractCase):
         image_id = "sha256:" + "a" * 64
         controller.client.containers.list = lambda **_kwargs: []
         controller.client.images = SimpleNamespace(
-            get=lambda _reference: SimpleNamespace(id="sha256:" + "b" * 64),
+            get=lambda _reference: SimpleNamespace(
+                id="sha256:" + "b" * 64,
+                attrs={"Config": {"Labels": None}},
+            ),
             remove=lambda **options: events.append(("image-remove", options)),
         )
         controller.registry = SimpleNamespace(all=lambda: ())
@@ -247,13 +250,19 @@ class LocalLifecycleTests(LocalContractCase):
 
         controller.registry = SimpleNamespace(all=lambda: (SimpleNamespace(image=OUTDATED_ASSISTANT_IMAGE),))
         controller.assistant_lifecycle.registry = controller.registry
-        controller.client.images.get = lambda _reference: SimpleNamespace(id=image_id)
+        controller.client.images.get = lambda _reference: SimpleNamespace(
+            id=image_id,
+            attrs={"Config": {"Labels": None}},
+        )
         self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(len(events), 1)
 
         controller.registry = SimpleNamespace(all=lambda: ())
         controller.assistant_lifecycle.registry = controller.registry
-        controller.client.images.get = lambda _reference: SimpleNamespace(id="sha256:" + "b" * 64)
+        controller.client.images.get = lambda _reference: SimpleNamespace(
+            id="sha256:" + "b" * 64,
+            attrs={"Config": {"Labels": None}},
+        )
         controller.client.containers.list = lambda **_kwargs: [SimpleNamespace(attrs={"ImageID": image_id})]
         self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(len(events), 1)
