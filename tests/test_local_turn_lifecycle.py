@@ -501,7 +501,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
             return [container]
 
         controller._lock = lambda _team_id: LifecycleLock()
-        controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
+        controller.registry = TestAssistantRegistry(
+            {
+                "shimpz-cloudflare": SimpleNamespace(
+                    allowed_hosts=(),
+                    provenance="published",
+                )
+            }
+        )
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=list_containers))
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))
@@ -622,6 +629,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,
             allowed_hosts=(),
+            provenance="published",
         )
         controller.registry = TestAssistantRegistry({spec.assistant_id: spec})
         controller.client = SimpleNamespace(

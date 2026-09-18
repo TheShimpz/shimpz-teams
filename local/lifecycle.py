@@ -114,7 +114,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
                 "Docker could not destroy the Team",
                 code="docker-remove-failed",
             ) from exc
-        if retired_image_id is not None:
+        if retired_image_id is not None and spec.provenance == "published":
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
@@ -303,9 +303,11 @@ def _remove_space_resources(
         self._delete_team_conversation(team_id, network)
     absent.update(("brain_checkpoints", "action_checkpoints"))
     for container in containers:
+        labels = container.attrs["Config"]["Labels"]
+        spec = self.registry.get(labels[TEAM_LABEL], labels[ASSISTANT_LABEL])
         retired_image_id = self.assistant_lifecycle._retired_image_id(container)
         container.remove(force=True)
-        if retired_image_id is not None:
+        if retired_image_id is not None and (spec is None or spec.provenance == "published"):
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
     absent.add("assistant_containers")

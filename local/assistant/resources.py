@@ -8,6 +8,7 @@ from assistant import manifest as assistant_manifest
 from local.assistant import isolation as local_container_policy
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
+from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.labels import (
     ASSISTANT_LABEL,
@@ -131,7 +132,12 @@ def _trusted_image(self, spec: AssistantSpec):
         ) from exc
     image.reload()
     repo_digests = image.attrs.get("RepoDigests") or []
-    if spec.image not in repo_digests or not self._image_labels_valid(image, spec):
+    labels = (image.attrs.get("Config") or {}).get("Labels") or {}
+    if (
+        spec.image not in repo_digests
+        or not self._image_labels_valid(image, spec)
+        or labels.get(local_snapshots.LOCAL_STAGE_LABEL) == local_snapshots.LOCAL_STAGE_VALUE
+    ):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "the Assistant image does not match its trusted contract",

@@ -73,7 +73,8 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        subject.registry = TestAssistantRegistry({"assistant": object()})
+        subject.registry = TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")})
+        lifecycle._retired_image_id = lambda _container: "sha256:" + "a" * 64
         container.remove.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._remove_team_assistants(subject, "team_1", [container])
@@ -85,6 +86,13 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             1,
         )
         lifecycle._queue_residue.assert_not_called()
+
+        subject.registry = TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="published")})
+        self.assertEqual(
+            local_lifecycle._remove_team_assistants(subject, "team_1", [container]),
+            1,
+        )
+        lifecycle._queue_residue.assert_called_once_with("sha256:" + "a" * 64)
 
     def test_binding_only_assistants_are_removed_for_the_exact_team(self) -> None:
         own_spec = object()
@@ -232,14 +240,14 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
             _delete_team_conversation=lambda *_args: events.append("conversation-delete"),
             assistant_lifecycle=types.SimpleNamespace(
-                _retired_image_id=lambda _container: None,
+                _retired_image_id=lambda _container: "sha256:" + "a" * 64,
                 _blocked_action_workloads=set(),
                 _queue_residue=mock.Mock(),
                 _remove_egress_policy=lambda *_args: events.append("policy-delete"),
                 sweep_residues=lambda: events.append("residue-sweep"),
                 _disconnect_egress_proxy_if_attached=lambda _network: events.append("proxy-disconnect"),
             ),
-            registry=TestAssistantRegistry({}),
+            registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete=lambda _team_id: events.append("inference-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),

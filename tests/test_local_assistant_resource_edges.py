@@ -8,6 +8,7 @@ from docker.errors import DockerException, ImageNotFound, NotFound
 
 from local.assistant import isolation, resources
 from local.errors import ApiProblemError
+from local.install import snapshots
 
 
 class LocalAssistantResourceEdgeTests(unittest.TestCase):
@@ -94,6 +95,11 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.images.get.side_effect = ImageNotFound("missing")
         controller.client.images.pull.return_value = image
         self.assertIs(resources._trusted_image(controller, spec), image)
+
+        image.attrs["Config"]["Labels"][snapshots.LOCAL_STAGE_LABEL] = snapshots.LOCAL_STAGE_VALUE
+        with self.assertRaisesRegex(ApiProblemError, "trusted contract"):
+            resources._trusted_image(controller, spec)
+        image.attrs["Config"]["Labels"].pop(snapshots.LOCAL_STAGE_LABEL)
 
         controller.client.images.pull.side_effect = DockerException("pull failed")
         with self.assertRaisesRegex(ApiProblemError, "could not be pulled"):

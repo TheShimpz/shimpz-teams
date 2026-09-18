@@ -503,8 +503,8 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
 
         assistant_lifecycle._commit_replacement(subject, "team_1", published, {"kind": "published"})
         assistant_lifecycle._commit_replacement(subject, "team_1", local, {"kind": "local"})
-        assistant_lifecycle._queue_failed_successor(subject, local, "sha256:" + "a" * 64)
-        assistant_lifecycle._queue_failed_successor(subject, published, "sha256:" + "b" * 64)
+        assistant_lifecycle._queue_published_residue(subject, local, "sha256:" + "a" * 64)
+        assistant_lifecycle._queue_published_residue(subject, published, "sha256:" + "b" * 64)
 
         registry.commit_replacement.assert_called_once_with(
             "team_1",
@@ -524,6 +524,38 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 types.SimpleNamespace(provenance="unknown", binding_digest="invalid"),
                 {},
             )
+
+    def test_local_replacement_preserves_the_previous_staged_image(self) -> None:
+        controller, _container, _events, previous, successor, binding = self._update_specs()
+        binding.provenance = "local"
+        previous_image = types.SimpleNamespace(id="sha256:" + "a" * 64)
+        successor_image = types.SimpleNamespace(id="sha256:" + "b" * 64)
+        transaction = types.SimpleNamespace(previous_image_id=previous_image.id)
+        controller.assistant_lifecycle._validate_container_security = mock.Mock()
+        controller.assistant_lifecycle._assistant_image = mock.Mock(return_value=successor_image)
+        controller.client.images = types.SimpleNamespace(get=mock.Mock(return_value=previous_image))
+        controller.assistant_lifecycle.updates = types.SimpleNamespace(begin=mock.Mock(return_value=transaction))
+        controller.assistant_lifecycle._create_assistant_container = mock.Mock()
+        controller.registry.commit_local_replacement = mock.Mock()
+        controller.assistant_lifecycle._queue_residue = mock.Mock()
+        controller.assistant_lifecycle._clear_update = mock.Mock()
+        controller.assistant_lifecycle.sweep_residues = mock.Mock()
+
+        result = controller.assistant_lifecycle.update_assistant(
+            "team_1",
+            previous,
+            successor,
+            previous_binding=binding,
+            successor_document={},
+            authorize_start=lambda: None,
+        )
+
+        self.assertEqual(
+            result,
+            {"assistant": "shimpz-cloudflare", "installed": False, "updated": True},
+        )
+        controller.registry.commit_local_replacement.assert_called_once()
+        controller.assistant_lifecycle._queue_residue.assert_not_called()
 
     def test_recovery_target_covers_absent_current_unknown_and_removal_failures(self) -> None:
         target = types.SimpleNamespace(
@@ -599,8 +631,8 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         subject._create_assistant_container.assert_called_once()
 
     def test_recover_updates_handles_previous_successor_and_mismatched_bindings(self) -> None:
-        previous = object()
-        successor = object()
+        previous = types.SimpleNamespace(provenance="published", digest="previous")
+        successor = types.SimpleNamespace(provenance="published", digest="successor")
         updates = (
             types.SimpleNamespace(
                 team_id="team_1",
@@ -641,7 +673,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
                 _retain_declared_assistant_integration_state=mock.Mock(),
                 _retain_declared_assistant_stored_input_state=mock.Mock(),
             ),
-            _queue_residue=mock.Mock(),
+            _queue_published_residue=mock.Mock(),
             _clear_update=mock.Mock(),
             sweep_residues=mock.Mock(),
         )
@@ -649,7 +681,7 @@ class LocalAssistantLifecycleUpdateEdgeTests(LocalContractCase):
         self.assertEqual(subject._recover_update_target.call_count, 2)
         subject.chat_turn_service._retain_declared_assistant_integration_state.assert_called_once()
         subject.chat_turn_service._retain_declared_assistant_stored_input_state.assert_called_once()
-        subject._queue_residue.assert_called_once_with("image-2")
+        subject._queue_published_residue.assert_called_once_with(previous, "image-2")
         subject.sweep_residues.assert_called_once_with()
 
     def test_startup_resumes_every_bound_assistant_and_isolates_failures(self) -> None:

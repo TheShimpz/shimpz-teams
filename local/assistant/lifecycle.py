@@ -398,7 +398,7 @@ def _queue_residue(self, image_id: str) -> None:
             log.warning("Assistant update left one unqueued image residue")
 
 
-def _queue_failed_successor(
+def _queue_published_residue(
     self,
     binding: bindings.DynamicAssistantBinding,
     image_id: str,
@@ -489,7 +489,7 @@ def update_assistant(
             )
         except (ApiProblem, DockerException) as exc:
             self._restore_previous_assistant(team_id, previous, network, previous_image)
-            self._queue_failed_successor(previous_binding, successor_image.id)
+            self._queue_published_residue(previous_binding, successor_image.id)
             self._clear_update(transaction)
             if isinstance(exc, ApiProblem):
                 raise
@@ -516,7 +516,7 @@ def update_assistant(
             if cleanup_error is not None:
                 raise cleanup_error from exc
             self._restore_previous_assistant(team_id, previous, network, previous_image)
-            self._queue_failed_successor(previous_binding, successor_image.id)
+            self._queue_published_residue(previous_binding, successor_image.id)
             self._clear_update(transaction)
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
@@ -525,7 +525,7 @@ def update_assistant(
             ) from exc
         self.chat_turn_service._retain_declared_assistant_integration_state(team_id, successor)
         self.chat_turn_service._retain_declared_assistant_stored_input_state(team_id, successor)
-        self._queue_residue(transaction.previous_image_id)
+        self._queue_published_residue(previous_binding, transaction.previous_image_id)
         self._clear_update(transaction)
         self.sweep_residues()
         return {"assistant": successor.assistant_id, "installed": False, "updated": True}
@@ -606,7 +606,7 @@ def recover_updates(self) -> None:
                 if binding == update.successor:
                     self.chat_turn_service._retain_declared_assistant_integration_state(update.team_id, target)
                     self.chat_turn_service._retain_declared_assistant_stored_input_state(update.team_id, target)
-                    self._queue_residue(update.previous_image_id)
+                    self._queue_published_residue(update.previous, update.previous_image_id)
                 self._clear_update(update)
             except ApiProblem, RuntimeError, DockerException:
                 log.exception(
