@@ -316,6 +316,8 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         self.assertTrue(assistant_lifecycle._delete_retired_image(subject, "image"))
         subject.client.images.get.side_effect = None
         subject.client.images.get.return_value = types.SimpleNamespace(attrs={"Config": {"Labels": None}})
+        subject.client.images.remove.side_effect = ImageNotFound("gone")
+        self.assertTrue(assistant_lifecycle._delete_retired_image(subject, "image"))
         subject.client.images.remove.side_effect = DockerException("referenced")
         self.assertFalse(assistant_lifecycle._delete_retired_image(subject, "image"))
         self.assertFalse(assistant_lifecycle._remove_retired_image(subject, "image"))
