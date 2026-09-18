@@ -29,10 +29,12 @@ Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.
 Subsequent `installing` events preserve that identity while advancing a single sequential item through
-`installing` and `installed`; the terminal lifecycle state is `installed`, `failed`, or `stopped`. A failed
-event carries one bounded HTTP status and retains already-installed items without rollback. The browser
-never sends the plan id, planned Assistant ids, or publication digest back to Admin. After every item is
-freshly proved running, Admin sends the original task exactly once with the admitted scope union.
+`installing` and `installed`; the terminal lifecycle state is `installed`, `failed`, or `stopped`. An `installed`
+event requires `continuation` as exactly `dispatch` or `none`; the field is forbidden on every other state. A
+failed event carries one bounded HTTP status and retains already-installed items without rollback. The browser
+never sends the plan id, planned Assistant ids, or publication digest back to Admin. After every item is freshly
+proved running, an exact install-only command terminates at the installed result with `continuation: none`; every
+other task uses `continuation: dispatch` and runs exactly once with the admitted scope union.
 
 Socket loss still drops the active objective and every unstarted plan item; no server or lifecycle state
 persists or replays them. The Admin browser may retain one prior ordinary objective only in current-page
@@ -47,17 +49,20 @@ Both messages and both Assistant scopes satisfy the ordinary chat bounds, `files
 Assistant scopes are identical. `message` must be one complete member of Admin's closed continuation vocabulary;
 `objective` must be neither a continuation nor an uninstall request. An active turn, pending human or Integration
 challenge, or pending uninstall decision rejects the frame. Admin plans only `objective`: no capability gap sends
-only `message` to Team, a completed installation sends only `objective` with the admitted union scope, and planner
-failure or Stop sends neither. The browser visibly attributes the resumed objective, clears it on Team change,
-scope change, uninstall proposal, page disposal, or consumption, and never writes it to browser storage. The
-retained Hosted Store backend does not accept `resume-task`.
+only `message` to Team; a completed installation terminates at `installed` when `objective` is an exact install-only
+command and otherwise sends only `objective` with the admitted union scope; planner failure or Stop sends neither.
+The browser visibly attributes the resumed objective, clears it on Team change, scope change, uninstall proposal,
+page disposal, or consumption, and never writes it to browser storage. The retained Hosted Store backend does not
+accept `resume-task`.
 
-Local Admin may also emit the exact `assistant-uninstall` lifecycle. Its `proposed` event carries only
-Team-derived bounded display identity and the installed semantic version; later `uninstalling`,
-`uninstalled`, `cancelled`, `expired`, or `failed` events correlate that proposal. The browser never sends
-the proposal id, Assistant id, version, or a deletion target. Admin requires closed destructive intent,
-uses a removal-specific confirmation vocabulary, and revalidates Team presence and version immediately
-before invoking the existing Team-owned uninstall route. Store data and Store icon routes never participate.
+Local Admin may also emit the exact `assistant-uninstall` lifecycle. A terminal `target-required` event carries
+only the authenticated socket Team id and instructs the browser to ask for an Assistant name; it never creates a
+proposal, infers a target, queries inventory, or invokes Brain. Its `proposed` event carries only Team-derived
+bounded display identity and the installed semantic version; later `uninstalling`, `uninstalled`, `cancelled`,
+`expired`, or `failed` events correlate that proposal. The browser never sends the proposal id, Assistant id,
+version, or a deletion target. Admin requires closed destructive intent, uses a removal-specific confirmation
+vocabulary, and revalidates Team presence and version immediately before invoking the existing Team-owned
+uninstall route. Store data and Store icon routes never participate.
 
 An authenticated Supervisor may read the canonical PNG for one installed Assistant from
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
