@@ -487,12 +487,18 @@ class LocalSnapshotTests(unittest.TestCase):
 
     def test_service_bounds_and_maps_local_preview_work(self) -> None:
         client, _image_value, _container_value = _client()
-        controller = SimpleNamespace(client=client)
+        controller = SimpleNamespace(
+            local_snapshot_previews=SimpleNamespace(icon=lambda image_id: snapshots.preview_icon(client, image_id))
+        )
 
         self.assertTrue(service.local_snapshot_icon(controller, IMAGE_ID).startswith(b"\x89PNG"))
 
         with (
-            mock.patch.object(service._LOCAL_PREVIEW_SLOTS, "acquire", return_value=False),
+            mock.patch.object(
+                controller.local_snapshot_previews,
+                "icon",
+                side_effect=service.preview.PreviewBusyError("busy"),
+            ),
             self.assertRaises(ApiProblemError) as busy,
         ):
             service.local_snapshot_icon(controller, IMAGE_ID)
@@ -504,7 +510,7 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             with (
                 self.subTest(code=code),
-                mock.patch.object(service.snapshots, "preview_icon", side_effect=failure),
+                mock.patch.object(controller.local_snapshot_previews, "icon", side_effect=failure),
                 self.assertRaises(ApiProblemError) as caught,
             ):
                 service.local_snapshot_icon(controller, IMAGE_ID)

@@ -61,6 +61,10 @@ class LocalSnapshotUnavailableError(LocalSnapshotError):
     """Docker could not complete a Local snapshot operation."""
 
 
+class LocalSnapshotAbsentError(LocalSnapshotUnavailableError):
+    """The exact Local snapshot image is no longer present."""
+
+
 class InvalidLabeledSnapshotError(LocalSnapshotError):
     """A canonically identified stage-labeled image failed validation."""
 
@@ -141,12 +145,22 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
     return AdmittedLocalSnapshot(record=record, icon=package.icon)
 
 
-def preview_icon(client, image_id: str) -> bytes:
-    """Return a validated icon from an exact staged image without starting it."""
+def require_candidate(
+    client,
+    image_id: str,
+    *,
+    platform: str | None = None,
+) -> LocalSnapshotCandidate:
+    """Return one exact staged candidate after validating its immutable identity."""
     if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant image id is invalid")
     image = _exact_image(client, image_id)
-    candidate = _candidate(image, _daemon_platform(client))
+    return _candidate(image, _daemon_platform(client) if platform is None else platform)
+
+
+def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes:
+    """Return a validated icon from an exact staged image without starting it."""
+    candidate = require_candidate(client, image_id, platform=platform)
     extracted = _extract_preview_files(client, image_id)
     try:
         manifest = extracted[assistant_manifest.MANIFEST_PATH]
@@ -274,7 +288,7 @@ def _exact_image(client, image_id: str):
     try:
         image = client.images.get(image_id)
     except ImageNotFound as exc:
-        raise LocalSnapshotUnavailableError("the Local Assistant snapshot is no longer available") from exc
+        raise LocalSnapshotAbsentError("the Local Assistant snapshot is no longer available") from exc
     except DockerException as exc:
         raise LocalSnapshotUnavailableError("Docker cannot resolve the Local Assistant snapshot") from exc
     if image.id != image_id:

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
@@ -10,11 +9,9 @@ from http import HTTPStatus
 
 from install import artifact_trust, bindings, icons
 from local.errors import ApiProblemError as ApiProblem
-from local.install import developers, snapshots
+from local.install import developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
-
-_LOCAL_PREVIEW_SLOTS = threading.BoundedSemaphore(2)
 
 
 def list_local_snapshots(self) -> dict[str, object]:
@@ -60,14 +57,14 @@ def list_local_snapshots(self) -> dict[str, object]:
 
 
 def local_snapshot_icon(self, image_id: str) -> bytes:
-    if not _LOCAL_PREVIEW_SLOTS.acquire(blocking=False):
+    try:
+        return self.local_snapshot_previews.icon(image_id)
+    except preview.PreviewBusyError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Local Assistant preview capacity is busy",
             code="local-assistant-preview-busy",
-        )
-    try:
-        return snapshots.preview_icon(self.client, image_id)
+        ) from exc
     except snapshots.LocalSnapshotUnavailableError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -80,8 +77,6 @@ def local_snapshot_icon(self, image_id: str) -> bytes:
             "Local Assistant preview failed admission",
             code="local-assistant-preview-invalid",
         ) from exc
-    finally:
-        _LOCAL_PREVIEW_SLOTS.release()
 
 
 def install_local_snapshot(self, team_id: str, image_id: str) -> dict[str, object]:
