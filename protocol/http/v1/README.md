@@ -35,9 +35,9 @@ every exact named Assistant was already confirmed running, that terminal event a
 `outcome: already-installed`, requires `continuation: none`, and represents current state rather than fresh work. A
 failed event carries one bounded HTTP status and retains already-installed items without rollback. The browser
 never sends the plan id, planned Assistant ids, or publication digest back to Admin. After every item is freshly
-proved running, an exact install-only command terminates at the installed result with `continuation: none`; this
-also applies when an exact composed request mixes current and freshly installed identities. Every other task uses
-`continuation: dispatch` and runs exactly once with the admitted scope union.
+proved running, a structured `assistant-install` route terminates at the installed result with
+`continuation: none`; this also applies when a composed selection mixes current and freshly installed identities.
+Every ordinary task uses `continuation: dispatch` and runs exactly once with the admitted scope union.
 
 Socket loss still drops the active objective and every unstarted plan item; no server or lifecycle state
 persists or replays them. The Admin browser may retain one prior ordinary objective only in current-page
@@ -50,10 +50,13 @@ message. That fresh authenticated request has this exact Admin-only shape:
 
 Both messages and both Assistant scopes satisfy the ordinary chat bounds, `files` is exactly empty, and the two
 Assistant scopes are identical. `message` must be one complete member of Admin's closed continuation vocabulary;
-`objective` must be neither a continuation nor an uninstall request. An active turn, pending human or Integration
-challenge, or pending uninstall decision rejects the frame. Admin plans only `objective`: no capability gap sends
-only `message` to Team; a completed installation terminates at `installed` when `objective` is an exact install-only
-command and otherwise sends only `objective` with the admitted union scope; planner failure or Stop sends neither.
+`objective` must not be a continuation. An active turn, pending human or Integration challenge, or pending
+uninstall decision rejects the frame. Admin structurally routes only `objective`: an uninstall route is rejected
+without opening the installed-Assistant directory or creating a proposal; a structured `assistant-install` route
+terminates at `installed`; an ordinary objective with no capability gap sends only `message` to Team; and a
+completed ordinary capability plan sends only `objective` with the admitted union scope. Unavailable or invalid
+optional capability planning authorizes no installation and sends only `message`; structured routing, required
+install-directory, lifecycle, or Stop failure sends neither.
 The browser visibly attributes the resumed objective, clears it on Team change, scope change, uninstall proposal,
 page disposal, or consumption, and never writes it to browser storage. The retained Hosted Store backend does not
 accept `resume-task`.
