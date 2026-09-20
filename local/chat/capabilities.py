@@ -258,17 +258,31 @@ def _directory_candidate(value: object) -> brain_runtime_client.RuntimeDirectory
     )
 
 
+def _lifecycle_reference(value: object) -> brain_runtime_client.RuntimeLifecycleReference | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {"id", "name"}:
+        raise ValueError("invalid Assistant lifecycle reference")
+    return brain_runtime_client.RuntimeLifecycleReference(id=value["id"], name=value["name"])
+
+
 def _intent_route_input(
     body: object,
 ) -> tuple[
     str,
     brain_runtime_client.LifecycleIntent | None,
     tuple[brain_runtime_client.RuntimeDirectoryCandidate, ...],
+    brain_runtime_client.RuntimeLifecycleReference | None,
 ]:
-    if not isinstance(body, dict) or set(body) != {"objective", "expected_intent", "candidates"}:
+    if not isinstance(body, dict) or set(body) != {
+        "objective",
+        "expected_intent",
+        "candidates",
+        "lifecycle_reference",
+    }:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "intent route requires objective, expected_intent, and candidates",
+            "intent route requires objective, expected_intent, candidates, and lifecycle_reference",
             code="invalid-body",
         )
     candidates = body["candidates"]
@@ -284,6 +298,7 @@ def _intent_route_input(
             body["objective"],
             body["expected_intent"],
             projected,
+            _lifecycle_reference(body["lifecycle_reference"]),
         )
     except (brain_runtime_client.BrainRuntimeError, TypeError, ValueError) as exc:
         raise ApiProblem(
@@ -302,7 +317,7 @@ def intent_route(
 ) -> dict[str, object]:
     """Route one objective without exposing Team state or granting lifecycle authority."""
     team_id = validate_team_id(team_id)
-    objective, expected_intent, candidates = _intent_route_input(body)
+    objective, expected_intent, candidates, reference = _intent_route_input(body)
     before = self._capability_plan_snapshot(team_id, provider)
     try:
         route = self.brain_runtime.intent_route(
@@ -312,6 +327,7 @@ def intent_route(
             objective=objective,
             expected_intent=expected_intent,
             candidates=candidates,
+            reference=reference,
         )
     except brain_runtime_client.BrainRuntimeError as exc:
         raise ApiProblem(

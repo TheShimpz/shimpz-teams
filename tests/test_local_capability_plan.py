@@ -175,6 +175,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "objective": "tire o cloudflare",
             "expected_intent": "assistant-uninstall",
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
+            "lifecycle_reference": None,
         }
 
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
@@ -194,19 +195,52 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(request["api_key"], "private-model-key")
         self.assertEqual(request["expected_intent"], "assistant-uninstall")
         self.assertEqual(request["candidates"][0].summary, "")
+        self.assertIsNone(request["reference"])
         self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
+
+    def test_intent_route_projects_one_bounded_classification_reference(self) -> None:
+        subject = Subject()
+        body = {
+            "objective": "instale ele de novo",
+            "expected_intent": None,
+            "candidates": [],
+            "lifecycle_reference": {
+                "id": "shimpz-cloudflare",
+                "name": "Shimpz Cloudflare",
+            },
+        }
+
+        capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
+
+        reference = subject.brain_runtime.intent_route.call_args.kwargs["reference"]
+        self.assertEqual(reference.id, "shimpz-cloudflare")
+        self.assertEqual(reference.name, "Shimpz Cloudflare")
 
     def test_intent_route_rejects_invalid_input_and_redacts_provider_failure(self) -> None:
         subject = Subject()
         invalid = (
             {},
-            {"objective": "hello", "expected_intent": None, "candidates": [], "extra": True},
-            {"objective": "hello", "expected_intent": None, "candidates": None},
-            {"objective": "hello", "expected_intent": None, "candidates": [{}]},
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "extra": True,
+            },
+            {"objective": "hello", "expected_intent": None, "candidates": []},
+            {"objective": "hello", "expected_intent": None, "candidates": None, "lifecycle_reference": None},
+            {"objective": "hello", "expected_intent": None, "candidates": [{}], "lifecycle_reference": None},
             {
                 "objective": "uninstall",
                 "expected_intent": "assistant-uninstall",
                 "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": "must-not-cross"}],
+                "lifecycle_reference": None,
+            },
+            {
+                "objective": "uninstall",
+                "expected_intent": "assistant-uninstall",
+                "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
+                "lifecycle_reference": {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
             },
         )
         for body in invalid:
@@ -223,7 +257,12 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             capabilities.intent_route(
                 subject,
                 "team_1",
-                {"objective": "hello", "expected_intent": None, "candidates": []},
+                {
+                    "objective": "hello",
+                    "expected_intent": None,
+                    "candidates": [],
+                    "lifecycle_reference": None,
+                },
                 "openai",
                 "private-model-key",
             )
@@ -240,7 +279,12 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             capabilities.intent_route(
                 subject,
                 "team_1",
-                {"objective": "hello", "expected_intent": None, "candidates": []},
+                {
+                    "objective": "hello",
+                    "expected_intent": None,
+                    "candidates": [],
+                    "lifecycle_reference": None,
+                },
                 "openai",
                 "private-model-key",
             )

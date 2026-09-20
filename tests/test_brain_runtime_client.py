@@ -354,6 +354,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
             objective="tire o cloudflare",
             expected_intent="assistant-uninstall",
             candidates=directory_candidates(uninstall=True),
+            reference=None,
         )
 
         self.assertEqual(
@@ -380,7 +381,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertNotIn("thread_id", payload)
 
     def test_intent_route_accepts_closed_classification_and_unresolved_results(self):
-        client, _connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
+        client, connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
         self.assertEqual(
             client.intent_route(
                 provider="openai",
@@ -389,8 +390,17 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 objective="liste minhas zonas",
                 expected_intent=None,
                 candidates=(),
+                reference=brain_runtime_client.RuntimeLifecycleReference(
+                    "shimpz-cloudflare",
+                    "Shimpz Cloudflare",
+                ),
             ),
             brain_runtime_client.RuntimeIntentRoute("ordinary-task"),
+        )
+        payload = json.loads(connection.requests[0][2])
+        self.assertEqual(
+            payload["lifecycle_reference"],
+            {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
         )
 
         client, _connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
@@ -402,6 +412,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 objective="remove it",
                 expected_intent="assistant-uninstall",
                 candidates=directory_candidates(uninstall=True),
+                reference=None,
             ),
             brain_runtime_client.RuntimeIntentRoute("unresolved"),
         )
@@ -423,6 +434,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 objective="liste minhas zonas",
                 expected_intent=None,
                 candidates=(),
+                reference=None,
             )
 
     def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
@@ -450,6 +462,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                     objective="install cloudflare",
                     expected_intent="assistant-install",
                     candidates=directory_candidates(),
+                    reference=None,
                 )
 
         invalid_requests = (
@@ -482,6 +495,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                         objective="lifecycle objective",
                         expected_intent=expected,
                         candidates=shortlist,
+                        reference=None,
                     )
                 self.assertEqual(connection.requests, [])
 
@@ -494,6 +508,23 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 objective="hello",
                 expected_intent=None,
                 candidates=(),
+                reference=None,
+            )
+        self.assertEqual(connection.requests, [])
+
+        client, connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="remove it",
+                expected_intent="assistant-uninstall",
+                candidates=directory_candidates(uninstall=True),
+                reference=brain_runtime_client.RuntimeLifecycleReference(
+                    "shimpz-cloudflare",
+                    "Shimpz Cloudflare",
+                ),
             )
         self.assertEqual(connection.requests, [])
 

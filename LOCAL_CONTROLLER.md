@@ -97,10 +97,13 @@ public candidates, forwards them through the independently bounded Brain planner
 model credential, and returns either `sufficient` or at most four sorted candidate IDs. It carries no Genesis,
 Action schema, checkpoint, thread, tool, digest, or installation authority.
 
-Intent routing is also stateless. Classification receives only the objective. A lifecycle selection additionally
-receives its expected intent and at most eight bounded id/name candidates, with bounded summaries only for install
-discovery. Team binds the exact candidate set, request-scoped credential, provider, and model around the Brain call;
-the result may contain only supplied ids and carries no lifecycle authority.
+Intent routing is also stateless. Classification receives the objective and may receive one bounded id/name
+reference captured from a successful explicit lifecycle on the current Admin socket. That reference is untrusted
+query evidence only: Team never uses it to select, authorize, or mutate an Assistant. A lifecycle selection
+receives no reference and instead receives its expected intent plus at most eight bounded id/name candidates, with
+bounded summaries only for install discovery. Team binds the exact candidate set, request-scoped credential,
+provider, and model around the Brain call; the result may contain only supplied ids and carries no lifecycle
+authority.
 
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
 `started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and
