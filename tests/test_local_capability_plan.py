@@ -201,13 +201,12 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         invalid = (
             {},
             {"objective": "hello", "expected_intent": None, "candidates": [], "extra": True},
+            {"objective": "hello", "expected_intent": None, "candidates": None},
             {"objective": "hello", "expected_intent": None, "candidates": [{}]},
             {
                 "objective": "uninstall",
                 "expected_intent": "assistant-uninstall",
-                "candidates": [
-                    {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": "must-not-cross"}
-                ],
+                "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": "must-not-cross"}],
             },
         )
         for body in invalid:
@@ -230,6 +229,24 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             )
         self.assertEqual(unavailable.exception.code, "intent-route-unavailable")
         self.assertNotIn("private-model-key", unavailable.exception.message)
+
+    def test_intent_route_rejects_team_drift_after_the_provider_decision(self) -> None:
+        subject = Subject()
+        before = capabilities.CapabilityPlanSnapshot("network-generation-1", "openai", "gpt-5.6-terra")
+        after = capabilities.CapabilityPlanSnapshot("network-generation-2", "openai", "gpt-5.6-terra")
+        subject._capability_plan_snapshot = mock.Mock(side_effect=(before, after))
+
+        with self.assertRaises(ApiProblemError) as drift:
+            capabilities.intent_route(
+                subject,
+                "team_1",
+                {"objective": "hello", "expected_intent": None, "candidates": []},
+                "openai",
+                "private-model-key",
+            )
+
+        self.assertEqual(drift.exception.code, "team-context-changed")
+        self.assertEqual(drift.exception.status, HTTPStatus.CONFLICT)
 
 
 if __name__ == "__main__":

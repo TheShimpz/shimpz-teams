@@ -602,8 +602,7 @@ class BrainRuntimeClient:
                 "objective": task,
                 "expected_intent": expected,
                 "candidates": [
-                    {"id": candidate.id, "name": candidate.name, "summary": candidate.summary}
-                    for candidate in admitted
+                    {"id": candidate.id, "name": candidate.name, "summary": candidate.summary} for candidate in admitted
                 ],
             },
         )

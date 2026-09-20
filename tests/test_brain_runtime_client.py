@@ -369,15 +369,65 @@ class BrainRuntimeClientTests(unittest.TestCase):
         payload = json.loads(raw_body)
         self.assertEqual(payload["provider"]["api_key"], self.secret)
         self.assertEqual(payload["expected_intent"], "assistant-uninstall")
-        self.assertEqual([item["id"] for item in payload["candidates"]], [
-            "shimpz-cloudflare",
-            "shimpz-whatsapp",
-        ])
+        self.assertEqual(
+            [item["id"] for item in payload["candidates"]],
+            [
+                "shimpz-cloudflare",
+                "shimpz-whatsapp",
+            ],
+        )
         self.assertTrue(all(item["summary"] == "" for item in payload["candidates"]))
         self.assertNotIn("thread_id", payload)
 
+    def test_intent_route_accepts_closed_classification_and_unresolved_results(self):
+        client, _connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
+        self.assertEqual(
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="liste minhas zonas",
+                expected_intent=None,
+                candidates=(),
+            ),
+            brain_runtime_client.RuntimeIntentRoute("ordinary-task"),
+        )
+
+        client, _connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
+        self.assertEqual(
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="remove it",
+                expected_intent="assistant-uninstall",
+                candidates=directory_candidates(uninstall=True),
+            ),
+            brain_runtime_client.RuntimeIntentRoute("unresolved"),
+        )
+
+        client, _connection = self.client(
+            _Response(
+                {
+                    "intent": "ordinary-task",
+                    "query": "",
+                    "assistant_ids": ["shimpz-cloudflare"],
+                }
+            )
+        )
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="liste minhas zonas",
+                expected_intent=None,
+                candidates=(),
+            )
+
     def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
         invalid_outputs = (
+            {"intent": "invalid", "query": "", "assistant_ids": []},
             {"intent": "assistant-install", "query": "", "assistant_ids": ["unknown"]},
             {
                 "intent": "assistant-install",
@@ -387,6 +437,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
             {"intent": "assistant-uninstall", "query": "", "assistant_ids": []},
             {"intent": "ordinary-task", "query": "cloudflare", "assistant_ids": []},
             {"intent": "unresolved", "query": "", "assistant_ids": ["shimpz-cloudflare"]},
+            {"intent": "ordinary-task", "query": "", "assistant_ids": ["shimpz-cloudflare"]},
             {"intent": "ordinary-task", "query": "", "assistant_ids": [], "extra": True},
         )
         for payload in invalid_outputs:
@@ -401,18 +452,28 @@ class BrainRuntimeClientTests(unittest.TestCase):
                     candidates=directory_candidates(),
                 )
 
-        invalid_candidates = (
-            (),
-            directory_candidates()[::-1],
-            (directory_candidates()[0], directory_candidates()[0]),
-            directory_candidates(),
+        invalid_requests = (
+            ("assistant-install", ()),
+            ("assistant-install", directory_candidates()[::-1]),
+            ("assistant-install", (directory_candidates()[0], directory_candidates()[0])),
+            ("assistant-uninstall", directory_candidates()),
+            (None, directory_candidates()[:1]),
+            ("unsupported", directory_candidates()[:1]),
+            ("assistant-install", (object(),)),
+            (
+                "assistant-install",
+                (
+                    brain_runtime_client.RuntimeDirectoryCandidate(
+                        "shimpz-cloudflare",
+                        "Shimpz Cloudflare",
+                        None,
+                    ),
+                ),
+            ),
         )
-        expected_intents = ("assistant-install", "assistant-install", "assistant-install", "assistant-uninstall")
-        for shortlist, expected in zip(invalid_candidates, expected_intents, strict=True):
+        for expected, shortlist in invalid_requests:
             with self.subTest(shortlist=shortlist, expected=expected):
-                client, connection = self.client(
-                    _Response({"intent": "unresolved", "query": "", "assistant_ids": []})
-                )
+                client, connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.intent_route(
                         provider="openai",
@@ -423,6 +484,18 @@ class BrainRuntimeClientTests(unittest.TestCase):
                         candidates=shortlist,
                     )
                 self.assertEqual(connection.requests, [])
+
+        client, connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.intent_route(
+                provider="invalid",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="hello",
+                expected_intent=None,
+                candidates=(),
+            )
+        self.assertEqual(connection.requests, [])
 
     def test_action_label_requests_and_responses_fail_closed(self):
         valid = {
