@@ -30,11 +30,14 @@ Supervisor task. A `planned` event carries one socket-scoped plan id and at most
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.
 Subsequent `installing` events preserve that identity while advancing a single sequential item through
 `installing` and `installed`; the terminal lifecycle state is `installed`, `failed`, or `stopped`. An `installed`
-event requires `continuation` as exactly `dispatch` or `none`; the field is forbidden on every other state. A
+event requires `continuation` as exactly `dispatch` or `none`; the field is forbidden on every other state. When
+every exact named Assistant was already confirmed running, that terminal event additionally carries only
+`outcome: already-installed`, requires `continuation: none`, and represents current state rather than fresh work. A
 failed event carries one bounded HTTP status and retains already-installed items without rollback. The browser
 never sends the plan id, planned Assistant ids, or publication digest back to Admin. After every item is freshly
-proved running, an exact install-only command terminates at the installed result with `continuation: none`; every
-other task uses `continuation: dispatch` and runs exactly once with the admitted scope union.
+proved running, an exact install-only command terminates at the installed result with `continuation: none`; this
+also applies when an exact composed request mixes current and freshly installed identities. Every other task uses
+`continuation: dispatch` and runs exactly once with the admitted scope union.
 
 Socket loss still drops the active objective and every unstarted plan item; no server or lifecycle state
 persists or replays them. The Admin browser may retain one prior ordinary objective only in current-page
