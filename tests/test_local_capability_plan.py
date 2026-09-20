@@ -231,6 +231,18 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             {"objective": "hello", "expected_intent": None, "candidates": None, "lifecycle_reference": None},
             {"objective": "hello", "expected_intent": None, "candidates": [{}], "lifecycle_reference": None},
             {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": {},
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": {"id": "invalid id", "name": "Invalid"},
+            },
+            {
                 "objective": "uninstall",
                 "expected_intent": "assistant-uninstall",
                 "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": "must-not-cross"}],
