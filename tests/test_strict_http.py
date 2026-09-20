@@ -234,6 +234,12 @@ class SharedStrictHttpTest(unittest.TestCase):
         self.assertEqual(planned.params, {"team_id": "team_1"})
         self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", capability_plan))
 
+        intent_route = ("v1", "teams", "team_1", "chat", "intent-route")
+        routed = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", intent_route)
+        self.assertEqual(routed.operation, "chat-intent-route")
+        self.assertEqual(routed.params, {"team_id": "team_1"})
+        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", intent_route))
+
 
 if __name__ == "__main__":
     unittest.main()

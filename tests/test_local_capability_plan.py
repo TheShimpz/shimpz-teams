@@ -52,7 +52,13 @@ class Subject:
                     "install-required",
                     ("shimpz-cloudflare", "shimpz-whatsapp"),
                 )
-            )
+            ),
+            intent_route=mock.Mock(
+                return_value=brain_runtime_client.RuntimeIntentRoute(
+                    "assistant-uninstall",
+                    assistant_ids=("shimpz-cloudflare",),
+                )
+            ),
         )
         self._capability_plan_snapshot = lambda team_id, provider: capabilities._capability_plan_snapshot(
             self,
@@ -162,6 +168,68 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         with self.assertRaises(ApiProblemError) as unavailable:
             capabilities._capability_plan_snapshot(subject, "team_1", "openai")
         self.assertEqual(unavailable.exception.code, "inference-not-configured")
+
+    def test_intent_route_projects_only_the_closed_stateless_result(self) -> None:
+        subject = Subject()
+        body = {
+            "objective": "tire o cloudflare",
+            "expected_intent": "assistant-uninstall",
+            "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
+        }
+
+        result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
+
+        self.assertEqual(
+            result,
+            {
+                "team_id": "team_1",
+                "intent": "assistant-uninstall",
+                "query": "",
+                "assistant_ids": ["shimpz-cloudflare"],
+            },
+        )
+        request = subject.brain_runtime.intent_route.call_args.kwargs
+        self.assertEqual(request["provider"], "openai")
+        self.assertEqual(request["model"], "gpt-5.6-terra")
+        self.assertEqual(request["api_key"], "private-model-key")
+        self.assertEqual(request["expected_intent"], "assistant-uninstall")
+        self.assertEqual(request["candidates"][0].summary, "")
+        self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
+
+    def test_intent_route_rejects_invalid_input_and_redacts_provider_failure(self) -> None:
+        subject = Subject()
+        invalid = (
+            {},
+            {"objective": "hello", "expected_intent": None, "candidates": [], "extra": True},
+            {"objective": "hello", "expected_intent": None, "candidates": [{}]},
+            {
+                "objective": "uninstall",
+                "expected_intent": "assistant-uninstall",
+                "candidates": [
+                    {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": "must-not-cross"}
+                ],
+            },
+        )
+        for body in invalid:
+            with self.subTest(body=body), self.assertRaises(ApiProblemError) as caught:
+                capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
+            self.assertEqual(caught.exception.code, "invalid-body")
+        subject.brain_runtime.intent_route.assert_not_called()
+
+        subject = Subject()
+        subject.brain_runtime.intent_route.side_effect = brain_runtime_client.BrainRuntimeError(
+            "provider leaked private-model-key"
+        )
+        with self.assertRaises(ApiProblemError) as unavailable:
+            capabilities.intent_route(
+                subject,
+                "team_1",
+                {"objective": "hello", "expected_intent": None, "candidates": []},
+                "openai",
+                "private-model-key",
+            )
+        self.assertEqual(unavailable.exception.code, "intent-route-unavailable")
+        self.assertNotIn("private-model-key", unavailable.exception.message)
 
 
 if __name__ == "__main__":

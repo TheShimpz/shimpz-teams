@@ -60,8 +60,8 @@ accept `resume-task`.
 
 Local Admin may also emit the exact `assistant-uninstall` lifecycle. A terminal `target-required` event carries
 only the authenticated socket Team id and instructs the browser to ask for an Assistant name; it never creates a
-proposal, infers a target, queries inventory, or invokes Brain. Its `proposed` event carries only Team-derived
-bounded display identity and the installed semantic version; later `uninstalling`, `uninstalled`, `cancelled`,
+proposal or exposes the preceding structured route and bounded installed-directory selection. Its `proposed` event
+carries only Team-derived bounded display identity and the installed semantic version; later `uninstalling`, `uninstalled`, `cancelled`,
 `expired`, or `failed` events correlate that proposal. The browser never sends the proposal id, Assistant id,
 version, or a deletion target. Admin requires closed destructive intent, uses a removal-specific confirmation
 vocabulary, and revalidates Team presence and version immediately before invoking the existing Team-owned

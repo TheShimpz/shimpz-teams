@@ -386,6 +386,12 @@ CONTROLLER_ROUTES = (
         "chat-capability-plan",
         _LOCAL_CONTROLLER_ONLY,
     ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/chat/intent-route",
+        "chat-intent-route",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/v1/teams/:team_id/chat/integrations", "chat-integration-pending"),
     _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
     _controller_route("GET", "/v1/teams/:team_id/chat/human", "chat-human-pending"),

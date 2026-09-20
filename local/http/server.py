@@ -31,6 +31,7 @@ from protocol.http.v1 import supervisor as supervisor_contract
 MAX_BODY_BYTES = 16 * 1024
 MAX_CHAT_BODY_BYTES = supervisor_contract.MAX_JSON_BODY_BYTES
 MAX_CAPABILITY_PLAN_BODY_BYTES = 32 * 1024
+MAX_INTENT_ROUTE_BODY_BYTES = 8 * 1024
 MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
 MAX_API_RESPONSE_BYTES = 128 * 1024
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -50,6 +51,7 @@ _JSON_BODY_LIMITS = {
     "assistant-invoke": MAX_BODY_BYTES,
     "chat": MAX_CHAT_BODY_BYTES,
     "chat-capability-plan": MAX_CAPABILITY_PLAN_BODY_BYTES,
+    "chat-intent-route": MAX_INTENT_ROUTE_BODY_BYTES,
     "chat-integration-submit": MAX_BODY_BYTES,
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
@@ -267,6 +269,7 @@ class Handler(BaseHTTPRequestHandler):
             "assistant-action-labels",
             "chat",
             "chat-capability-plan",
+            "chat-intent-route",
             "chat-human-submit",
             "chat-integration-submit",
         }:
@@ -496,6 +499,28 @@ class Handler(BaseHTTPRequestHandler):
             None,
         )
 
+    def _chat_decision(
+        self,
+        team_id: str,
+        segment: str,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        decision = {
+            "capability-plan": ("capability_plan", "chat-capability-plan", MAX_CAPABILITY_PLAN_BODY_BYTES),
+            "intent-route": ("intent_route", "chat-intent-route", MAX_INTENT_ROUTE_BODY_BYTES),
+        }.get(segment)
+        if decision is None:
+            return None
+        method_name, operation_name, max_bytes = decision
+        operation = getattr(self.server.controller.chat_turn_service, method_name)
+        provider, api_key = self._model_credential_headers()
+        return (
+            HTTPStatus.OK,
+            operation(team_id, self._body(max_bytes=max_bytes), provider, api_key),
+            operation_name,
+            team_id,
+            None,
+        )
+
     def _chat_route(
         self,
         parts: list[str],
@@ -510,21 +535,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._chat_pending(team_id, segment)
         if self.command == "POST" and segment == "stop":
             return self._chat_stop(team_id)
-        if self.command == "POST" and segment == "capability-plan":
-            provider, api_key = self._model_credential_headers()
-            return (
-                HTTPStatus.OK,
-                self.server.controller.chat_turn_service.capability_plan(
-                    team_id,
-                    self._body(max_bytes=MAX_CAPABILITY_PLAN_BODY_BYTES),
-                    provider,
-                    api_key,
-                ),
-                "chat-capability-plan",
-                team_id,
-                None,
-            )
-        return self._chat_submit(team_id, segment) if self.command == "POST" else None
+        if self.command != "POST":
+            return None
+        return self._chat_decision(team_id, segment) or self._chat_submit(team_id, segment)
 
     def _write_stream_record(self, record: dict[str, object]) -> None:
         encoded = progress_contract.encode_record(record)

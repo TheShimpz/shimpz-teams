@@ -305,6 +305,7 @@ class ChatTurnService:
     _action_label_snapshot = local_chat_capabilities._action_label_snapshot
     capability_plan = local_chat_capabilities.capability_plan
     _capability_plan_snapshot = local_chat_capabilities._capability_plan_snapshot
+    intent_route = local_chat_capabilities.intent_route
     resume_chat_integrations = local_chat_api.resume_chat_integrations
     resume_chat_human = local_chat_human.resume_chat_human
     pending_chat_human = local_chat_human.pending_chat_human

@@ -81,6 +81,7 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 | `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider/model selection |
 | `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider/model selection |
 | `POST` | `/v1/teams/{team_id}/chat/capability-plan` | select an exact bounded subset from a public Assistant shortlist |
+| `POST` | `/v1/teams/{team_id}/chat/intent-route` | classify or resolve one structured Assistant lifecycle intent |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |
 | `GET` | `/v1/teams/{team_id}/chat/integrations` | inspect the pending Integration gate |
 | `POST` | `/v1/teams/{team_id}/chat/integrations` | resume after the exact Integration challenge completes |
@@ -95,6 +96,11 @@ Capability planning is a stateless pre-turn operation. It receives only an objec
 public candidates, forwards them through the independently bounded Brain planner lane with the Team's request-only
 model credential, and returns either `sufficient` or at most four sorted candidate IDs. It carries no Genesis,
 Action schema, checkpoint, thread, tool, digest, or installation authority.
+
+Intent routing is also stateless. Classification receives only the objective. A lifecycle selection additionally
+receives its expected intent and at most eight bounded id/name candidates, with bounded summaries only for install
+discovery. Team binds the exact candidate set, request-scoped credential, provider, and model around the Brain call;
+the result may contain only supplied ids and carries no lifecycle authority.
 
 The two mutating chat routes return one bounded chunked `application/x-ndjson` stream. Metadata-only
 `started`/`finished` records surround actual Team context, model, Action preparation, individual Action, and

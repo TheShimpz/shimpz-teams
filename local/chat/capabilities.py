@@ -246,3 +246,89 @@ def capability_plan(
         "status": plan.status,
         "assistant_ids": list(plan.assistant_ids),
     }
+
+
+def _directory_candidate(value: object) -> brain_runtime_client.RuntimeDirectoryCandidate:
+    if not isinstance(value, dict) or set(value) != {"id", "name", "summary"}:
+        raise ValueError("invalid Assistant directory candidate")
+    return brain_runtime_client.RuntimeDirectoryCandidate(
+        id=value["id"],
+        name=value["name"],
+        summary=value["summary"],
+    )
+
+
+def _intent_route_input(
+    body: object,
+) -> tuple[
+    str,
+    brain_runtime_client.LifecycleIntent | None,
+    tuple[brain_runtime_client.RuntimeDirectoryCandidate, ...],
+]:
+    if not isinstance(body, dict) or set(body) != {"objective", "expected_intent", "candidates"}:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "intent route requires objective, expected_intent, and candidates",
+            code="invalid-body",
+        )
+    candidates = body["candidates"]
+    if not isinstance(candidates, list):
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "intent route candidates are invalid",
+            code="invalid-body",
+        )
+    try:
+        projected = tuple(_directory_candidate(value) for value in candidates)
+        return brain_runtime_client.BrainRuntimeClient.validate_intent_route_inputs(
+            body["objective"],
+            body["expected_intent"],
+            projected,
+        )
+    except (brain_runtime_client.BrainRuntimeError, TypeError, ValueError) as exc:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "intent route input is invalid",
+            code="invalid-body",
+        ) from exc
+
+
+def intent_route(
+    self,
+    team_id: str,
+    body: object,
+    provider: str,
+    api_key: str,
+) -> dict[str, object]:
+    """Route one objective without exposing Team state or granting lifecycle authority."""
+    team_id = validate_team_id(team_id)
+    objective, expected_intent, candidates = _intent_route_input(body)
+    before = self._capability_plan_snapshot(team_id, provider)
+    try:
+        route = self.brain_runtime.intent_route(
+            provider=before.provider,
+            model=before.model,
+            api_key=api_key,
+            objective=objective,
+            expected_intent=expected_intent,
+            candidates=candidates,
+        )
+    except brain_runtime_client.BrainRuntimeError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant lifecycle routing is unavailable",
+            code="intent-route-unavailable",
+        ) from exc
+    after = self._capability_plan_snapshot(team_id, provider)
+    if after != before:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Team capabilities changed; retry",
+            code="team-context-changed",
+        )
+    return {
+        "team_id": team_id,
+        "intent": route.intent,
+        "query": route.query,
+        "assistant_ids": list(route.assistant_ids),
+    }

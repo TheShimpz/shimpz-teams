@@ -81,6 +81,21 @@ def capability_candidates() -> tuple[brain_runtime_client.RuntimeCapabilityCandi
     )
 
 
+def directory_candidates(*, uninstall: bool = False) -> tuple[brain_runtime_client.RuntimeDirectoryCandidate, ...]:
+    return (
+        brain_runtime_client.RuntimeDirectoryCandidate(
+            "shimpz-cloudflare",
+            "Shimpz Cloudflare",
+            "" if uninstall else "Manage reviewed DNS records.",
+        ),
+        brain_runtime_client.RuntimeDirectoryCandidate(
+            "shimpz-whatsapp",
+            "Shimpz WhatsApp",
+            "" if uninstall else "Send reviewed WhatsApp messages.",
+        ),
+    )
+
+
 class BrainRuntimeClientTests(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -320,6 +335,94 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(connection.requests, [])
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             brain_runtime_client.BrainRuntimeClient._capability_text(None, 10)
+
+    def test_intent_route_uses_only_the_stateless_bounded_endpoint(self):
+        client, connection = self.client(
+            _Response(
+                {
+                    "intent": "assistant-uninstall",
+                    "query": "",
+                    "assistant_ids": ["shimpz-cloudflare"],
+                }
+            )
+        )
+
+        route = client.intent_route(
+            provider="openai",
+            model="gpt-5.6-terra",
+            api_key=self.secret,
+            objective="tire o cloudflare",
+            expected_intent="assistant-uninstall",
+            candidates=directory_candidates(uninstall=True),
+        )
+
+        self.assertEqual(
+            route,
+            brain_runtime_client.RuntimeIntentRoute(
+                "assistant-uninstall",
+                assistant_ids=("shimpz-cloudflare",),
+            ),
+        )
+        method, path, raw_body, headers = connection.requests[0]
+        self.assertEqual((method, path), ("POST", "/v1/intent-route"))
+        self.assertEqual(headers["Authorization"], f"Bearer {self.token}")
+        payload = json.loads(raw_body)
+        self.assertEqual(payload["provider"]["api_key"], self.secret)
+        self.assertEqual(payload["expected_intent"], "assistant-uninstall")
+        self.assertEqual([item["id"] for item in payload["candidates"]], [
+            "shimpz-cloudflare",
+            "shimpz-whatsapp",
+        ])
+        self.assertTrue(all(item["summary"] == "" for item in payload["candidates"]))
+        self.assertNotIn("thread_id", payload)
+
+    def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
+        invalid_outputs = (
+            {"intent": "assistant-install", "query": "", "assistant_ids": ["unknown"]},
+            {
+                "intent": "assistant-install",
+                "query": "",
+                "assistant_ids": ["shimpz-whatsapp", "shimpz-cloudflare"],
+            },
+            {"intent": "assistant-uninstall", "query": "", "assistant_ids": []},
+            {"intent": "ordinary-task", "query": "cloudflare", "assistant_ids": []},
+            {"intent": "unresolved", "query": "", "assistant_ids": ["shimpz-cloudflare"]},
+            {"intent": "ordinary-task", "query": "", "assistant_ids": [], "extra": True},
+        )
+        for payload in invalid_outputs:
+            with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client, _connection = self.client(_Response(payload))
+                client.intent_route(
+                    provider="openai",
+                    model="gpt-5.6-terra",
+                    api_key=self.secret,
+                    objective="install cloudflare",
+                    expected_intent="assistant-install",
+                    candidates=directory_candidates(),
+                )
+
+        invalid_candidates = (
+            (),
+            directory_candidates()[::-1],
+            (directory_candidates()[0], directory_candidates()[0]),
+            directory_candidates(),
+        )
+        expected_intents = ("assistant-install", "assistant-install", "assistant-install", "assistant-uninstall")
+        for shortlist, expected in zip(invalid_candidates, expected_intents, strict=True):
+            with self.subTest(shortlist=shortlist, expected=expected):
+                client, connection = self.client(
+                    _Response({"intent": "unresolved", "query": "", "assistant_ids": []})
+                )
+                with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                    client.intent_route(
+                        provider="openai",
+                        model="gpt-5.6-terra",
+                        api_key=self.secret,
+                        objective="lifecycle objective",
+                        expected_intent=expected,
+                        candidates=shortlist,
+                    )
+                self.assertEqual(connection.requests, [])
 
     def test_action_label_requests_and_responses_fail_closed(self):
         valid = {
