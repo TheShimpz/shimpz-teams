@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from urllib.parse import urlparse
 
 HEX_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -64,7 +65,11 @@ def public_text(value: object, maximum: int, *, field: str = "public text") -> s
         or not value
         or value != value.strip()
         or len(value) > maximum
-        or not value.isprintable()
+        or any(
+            unicodedata.category(character).startswith("C")
+            or unicodedata.category(character) in {"Zl", "Zp"}
+            for character in value
+        )
     ):
         raise ValueError(f"invalid {field}")
     return value

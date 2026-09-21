@@ -233,6 +233,10 @@ class WebSocketReferenceEdgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             websocket._reject_json_constant("NaN")
         self.assertEqual(websocket.public_text("Ready", 10), "Ready")
+        self.assertEqual(websocket.public_text("français\u00a0?", 10), "français\u00a0?")
+        for value in ("line\u2028break", "paragraph\u2029break", "hidden\u200dinstruction"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                websocket.public_text(value, 40)
         for value in (None, "", " bad", "bad\n", "x" * 11):
             with self.assertRaises(ValueError):
                 websocket.public_text(value, 10)
