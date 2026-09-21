@@ -307,6 +307,22 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "language_exemplar": None,
             },
             {
+                "objective": "cloudflare",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": {},
+                "language_exemplar": None,
+            },
+            {
+                "objective": "cloudflare",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": [{"role": "user", "text": "hello"}],
+                "language_exemplar": None,
+            },
+            {
                 "objective": "hello",
                 "expected_intent": None,
                 "candidates": None,

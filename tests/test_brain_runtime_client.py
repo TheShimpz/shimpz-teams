@@ -676,6 +676,26 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 self.assertEqual(connection.requests, [])
 
         client, connection = self.client(
+            _Response({"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""})
+        )
+        with (
+            mock.patch.object(brain_runtime_client, "MAX_CONVERSATION_CHARS", 1),
+            self.assertRaises(brain_runtime_client.BrainRuntimeError),
+        ):
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="hello",
+                expected_intent=None,
+                candidates=(),
+                context=brain_runtime_client.RuntimeLifecycleContext(
+                    conversation=(brain_runtime_client.RuntimeConversationEntry("user", "hi", False),),
+                ),
+            )
+        self.assertEqual(connection.requests, [])
+
+        client, connection = self.client(
             _Response({"intent": "unresolved", "query": "", "assistant_ids": [], "reply": "clarify"})
         )
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
