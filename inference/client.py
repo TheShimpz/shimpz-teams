@@ -340,10 +340,7 @@ class BrainRuntimeClient:
                 unicodedata.category(character).startswith("C")
                 and (
                     not allow_layout
-                    or (
-                        unicodedata.category(character) != "Cf"
-                        and character not in _LANGUAGE_LAYOUT_CONTROLS
-                    )
+                    or (unicodedata.category(character) != "Cf" and character not in _LANGUAGE_LAYOUT_CONTROLS)
                 )
                 for character in value
             )
@@ -526,8 +523,7 @@ class BrainRuntimeClient:
             or reply.strip() != reply
             or len(reply) > MAX_INTENT_ROUTE_REPLY_CHARS
             or any(
-                unicodedata.category(character).startswith("C")
-                or unicodedata.category(character) in {"Zl", "Zp"}
+                unicodedata.category(character).startswith("C") or unicodedata.category(character) in {"Zl", "Zp"}
                 for character in reply
             )
         ):

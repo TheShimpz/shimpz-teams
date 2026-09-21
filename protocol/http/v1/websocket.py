@@ -66,8 +66,7 @@ def public_text(value: object, maximum: int, *, field: str = "public text") -> s
         or value != value.strip()
         or len(value) > maximum
         or any(
-            unicodedata.category(character).startswith("C")
-            or unicodedata.category(character) in {"Zl", "Zp"}
+            unicodedata.category(character).startswith("C") or unicodedata.category(character) in {"Zl", "Zp"}
             for character in value
         )
     ):
