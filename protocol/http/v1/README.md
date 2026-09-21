@@ -62,14 +62,16 @@ page disposal, or consumption, and never writes it to browser storage. The retai
 accept `resume-task`.
 
 The exact `POST /v1/teams/:team_id/chat/intent-route` body carries `objective`, `expected_intent`, `candidates`,
-`lifecycle_reference`, `pending_intent`, and `language_exemplar`. Classification requires an empty candidate list
-and may carry either one bounded `{id,name}` reference captured from a successful explicit lifecycle or one
-directional pending intent plus its bounded user-authored language exemplar. Selection carries neither reference
-nor pending intent, may carry that exemplar, and resolves only against its exact bounded candidate set; an empty
-set can produce only unresolved clarification. This socket-only context is untrusted language evidence; it grants
-no directory membership, installation, removal, or Team authority and is never persisted as semantic state.
-The exemplar is NFC-normalized and admits ordinary Unicode format characters plus CR, LF, and TAB layout from the
-already-admitted user message; it remains quoted untrusted text and never becomes an instruction or identifier.
+`lifecycle_reference`, `conversation`, and `language_exemplar`. Classification requires an empty candidate list
+and may carry one bounded `{id,name}` reference captured from a successful explicit lifecycle together with an
+ordered window of at most eight prior user or Assistant texts. Every entry is at most 512 code points, the window
+is at most 4096 code points, and each entry explicitly states whether the producer truncated it. Selection carries
+neither reference nor conversation, may carry one bounded user-authored language exemplar, and resolves only
+against its exact bounded candidate set; an empty set can produce only unresolved clarification. Conversation and
+exemplar text is NFC-normalized and admits ordinary Unicode format characters plus CR, LF, and TAB layout. It is
+always quoted untrusted language evidence: it can resolve pronouns, ellipsis, direct answers, and response language,
+but grants no directory membership, installation, removal, or Team authority and never becomes an instruction or
+identifier. The current objective remains the only fresh instruction.
 
 Local Admin may emit an exact terminal `assistant-guidance` event with the authenticated socket Team id, one of the
 closed `assistant-install-target-required`, `assistant-uninstall-target-required`, or

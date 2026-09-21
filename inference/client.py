@@ -36,6 +36,9 @@ MAX_INTENT_ROUTE_QUERY_CHARS = 160
 MAX_INTENT_ROUTE_NAME_CHARS = 80
 MAX_INTENT_ROUTE_SUMMARY_CHARS = 160
 MAX_INTENT_ROUTE_REPLY_CHARS = 240
+MAX_CONVERSATION_ENTRIES = 8
+MAX_CONVERSATION_TEXT_CHARS = 512
+MAX_CONVERSATION_CHARS = 4_096
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -130,9 +133,16 @@ class RuntimeLifecycleReference:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeConversationEntry:
+    role: Literal["user", "assistant"]
+    text: str
+    truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeLifecycleContext:
     reference: RuntimeLifecycleReference | None = None
-    pending_intent: LifecycleIntent | None = None
+    conversation: tuple[RuntimeConversationEntry, ...] = ()
     language_exemplar: str | None = None
 
 
@@ -445,18 +455,43 @@ class BrainRuntimeClient:
         if not isinstance(value, RuntimeLifecycleContext):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         reference = cls._validate_lifecycle_reference(value.reference)
-        pending_intent = value.pending_intent
+        conversation = cls._validate_conversation(value.conversation)
         exemplar = value.language_exemplar
         if exemplar is not None:
             exemplar = cls._capability_text(exemplar, MAX_LANGUAGE_EXEMPLAR_CHARS, allow_layout=True)
         if expected_intent is None:
-            if pending_intent not in {None, "assistant-install", "assistant-uninstall"}:
+            if exemplar is not None:
                 raise BrainRuntimeError("Brain runtime intent route request is invalid")
-            if (pending_intent is None) != (exemplar is None) or (reference is not None and pending_intent is not None):
-                raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        elif reference is not None or pending_intent is not None:
+        elif reference is not None or conversation:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        return RuntimeLifecycleContext(reference, pending_intent, exemplar)
+        return RuntimeLifecycleContext(reference, conversation, exemplar)
+
+    @classmethod
+    def _validate_conversation(
+        cls,
+        value: object,
+    ) -> tuple[RuntimeConversationEntry, ...]:
+        if not isinstance(value, tuple) or len(value) > MAX_CONVERSATION_ENTRIES:
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        admitted: list[RuntimeConversationEntry] = []
+        for entry in value:
+            if (
+                not isinstance(entry, RuntimeConversationEntry)
+                or entry.role not in {"user", "assistant"}
+                or not isinstance(entry.truncated, bool)
+            ):
+                raise BrainRuntimeError("Brain runtime intent route request is invalid")
+            admitted.append(
+                RuntimeConversationEntry(
+                    entry.role,
+                    cls._capability_text(entry.text, MAX_CONVERSATION_TEXT_CHARS, allow_layout=True),
+                    entry.truncated,
+                )
+            )
+        result = tuple(admitted)
+        if sum(len(entry.text) for entry in result) > MAX_CONVERSATION_CHARS:
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        return result
 
     @classmethod
     def validate_intent_route_inputs(
@@ -696,7 +731,10 @@ class BrainRuntimeClient:
                     if admitted_context.reference is None
                     else {"id": admitted_context.reference.id, "name": admitted_context.reference.name}
                 ),
-                "pending_intent": admitted_context.pending_intent,
+                "conversation": [
+                    {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
+                    for entry in admitted_context.conversation
+                ],
                 "language_exemplar": admitted_context.language_exemplar,
             },
         )

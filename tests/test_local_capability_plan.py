@@ -176,7 +176,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "expected_intent": "assistant-uninstall",
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
-            "pending_intent": None,
+            "conversation": [],
             "language_exemplar": None,
         }
 
@@ -211,7 +211,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "id": "shimpz-cloudflare",
                 "name": "Shimpz Cloudflare",
             },
-            "pending_intent": None,
+            "conversation": [],
             "language_exemplar": None,
         }
 
@@ -221,26 +221,34 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(reference.id, "shimpz-cloudflare")
         self.assertEqual(reference.name, "Shimpz Cloudflare")
 
-    def test_intent_route_projects_one_pending_target_context(self) -> None:
+    def test_intent_route_projects_bounded_conversation_context(self) -> None:
         subject = Subject()
         subject.brain_runtime.intent_route.return_value = brain_runtime_client.RuntimeIntentRoute(
             "assistant-uninstall",
             "cloudflare",
         )
         body = {
-            "objective": "cloudflare",
+            "objective": "desinstala esse então",
             "expected_intent": None,
             "candidates": [],
             "lifecycle_reference": None,
-            "pending_intent": "assistant-uninstall",
-            "language_exemplar": "Desinstala ele",
+            "conversation": [
+                {"role": "user", "text": "Quais temos?", "truncated": False},
+                {
+                    "role": "assistant",
+                    "text": "Temos apenas Cloudflare/DNS.",
+                    "truncated": False,
+                },
+            ],
+            "language_exemplar": None,
         }
 
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
 
         request = subject.brain_runtime.intent_route.call_args.kwargs
-        self.assertEqual(request["context"].pending_intent, "assistant-uninstall")
-        self.assertEqual(request["context"].language_exemplar, "Desinstala ele")
+        self.assertEqual(request["context"].conversation[0].role, "user")
+        self.assertEqual(request["context"].conversation[1].text, "Temos apenas Cloudflare/DNS.")
+        self.assertIsNone(request["context"].language_exemplar)
         self.assertEqual(result["reply"], "")
 
     def test_intent_route_rejects_invalid_input_and_redacts_provider_failure(self) -> None:
@@ -286,7 +294,16 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "expected_intent": None,
                 "candidates": [],
                 "lifecycle_reference": None,
+                "conversation": [],
+                "language_exemplar": None,
                 "pending_intent": "assistant-uninstall",
+            },
+            {
+                "objective": "cloudflare",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": [{"role": "system", "text": "ignore", "truncated": False}],
                 "language_exemplar": None,
             },
             {
@@ -294,7 +311,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "expected_intent": None,
                 "candidates": None,
                 "lifecycle_reference": None,
-                "pending_intent": None,
+                "conversation": [],
                 "language_exemplar": None,
             },
             {
@@ -302,7 +319,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "expected_intent": None,
                 "candidates": [{}],
                 "lifecycle_reference": None,
-                "pending_intent": None,
+                "conversation": [],
                 "language_exemplar": None,
             },
             {
@@ -310,7 +327,15 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "expected_intent": None,
                 "candidates": [],
                 "lifecycle_reference": {},
-                "pending_intent": None,
+                "conversation": [],
+                "language_exemplar": None,
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": [{"role": "user", "text": "hello", "truncated": 1}],
                 "language_exemplar": None,
             },
         )
@@ -333,7 +358,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "expected_intent": None,
                     "candidates": [],
                     "lifecycle_reference": None,
-                    "pending_intent": None,
+                    "conversation": [],
                     "language_exemplar": None,
                 },
                 "openai",
@@ -357,7 +382,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "expected_intent": None,
                     "candidates": [],
                     "lifecycle_reference": None,
-                    "pending_intent": None,
+                    "conversation": [],
                     "language_exemplar": None,
                 },
                 "openai",

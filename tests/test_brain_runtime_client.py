@@ -445,7 +445,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 context=None,
             )
 
-    def test_intent_route_carries_one_pending_target_context_and_language(self):
+    def test_intent_route_carries_bounded_conversation_context(self):
         client, connection = self.client(
             _Response(
                 {
@@ -461,19 +461,35 @@ class BrainRuntimeClientTests(unittest.TestCase):
             provider="openai",
             model="gpt-5.6-terra",
             api_key=self.secret,
-            objective="cloudflare",
+            objective="desinstala esse então",
             expected_intent=None,
             candidates=(),
             context=brain_runtime_client.RuntimeLifecycleContext(
-                pending_intent="assistant-uninstall",
-                language_exemplar="Desinstala ele",
+                conversation=(
+                    brain_runtime_client.RuntimeConversationEntry("user", "Quais temos?", False),
+                    brain_runtime_client.RuntimeConversationEntry(
+                        "assistant",
+                        "Temos apenas Cloudflare/DNS.",
+                        False,
+                    ),
+                ),
             ),
         )
 
         self.assertEqual(route, brain_runtime_client.RuntimeIntentRoute("assistant-uninstall", "cloudflare"))
         payload = json.loads(connection.requests[0][2])
-        self.assertEqual(payload["pending_intent"], "assistant-uninstall")
-        self.assertEqual(payload["language_exemplar"], "Desinstala ele")
+        self.assertEqual(
+            payload["conversation"],
+            [
+                {"role": "user", "text": "Quais temos?", "truncated": False},
+                {
+                    "role": "assistant",
+                    "text": "Temos apenas Cloudflare/DNS.",
+                    "truncated": False,
+                },
+            ],
+        )
+        self.assertIsNone(payload["language_exemplar"])
 
     def test_empty_directory_selection_returns_only_a_clarification(self):
         reply = "Qual Assistant instalado você quer desinstalar?"
@@ -629,9 +645,18 @@ class BrainRuntimeClientTests(unittest.TestCase):
             object(),
             brain_runtime_client.RuntimeLifecycleContext(reference=object()),
             brain_runtime_client.RuntimeLifecycleContext(
-                pending_intent="unsupported",
-                language_exemplar="remove it",
+                conversation=[],
             ),
+            brain_runtime_client.RuntimeLifecycleContext(
+                conversation=(brain_runtime_client.RuntimeConversationEntry("system", "remove it", False),),
+            ),
+            brain_runtime_client.RuntimeLifecycleContext(
+                conversation=(brain_runtime_client.RuntimeConversationEntry("user", "remove it", 1),),
+            ),
+            brain_runtime_client.RuntimeLifecycleContext(
+                conversation=(brain_runtime_client.RuntimeConversationEntry("user", "x" * 513, False),),
+            ),
+            brain_runtime_client.RuntimeLifecycleContext(language_exemplar="remove it"),
         )
         for route_context in invalid_contexts:
             with self.subTest(route_context=route_context):

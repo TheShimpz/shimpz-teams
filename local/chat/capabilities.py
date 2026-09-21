@@ -266,13 +266,26 @@ def _lifecycle_reference(value: object) -> brain_runtime_client.RuntimeLifecycle
     return brain_runtime_client.RuntimeLifecycleReference(id=value["id"], name=value["name"])
 
 
+def _conversation_entry(value: object) -> brain_runtime_client.RuntimeConversationEntry:
+    if not isinstance(value, dict) or set(value) != {"role", "text", "truncated"}:
+        raise ValueError("invalid conversation entry")
+    return brain_runtime_client.RuntimeConversationEntry(
+        role=value["role"],
+        text=value["text"],
+        truncated=value["truncated"],
+    )
+
+
 def _lifecycle_context(body: dict[str, object]) -> brain_runtime_client.RuntimeLifecycleContext | None:
     reference = _lifecycle_reference(body["lifecycle_reference"])
-    pending_intent = body["pending_intent"]
+    conversation = body["conversation"]
+    if not isinstance(conversation, list):
+        raise ValueError("invalid conversation window")
+    projected = tuple(_conversation_entry(entry) for entry in conversation)
     language_exemplar = body["language_exemplar"]
-    if reference is None and pending_intent is None and language_exemplar is None:
+    if reference is None and not projected and language_exemplar is None:
         return None
-    return brain_runtime_client.RuntimeLifecycleContext(reference, pending_intent, language_exemplar)
+    return brain_runtime_client.RuntimeLifecycleContext(reference, projected, language_exemplar)
 
 
 def _intent_route_input(
@@ -288,7 +301,7 @@ def _intent_route_input(
         "expected_intent",
         "candidates",
         "lifecycle_reference",
-        "pending_intent",
+        "conversation",
         "language_exemplar",
     }:
         raise ApiProblem(

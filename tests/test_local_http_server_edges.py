@@ -486,7 +486,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "expected_intent": "assistant-uninstall",
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
-            "pending_intent": None,
+            "conversation": [],
             "language_exemplar": None,
         }
         handler._body = mock.Mock(return_value=exact_body)
