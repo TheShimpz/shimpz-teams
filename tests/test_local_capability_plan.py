@@ -289,6 +289,30 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "pending_intent": "assistant-uninstall",
                 "language_exemplar": None,
             },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": None,
+                "lifecycle_reference": None,
+                "pending_intent": None,
+                "language_exemplar": None,
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [{}],
+                "lifecycle_reference": None,
+                "pending_intent": None,
+                "language_exemplar": None,
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": {},
+                "pending_intent": None,
+                "language_exemplar": None,
+            },
         )
         for body in invalid:
             with self.subTest(body=body), self.assertRaises(ApiProblemError) as caught:

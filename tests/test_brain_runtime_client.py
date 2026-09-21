@@ -532,18 +532,29 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
     def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
         invalid_outputs = (
-            {"intent": "invalid", "query": "", "assistant_ids": []},
-            {"intent": "assistant-install", "query": "", "assistant_ids": ["unknown"]},
+            {"intent": "invalid", "query": "", "assistant_ids": [], "reply": ""},
+            {"intent": "assistant-install", "query": "", "assistant_ids": ["unknown"], "reply": ""},
             {
                 "intent": "assistant-install",
                 "query": "",
                 "assistant_ids": ["shimpz-whatsapp", "shimpz-cloudflare"],
+                "reply": "",
             },
-            {"intent": "assistant-uninstall", "query": "", "assistant_ids": []},
-            {"intent": "ordinary-task", "query": "cloudflare", "assistant_ids": []},
-            {"intent": "unresolved", "query": "", "assistant_ids": ["shimpz-cloudflare"]},
-            {"intent": "ordinary-task", "query": "", "assistant_ids": ["shimpz-cloudflare"]},
-            {"intent": "ordinary-task", "query": "", "assistant_ids": [], "extra": True},
+            {"intent": "assistant-uninstall", "query": "", "assistant_ids": [], "reply": ""},
+            {"intent": "ordinary-task", "query": "cloudflare", "assistant_ids": [], "reply": ""},
+            {
+                "intent": "unresolved",
+                "query": "",
+                "assistant_ids": ["shimpz-cloudflare"],
+                "reply": "clarify",
+            },
+            {
+                "intent": "ordinary-task",
+                "query": "",
+                "assistant_ids": ["shimpz-cloudflare"],
+                "reply": "",
+            },
+            {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": "", "extra": True},
         )
         for payload in invalid_outputs:
             with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
@@ -590,6 +601,69 @@ class BrainRuntimeClientTests(unittest.TestCase):
                         context=None,
                     )
                 self.assertEqual(connection.requests, [])
+
+        invalid_classifications = (
+            {
+                "intent": "ordinary-task",
+                "query": "",
+                "assistant_ids": ["shimpz-cloudflare", "shimpz-cloudflare"],
+                "reply": "",
+            },
+            {"intent": "ordinary-task", "query": "cloudflare", "assistant_ids": [], "reply": ""},
+            {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": "Which Assistant?"},
+        )
+        for payload in invalid_classifications:
+            with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client, _connection = self.client(_Response(payload))
+                client.intent_route(
+                    provider="openai",
+                    model="gpt-5.6-terra",
+                    api_key=self.secret,
+                    objective="hello",
+                    expected_intent=None,
+                    candidates=(),
+                    context=None,
+                )
+
+        invalid_contexts = (
+            object(),
+            brain_runtime_client.RuntimeLifecycleContext(reference=object()),
+            brain_runtime_client.RuntimeLifecycleContext(
+                pending_intent="unsupported",
+                language_exemplar="remove it",
+            ),
+        )
+        for route_context in invalid_contexts:
+            with self.subTest(route_context=route_context):
+                client, connection = self.client(
+                    _Response({"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""})
+                )
+                with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                    client.intent_route(
+                        provider="openai",
+                        model="gpt-5.6-terra",
+                        api_key=self.secret,
+                        objective="hello",
+                        expected_intent=None,
+                        candidates=(),
+                        context=route_context,
+                    )
+                self.assertEqual(connection.requests, [])
+
+        client, connection = self.client(
+            _Response({"intent": "unresolved", "query": "", "assistant_ids": [], "reply": "clarify"})
+        )
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.intent_route(
+                provider="openai",
+                model="gpt-5.6-terra",
+                api_key=self.secret,
+                objective="install",
+                expected_intent="assistant-install",
+                candidates=[],
+                context=None,
+            )
+        self.assertEqual(connection.requests, [])
 
         client, connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
