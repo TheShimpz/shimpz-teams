@@ -68,6 +68,8 @@ directional pending intent plus its bounded user-authored language exemplar. Sel
 nor pending intent, may carry that exemplar, and resolves only against its exact bounded candidate set; an empty
 set can produce only unresolved clarification. This socket-only context is untrusted language evidence; it grants
 no directory membership, installation, removal, or Team authority and is never persisted as semantic state.
+The exemplar is NFC-normalized and admits ordinary Unicode format characters plus CR, LF, and TAB layout from the
+already-admitted user message; it remains quoted untrusted text and never becomes an instruction or identifier.
 
 Local Admin may emit an exact terminal `assistant-guidance` event with the authenticated socket Team id, one of the
 closed `assistant-install-target-required`, `assistant-uninstall-target-required`, or

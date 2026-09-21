@@ -496,6 +496,40 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(route, brain_runtime_client.RuntimeIntentRoute("unresolved", reply=reply))
         self.assertEqual(json.loads(connection.requests[0][2])["candidates"], [])
 
+    def test_intent_route_unicode_text_matches_the_browser_contract(self):
+        reply = "Quel Assistant voulez-vous désinstaller\u00a0?"
+        client, _connection = self.client(
+            _Response({"intent": "unresolved", "query": "", "assistant_ids": [], "reply": reply})
+        )
+        route = client.intent_route(
+            provider="openai",
+            model="gpt-5.6-terra",
+            api_key=self.secret,
+            objective="désinstalle",
+            expected_intent="assistant-uninstall",
+            candidates=(),
+            context=brain_runtime_client.RuntimeLifecycleContext(
+                language_exemplar="desinstala 👩‍💻\r\nagora",
+            ),
+        )
+        self.assertEqual(route.reply, reply)
+
+        for separator in ("\u2028", "\u2029"):
+            invalid = f"Question{separator}suivante"
+            client, _connection = self.client(
+                _Response({"intent": "unresolved", "query": "", "assistant_ids": [], "reply": invalid})
+            )
+            with self.subTest(separator=separator), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client.intent_route(
+                    provider="openai",
+                    model="gpt-5.6-terra",
+                    api_key=self.secret,
+                    objective="désinstalle",
+                    expected_intent="assistant-uninstall",
+                    candidates=(),
+                    context=None,
+                )
+
     def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
         invalid_outputs = (
             {"intent": "invalid", "query": "", "assistant_ids": []},

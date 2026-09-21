@@ -36,6 +36,7 @@ MAX_INTENT_ROUTE_QUERY_CHARS = 160
 MAX_INTENT_ROUTE_NAME_CHARS = 80
 MAX_INTENT_ROUTE_SUMMARY_CHARS = 160
 MAX_INTENT_ROUTE_REPLY_CHARS = 240
+_LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -336,7 +337,14 @@ class BrainRuntimeClient:
             or value.strip() != value
             or not 1 <= len(value) <= maximum
             or any(
-                unicodedata.category(character).startswith("C") and (not allow_layout or character not in {"\n", "\t"})
+                unicodedata.category(character).startswith("C")
+                and (
+                    not allow_layout
+                    or (
+                        unicodedata.category(character) != "Cf"
+                        and character not in _LANGUAGE_LAYOUT_CONTROLS
+                    )
+                )
                 for character in value
             )
         ):
@@ -517,7 +525,11 @@ class BrainRuntimeClient:
             or not isinstance(reply, str)
             or reply.strip() != reply
             or len(reply) > MAX_INTENT_ROUTE_REPLY_CHARS
-            or any(unicodedata.category(character).startswith("C") for character in reply)
+            or any(
+                unicodedata.category(character).startswith("C")
+                or unicodedata.category(character) in {"Zl", "Zp"}
+                for character in reply
+            )
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         assistant_ids = tuple(raw_ids)
@@ -585,7 +597,9 @@ class BrainRuntimeClient:
             or language_exemplar.strip() != language_exemplar
             or not 1 <= len(language_exemplar) <= MAX_LANGUAGE_EXEMPLAR_CHARS
             or any(
-                unicodedata.category(character).startswith("C") and character not in {"\n", "\t"}
+                unicodedata.category(character).startswith("C")
+                and unicodedata.category(character) != "Cf"
+                and character not in _LANGUAGE_LAYOUT_CONTROLS
                 for character in language_exemplar
             )
             or not 1 <= len(action_ids) <= MAX_ACTION_LABELS

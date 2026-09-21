@@ -34,6 +34,7 @@ MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
+_LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
 
 def canonical_team_id(value: object) -> str | None:
@@ -59,7 +60,10 @@ def canonical_language_exemplar(value: object) -> str | None:
     if not 1 <= len(normalized) <= MAX_LANGUAGE_EXEMPLAR_CHARS:
         return None
     if any(
-        unicodedata.category(character).startswith("C") and character not in {"\n", "\t"} for character in normalized
+        unicodedata.category(character).startswith("C")
+        and unicodedata.category(character) != "Cf"
+        and character not in _LANGUAGE_LAYOUT_CONTROLS
+        for character in normalized
     ):
         return None
     return normalized

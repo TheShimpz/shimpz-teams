@@ -326,7 +326,9 @@
   "action_label_text": {
     "exemplars": [
       {"input": "  Quero listar minhas zonas DNS  ", "canonical": "Quero listar minhas zonas DNS"},
-      {"input": "é", "canonical": "é"}
+      {"input": "é", "canonical": "é"},
+      {"input": "desinstala 👩‍💻", "canonical": "desinstala 👩‍💻"},
+      {"input": "linha 1\r\nlinha 2", "canonical": "linha 1\r\nlinha 2"}
     ],
     "invalid_exemplars": ["", "hidden\u0000instruction"],
     "labels": ["Listar zonas DNS", "Consultar zona"],
