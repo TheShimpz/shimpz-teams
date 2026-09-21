@@ -486,6 +486,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "expected_intent": "assistant-uninstall",
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
+            "pending_intent": None,
+            "language_exemplar": None,
         }
         handler._body = mock.Mock(return_value=exact_body)
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))

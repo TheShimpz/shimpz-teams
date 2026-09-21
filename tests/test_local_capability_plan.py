@@ -176,6 +176,8 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "expected_intent": "assistant-uninstall",
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
+            "pending_intent": None,
+            "language_exemplar": None,
         }
 
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
@@ -187,6 +189,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "intent": "assistant-uninstall",
                 "query": "",
                 "assistant_ids": ["shimpz-cloudflare"],
+                "reply": "",
             },
         )
         request = subject.brain_runtime.intent_route.call_args.kwargs
@@ -195,7 +198,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(request["api_key"], "private-model-key")
         self.assertEqual(request["expected_intent"], "assistant-uninstall")
         self.assertEqual(request["candidates"][0].summary, "")
-        self.assertIsNone(request["reference"])
+        self.assertEqual(request["context"], brain_runtime_client.RuntimeLifecycleContext())
         self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
 
     def test_intent_route_projects_one_bounded_classification_reference(self) -> None:
@@ -208,13 +211,37 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "id": "shimpz-cloudflare",
                 "name": "Shimpz Cloudflare",
             },
+            "pending_intent": None,
+            "language_exemplar": None,
         }
 
         capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
 
-        reference = subject.brain_runtime.intent_route.call_args.kwargs["reference"]
+        reference = subject.brain_runtime.intent_route.call_args.kwargs["context"].reference
         self.assertEqual(reference.id, "shimpz-cloudflare")
         self.assertEqual(reference.name, "Shimpz Cloudflare")
+
+    def test_intent_route_projects_one_pending_target_context(self) -> None:
+        subject = Subject()
+        subject.brain_runtime.intent_route.return_value = brain_runtime_client.RuntimeIntentRoute(
+            "assistant-uninstall",
+            "cloudflare",
+        )
+        body = {
+            "objective": "cloudflare",
+            "expected_intent": None,
+            "candidates": [],
+            "lifecycle_reference": None,
+            "pending_intent": "assistant-uninstall",
+            "language_exemplar": "Desinstala ele",
+        }
+
+        result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
+
+        request = subject.brain_runtime.intent_route.call_args.kwargs
+        self.assertEqual(request["context"].pending_intent, "assistant-uninstall")
+        self.assertEqual(request["context"].language_exemplar, "Desinstala ele")
+        self.assertEqual(result["reply"], "")
 
     def test_intent_route_rejects_invalid_input_and_redacts_provider_failure(self) -> None:
         subject = Subject()
@@ -254,6 +281,14 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
                 "lifecycle_reference": {"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare"},
             },
+            {
+                "objective": "cloudflare",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "pending_intent": "assistant-uninstall",
+                "language_exemplar": None,
+            },
         )
         for body in invalid:
             with self.subTest(body=body), self.assertRaises(ApiProblemError) as caught:
@@ -274,6 +309,8 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "expected_intent": None,
                     "candidates": [],
                     "lifecycle_reference": None,
+                    "pending_intent": None,
+                    "language_exemplar": None,
                 },
                 "openai",
                 "private-model-key",
@@ -296,6 +333,8 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "expected_intent": None,
                     "candidates": [],
                     "lifecycle_reference": None,
+                    "pending_intent": None,
+                    "language_exemplar": None,
                 },
                 "openai",
                 "private-model-key",

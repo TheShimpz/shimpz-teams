@@ -35,6 +35,7 @@ MAX_INTENT_ROUTE_SELECTED = 4
 MAX_INTENT_ROUTE_QUERY_CHARS = 160
 MAX_INTENT_ROUTE_NAME_CHARS = 80
 MAX_INTENT_ROUTE_SUMMARY_CHARS = 160
+MAX_INTENT_ROUTE_REPLY_CHARS = 240
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
@@ -128,10 +129,18 @@ class RuntimeLifecycleReference:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeLifecycleContext:
+    reference: RuntimeLifecycleReference | None = None
+    pending_intent: LifecycleIntent | None = None
+    language_exemplar: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeIntentRoute:
     intent: RouteIntent
     query: str = ""
     assistant_ids: tuple[str, ...] = ()
+    reply: str = ""
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -421,28 +430,51 @@ class BrainRuntimeClient:
         )
 
     @classmethod
+    def _validate_lifecycle_context(
+        cls,
+        value: RuntimeLifecycleContext | None,
+        expected_intent: LifecycleIntent | None,
+    ) -> RuntimeLifecycleContext:
+        if value is None:
+            return RuntimeLifecycleContext()
+        if not isinstance(value, RuntimeLifecycleContext):
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        reference = cls._validate_lifecycle_reference(value.reference)
+        pending_intent = value.pending_intent
+        exemplar = value.language_exemplar
+        if exemplar is not None:
+            exemplar = cls._capability_text(exemplar, MAX_LANGUAGE_EXEMPLAR_CHARS, allow_layout=True)
+        if expected_intent is None:
+            if pending_intent not in {None, "assistant-install", "assistant-uninstall"}:
+                raise BrainRuntimeError("Brain runtime intent route request is invalid")
+            if (pending_intent is None) != (exemplar is None) or (reference is not None and pending_intent is not None):
+                raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        elif reference is not None or pending_intent is not None:
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        return RuntimeLifecycleContext(reference, pending_intent, exemplar)
+
+    @classmethod
     def validate_intent_route_inputs(
         cls,
         objective: object,
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
-        reference: RuntimeLifecycleReference | None,
+        context: RuntimeLifecycleContext | None,
     ) -> tuple[
         str,
         LifecycleIntent | None,
         tuple[RuntimeDirectoryCandidate, ...],
-        RuntimeLifecycleReference | None,
+        RuntimeLifecycleContext,
     ]:
         task = cls._capability_text(objective, MAX_CAPABILITY_OBJECTIVE_CHARS, allow_layout=True)
+        admitted_context = cls._validate_lifecycle_context(context, expected_intent)
         if expected_intent is None:
             if candidates != ():
                 raise BrainRuntimeError("Brain runtime intent route request is invalid")
-            return task, None, (), cls._validate_lifecycle_reference(reference)
-        if reference is not None:
-            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+            return task, None, (), admitted_context
         if expected_intent not in {"assistant-install", "assistant-uninstall"}:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        if not isinstance(candidates, tuple) or not 1 <= len(candidates) <= MAX_INTENT_ROUTE_CANDIDATES:
+        if not isinstance(candidates, tuple) or len(candidates) > MAX_INTENT_ROUTE_CANDIDATES:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         admitted: list[RuntimeDirectoryCandidate] = []
         for candidate in candidates:
@@ -460,7 +492,7 @@ class BrainRuntimeClient:
         result = tuple(admitted)
         if tuple(item.id for item in result) != tuple(sorted({item.id for item in result})):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        return task, expected_intent, result, None
+        return task, expected_intent, result, admitted_context
 
     @staticmethod
     def _parse_intent_route(
@@ -468,11 +500,12 @@ class BrainRuntimeClient:
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
     ) -> RuntimeIntentRoute:
-        if not isinstance(value, dict) or set(value) != {"intent", "query", "assistant_ids"}:
+        if not isinstance(value, dict) or set(value) != {"intent", "query", "assistant_ids", "reply"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         intent = value["intent"]
         query = value["query"]
         raw_ids = value["assistant_ids"]
+        reply = value["reply"]
         if (
             intent not in {"ordinary-task", "assistant-install", "assistant-uninstall", "unresolved"}
             or not isinstance(query, str)
@@ -481,6 +514,10 @@ class BrainRuntimeClient:
             or any(unicodedata.category(character).startswith("C") for character in query)
             or not isinstance(raw_ids, list)
             or any(not isinstance(item, str) for item in raw_ids)
+            or not isinstance(reply, str)
+            or reply.strip() != reply
+            or len(reply) > MAX_INTENT_ROUTE_REPLY_CHARS
+            or any(unicodedata.category(character).startswith("C") for character in reply)
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         assistant_ids = tuple(raw_ids)
@@ -489,10 +526,15 @@ class BrainRuntimeClient:
         if expected_intent is None:
             if assistant_ids or (intent in {"ordinary-task", "unresolved"} and query):
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
-            return RuntimeIntentRoute(intent, query)
+            requires_reply = intent == "unresolved" or (
+                intent in {"assistant-install", "assistant-uninstall"} and not query
+            )
+            if bool(reply) != requires_reply:
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
+            return RuntimeIntentRoute(intent, query, reply=reply)
         expected_ids = frozenset(candidate.id for candidate in candidates)
-        if intent == "unresolved" and not query and not assistant_ids:
-            return RuntimeIntentRoute("unresolved")
+        if intent == "unresolved" and not query and not assistant_ids and reply:
+            return RuntimeIntentRoute("unresolved", reply=reply)
         if (
             intent != expected_intent
             or query
@@ -500,6 +542,7 @@ class BrainRuntimeClient:
             or len(assistant_ids) > MAX_INTENT_ROUTE_SELECTED
             or any(item not in expected_ids for item in assistant_ids)
             or (expected_intent == "assistant-uninstall" and len(assistant_ids) != 1)
+            or reply
         ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return RuntimeIntentRoute(intent, assistant_ids=assistant_ids)
@@ -611,7 +654,7 @@ class BrainRuntimeClient:
         objective: object,
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
-        reference: RuntimeLifecycleReference | None,
+        context: RuntimeLifecycleContext | None,
     ) -> RuntimeIntentRoute:
         if (
             provider not in {"anthropic", "openai"}
@@ -623,11 +666,11 @@ class BrainRuntimeClient:
             or "\0" in api_key
         ):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        task, expected, admitted, admitted_reference = self.validate_intent_route_inputs(
+        task, expected, admitted, admitted_context = self.validate_intent_route_inputs(
             objective,
             expected_intent,
             candidates,
-            reference,
+            context,
         )
         response = self._post(
             "/v1/intent-route",
@@ -640,9 +683,11 @@ class BrainRuntimeClient:
                 ],
                 "lifecycle_reference": (
                     None
-                    if admitted_reference is None
-                    else {"id": admitted_reference.id, "name": admitted_reference.name}
+                    if admitted_context.reference is None
+                    else {"id": admitted_context.reference.id, "name": admitted_context.reference.name}
                 ),
+                "pending_intent": admitted_context.pending_intent,
+                "language_exemplar": admitted_context.language_exemplar,
             },
         )
         return self._parse_intent_route(response, expected, admitted)
