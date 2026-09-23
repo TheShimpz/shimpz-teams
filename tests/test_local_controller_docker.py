@@ -821,7 +821,7 @@ class DockerFlowTests(
         owned_containers = self._owned_ids("container", flow.space_id, "assistant")
         owned_networks = self._owned_ids("network", flow.space_id, "team")
         self._remove("rm", "--force", flow.controller)
-        self._remove("rm", "--force", flow.registry)
+        self._remove("rm", "--force", "--volumes", flow.registry)
         self._remove("network", "rm", flow.foreign_network)
         self._remove("network", "rm", flow.outbound_network)
         self._remove(
