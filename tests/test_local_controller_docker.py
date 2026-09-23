@@ -279,7 +279,11 @@ class DockerFlowTests(
         self._run("volume", "create", flow.egress_audit_volume)
         self._run("network", "create", flow.outbound_network)
         self._run(
+            "buildx",
             "build",
+            "--builder",
+            flow.builder,
+            "--load",
             "--file",
             str(TEAM.parent / ".egress" / "Dockerfile"),
             "--tag",
