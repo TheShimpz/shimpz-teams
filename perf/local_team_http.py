@@ -7,6 +7,7 @@ Only timing and resource counts are printed; no request body or key is logged.
 
 from __future__ import annotations
 
+import http.client
 import json
 import math
 import os
@@ -18,6 +19,9 @@ import time
 from pathlib import Path
 from typing import override
 from unittest import mock
+
+from protocol.http.v1 import progress as progress_contract
+from protocol.http.v1 import supervisor as supervisor_contract
 
 TEAM = Path(__file__).resolve().parents[1]
 # The Docker fixture is shared with the live Team suite; keep its graph and cleanup.
@@ -35,6 +39,9 @@ TEAM_MEMORY_MIB = 256
 TEAM_CPUS = 1
 OBJECTIVE = "Hello"
 RESPONSE = {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""}
+CHAT_REPLY = "Measured reply."
+CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": []}
+CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", ":"), ensure_ascii=False)
 
 
 class MeasurementError(RuntimeError):
@@ -47,10 +54,11 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
     delay_ms = 0
     dummy_key = secrets.token_urlsafe(24)
     spans: queue.Queue[float] = queue.Queue()
+    turn_spans: queue.Queue[tuple[int, int]] = queue.Queue()
 
     @override
     def do_POST(self) -> None:
-        if self.path != "/v1/intent-route":
+        if self.path not in {"/v1/intent-route", "/v1/turns"}:
             super().do_POST()
             return
         started = time.perf_counter_ns()
@@ -67,13 +75,31 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             self._reply(400, {"error": "invalid request"})
             return
         time.sleep(self.delay_ms / 1_000)
-        self._reply(200, RESPONSE)
-        self.spans.put((time.perf_counter_ns() - started) / 1_000_000)
+        result = (
+            RESPONSE if self.path == "/v1/intent-route" else {"status": "completed", "reply": CHAT_REPLY, "actions": []}
+        )
+        self._reply(200, result)
+        ended = time.perf_counter_ns()
+        if self.path == "/v1/turns":
+            self.turn_spans.put((started, ended))
+        else:
+            self.spans.put((ended - started) / 1_000_000)
 
     def _valid(self, body: object) -> bool:
         if not isinstance(body, dict) or not isinstance(body.get("provider"), dict):
             return False
         provider = body["provider"]
+        if self.path == "/v1/turns":
+            return (
+                set(body) == {"thread_id", "team_name", "assistants", "provider", "message"}
+                and isinstance(body["thread_id"], str)
+                and bool(body["thread_id"])
+                and body["team_name"] == "Demo Team"
+                and body["assistants"] == []
+                and body["message"] == CHAT_PROMPT
+                and provider == {"provider": "openai", "model": "gpt-5.6-terra", "api_key": self.dummy_key}
+                and self.headers.get("Authorization", "").startswith("Bearer ")
+            )
         return (
             set(body)
             == {
@@ -273,6 +299,117 @@ def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: in
     return total_ms, peer_ms
 
 
+def _chat_request(flow: flow_fixture.DockerFlow) -> tuple[str, bytes, dict[str, str]]:
+    path = "/v1/teams/demo_team/chat"
+    encoded = json.dumps(CHAT_PAYLOAD, separators=(",", ":")).encode()
+    headers = {
+        "Authorization": f"Bearer {flow.token}",
+        "Content-Type": "application/json",
+        "Connection": "close",
+        "X-Shimpz-Model-Provider": "openai",
+        "X-Shimpz-Model-Api-Key": BrainPeer.dummy_key,
+    }
+    headers[supervisor_contract.ASSERTION_HEADER] = flow_fixture.supervisor_header(flow, "POST", path, encoded, headers)
+    return path, encoded, headers
+
+
+def _read_chat(flow: flow_fixture.DockerFlow) -> tuple[int, int, int, tuple[int, ...]]:
+    started = time.perf_counter_ns()
+    first_progress: int | None = None
+    phase_ms: list[int] = []
+    events: list[tuple[str, str]] = []
+    terminal_at: int | None = None
+    stream_bytes = 0
+    path, encoded, headers = _chat_request(flow)
+    connection = http.client.HTTPConnection("127.0.0.1", flow.port, timeout=30)
+    try:
+        connection.request("POST", path, encoded, headers)
+        response = connection.getresponse()
+        with response:
+            if (
+                response.status != 200
+                or response.headers.get("Content-Type") != "application/x-ndjson"
+                or response.headers.get("Transfer-Encoding") != "chunked"
+            ):
+                raise MeasurementError("Team chat stream headers changed")
+            for sequence in range(1, progress_contract.MAX_EVENTS + 2):
+                line = response.readline(progress_contract.MAX_LINE_BYTES + 1)
+                stream_bytes += len(line)
+                if stream_bytes > progress_contract.MAX_STREAM_BYTES:
+                    raise MeasurementError("Team chat stream exceeded its bound")
+                record = progress_contract.decode_line(line)
+                observed = time.perf_counter_ns()
+                if record["type"] == "terminal":
+                    body = record["body"]
+                    if (
+                        record["status"] != 200
+                        or set(body) != {"team_id", "team_name", "reply", "trace_id"}
+                        or body["team_id"] != "demo_team"
+                        or body["team_name"] != "Demo Team"
+                        or body["reply"] != CHAT_REPLY
+                        or not isinstance(body["trace_id"], str)
+                        or len(body["trace_id"]) != 32
+                        or response.read(1) != b""
+                    ):
+                        raise MeasurementError("Team chat terminal changed")
+                    terminal_at = observed
+                    break
+                if record["seq"] != sequence:
+                    raise MeasurementError("Team chat progress sequence changed")
+                if first_progress is None:
+                    first_progress = observed
+                events.append((record["phase"], record["state"]))
+                if record["state"] == "finished":
+                    phase_ms.append(record["elapsed_ms"])
+    finally:
+        connection.close()
+    if (
+        first_progress is None
+        or terminal_at is None
+        or events
+        != [
+            ("team-context", "started"),
+            ("team-context", "finished"),
+            ("model", "started"),
+            ("model", "finished"),
+            ("team-context", "started"),
+            ("team-context", "finished"),
+        ]
+    ):
+        raise MeasurementError("Team chat progress did not complete")
+    return started, first_progress, terminal_at, tuple(phase_ms)
+
+
+def _sample_chat(flow: flow_fixture.DockerFlow, delay_ms: int) -> dict[str, float]:
+    BrainPeer.delay_ms = delay_ms
+    started, first_at, terminal_at, phase_ms = _read_chat(flow)
+    peer_started, peer_ended = BrainPeer.turn_spans.get(timeout=2)
+    if delay_ms and first_at >= peer_ended:
+        raise MeasurementError("Team chat stream did not deliver early progress")
+    return {
+        "team_first_progress_ms": (first_at - started) / 1_000_000,
+        "team_terminal_ms": (terminal_at - started) / 1_000_000,
+        "peer_handler_ms": (peer_ended - peer_started) / 1_000_000,
+        "team_context_initial_ms": float(phase_ms[0]),
+        "model_ms": float(phase_ms[1]),
+        "team_context_revalidation_ms": float(phase_ms[2]),
+        "unattributed_after_first_progress_ms": (terminal_at - first_at) / 1_000_000 - sum(phase_ms),
+    }
+
+
+def _measure_chat(flow: flow_fixture.DockerFlow) -> dict[str, object]:
+    warm = _sample_chat(flow, 0)
+    _sample_chat(flow, 0)
+    samples: dict[int, dict[str, list[float]]] = {delay: {name: [] for name in warm} for delay in PEER_DELAYS_MS}
+    for index in range(SAMPLES):
+        for delay in PEER_DELAYS_MS if index % 2 == 0 else tuple(reversed(PEER_DELAYS_MS)):
+            for name, value in _sample_chat(flow, delay).items():
+                samples[delay][name].append(value)
+    return {
+        str(delay): {name: _percentiles(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
+    }
+
+
 def _measure(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
     for _ in range(2):
         _sample(runner, flow, 0)
@@ -365,17 +502,27 @@ def main() -> int:
             _build(runner, flow)
             _start(runner, flow)
             samples = _measure(runner, flow)
+            chat = _measure_chat(flow)
             team_create = _measure_team_create(runner, flow)
             team_list = _measure_team_list(runner, flow)
             result["samples"] = samples
+            result["chat"] = chat
             result["team_create"] = team_create
             result["team_list"] = team_list
             result.update(
                 status="complete",
                 scope=(
-                    "authenticated Local Team HTTP for intent routing, Team creation, and Team listing (1/9/33); "
-                    "deterministic Brain peer; excludes Admin, browser, provider"
+                    "authenticated Local Team HTTP for intent routing, Brain-only chat, Team creation, "
+                    "and Team listing (1/9/33); deterministic Brain peer, one connection per sample; "
+                    "chat reuses one Team and stateless Brain peer across 2 warmups and 24 measured turns; "
+                    "excludes Admin WebSocket, browser, and real provider"
                 ),
+                chat_timing_definition=(
+                    "first progress and terminal include client Supervisor signing; unattributed time starts "
+                    "after first progress and includes unspanned context checks, commit, transport, scheduling, "
+                    "and up to 3 ms of phase truncation"
+                ),
+                chat_phase_resolution_ms=1,
                 outside_peer_definition=(
                     "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
                 ),
