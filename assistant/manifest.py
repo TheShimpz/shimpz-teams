@@ -12,6 +12,7 @@ from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -379,14 +380,34 @@ def _reject_open_or_boolean_subschema(node: object, *, kind: str) -> None:
         _reject_open_or_boolean_subschema(child, kind=kind)
 
 
+def _plain_json(value: object) -> bool:
+    if type(value) is dict:
+        return all(type(key) is str and _plain_json(child) for key, child in value.items())
+    if type(value) is list:
+        return all(_plain_json(child) for child in value)
+    return value is None or type(value) in (str, int, float, bool)
+
+
+@lru_cache(maxsize=256)
+def _check_machine_schema_json(encoded: bytes) -> None:
+    # The cached verdict applies to this exact JSON, never to a mutable caller object.
+    Draft202012Validator.check_schema(json.loads(encoded))
+
+
 def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("type") != "object":
         raise ManifestError(f"Assistant Action {kind} schema must describe an object")
     try:
-        Draft202012Validator.check_schema(value)
-    except SchemaError as exc:
+        encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
+    except (TypeError, ValueError, RecursionError) as exc:
         raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
-    encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
+    try:
+        if len(encoded) <= 4096 and _plain_json(value):
+            _check_machine_schema_json(encoded)
+        else:
+            Draft202012Validator.check_schema(value)
+    except (SchemaError, RecursionError) as exc:
+        raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
     if len(encoded) > 128 * 1024:
         raise ManifestError(f"Assistant Action {kind} schema is too large")
     _reject_open_or_boolean_subschema(value, kind=kind)

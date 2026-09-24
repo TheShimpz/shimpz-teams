@@ -626,6 +626,60 @@ class AssistantManifestTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "too large"):
             assistant_manifest._machine_schema(oversized, kind="input")
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid"):
+            assistant_manifest._machine_schema({**oversized, "properties": "invalid"}, kind="input")
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid"):
+            assistant_manifest._machine_schema(
+                {"type": "object", "additionalProperties": False, "const": float("nan")}, kind="input"
+            )
+
+    def test_machine_schema_reuses_only_exact_plain_json_validation(self) -> None:
+        schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "description": "exact-cache-security-test",
+            "required": ["value"],
+            "properties": {"value": {"type": "string"}},
+        }
+        assistant_manifest._check_machine_schema_json.cache_clear()
+        check_schema = assistant_manifest.Draft202012Validator.check_schema
+        try:
+            with mock.patch.object(
+                assistant_manifest.Draft202012Validator, "check_schema", wraps=check_schema
+            ) as checked:
+                self.assertEqual(assistant_manifest._machine_schema(schema, kind="input"), schema)
+                self.assertEqual(
+                    assistant_manifest._machine_schema(json.loads(json.dumps(schema)), kind="input"), schema
+                )
+                self.assertEqual(checked.call_count, 1)
+
+                with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid"):
+                    assistant_manifest._machine_schema({**schema, "required": ("value",)}, kind="input")
+                self.assertEqual(checked.call_count, 2)
+
+                numeric_key = {**schema, "properties": {1: {"type": "string"}}}
+                self.assertEqual(assistant_manifest._machine_schema(numeric_key, kind="input"), numeric_key)
+                self.assertEqual(checked.call_count, 3)
+
+                schema["properties"] = "invalid"
+                with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid"):
+                    assistant_manifest._machine_schema(schema, kind="input")
+                self.assertEqual(checked.call_count, 4)
+        finally:
+            assistant_manifest._check_machine_schema_json.cache_clear()
+
+    def test_deep_machine_schema_fails_closed_on_validator_recursion(self) -> None:
+        schema: dict[str, object] = {"type": "object", "additionalProperties": False}
+        for _ in range(100):
+            schema = {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"child": schema},
+            }
+        json.dumps(schema)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "is invalid") as raised:
+            assistant_manifest._machine_schema(schema, kind="input")
+        self.assertIsInstance(raised.exception.__cause__, RecursionError)
 
     def test_reviewed_catalog_file_and_entry_shapes_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
