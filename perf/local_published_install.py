@@ -1,6 +1,7 @@
 """Measure authenticated published Assistant installation on a disposable Local graph.
 
 Run from the Teams checkout with ``python -m perf.local_published_install``.
+Add ``--phase-spans`` for fixture-only install and uninstall attribution.
 The Developers and Sigstore edges are deterministic fixtures. Controller HTTP,
 Docker pull, isolation, start, and uninstall are real. Setup is outside samples.
 """
@@ -30,7 +31,7 @@ from perf.local_team_http import _residue
 
 CONTROLLER_CPUS = 2
 CONTROLLER_MEMORY_MIB = 512
-SPAN_PREFIX = "SHIMPZ-PERF-UNINSTALL "
+SPAN_PREFIX = "SHIMPZ-PERF-"
 SPAN_NAMES = frozenset(
     {
         "_resolve",
@@ -51,6 +52,24 @@ SPAN_NAMES = frozenset(
         "Container.remove",
         "ImageCollection.remove",
         "Network.disconnect",
+        "install_assistant",
+        "_trusted_image",
+        "_create_assistant_container",
+        "_reserve_assistant_egress_environment",
+        "_admit_assistant_allowed_hosts",
+        "_activate_assistant_egress",
+        "_validate_container",
+        "_wait_ready",
+        "_active_assistant_genesis",
+        "_resolved_publication",
+        "_verify_publication_assets",
+        "_apply_publication",
+        "Container.start",
+        "Container.get_archive",
+        "ContainerCollection.create",
+        "ImageCollection.get",
+        "ImageCollection.pull",
+        "Network.connect",
     }
 )
 
@@ -153,10 +172,23 @@ def _sample(runner: DockerFlowTests, flow: DockerFlow, *, cold: bool) -> dict[st
     }
 
 
-def _validated_spans(record: dict[str, object], observation: dict[str, object], sequence: int) -> dict[str, object]:
+def _required_span_counts(operation: str, cache: str) -> dict[str, int]:
+    if operation == "uninstall":
+        return {"Container.remove": 1, "ImageCollection.remove": 1, "Network.disconnect": 1}
+    return {
+        "ContainerCollection.create": 1,
+        "Container.start": 1,
+        "Network.connect": 1,
+        "ImageCollection.pull": 1 if cache == "absent" else 0,
+    }
+
+
+def _validated_spans(
+    record: dict[str, object], observation: dict[str, object], sequence: int, operation: str
+) -> dict[str, object]:
     spans = record.get("spans")
     total = record.get("total_ms")
-    http_ms = observation["uninstall_http_ms"]
+    http_ms = observation[f"{operation}_http_ms"]
     if (
         type(record.get("seq")) is not int
         or record["seq"] != sequence
@@ -167,13 +199,13 @@ def _validated_spans(record: dict[str, object], observation: dict[str, object], 
         or total > http_ms + 0.05
         or not isinstance(spans, list)
     ):
-        raise MeasurementError("fixture uninstall span window is incomplete")
+        raise MeasurementError(f"fixture {operation} span window is incomplete")
     exclusive: dict[str, float] = {}
     calls: dict[str, int] = {}
     root_ms = 0.0
     for span in spans:
         if not isinstance(span, dict):
-            raise MeasurementError("fixture uninstall span is malformed")
+            raise MeasurementError(f"fixture {operation} span is malformed")
         name, parent, elapsed = span.get("name"), span.get("parent"), span.get("ms")
         if (
             not isinstance(name, str)
@@ -185,21 +217,21 @@ def _validated_spans(record: dict[str, object], observation: dict[str, object], 
             or elapsed < 0
             or elapsed > total + 0.05
         ):
-            raise MeasurementError("fixture uninstall span is invalid")
+            raise MeasurementError(f"fixture {operation} span is invalid")
         exclusive[name] = exclusive.get(name, 0.0) + elapsed
         calls[name] = calls.get(name, 0) + 1
         if parent is None:
             root_ms += elapsed
         else:
             exclusive[parent] = exclusive.get(parent, 0.0) - elapsed
-    required = ("Container.remove", "ImageCollection.remove", "Network.disconnect")
+    required = _required_span_counts(operation, observation["cache"])
     # The fixture rounds every span to 0.001 ms; allow accumulated rounding only.
     if (
         root_ms > total + 0.05
         or any(value < -0.05 for value in exclusive.values())
-        or any(calls.get(name) != 1 for name in required)
+        or any(calls.get(name, 0) != expected for name, expected in required.items())
     ):
-        raise MeasurementError("fixture uninstall spans exceed their request window")
+        raise MeasurementError(f"fixture {operation} spans or required calls are invalid")
     return {
         "controller_ms": round(total, 2),
         "transport_ms": round(http_ms - total, 2),
@@ -209,16 +241,39 @@ def _validated_spans(record: dict[str, object], observation: dict[str, object], 
     }
 
 
-def _attach_uninstall_spans(runner: DockerFlowTests, flow: DockerFlow, observations: list[dict[str, object]]) -> None:
+def _attach_phase_spans(runner: DockerFlowTests, flow: DockerFlow, observations: list[dict[str, object]]) -> None:
     lines = runner._run("logs", flow.controller).stdout.splitlines()
-    records = [json.loads(line[len(SPAN_PREFIX) :]) for line in lines if line.startswith(SPAN_PREFIX)]
-    if len(records) != len(observations):
-        raise MeasurementError("fixture uninstall span count does not match HTTP samples")
-    for sequence, (record, observation) in enumerate(zip(records, observations, strict=True), start=1):
-        observation.update(_validated_spans(record, observation, sequence))
+    for operation in ("install", "uninstall"):
+        prefix = f"{SPAN_PREFIX}{operation.upper()} "
+        records = [json.loads(line[len(prefix) :]) for line in lines if line.startswith(prefix)]
+        if len(records) != len(observations):
+            raise MeasurementError(f"fixture {operation} span count does not match HTTP samples")
+        for sequence, (record, observation) in enumerate(zip(records, observations, strict=True), start=1):
+            if not isinstance(record, dict):
+                raise MeasurementError(f"fixture {operation} span record is invalid")
+            observation[f"{operation}_phases"] = _validated_spans(record, observation, sequence, operation)
 
 
-def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, uninstall_spans: bool) -> dict[str, object]:
+def _phase_summary(arm: list[dict[str, object]], operation: str) -> dict[str, object]:
+    phases = [item[f"{operation}_phases"] for item in arm]
+    timing = {
+        key: _percentiles([float(phase[key]) for phase in phases])
+        for key in ("controller_ms", "transport_ms", "unattributed_ms")
+    }
+    names = sorted({name for phase in phases for name in phase["spans_exclusive_ms"]})
+    exclusive = {
+        name: {
+            "calls": sum(phase["span_calls"].get(name, 0) for phase in phases),
+            **_percentiles(
+                [float(phase["spans_exclusive_ms"][name]) for phase in phases if name in phase["spans_exclusive_ms"]]
+            ),
+        }
+        for name in names
+    }
+    return {f"{operation}_phases": timing, f"{operation}_spans_exclusive": exclusive}
+
+
+def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, phase_spans: bool) -> dict[str, object]:
     # Match the host inventory that each uninstall sweeps after removing its Assistant.
     host_containers = _host_container_count(runner)
     status, body = runner._api(flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"})
@@ -234,8 +289,8 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, uninsta
             f"host container count changed from {host_containers} to {remaining_containers}; "
             "rerun after daemon activity settles"
         )
-    if uninstall_spans:
-        _attach_uninstall_spans(runner, flow, observations)
+    if phase_spans:
+        _attach_phase_spans(runner, flow, observations)
     # Keep the invariant artifact identity once, separate from per-sample timings.
     images = {(item.pop("image_id"), item.pop("image_size_bytes")) for item in observations}
     if len(images) != 1:
@@ -247,21 +302,9 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, uninsta
         summary[cache] = {
             key: _percentiles([float(item[key]) for item in arm]) for key in ("install_http_ms", "uninstall_http_ms")
         }
-        if uninstall_spans:
-            summary[cache]["uninstall_phases"] = {
-                key: _percentiles([float(item[key]) for item in arm])
-                for key in ("controller_ms", "transport_ms", "unattributed_ms")
-            }
-            names = sorted({name for item in arm for name in item["spans_exclusive_ms"]})
-            summary[cache]["uninstall_spans_exclusive"] = {
-                name: {
-                    "calls": sum(item["span_calls"].get(name, 0) for item in arm),
-                    **_percentiles(
-                        [float(item["spans_exclusive_ms"][name]) for item in arm if name in item["spans_exclusive_ms"]]
-                    ),
-                }
-                for name in names
-            }
+        if phase_spans:
+            for operation in ("install", "uninstall"):
+                summary[cache].update(_phase_summary(arm, operation))
     return {
         "artifact": {"image_id": image_id, "size_bytes": image_size_bytes, "source_digest": flow.source_digest},
         "host_containers": host_containers,
@@ -270,21 +313,21 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int, *, uninsta
     }
 
 
-def _runner(*, uninstall_spans: bool) -> DockerFlowTests:
+def _runner(*, phase_spans: bool) -> DockerFlowTests:
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
-    if uninstall_spans:
-        runner.controller_extra_env = ("--env", "SHIMPZ_PERF_UNINSTALL_SPANS=1")
+    if phase_spans:
+        runner.controller_extra_env = ("--env", "SHIMPZ_PERF_PHASE_SPANS=1")
     return runner
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=12, help="samples per cache arm")
-    parser.add_argument("--uninstall-spans", action="store_true", help="record fixture-only uninstall phase spans")
+    parser.add_argument("--phase-spans", action="store_true", help="record fixture-only lifecycle phase spans")
     args = parser.parse_args()
     if args.samples < 1 or args.samples > 24:
         parser.error("--samples must be between 1 and 24")
-    runner = _runner(uninstall_spans=args.uninstall_spans)
+    runner = _runner(phase_spans=args.phase_spans)
     flow = runner._new_flow()
     # The real digest is assigned by _prepare_images after this unique-name preflight.
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-preflight@sha256:{secrets.token_hex(32)}"
@@ -303,7 +346,7 @@ def main() -> int:
             runner._prepare_images(flow)
             runner._start_controller(flow)
             _verify_controller_limits(runner, flow)
-            result.update(_measure(runner, flow, args.samples, uninstall_spans=args.uninstall_spans))
+            result.update(_measure(runner, flow, args.samples, phase_spans=args.phase_spans))
             result.update(
                 status="complete",
                 scope=(
@@ -323,7 +366,7 @@ def main() -> int:
                 percentile_method="nearest-rank",
                 errors=0,
                 phase_limits=(
-                    "Fixture-only uninstall spans" if args.uninstall_spans else "No internal phase attribution"
+                    "Fixture-only install and uninstall spans" if args.phase_spans else "No internal phase attribution"
                 )
                 + ("; fixture substitutes publication resolution and Sigstore verification; registry is loopback"),
             )
