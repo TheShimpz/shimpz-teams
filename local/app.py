@@ -48,7 +48,6 @@ from local.assistant import egress as local_egress
 from local.assistant import lifecycle as local_assistant_lifecycle
 from local.assistant import resources as local_assistant_resources
 from local.assistant import rpc as local_assistant_rpc
-from local.assistant.egress import PROFILE
 from local.chat import api as local_chat_api
 from local.chat import capabilities as local_chat_capabilities
 from local.chat import continuation_store as local_chat_continuation_store
@@ -69,12 +68,10 @@ from local.install import preview as local_snapshot_preview
 from local.install import service as local_install_service
 from local.install import snapshots as local_snapshots
 from local.install.registry import AssistantRegistry
-from local.labels import IMAGE_LABEL as _LOCAL_IMAGE_LABEL
 from local.labels import (
-    KIND_LABEL,
-    MANAGED_LABEL,
-    PROFILE_LABEL,
-    SPACE_LABEL,
+    IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
+)
+from local.labels import (
     TEAM_LABEL,
     TEAM_NAME_LABEL,
 )
@@ -560,23 +557,8 @@ class LocalController:
         return self._locks[slot]
 
     def list_teams(self) -> dict[str, list[dict[str, str]]]:
-        filters = {
-            "label": [
-                f"{MANAGED_LABEL}=1",
-                f"{PROFILE_LABEL}={PROFILE}",
-                f"{SPACE_LABEL}={self.space_id}",
-                f"{KIND_LABEL}=team",
-            ]
-        }
         teams: list[dict[str, str]] = []
-        try:
-            networks = self.client.networks.list(filters=filters)
-        except DockerException as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Docker is unavailable",
-                code="docker-unavailable",
-            ) from exc
+        networks = self.assistant_lifecycle._managed_team_networks()
         for network in networks:
             labels = network.attrs.get("Labels") or {}
             team_id = labels.get(TEAM_LABEL)

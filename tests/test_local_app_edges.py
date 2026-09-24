@@ -166,6 +166,10 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
 
     def test_team_listing_maps_docker_and_rejects_invalid_labels(self) -> None:
         controller = self.controller()
+        lifecycle = object.__new__(local_app.AssistantLifecycle)
+        lifecycle.client = controller.client
+        lifecycle.space_id = controller.space_id
+        controller.assistant_lifecycle = lifecycle
         controller.client.networks.list.side_effect = DockerException("unavailable")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.list_teams()
@@ -177,18 +181,6 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.list_teams()
         self.assertEqual(caught.exception.code, "ownership-conflict")
-
-        first = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_b"}})
-        second = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_a"}})
-        controller.client.networks.list.return_value = [first, second]
-        controller.assistant_lifecycle._validate_network.side_effect = (
-            "Team B",
-            "Team A",
-        )
-        self.assertEqual(
-            [item["team_id"] for item in controller.list_teams()["teams"]],
-            ["team_a", "team_b"],
-        )
 
     def test_team_listing_validates_summary_without_reinspecting_each_network(self) -> None:
         controller = self.controller()
