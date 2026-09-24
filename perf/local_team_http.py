@@ -28,7 +28,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM / "tests"))
 
 import local_controller_docker_fixture as flow_fixture
-from test_local_controller_docker import BUILDKIT_IMAGE, DockerFlowTests
+from test_local_controller_docker import DockerFlowTests
 
 SAMPLES = 12
 TEAM_CREATE_SAMPLES = 48
@@ -172,40 +172,6 @@ def _residue(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[str
     return present
 
 
-def _build(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
-    runner._run(
-        "buildx",
-        "create",
-        "--name",
-        flow.builder,
-        "--driver",
-        "docker-container",
-        "--driver-opt",
-        "network=host",
-        "--driver-opt",
-        f"image={BUILDKIT_IMAGE}",
-        "--driver-opt",
-        f"cpuset-cpus={flow.test_cpuset}",
-        "--driver-opt",
-        "memory=4g",
-        "--driver-opt",
-        "memory-swap=4g",
-        "--bootstrap",
-    )
-    runner._run(
-        "buildx",
-        "build",
-        "--builder",
-        flow.builder,
-        "--load",
-        "--file",
-        str(TEAM / "local" / "Dockerfile"),
-        "--tag",
-        flow.controller_tag,
-        str(TEAM),
-    )
-
-
 def _bounded_controller_run(runner: DockerFlowTests, flow: flow_fixture.DockerFlow):
     original = runner._run
     changed = [False]
@@ -331,7 +297,7 @@ def _read_chat(flow: flow_fixture.DockerFlow) -> tuple[int, int, int, tuple[int,
                 or response.headers.get("Content-Type") != "application/x-ndjson"
                 or response.headers.get("Transfer-Encoding") != "chunked"
             ):
-                raise MeasurementError("Team chat stream headers changed")
+                raise MeasurementError("Team chat stream status or headers changed")
             for sequence in range(1, progress_contract.MAX_EVENTS + 2):
                 line = response.readline(progress_contract.MAX_LINE_BYTES + 1)
                 stream_bytes += len(line)
@@ -407,6 +373,40 @@ def _measure_chat(flow: flow_fixture.DockerFlow) -> dict[str, object]:
                 samples[delay][name].append(value)
     return {
         str(delay): {name: _percentiles(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
+    }
+
+
+def _require_installed_assistant(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
+    owned = runner._owned_ids("container", flow.space_id, "assistant")
+    if len(owned) != 1:
+        raise MeasurementError("reference Assistant inventory changed during the measured arm")
+    # Docker lists abbreviated IDs; inspect resolves the exact installed generation.
+    metadata = json.loads(runner._run("inspect", owned[0]).stdout)[0]
+    if metadata["Id"] != flow.original_assistant_id:
+        raise MeasurementError("reference Assistant identity changed during the measured arm")
+    if metadata["State"]["Status"] != "running":
+        raise MeasurementError("reference Assistant stopped during the measured arm")
+
+
+def _measure_chat_inventory(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
+    none_initial = _measure_chat(flow)
+    try:
+        runner._exercise_assistant(flow)
+    except AssertionError as exc:
+        raise MeasurementError("reference Assistant installation contract failed") from exc
+    _require_installed_assistant(runner, flow)
+    one_unselected = _measure_chat(flow)
+    _require_installed_assistant(runner, flow)
+    status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
+    if status != 200 or body.get("uninstalled") is not True:
+        raise MeasurementError("reference Assistant uninstall failed")
+    if runner._owned_ids("container", flow.space_id, "assistant"):
+        raise MeasurementError("reference Assistant remained after uninstall")
+    none_restored = _measure_chat(flow)
+    return {
+        "none_initial": none_initial,
+        "one_unselected": one_unselected,
+        "none_restored": none_restored,
     }
 
 
@@ -499,22 +499,25 @@ def main() -> int:
             )
         else:
             owns_names = True
-            _build(runner, flow)
+            runner._prepare_images(flow)
             _start(runner, flow)
             samples = _measure(runner, flow)
-            chat = _measure_chat(flow)
+            chat_inventory = _measure_chat_inventory(runner, flow)
             team_create = _measure_team_create(runner, flow)
             team_list = _measure_team_list(runner, flow)
             result["samples"] = samples
-            result["chat"] = chat
+            result["chat_inventory"] = chat_inventory
             result["team_create"] = team_create
             result["team_list"] = team_list
             result.update(
                 status="complete",
                 scope=(
-                    "authenticated Local Team HTTP for intent routing, Brain-only chat, Team creation, "
-                    "and Team listing (1/9/33); deterministic Brain peer, one connection per sample; "
-                    "chat reuses one Team and stateless Brain peer across 2 warmups and 24 measured turns; "
+                    "authenticated Local Team HTTP for intent routing, Brain-only chat with 0/1/0 installed "
+                    "reference Assistants, Team creation, and Team listing (1/9/33); the installed Assistant "
+                    "runs but is never selected or exposed to the Brain; deterministic Brain peer requires an "
+                    "empty Assistant tuple; one connection per sample; each chat arm reuses one Team and "
+                    "stateless Brain peer across 2 warmups and 24 measured turns; the first post-install chat "
+                    "is excluded from steady-state samples; "
                     "excludes Admin WebSocket, browser, and real provider"
                 ),
                 chat_timing_definition=(
