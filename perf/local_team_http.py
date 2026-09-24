@@ -47,6 +47,7 @@ OBJECTIVE = "Hello"
 RESPONSE = {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""}
 CHAT_REPLY = "Measured reply."
 CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": []}
+SELECTED_ASSISTANT_ID = "shimpz-cloudflare"
 CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", ":"), ensure_ascii=False)
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 CHAT_SPAN_NAMES = (
@@ -71,6 +72,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
     """Return only one closed intent decision and record the peer's own span."""
 
     delay_ms = 0
+    selected_assistant = False
     dummy_key = secrets.token_urlsafe(24)
     spans: queue.Queue[float] = queue.Queue()
     turn_spans: queue.Queue[tuple[int, int]] = queue.Queue()
@@ -109,12 +111,27 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             return False
         provider = body["provider"]
         if self.path == "/v1/turns":
+            assistants = body["assistants"] if isinstance(body.get("assistants"), list) else None
+            if self.selected_assistant:
+                valid_assistants = (
+                    assistants is not None
+                    and len(assistants) == 1
+                    and isinstance(assistants[0], dict)
+                    and set(assistants[0]) == {"id", "genesis", "actions"}
+                    and assistants[0]["id"] == SELECTED_ASSISTANT_ID
+                    and isinstance(assistants[0]["genesis"], str)
+                    and bool(assistants[0]["genesis"])
+                    and isinstance(assistants[0]["actions"], list)
+                    and bool(assistants[0]["actions"])
+                )
+            else:
+                valid_assistants = assistants == []
             return (
                 set(body) == {"thread_id", "team_name", "assistants", "provider", "message"}
                 and isinstance(body["thread_id"], str)
                 and bool(body["thread_id"])
                 and body["team_name"] == "Demo Team"
-                and body["assistants"] == []
+                and valid_assistants
                 and body["message"] == CHAT_PROMPT
                 and provider == {"provider": "openai", "model": "gpt-5.6-terra", "api_key": self.dummy_key}
                 and self.headers.get("Authorization", "").startswith("Bearer ")
@@ -284,9 +301,10 @@ def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: in
     return total_ms, peer_ms
 
 
-def _chat_request(flow: flow_fixture.DockerFlow) -> tuple[str, bytes, dict[str, str]]:
+def _chat_request(flow: flow_fixture.DockerFlow, *, selected: bool) -> tuple[str, bytes, dict[str, str]]:
     path = "/v1/teams/demo_team/chat"
-    encoded = json.dumps(CHAT_PAYLOAD, separators=(",", ":")).encode()
+    payload = CHAT_PAYLOAD | {"assistant_ids": [SELECTED_ASSISTANT_ID] if selected else []}
+    encoded = json.dumps(payload, separators=(",", ":")).encode()
     headers = {
         "Authorization": f"Bearer {flow.token}",
         "Content-Type": "application/json",
@@ -298,14 +316,14 @@ def _chat_request(flow: flow_fixture.DockerFlow) -> tuple[str, bytes, dict[str, 
     return path, encoded, headers
 
 
-def _read_chat(flow: flow_fixture.DockerFlow) -> tuple[int, int, int, tuple[int, ...]]:
+def _read_chat(flow: flow_fixture.DockerFlow, *, selected: bool) -> tuple[int, int, int, tuple[int, ...]]:
     started = time.perf_counter_ns()
     first_progress: int | None = None
     phase_ms: list[int] = []
     events: list[tuple[str, str]] = []
     terminal_at: int | None = None
     stream_bytes = 0
-    path, encoded, headers = _chat_request(flow)
+    path, encoded, headers = _chat_request(flow, selected=selected)
     connection = http.client.HTTPConnection("127.0.0.1", flow.port, timeout=30)
     try:
         connection.request("POST", path, encoded, headers)
@@ -365,9 +383,10 @@ def _read_chat(flow: flow_fixture.DockerFlow) -> tuple[int, int, int, tuple[int,
     return started, first_progress, terminal_at, tuple(phase_ms)
 
 
-def _sample_chat(flow: flow_fixture.DockerFlow, delay_ms: int) -> dict[str, float]:
+def _sample_chat(flow: flow_fixture.DockerFlow, delay_ms: int, *, selected: bool = False) -> dict[str, float]:
     BrainPeer.delay_ms = delay_ms
-    started, first_at, terminal_at, phase_ms = _read_chat(flow)
+    BrainPeer.selected_assistant = selected
+    started, first_at, terminal_at, phase_ms = _read_chat(flow, selected=selected)
     peer_started, peer_ended = BrainPeer.turn_spans.get(timeout=2)
     if delay_ms and first_at >= peer_ended:
         raise MeasurementError("Team chat stream did not deliver early progress")
@@ -382,13 +401,13 @@ def _sample_chat(flow: flow_fixture.DockerFlow, delay_ms: int) -> dict[str, floa
     }
 
 
-def _measure_chat(flow: flow_fixture.DockerFlow) -> dict[str, object]:
-    warm = _sample_chat(flow, 0)
-    _sample_chat(flow, 0)
+def _measure_chat(flow: flow_fixture.DockerFlow, *, selected: bool = False) -> dict[str, object]:
+    warm = _sample_chat(flow, 0, selected=selected)
+    _sample_chat(flow, 0, selected=selected)
     samples: dict[int, dict[str, list[float]]] = {delay: {name: [] for name in warm} for delay in PEER_DELAYS_MS}
     for index in range(SAMPLES):
         for delay in PEER_DELAYS_MS if index % 2 == 0 else tuple(reversed(PEER_DELAYS_MS)):
-            for name, value in _sample_chat(flow, delay).items():
+            for name, value in _sample_chat(flow, delay, selected=selected).items():
                 samples[delay][name].append(value)
     return {
         str(delay): {name: _percentiles(values) for name, values in samples[delay].items()} for delay in PEER_DELAYS_MS
@@ -477,11 +496,15 @@ def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, f
     )
 
 
-def _chat_span_summary(records: list[dict[str, object]], installed: bool) -> dict[str, object]:
+def _chat_span_summary(
+    records: list[dict[str, object]], installed: bool, *, scans_per_turn: int = 1, revalidation: bool = False
+) -> dict[str, object]:
     expected = 2 + SAMPLES * len(PEER_DELAYS_MS)
-    if len(records) != expected:
+    if len(records) != expected * scans_per_turn:
         raise MeasurementError("chat admission span count changed")
-    samples = [_chat_span_sample(record, installed) for record in records[2:]]
+    selected = [record for index, record in enumerate(records) if (index % scans_per_turn != 0) == revalidation]
+    warmups = 2 * (scans_per_turn - 1 if revalidation else 1)
+    samples = [_chat_span_sample(record, installed) for record in selected[warmups:]]
     names = samples[0]
     return {
         name: _percentiles([sample[name] for sample in samples])
@@ -547,12 +570,18 @@ def _host_list_probe(flow: flow_fixture.DockerFlow, installed: bool) -> dict[str
 
 
 def _measure_chat_block(
-    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool, installed: bool
+    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool, installed: bool, selected: bool = False
 ) -> dict[str, object]:
     before = len(_chat_span_records(runner, flow)) if chat_spans else 0
-    measured = _measure_chat(flow)
+    measured = _measure_chat(flow, selected=selected)
     if chat_spans:
-        measured["admission_spans"] = _chat_span_summary(_chat_span_records(runner, flow)[before:], installed)
+        records = _chat_span_records(runner, flow)[before:]
+        scans_per_turn = 3 if selected else 1
+        measured["admission_spans"] = _chat_span_summary(records, installed, scans_per_turn=scans_per_turn)
+        if selected:
+            measured["revalidation_spans"] = _chat_span_summary(
+                records, installed, scans_per_turn=scans_per_turn, revalidation=True
+            )
         measured["host_list_probe"] = _host_list_probe(flow, installed)
     return measured
 
@@ -568,6 +597,8 @@ def _measure_chat_inventory(
     _require_installed_assistant(runner, flow)
     one_unselected = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True)
     _require_installed_assistant(runner, flow)
+    one_selected = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True, selected=True)
+    _require_installed_assistant(runner, flow)
     status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
     if status != 200 or body.get("uninstalled") is not True:
         raise MeasurementError("reference Assistant uninstall failed")
@@ -577,6 +608,7 @@ def _measure_chat_inventory(
     return {
         "none_initial": none_initial,
         "one_unselected": one_unselected,
+        "one_selected": one_selected,
         "none_restored": none_restored,
     }
 
@@ -693,10 +725,11 @@ def main() -> int:
             result.update(
                 status="complete",
                 scope=(
-                    "authenticated Local Team HTTP for intent routing, Brain-only chat with 0/1/0 installed "
+                    "authenticated Local Team HTTP for intent routing, Brain-only chat with 0/1/1/0 installed "
                     "reference Assistants, Team creation, and Team listing (1/9/33); the installed Assistant "
-                    "runs but is never selected or exposed to the Brain; deterministic Brain peer requires an "
-                    "empty Assistant tuple; one connection per sample; each chat arm reuses one Team and "
+                    "is unselected in one arm and selected in the next, with its Genesis and Actions sent to the "
+                    "deterministic Brain peer but no Action invoked; one connection per sample; each chat arm "
+                    "reuses one Team and "
                     "stateless Brain peer across 2 warmups and 24 measured turns; the first post-install chat "
                     "is excluded from steady-state samples; "
                     "excludes Admin WebSocket, browser, and real provider"
