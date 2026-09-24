@@ -1,13 +1,17 @@
 """Measure Local snapshot discovery against a real, read-only Docker daemon.
 
 Run from the Teams checkout with ``python -m perf.local_snapshot_inventory``.
+Add ``--filter-attribution`` to compare the exact stage-label Docker filter
+against nonmatching labels and an unfiltered listing on one stable image set.
 Only timing and counts are printed; no image or Assistant metadata is emitted.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
+import secrets
 import time
 
 import docker
@@ -110,13 +114,52 @@ def _samples(client: docker.DockerClient, platform: str) -> dict[str, object]:
     }
 
 
+def _filter_samples(client: docker.DockerClient) -> dict[str, object]:
+    nonce = secrets.token_hex(16)
+    filters = {
+        "stage_label": {"label": [f"{snapshots.LOCAL_STAGE_LABEL}={snapshots.LOCAL_STAGE_VALUE}"]},
+        "absent_key": {"label": [f"org.shimpz.perf.never.{nonce}=1"]},
+        "absent_value": {"label": [f"{snapshots.LOCAL_STAGE_LABEL}=absent-{nonce}"]},
+        "unfiltered": None,
+    }
+    elapsed: dict[str, list[float]] = {name: [] for name in filters}
+    counts: dict[str, set[int]] = {name: set() for name in filters}
+    names = tuple(filters)
+
+    def list_images(name: str):
+        selected = filters[name]
+        return client.api.images(all=True, filters=selected) if selected is not None else client.api.images(all=True)
+
+    for name in names:
+        if not isinstance(list_images(name), list):
+            raise ConfoundedMeasurementError("Docker returned an invalid image inventory")
+    for cycle in range(SAMPLES):
+        for name in (*names[cycle % len(names) :], *names[: cycle % len(names)]):
+            started = time.perf_counter_ns()
+            images = list_images(name)
+            elapsed[name].append((time.perf_counter_ns() - started) / 1_000_000)
+            if not isinstance(images, list):
+                raise ConfoundedMeasurementError("Docker returned an invalid image inventory")
+            counts[name].add(len(images))
+    if any(len(values) != 1 for values in counts.values()):
+        raise ConfoundedMeasurementError("image count changed during the filter comparison")
+    if counts["absent_key"] != {0} or counts["absent_value"] != {0}:
+        raise ConfoundedMeasurementError("a nonmatching filter returned an image")
+    return {
+        "filter_arms": {name: {"result_count": counts[name].pop(), **_percentiles(elapsed[name])} for name in names},
+    }
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--filter-attribution", action="store_true")
+    args = parser.parse_args()
     client = docker.from_env()
     try:
         platform = snapshots.platform_from_info(client.info())
         started_ns = time.time_ns()
         image_count_before = len(client.api.images(all=True))
-        samples = _samples(client, platform)
+        samples = _filter_samples(client) if args.filter_attribution else _samples(client, platform)
         image_count_after = len(client.api.images(all=True))
         events = _event_count(client, started_ns, time.time_ns())
     except ConfoundedMeasurementError:
@@ -134,6 +177,7 @@ def main() -> int:
         json.dumps(
             {
                 "status": "valid" if valid else "confounded",
+                "mode": "filter-attribution" if args.filter_attribution else "cache-refresh",
                 "scope": "host Docker inventory; excludes HTTP, Supervisor auth, provider, and container CPU limits",
                 "platform": platform,
                 "host_images_before": image_count_before,
