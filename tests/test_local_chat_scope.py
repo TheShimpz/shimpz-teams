@@ -86,7 +86,7 @@ class LocalChatScopeTests(LocalContractCase):
 
         self.assertEqual(result, LOOKUP_RESULT)
 
-    def test_chat_setup_validates_the_network_once(self) -> None:
+    def test_chat_setup_validates_the_network_from_one_inspection(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
             labels = controller.assistant_lifecycle._base_labels("team_1", "team")
@@ -115,7 +115,7 @@ class LocalChatScopeTests(LocalContractCase):
             setup = controller.chat_turn_service._chat_setup("team_1", [], "openai", ())
 
         self.assertEqual(setup[0], "Marketing")
-        network.reload.assert_called_once_with()
+        network.reload.assert_not_called()
 
     def test_chat_reuses_one_selected_file_connection_across_revalidation(self) -> None:
         class Runtime:

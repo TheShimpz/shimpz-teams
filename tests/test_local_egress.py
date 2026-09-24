@@ -617,6 +617,13 @@ class LocalAssistantEgressTests(unittest.TestCase):
             lifecycle._validate_network(invalid_name, "team_1")
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
+        fetched = types.SimpleNamespace(attrs={}, reload=mock.Mock())
+        self.controller.client.networks = types.SimpleNamespace(get=mock.Mock(return_value=fetched))
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            lifecycle._network("team_1")
+        self.assertEqual(caught.exception.code, "ownership-conflict")
+        fetched.reload.assert_not_called()
+
         self.controller.client.networks = types.SimpleNamespace(
             get=mock.Mock(side_effect=local_egress.NotFound("missing"))
         )

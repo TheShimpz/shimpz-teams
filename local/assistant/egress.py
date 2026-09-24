@@ -547,5 +547,5 @@ def _network(self, team_id: str, *, required: bool = True):
         if required:
             raise ApiProblem(HTTPStatus.NOT_FOUND, "Team not found", code="team-not-found") from None
         return None
-    self._validate_network(network, team_id)
+    self._validate_network(network, team_id, refresh=False)
     return network
