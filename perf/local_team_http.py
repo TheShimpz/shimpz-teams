@@ -17,9 +17,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import override
 from unittest import mock
 
+import docker
+from docker.errors import DockerException
+
+from local.assistant import resources as assistant_resources
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -31,6 +36,7 @@ import local_controller_docker_fixture as flow_fixture
 from test_local_controller_docker import DockerFlowTests
 
 SAMPLES = 12
+HOST_LIST_SAMPLES = 24
 TEAM_CREATE_SAMPLES = 48
 TEAM_LIST_SAMPLES = 48
 TEAM_LIST_COUNTS = (1, 9, 33)
@@ -485,6 +491,61 @@ def _chat_span_summary(records: list[dict[str, object]], installed: bool) -> dic
     }
 
 
+def _host_list_probe(flow: flow_fixture.DockerFlow, installed: bool) -> dict[str, object]:
+    try:
+        filters = assistant_resources._assistant_filters(SimpleNamespace(space_id=flow.space_id), "demo_team")
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise MeasurementError("host Docker list probe filter construction changed") from exc
+    selected = filters.get("filters") if isinstance(filters, dict) else None
+    labels = selected.get("label") if isinstance(selected, dict) else None
+    if (
+        not isinstance(filters, dict)
+        or set(filters) != {"all", "filters"}
+        or filters["all"] is not True
+        or not isinstance(selected, dict)
+        or set(selected) != {"label"}
+        or not isinstance(labels, list)
+        or len(labels) != 5
+        or any(not isinstance(item, str) or "=" not in item for item in labels)
+    ):
+        raise MeasurementError("host Docker list probe filter shape changed")
+    expected = int(installed)
+    try:
+        client = docker.from_env(timeout=10)
+    except DockerException as exc:
+        raise MeasurementError("host Docker list probe could not connect") from exc
+    try:
+        before_count = len(client.api.containers(all=True))
+        arms = {
+            "raw": lambda: client.api.containers(**filters),
+            "full": lambda: client.containers.list(**filters),
+        }
+        for call in arms.values():
+            for _ in range(2):
+                if len(call()) != expected:
+                    raise MeasurementError("host Docker list probe match count changed")
+        samples: dict[str, list[float]] = {name: [] for name in arms}
+        for index in range(HOST_LIST_SAMPLES):
+            for name in ("raw", "full") if index % 2 == 0 else ("full", "raw"):
+                started = time.perf_counter_ns()
+                found = arms[name]()
+                samples[name].append((time.perf_counter_ns() - started) / 1_000_000)
+                if len(found) != expected:
+                    raise MeasurementError("host Docker list probe match count changed")
+        if len(client.api.containers(all=True)) != before_count:
+            raise MeasurementError("host Docker container count changed during list probe")
+        return {
+            "matched": expected,
+            "host_containers": before_count,
+            "raw": _percentiles(samples["raw"]),
+            "full": _percentiles(samples["full"]),
+        }
+    except DockerException as exc:
+        raise MeasurementError("host Docker list probe failed") from exc
+    finally:
+        client.close()
+
+
 def _measure_chat_block(
     runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool, installed: bool
 ) -> dict[str, object]:
@@ -492,6 +553,7 @@ def _measure_chat_block(
     measured = _measure_chat(flow)
     if chat_spans:
         measured["admission_spans"] = _chat_span_summary(_chat_span_records(runner, flow)[before:], installed)
+        measured["host_list_probe"] = _host_list_probe(flow, installed)
     return measured
 
 
@@ -646,6 +708,13 @@ def main() -> int:
                 ),
                 chat_phase_resolution_ms=1,
                 chat_span_mode=chat_spans,
+                host_list_probe_definition=(
+                    "raw API (daemon, socket transport, JSON decode) versus full Docker SDK list in the harness "
+                    "process outside the Team's 1-CPU cgroup, using the Team's five exact owned-Assistant filters; "
+                    "sampled after each measured chat block with no chat turn in flight"
+                )
+                if chat_spans
+                else None,
                 outside_peer_definition=(
                     "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
                 ),
