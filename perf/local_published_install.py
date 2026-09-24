@@ -64,6 +64,10 @@ def _verify_controller_limits(runner: DockerFlowTests, flow: DockerFlow) -> None
         raise MeasurementError("controller container limits do not match the workload")
 
 
+def _host_container_count(runner: DockerFlowTests) -> int:
+    return len(runner._run("container", "ls", "--all", "--quiet").stdout.splitlines())
+
+
 def _present(runner: DockerFlowTests, kind: str, identity: str) -> bool:
     inspection = runner._run(kind, "inspect", identity, check=False)
     if inspection.returncode == 0:
@@ -126,6 +130,8 @@ def _sample(runner: DockerFlowTests, flow: DockerFlow, *, cold: bool) -> dict[st
 
 
 def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int) -> dict[str, object]:
+    # Match the host inventory that each uninstall sweeps after removing its Assistant.
+    host_containers = _host_container_count(runner)
     status, body = runner._api(flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"})
     if status != 200 or body.get("created") is not True:
         raise MeasurementError("the fixture Team was not created")
@@ -133,6 +139,12 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int) -> dict[st
     for index in range(samples):
         order = (True, False) if index % 2 == 0 else (False, True)
         observations.extend(_sample(runner, flow, cold=cold) for cold in order)
+    remaining_containers = _host_container_count(runner)
+    if remaining_containers != host_containers:
+        raise MeasurementError(
+            f"host container count changed from {host_containers} to {remaining_containers}; "
+            "rerun after daemon activity settles"
+        )
     # Keep the invariant artifact identity once, separate from per-sample timings.
     images = {(item.pop("image_id"), item.pop("image_size_bytes")) for item in observations}
     if len(images) != 1:
@@ -146,6 +158,7 @@ def _measure(runner: DockerFlowTests, flow: DockerFlow, samples: int) -> dict[st
         }
     return {
         "artifact": {"image_id": image_id, "size_bytes": image_size_bytes, "source_digest": flow.source_digest},
+        "host_containers": host_containers,
         "observations": observations,
         "summary": summary,
     }
