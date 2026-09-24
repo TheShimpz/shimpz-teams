@@ -212,8 +212,6 @@ class DockerFlowTests(
             str(FIXTURE / "Dockerfile"),
             str(TEAM),
         )
-        fixture_id = self._run("image", "inspect", "--format", "{{.Id}}", flow.fixture_tag).stdout.strip()
-
         self._run(
             "run",
             "--detach",
@@ -246,8 +244,8 @@ class DockerFlowTests(
         )
         self.assertRegex(flow.trusted_ref, r"@sha256:[0-9a-f]{64}$")
 
-        # Remove every local fixture reference so installation must perform a real digest pull.
-        self._remove("image", "rm", "--force", repository_tag, flow.fixture_tag, fixture_id)
+        # Remove the exact test references so installation must perform a real digest pull.
+        self._run("image", "rm", repository_tag, flow.fixture_tag)
         self.assertNotEqual(self._run("image", "inspect", flow.trusted_ref, check=False).returncode, 0)
 
         self._run(
@@ -843,11 +841,14 @@ class DockerFlowTests(
             flow.egress_audit_volume,
         )
         if flow.trusted_ref:
-            self._remove("image", "rm", "--force", flow.trusted_ref)
-        self._remove("image", "rm", "--force", flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag)
+            self._remove("image", "rm", flow.trusted_ref)
+        self._remove("image", "rm", flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag)
         self._remove("buildx", "rm", "--force", flow.builder)
         self.assertEqual(owned_containers, [])
         self.assertEqual(owned_networks, [])
+        for reference in (flow.trusted_ref, flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag):
+            if reference:
+                self.assertNotEqual(self._run("image", "inspect", reference, check=False).returncode, 0)
 
     @unittest.skipUnless(os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1", "real Docker test is opt-in")
     def test_local_uninstall_preserves_exact_staged_image_in_daemon(self) -> None:
