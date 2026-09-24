@@ -65,6 +65,7 @@ class DockerFlowTests(
     docker_command = "docker"
     docker_cwd = TEAM
     controller_kind = "local controller"
+    controller_extra_env: tuple[str, ...] = ()
 
     def _new_flow(self) -> DockerFlow:
         self._supervisors_by_port: dict[int, DockerFlow] = {}
@@ -448,6 +449,7 @@ class DockerFlowTests(
             "SHIMPZ_OAUTH_BROKER_PROXY_CAPABILITY_FILE=/run/shimpz-account-egress/token",
             "--env",
             f"SHIMPZ_BRAIN_RUNTIME_URL=http://{flow.bridge_gateway}:{flow.brain_server.server_port}",
+            *self.controller_extra_env,
             "--publish",
             "127.0.0.1::7077",
             "--entrypoint",
