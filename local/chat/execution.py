@@ -267,7 +267,9 @@ def _validate_chat_context(
     identity: tuple[object, ...],
     metadata_connection=None,
 ) -> None:
-    current = self._chat_setup(team_id, file_ids, provider, assistant_ids, metadata_connection)
+    current = self._chat_setup(
+        team_id, file_ids, provider, assistant_ids, metadata_connection, scan_empty_scope=False
+    )
     if self._chat_identity(*current) != identity:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

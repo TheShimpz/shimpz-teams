@@ -57,6 +57,8 @@ def _chat_setup(
     provider: str,
     assistant_ids: tuple[str, ...],
     metadata_connection=None,
+    *,
+    scan_empty_scope: bool = True,
 ) -> tuple[
     str,
     str,
@@ -70,7 +72,9 @@ def _chat_setup(
         network_id = getattr(network, "id", None)
         if not isinstance(network_id, str) or not network_id:
             raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
-        active_assistants = self._active_chat_assistants(team_id, network.name)
+        active_assistants = (
+            self._active_chat_assistants(team_id, network.name) if scan_empty_scope or assistant_ids else ()
+        )
         active_by_id = {active.spec.assistant_id: active for active in active_assistants}
         try:
             assistants = tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)

@@ -203,7 +203,7 @@ class LocalChatScopeTests(LocalContractCase):
         )
         self.assertEqual(response["team_name"], "Marketing")
 
-    def test_chat_empty_scope_is_brain_only_but_still_scans_installed_workloads(self) -> None:
+    def test_chat_empty_scope_is_brain_only_and_scans_installed_workloads_once(self) -> None:
         class Runtime:
             context = None
 
@@ -228,7 +228,7 @@ class LocalChatScopeTests(LocalContractCase):
             )
 
         self.assertEqual(runtime.context.assistants, ())
-        self.assertGreaterEqual(len(calls), 2)
+        self.assertEqual(len(calls), 1)
         self.assertEqual(response["reply"], "Brain only.")
 
     def test_chat_rejects_invalid_or_unavailable_assistant_scope_before_runtime(self) -> None:
@@ -275,9 +275,13 @@ class LocalChatScopeTests(LocalContractCase):
             controller = self._chat_controller(directory, Runtime())
             spec = controller.registry["shimpz-cloudflare"]
             generations = iter(("assistant-v1", "assistant-v2"))
-            controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
-                ActiveAssistant(spec, next(generations)),
-            )
+            scans: list[str] = []
+
+            def scan(_team_id: str, _network: str) -> tuple[ActiveAssistant, ...]:
+                scans.append(_team_id)
+                return (ActiveAssistant(spec, next(generations)),)
+
+            controller.chat_turn_service._active_chat_assistants = scan
 
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
@@ -288,6 +292,7 @@ class LocalChatScopeTests(LocalContractCase):
                 )
 
         self.assertEqual(caught.exception.code, "team-context-changed")
+        self.assertEqual(len(scans), 2)
 
     def test_chat_action_rejects_a_container_replaced_between_selection_and_rpc(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -529,7 +529,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 [],
                 inference_config.InferenceConfig("openai", "gpt-5-nano"),
             )
-            controller.chat_turn_service._chat_setup = lambda *_args: setup
+            controller.chat_turn_service._chat_setup = lambda *_args, **_kwargs: setup
             controller.assistant_lifecycle._active_assistant_genesis = lambda _active: "Use reviewed Actions only."
             controller.chat_turn_service._chat_cancelled = lambda _token: False
             controller.chat_turn_service._invoke_chat_action = lambda *_args: (_ for _ in ()).throw(
@@ -593,7 +593,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             active = ActiveAssistant(spec, "b" * 64)
             setup = ("Team One", "c" * 64, (active,), [], config)
             identity = controller.chat_turn_service._chat_identity(*setup)
-            controller.chat_turn_service._chat_setup = lambda *_args: setup
+            controller.chat_turn_service._chat_setup = lambda *_args, **_kwargs: setup
             pending = PendingLocalChat(
                 continuation=continuation,
                 assistant_ids=(spec.assistant_id,),
