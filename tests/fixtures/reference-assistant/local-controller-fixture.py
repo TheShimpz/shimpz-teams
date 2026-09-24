@@ -16,9 +16,11 @@ from docker.models.networks import Network
 
 sys.path.insert(0, "/app")
 
+from assistant import manifest as assistant_manifest
 from install import bindings
 from local import app
 from local.install import developers
+from local.install import registry as local_registry
 
 RESOLUTION_PATH = Path("/var/lib/shimpz-local/publications/test-resolution.json")
 FIXTURE_ICON = b"canonical icon"
@@ -141,13 +143,38 @@ def _install_phase_spans() -> None:
     app.LocalController.install_publication = recorder.root("INSTALL", app.LocalController.install_publication)
 
 
+def _install_chat_spans() -> None:
+    recorder = _PhaseSpans()
+    targets = (
+        (app.AssistantLifecycle, ("_validate_container", "_egress_proxy", "_admit_assistant_allowed_hosts")),
+        (local_registry.AssistantRegistry, ("get",)),
+        (assistant_manifest.ManifestContractCache, ("get",)),
+        (assistant_manifest.MachineContractCache, ("get",)),
+        (ContainerCollection, ("list", "get")),
+        (Container, ("get_archive",)),
+    )
+    for owner, names in targets:
+        for name in names:
+            setattr(owner, name, recorder.timed(f"{owner.__name__}.{name}", getattr(owner, name)))
+    assistant_manifest.reviewed_manifest_contract = recorder.timed(
+        "reviewed_manifest_contract", assistant_manifest.reviewed_manifest_contract
+    )
+    app.ChatTurnService._active_chat_assistants = recorder.root(
+        "CHAT-ADMISSION", app.ChatTurnService._active_chat_assistants
+    )
+
+
 def main() -> int:
     resolution = json.loads(RESOLUTION_PATH.read_bytes())
     bindings._CONTRACTS = _LocalRegistryContract()
     app.local_developers.DevelopersClient = lambda: _Developers(resolution)
     app.artifact_trust.ArtifactTrustVerifier = lambda *_args, **_kwargs: _ArtifactTrust(resolution)
+    if os.environ.get("SHIMPZ_PERF_PHASE_SPANS") == "1" and os.environ.get("SHIMPZ_PERF_CHAT_SPANS") == "1":
+        raise RuntimeError("fixture performance span modes cannot be combined")
     if os.environ.get("SHIMPZ_PERF_PHASE_SPANS") == "1":
         _install_phase_spans()
+    if os.environ.get("SHIMPZ_PERF_CHAT_SPANS") == "1":
+        _install_chat_spans()
     return app.main()
 
 

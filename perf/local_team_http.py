@@ -42,6 +42,19 @@ RESPONSE = {"intent": "ordinary-task", "query": "", "assistant_ids": [], "reply"
 CHAT_REPLY = "Measured reply."
 CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": []}
 CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", ":"), ensure_ascii=False)
+CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
+CHAT_SPAN_NAMES = (
+    "ContainerCollection.list",
+    "AssistantRegistry.get",
+    "AssistantLifecycle._validate_container",
+    "AssistantLifecycle._egress_proxy",
+    "ContainerCollection.get",
+    "AssistantLifecycle._admit_assistant_allowed_hosts",
+    "reviewed_manifest_contract",
+    "ManifestContractCache.get",
+    "MachineContractCache.get",
+    "Container.get_archive",
+)
 
 
 class MeasurementError(RuntimeError):
@@ -388,21 +401,117 @@ def _require_installed_assistant(runner: DockerFlowTests, flow: flow_fixture.Doc
         raise MeasurementError("reference Assistant stopped during the measured arm")
 
 
-def _measure_chat_inventory(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
-    none_initial = _measure_chat(flow)
+def _chat_span_records(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[dict[str, object]]:
+    logs = runner._run("logs", flow.controller)
+    records = []
+    for line in (logs.stdout + logs.stderr).splitlines():
+        if line.startswith(CHAT_SPAN_PREFIX):
+            record = json.loads(line.removeprefix(CHAT_SPAN_PREFIX))
+            if not isinstance(record, dict):
+                raise MeasurementError("chat admission span record is invalid")
+            records.append(record)
+    return records
+
+
+def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, float]:
+    spans = record.get("spans")
+    total = record.get("total_ms")
+    if not isinstance(spans, list) or not isinstance(total, (int, float)) or total < 0:
+        raise MeasurementError("chat admission span record is invalid")
+    durations = dict.fromkeys(CHAT_SPAN_NAMES, 0.0)
+    counts = dict.fromkeys(CHAT_SPAN_NAMES, 0)
+    children = dict.fromkeys(CHAT_SPAN_NAMES, 0.0)
+    top_level = 0.0
+    for span in spans:
+        if not isinstance(span, dict) or set(span) != {"name", "parent", "ms"}:
+            raise MeasurementError("chat admission span shape changed")
+        name, parent, elapsed = span["name"], span["parent"], span["ms"]
+        if name not in durations or (parent is not None and parent not in durations):
+            raise MeasurementError("chat admission span ownership changed")
+        if not isinstance(elapsed, (int, float)) or elapsed < 0:
+            raise MeasurementError("chat admission span duration is invalid")
+        durations[name] += elapsed
+        counts[name] += 1
+        if parent is None:
+            top_level += elapsed
+        else:
+            children[parent] += elapsed
+    required = {
+        "ContainerCollection.list": 1,
+        "AssistantRegistry.get": int(installed),
+        "AssistantLifecycle._validate_container": int(installed),
+        "AssistantLifecycle._admit_assistant_allowed_hosts": int(installed),
+        "AssistantLifecycle._egress_proxy": int(installed),
+        "ManifestContractCache.get": int(installed),
+        "MachineContractCache.get": int(installed),
+        "Container.get_archive": 0,
+        # Docker SDK list() inspects the Assistant with get(); the proxy adds another get().
+        "ContainerCollection.get": 2 * int(installed),
+    }
+    if (
+        any(counts[name] != count for name, count in required.items())
+        or total + 0.02 < top_level
+        or any(children[name] > durations[name] + 0.02 for name in CHAT_SPAN_NAMES)
+    ):
+        raise MeasurementError("chat admission operation count or span arithmetic changed")
+    exclusive = {
+        f"{name}_exclusive_ms": max(0.0, durations[name] - children[name])
+        for name in (
+            "ContainerCollection.list",
+            "AssistantLifecycle._validate_container",
+            "AssistantLifecycle._egress_proxy",
+            "AssistantLifecycle._admit_assistant_allowed_hosts",
+        )
+    }
+    return (
+        {"total_ms": float(total), "remainder_ms": max(0.0, total - top_level)}
+        | durations
+        | exclusive
+        | {f"{name}_calls": count for name, count in counts.items()}
+    )
+
+
+def _chat_span_summary(records: list[dict[str, object]], installed: bool) -> dict[str, object]:
+    expected = 2 + SAMPLES * len(PEER_DELAYS_MS)
+    if len(records) != expected:
+        raise MeasurementError("chat admission span count changed")
+    samples = [_chat_span_sample(record, installed) for record in records[2:]]
+    names = samples[0]
+    return {
+        name: _percentiles([sample[name] for sample in samples])
+        if not name.endswith("_calls")
+        else {"min": min(sample[name] for sample in samples), "max": max(sample[name] for sample in samples)}
+        for name in names
+    }
+
+
+def _measure_chat_block(
+    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool, installed: bool
+) -> dict[str, object]:
+    before = len(_chat_span_records(runner, flow)) if chat_spans else 0
+    measured = _measure_chat(flow)
+    if chat_spans:
+        measured["admission_spans"] = _chat_span_summary(_chat_span_records(runner, flow)[before:], installed)
+    return measured
+
+
+def _measure_chat_inventory(
+    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool
+) -> dict[str, object]:
+    none_initial = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=False)
     try:
         runner._exercise_assistant(flow)
     except AssertionError as exc:
         raise MeasurementError("reference Assistant installation contract failed") from exc
     _require_installed_assistant(runner, flow)
-    one_unselected = _measure_chat(flow)
+    one_unselected = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True)
     _require_installed_assistant(runner, flow)
     status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
     if status != 200 or body.get("uninstalled") is not True:
         raise MeasurementError("reference Assistant uninstall failed")
     if runner._owned_ids("container", flow.space_id, "assistant"):
         raise MeasurementError("reference Assistant remained after uninstall")
-    none_restored = _measure_chat(flow)
+    none_restored = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=False)
     return {
         "none_initial": none_initial,
         "one_unselected": one_unselected,
@@ -482,8 +591,18 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
     return results
 
 
-def main() -> int:
+def _configured_runner() -> tuple[DockerFlowTests, bool]:
+    if sys.argv[1:] not in ([], ["--chat-spans"]):
+        raise SystemExit("usage: python -m perf.local_team_http [--chat-spans]")
+    chat_spans = sys.argv[1:] == ["--chat-spans"]
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
+    if chat_spans:
+        runner.controller_extra_env = ("--env", "SHIMPZ_PERF_CHAT_SPANS=1")
+    return runner, chat_spans
+
+
+def main() -> int:
+    runner, chat_spans = _configured_runner()
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
         flow = runner._new_flow()
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
@@ -502,7 +621,7 @@ def main() -> int:
             runner._prepare_images(flow)
             _start(runner, flow)
             samples = _measure(runner, flow)
-            chat_inventory = _measure_chat_inventory(runner, flow)
+            chat_inventory = _measure_chat_inventory(runner, flow, chat_spans=chat_spans)
             team_create = _measure_team_create(runner, flow)
             team_list = _measure_team_list(runner, flow)
             result["samples"] = samples
@@ -526,6 +645,7 @@ def main() -> int:
                     "and up to 3 ms of phase truncation"
                 ),
                 chat_phase_resolution_ms=1,
+                chat_span_mode=chat_spans,
                 outside_peer_definition=(
                     "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
                 ),
