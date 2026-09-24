@@ -12,6 +12,7 @@ from docker.errors import DockerException
 from local_controller_harness import TestAssistantRegistry
 
 from local import app as local_app
+from local import labels as local_labels
 from local.assistant import egress as local_egress
 
 
@@ -23,10 +24,10 @@ class _Proxy:
             "Config": {
                 "User": "10005:10005",
                 "Labels": {
-                    local_app.MANAGED_LABEL: "1",
-                    local_app.PROFILE_LABEL: local_app.PROFILE,
-                    local_app.SPACE_LABEL: space_id,
-                    local_app.KIND_LABEL: local_egress.ASSISTANT_EGRESS_KIND,
+                    local_labels.MANAGED_LABEL: "1",
+                    local_labels.PROFILE_LABEL: local_egress.PROFILE,
+                    local_labels.SPACE_LABEL: space_id,
+                    local_labels.KIND_LABEL: local_egress.ASSISTANT_EGRESS_KIND,
                 },
             },
             "HostConfig": {
@@ -189,10 +190,10 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
         team_id = "team_1"
         self.network.attrs["Labels"] = {
-            local_app.MANAGED_LABEL: "1",
-            local_app.PROFILE_LABEL: local_app.PROFILE,
-            local_app.SPACE_LABEL: self.controller.space_id,
-            local_app.KIND_LABEL: "team",
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.PROFILE_LABEL: local_egress.PROFILE,
+            local_labels.SPACE_LABEL: self.controller.space_id,
+            local_labels.KIND_LABEL: "team",
             local_app.TEAM_LABEL: team_id,
             local_app.TEAM_NAME_LABEL: "Team 1",
         }
@@ -221,10 +222,10 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_startup_detaches_egress_and_serves_after_assistant_admission_drift(self) -> None:
         team_id = "team_1"
         self.network.attrs["Labels"] = {
-            local_app.MANAGED_LABEL: "1",
-            local_app.PROFILE_LABEL: local_app.PROFILE,
-            local_app.SPACE_LABEL: self.controller.space_id,
-            local_app.KIND_LABEL: "team",
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.PROFILE_LABEL: local_egress.PROFILE,
+            local_labels.SPACE_LABEL: self.controller.space_id,
+            local_labels.KIND_LABEL: "team",
             local_app.TEAM_LABEL: team_id,
             local_app.TEAM_NAME_LABEL: "Team 1",
         }
@@ -245,10 +246,10 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_startup_serves_when_failed_admission_cannot_detach_egress(self) -> None:
         team_id = "team_1"
         self.network.attrs["Labels"] = {
-            local_app.MANAGED_LABEL: "1",
-            local_app.PROFILE_LABEL: local_app.PROFILE,
-            local_app.SPACE_LABEL: self.controller.space_id,
-            local_app.KIND_LABEL: "team",
+            local_labels.MANAGED_LABEL: "1",
+            local_labels.PROFILE_LABEL: local_egress.PROFILE,
+            local_labels.SPACE_LABEL: self.controller.space_id,
+            local_labels.KIND_LABEL: "team",
             local_app.TEAM_LABEL: team_id,
             local_app.TEAM_NAME_LABEL: "Team 1",
         }

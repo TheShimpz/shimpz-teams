@@ -15,6 +15,7 @@ from docker.errors import APIError, DockerException, NotFound
 from action import human as action_human
 from inference import config as inference_config
 from local import app as local_app
+from local import labels as local_labels
 from storage import files as team_storage
 
 
@@ -231,13 +232,13 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             ("Attachable", True),
             ("Driver", "overlay"),
             ("Name", "foreign"),
-            (local_app.SPACE_LABEL, "foreign"),
+            (local_labels.SPACE_LABEL, "foreign"),
             (local_app.TEAM_NAME_LABEL, ""),
         ):
             with self.subTest(field=field):
                 attrs = dict(networks[0].attrs)
                 attrs["Labels"] = dict(attrs["Labels"])
-                if field in (local_app.SPACE_LABEL, local_app.TEAM_NAME_LABEL):
+                if field in (local_labels.SPACE_LABEL, local_app.TEAM_NAME_LABEL):
                     attrs["Labels"][field] = invalid
                 else:
                     attrs[field] = invalid

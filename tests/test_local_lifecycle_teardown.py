@@ -12,6 +12,7 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
 from local import app as local_app
+from local import labels as local_labels
 from local.install import runtime as local_runtime
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
@@ -226,7 +227,7 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
     def test_uninstall_never_removes_a_container_with_wrong_ownership(self) -> None:
         controller, container, events = self._lifecycle_controller()
-        container.labels[local_app.SPACE_LABEL] = "other-space"
+        container.labels[local_labels.SPACE_LABEL] = "other-space"
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
