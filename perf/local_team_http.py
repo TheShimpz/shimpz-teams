@@ -1,6 +1,6 @@
-"""Measure authenticated Local Team intent routing with a deterministic Brain peer.
+"""Measure authenticated Local Team HTTP routes with a deterministic Brain peer.
 
-Run from the Teams checkout with ``python -m perf.local_intent_route``. The
+Run from the Teams checkout with ``python -m perf.local_team_http``. The
 fixture builds current Team and egress images in a disposable Docker graph.
 Only timing and resource counts are printed; no request body or key is logged.
 """
@@ -27,6 +27,7 @@ import local_controller_docker_fixture as flow_fixture
 from test_local_controller_docker import BUILDKIT_IMAGE, DockerFlowTests
 
 SAMPLES = 12
+TEAM_CREATE_SAMPLES = 48
 PEER_DELAYS_MS = (0, 250)
 TEAM_MEMORY_MIB = 256
 TEAM_CPUS = 1
@@ -288,6 +289,26 @@ def _measure(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str
     }
 
 
+def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
+    samples: dict[str, list[float]] = {"new_ms": [], "existing_ms": []}
+    for index in range(-2, TEAM_CREATE_SAMPLES):
+        team_id = f"perf_{index + 2:03d}"
+        path = f"/v1/teams/{team_id}/create"
+        # An existing creation follows each new creation for the same Team in both revisions.
+        for name, expected_created in (("new_ms", True), ("existing_ms", False)):
+            started = time.perf_counter_ns()
+            status, body = runner._api(flow.port, flow.token, "POST", path, {"team_name": "Performance Team"})
+            elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+            if status != 200 or body.get("created") is not expected_created:
+                raise MeasurementError("Team creation returned a noncanonical result")
+            if index >= 0:
+                samples[name].append(elapsed_ms)
+        status, body = runner._api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        if status != 200 or not isinstance(body.get("residue_absent"), list):
+            raise MeasurementError("measured Team cleanup failed")
+    return {name: _percentiles(values) for name, values in samples.items()}
+
+
 def main() -> int:
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
@@ -308,10 +329,15 @@ def main() -> int:
             _build(runner, flow)
             _start(runner, flow)
             samples = _measure(runner, flow)
+            team_create = _measure_team_create(runner, flow)
             result["samples"] = samples
+            result["team_create"] = team_create
             result.update(
                 status="complete",
-                scope="authenticated Local Team HTTP and deterministic Brain peer; excludes Admin, browser, provider",
+                scope=(
+                    "authenticated Local Team HTTP for intent routing and Team creation; "
+                    "deterministic Brain peer; excludes Admin, browser, provider"
+                ),
                 outside_peer_definition=(
                     "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
                 ),
