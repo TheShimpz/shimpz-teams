@@ -321,6 +321,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
         subject.client.images.remove.side_effect = DockerException("referenced")
         self.assertFalse(assistant_lifecycle._delete_retired_image(subject, "image"))
         self.assertFalse(assistant_lifecycle._remove_retired_image(subject, "image"))
+        subject.client.containers.list.assert_called_once_with(all=True, sparse=True, filters={"ancestor": "image"})
 
         subject.updates = types.SimpleNamespace(
             clear=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))

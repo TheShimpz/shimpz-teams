@@ -358,11 +358,11 @@ def _remove_retired_image(self, image_id: str) -> bool:
     if binding_use is None or binding_use:
         return False
     try:
-        containers = self.client.containers.list(all=True)
+        containers = self.client.containers.list(all=True, sparse=True, filters={"ancestor": image_id})
     except DockerException:
         log.warning("Assistant update residue cleanup deferred: Docker inventory is unavailable")
         return False
-    if any(image_id in {container.attrs.get("ImageID"), container.attrs.get("Image")} for container in containers):
+    if containers:
         return False
     return self._delete_retired_image(image_id)
 

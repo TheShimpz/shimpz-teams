@@ -231,7 +231,8 @@ class LocalLifecycleTests(LocalContractCase):
     def test_retired_image_cleanup_is_exact_and_skips_shared_references(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         image_id = "sha256:" + "a" * 64
-        controller.client.containers.list = lambda **_kwargs: []
+        container_list = mock.Mock(return_value=[])
+        controller.client.containers.list = container_list
         controller.client.images = SimpleNamespace(
             get=lambda _reference: SimpleNamespace(
                 id="sha256:" + "b" * 64,
@@ -247,6 +248,7 @@ class LocalLifecycleTests(LocalContractCase):
             events,
             [("image-remove", {"image": image_id, "force": False, "noprune": True})],
         )
+        container_list.assert_called_once_with(all=True, sparse=True, filters={"ancestor": image_id})
 
         controller.registry = SimpleNamespace(all=lambda: (SimpleNamespace(image=OUTDATED_ASSISTANT_IMAGE),))
         controller.assistant_lifecycle.registry = controller.registry
@@ -263,9 +265,10 @@ class LocalLifecycleTests(LocalContractCase):
             id="sha256:" + "b" * 64,
             attrs={"Config": {"Labels": None}},
         )
-        controller.client.containers.list = lambda **_kwargs: [SimpleNamespace(attrs={"ImageID": image_id})]
+        container_list.return_value = [SimpleNamespace(attrs={"ImageID": "sha256:" + "c" * 64})]
         self.assertFalse(controller.assistant_lifecycle._remove_retired_image(image_id))
         self.assertEqual(len(events), 1)
+        self.assertEqual(container_list.call_count, 2)
 
     def test_residue_queue_failure_does_not_escape_the_completed_update(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
