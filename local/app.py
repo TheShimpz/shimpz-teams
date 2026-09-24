@@ -583,7 +583,7 @@ class LocalController:
             if not isinstance(team_id, str):
                 raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
             validate_team_id(team_id)
-            team_name = self.assistant_lifecycle._validate_network(network, team_id)
+            team_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
             teams.append({"team_id": team_id, "team_name": team_name, "status": "running"})
         teams.sort(key=lambda item: item["team_id"])
         return {"teams": teams}

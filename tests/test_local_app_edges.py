@@ -189,6 +189,63 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             ["team_a", "team_b"],
         )
 
+    def test_team_listing_validates_summary_without_reinspecting_each_network(self) -> None:
+        controller = self.controller()
+        lifecycle = object.__new__(local_app.AssistantLifecycle)
+        lifecycle.client = controller.client
+        lifecycle.space_id = controller.space_id
+        controller.assistant_lifecycle = lifecycle
+
+        networks = []
+        for team_id in ("team_2", "team_1"):
+            labels = lifecycle._base_labels(team_id, "team")
+            labels[local_app.TEAM_NAME_LABEL] = f"Team {team_id[-1]}"
+            networks.append(
+                types.SimpleNamespace(
+                    attrs={
+                        "Labels": labels,
+                        "Name": lifecycle._network_name(team_id),
+                        "Driver": "bridge",
+                        "Internal": True,
+                        "Attachable": False,
+                    },
+                    reload=mock.Mock(),
+                )
+            )
+        controller.client.networks.list.return_value = networks
+        self.assertEqual(
+            controller.list_teams(),
+            {
+                "teams": [
+                    {"team_id": "team_1", "team_name": "Team 1", "status": "running"},
+                    {"team_id": "team_2", "team_name": "Team 2", "status": "running"},
+                ]
+            },
+        )
+        controller.client.networks.list.assert_called_once()
+        for network in networks:
+            network.reload.assert_not_called()
+
+        for field, invalid in (
+            ("Internal", False),
+            ("Attachable", True),
+            ("Driver", "overlay"),
+            ("Name", "foreign"),
+            (local_app.SPACE_LABEL, "foreign"),
+            (local_app.TEAM_NAME_LABEL, ""),
+        ):
+            with self.subTest(field=field):
+                attrs = dict(networks[0].attrs)
+                attrs["Labels"] = dict(attrs["Labels"])
+                if field in (local_app.SPACE_LABEL, local_app.TEAM_NAME_LABEL):
+                    attrs["Labels"][field] = invalid
+                else:
+                    attrs[field] = invalid
+                controller.client.networks.list.return_value = [types.SimpleNamespace(attrs=attrs, reload=mock.Mock())]
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    controller.list_teams()
+                self.assertEqual(caught.exception.code, "ownership-conflict")
+
     def test_team_creation_covers_existing_cleanup_concurrency_and_success(self) -> None:
         controller = self.controller()
         existing = object()
