@@ -37,6 +37,7 @@ from test_local_controller_docker import DockerFlowTests
 
 SAMPLES = 12
 HOST_LIST_SAMPLES = 24
+ASSISTANT_AGE_CHECKPOINTS_SECONDS = (60, 300)
 TEAM_CREATE_SAMPLES = 48
 TEAM_LIST_SAMPLES = 48
 TEAM_LIST_COUNTS = (1, 9, 33)
@@ -587,18 +588,35 @@ def _measure_chat_block(
 
 
 def _measure_chat_inventory(
-    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool
+    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, chat_spans: bool, age_probe: bool
 ) -> dict[str, object]:
+    if age_probe and not chat_spans:
+        raise MeasurementError("Assistant age probe requires chat spans")
     none_initial = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=False)
     try:
         runner._exercise_assistant(flow)
     except AssertionError as exc:
         raise MeasurementError("reference Assistant installation contract failed") from exc
     _require_installed_assistant(runner, flow)
+    installed_at = time.monotonic()
     one_unselected = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True)
     _require_installed_assistant(runner, flow)
     one_selected = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True, selected=True)
     _require_installed_assistant(runner, flow)
+    aged_selected: dict[str, object] = {}
+    if age_probe:
+        initial_count = one_selected["host_list_probe"]["host_containers"]
+        for checkpoint in ASSISTANT_AGE_CHECKPOINTS_SECONDS:
+            time.sleep(max(0.0, checkpoint - (time.monotonic() - installed_at)))
+            _require_installed_assistant(runner, flow)
+            elapsed = time.monotonic() - installed_at
+            if elapsed < checkpoint:
+                raise MeasurementError("Assistant age checkpoint was not reached")
+            measured = _measure_chat_block(runner, flow, chat_spans=chat_spans, installed=True, selected=True)
+            if measured["host_list_probe"]["host_containers"] != initial_count:
+                raise MeasurementError("host Docker container population changed during Assistant age probe")
+            aged_selected[str(checkpoint)] = {"elapsed_since_install_seconds": round(elapsed, 2), **measured}
+            _require_installed_assistant(runner, flow)
     status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
     if status != 200 or body.get("uninstalled") is not True:
         raise MeasurementError("reference Assistant uninstall failed")
@@ -609,6 +627,7 @@ def _measure_chat_inventory(
         "none_initial": none_initial,
         "one_unselected": one_unselected,
         "one_selected": one_selected,
+        "aged_selected": aged_selected,
         "none_restored": none_restored,
     }
 
@@ -685,18 +704,19 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
     return results
 
 
-def _configured_runner() -> tuple[DockerFlowTests, bool]:
-    if sys.argv[1:] not in ([], ["--chat-spans"]):
-        raise SystemExit("usage: python -m perf.local_team_http [--chat-spans]")
-    chat_spans = sys.argv[1:] == ["--chat-spans"]
+def _configured_runner() -> tuple[DockerFlowTests, bool, bool]:
+    if sys.argv[1:] not in ([], ["--chat-spans"], ["--chat-spans", "--age-probe"]):
+        raise SystemExit("usage: python -m perf.local_team_http [--chat-spans [--age-probe]]")
+    chat_spans = "--chat-spans" in sys.argv[1:]
+    age_probe = "--age-probe" in sys.argv[1:]
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
     if chat_spans:
         runner.controller_extra_env = ("--env", "SHIMPZ_PERF_CHAT_SPANS=1")
-    return runner, chat_spans
+    return runner, chat_spans, age_probe
 
 
 def main() -> int:
-    runner, chat_spans = _configured_runner()
+    runner, chat_spans, age_probe = _configured_runner()
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
         flow = runner._new_flow()
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
@@ -715,7 +735,7 @@ def main() -> int:
             runner._prepare_images(flow)
             _start(runner, flow)
             samples = _measure(runner, flow)
-            chat_inventory = _measure_chat_inventory(runner, flow, chat_spans=chat_spans)
+            chat_inventory = _measure_chat_inventory(runner, flow, chat_spans=chat_spans, age_probe=age_probe)
             team_create = _measure_team_create(runner, flow)
             team_list = _measure_team_list(runner, flow)
             result["samples"] = samples
@@ -741,6 +761,8 @@ def main() -> int:
                 ),
                 chat_phase_resolution_ms=1,
                 chat_span_mode=chat_spans,
+                assistant_age_probe=age_probe,
+                assistant_age_checkpoints_seconds=ASSISTANT_AGE_CHECKPOINTS_SECONDS if age_probe else None,
                 host_list_probe_definition=(
                     "raw API (daemon, socket transport, JSON decode) versus full Docker SDK list in the harness "
                     "process outside the Team's 1-CPU cgroup, using the Team's five exact owned-Assistant filters; "
