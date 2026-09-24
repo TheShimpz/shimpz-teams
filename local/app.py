@@ -594,7 +594,7 @@ class LocalController:
         with self._lock(team_id):
             existing = self.assistant_lifecycle._network(team_id, required=False)
             if existing is not None:
-                existing_name = self.assistant_lifecycle._validate_network(existing, team_id)
+                existing_name = self.assistant_lifecycle._validate_network(existing, team_id, refresh=False)
                 if existing_name != team_name:
                     raise ApiProblem(
                         HTTPStatus.CONFLICT,
@@ -633,7 +633,7 @@ class LocalController:
                         "Docker could not create the Team",
                         code="docker-create-failed",
                     ) from exc
-                existing_name = self.assistant_lifecycle._validate_network(network, team_id)
+                existing_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
                 if existing_name != team_name:
                     raise ApiProblem(
                         HTTPStatus.CONFLICT,
@@ -641,7 +641,7 @@ class LocalController:
                         code="team-name-conflict",
                     ) from exc
                 return {"team_id": team_id, "team_name": team_name, "status": "running", "created": False}
-            self.assistant_lifecycle._validate_network(network, team_id)
+            self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
             return {"team_id": team_id, "team_name": team_name, "status": "running", "created": True}
 
     @staticmethod

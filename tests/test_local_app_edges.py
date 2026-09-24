@@ -10,7 +10,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from docker.errors import APIError, DockerException
+from docker.errors import APIError, DockerException, NotFound
 
 from action import human as action_human
 from inference import config as inference_config
@@ -240,7 +240,57 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         controller.assistant_lifecycle._validate_network.assert_called_with(
             network,
             "team_1",
+            refresh=False,
         )
+
+    def test_team_creation_reuses_inspected_network_in_each_branch(self) -> None:
+        for branch in ("existing", "concurrent", "new"):
+            with self.subTest(branch=branch):
+                controller = self.controller()
+                lifecycle = object.__new__(local_app.AssistantLifecycle)
+                lifecycle.client = controller.client
+                lifecycle.space_id = controller.space_id
+                controller.assistant_lifecycle = lifecycle
+                labels = lifecycle._base_labels("team_1", "team")
+                labels[local_app.TEAM_NAME_LABEL] = "Team"
+                network = types.SimpleNamespace(
+                    attrs={
+                        "Labels": labels,
+                        "Name": lifecycle._network_name("team_1"),
+                        "Driver": "bridge",
+                        "Internal": True,
+                        "Attachable": False,
+                    },
+                    reload=mock.Mock(),
+                )
+                if branch == "existing":
+                    controller.client.networks.get = mock.Mock(return_value=network)
+                else:
+                    controller.client.networks.get = mock.Mock(
+                        side_effect=(NotFound("missing"), network) if branch == "concurrent" else NotFound("missing")
+                    )
+                    controller.client.networks.create.return_value = network
+                    if branch == "concurrent":
+                        controller.client.networks.create.side_effect = APIError("conflict")
+                result = controller.create_team("team_1", "Team")
+                self.assertEqual(result["created"], branch == "new")
+                network.reload.assert_not_called()
+                self.assertEqual(controller.client.networks.get.call_count, 2 if branch == "concurrent" else 1)
+
+    def test_team_creation_rejects_invalid_network_from_create(self) -> None:
+        controller = self.controller()
+        lifecycle = object.__new__(local_app.AssistantLifecycle)
+        lifecycle.client = controller.client
+        lifecycle.space_id = controller.space_id
+        controller.assistant_lifecycle = lifecycle
+        controller.client.networks.get = mock.Mock(side_effect=NotFound("missing"))
+        controller.client.networks.create.return_value = types.SimpleNamespace(
+            attrs={"Name": lifecycle._network_name("team_1"), "Internal": False},
+            reload=mock.Mock(),
+        )
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.create_team("team_1", "Team")
+        self.assertEqual(caught.exception.code, "ownership-conflict")
 
     def test_storage_problem_mapping_and_file_operations_cover_all_families(self) -> None:
         cases = (
