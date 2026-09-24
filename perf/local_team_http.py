@@ -28,6 +28,8 @@ from test_local_controller_docker import BUILDKIT_IMAGE, DockerFlowTests
 
 SAMPLES = 12
 TEAM_CREATE_SAMPLES = 48
+TEAM_LIST_SAMPLES = 48
+TEAM_LIST_COUNTS = (1, 9, 33)
 PEER_DELAYS_MS = (0, 250)
 TEAM_MEMORY_MIB = 256
 TEAM_CPUS = 1
@@ -309,6 +311,40 @@ def _measure_team_create(runner: DockerFlowTests, flow: flow_fixture.DockerFlow)
     return {name: _percentiles(values) for name, values in samples.items()}
 
 
+def _sample_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, expected: dict[str, str]) -> float:
+    started = time.perf_counter_ns()
+    status, body = runner._api(flow.port, flow.token, "GET", "/v1/teams")
+    elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000
+    teams = [{"team_id": team_id, "team_name": expected[team_id], "status": "running"} for team_id in sorted(expected)]
+    if status != 200 or body.get("teams") != teams:
+        raise MeasurementError("Team listing returned a noncanonical result")
+    return elapsed_ms
+
+
+def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
+    expected = {"demo_team": "Demo Team"}
+    results: dict[str, object] = {}
+    for count in TEAM_LIST_COUNTS:
+        while len(expected) < count:
+            team_id = f"perf_list_{len(expected):02d}"
+            status, body = runner._api(
+                flow.port, flow.token, "POST", f"/v1/teams/{team_id}/create", {"team_name": "List Team"}
+            )
+            if status != 200 or body.get("created") is not True:
+                raise MeasurementError("measured Team listing setup failed")
+            expected[team_id] = "List Team"
+        for _ in range(2):
+            _sample_team_list(runner, flow, expected)
+        results[str(count)] = _percentiles(
+            [_sample_team_list(runner, flow, expected) for _ in range(TEAM_LIST_SAMPLES)]
+        )
+    for team_id in sorted(expected.keys() - {"demo_team"}):
+        status, body = runner._api(flow.port, flow.token, "DELETE", f"/v1/teams/{team_id}")
+        if status != 200 or not isinstance(body.get("residue_absent"), list):
+            raise MeasurementError("measured Team listing cleanup failed")
+    return results
+
+
 def main() -> int:
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
@@ -330,12 +366,14 @@ def main() -> int:
             _start(runner, flow)
             samples = _measure(runner, flow)
             team_create = _measure_team_create(runner, flow)
+            team_list = _measure_team_list(runner, flow)
             result["samples"] = samples
             result["team_create"] = team_create
+            result["team_list"] = team_list
             result.update(
                 status="complete",
                 scope=(
-                    "authenticated Local Team HTTP for intent routing and Team creation; "
+                    "authenticated Local Team HTTP for intent routing, Team creation, and Team listing (1/9/33); "
                     "deterministic Brain peer; excludes Admin, browser, provider"
                 ),
                 outside_peer_definition=(
