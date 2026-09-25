@@ -17,6 +17,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 from local.assistant.isolation import ASSISTANT_MEMORY, ASSISTANT_NANO_CPUS
 
@@ -27,10 +28,8 @@ from local_controller_docker_fixture import DockerFlow
 from test_local_controller_docker import DockerFlowTests
 
 from perf.local_snapshot_inventory import _percentiles
-from perf.local_team_http import _residue
+from perf.local_team_http import TEAM_CPUS, TEAM_MEMORY_MIB, _bounded_controller_run, _residue
 
-CONTROLLER_CPUS = 2
-CONTROLLER_MEMORY_MIB = 512
 SPAN_PREFIX = "SHIMPZ-PERF-"
 SPAN_NAMES = frozenset(
     {
@@ -99,9 +98,9 @@ def _installed_container(runner: DockerFlowTests, flow: DockerFlow) -> str:
 def _verify_controller_limits(runner: DockerFlowTests, flow: DockerFlow) -> None:
     metadata = json.loads(runner._run("inspect", flow.controller).stdout)[0]["HostConfig"]
     if (
-        metadata["NanoCpus"] != CONTROLLER_CPUS * 1_000_000_000
-        or metadata["Memory"] != CONTROLLER_MEMORY_MIB * 1_048_576
-        or metadata["MemorySwap"] != CONTROLLER_MEMORY_MIB * 1_048_576
+        metadata["NanoCpus"] != TEAM_CPUS * 1_000_000_000
+        or metadata["Memory"] != TEAM_MEMORY_MIB * 1_048_576
+        or metadata["MemorySwap"] != TEAM_MEMORY_MIB * 1_048_576
         or metadata["CpusetCpus"] != flow.test_cpuset
     ):
         raise MeasurementError("controller container limits do not match the workload")
@@ -320,6 +319,15 @@ def _runner(*, phase_spans: bool) -> DockerFlowTests:
     return runner
 
 
+def _start_bounded_controller(runner: DockerFlowTests, flow: DockerFlow) -> None:
+    bounded_run, changed = _bounded_controller_run(runner, flow)
+    with mock.patch.object(runner, "_run", side_effect=bounded_run):
+        runner._start_controller(flow)
+    if not changed[0]:
+        raise MeasurementError("Team fixture controller was not started")
+    _verify_controller_limits(runner, flow)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--samples", type=int, default=12, help="samples per cache arm")
@@ -344,8 +352,7 @@ def main() -> int:
         else:
             owns_names = True
             runner._prepare_images(flow)
-            runner._start_controller(flow)
-            _verify_controller_limits(runner, flow)
+            _start_bounded_controller(runner, flow)
             result.update(_measure(runner, flow, args.samples, phase_spans=args.phase_spans))
             result.update(
                 status="complete",
@@ -354,8 +361,8 @@ def main() -> int:
                     "real HTTP, registry, Docker and isolation"
                 ),
                 limits={
-                    "controller_cpus": CONTROLLER_CPUS,
-                    "controller_memory_mib": CONTROLLER_MEMORY_MIB,
+                    "controller_cpus": TEAM_CPUS,
+                    "controller_memory_mib": TEAM_MEMORY_MIB,
                     "assistant_cpus": ASSISTANT_NANO_CPUS / 1_000_000_000,
                     "assistant_memory_mib": ASSISTANT_MEMORY // 1_048_576,
                     "cpuset": flow.test_cpuset,
