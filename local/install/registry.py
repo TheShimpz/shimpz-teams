@@ -55,10 +55,8 @@ class AssistantRegistry:
     def binding(self, team_id: str, assistant_id: str) -> bindings.DynamicAssistantBinding | None:
         return self._store.get(team_id, assistant_id)
 
-    def get_versioned(self, team_id: str, assistant_id: str) -> tuple[AssistantSpec, str] | None:
-        binding = self._store.get(team_id, assistant_id)
-        if binding is None:
-            return None
+    @staticmethod
+    def versioned(binding: bindings.DynamicAssistantBinding) -> tuple[AssistantSpec, str]:
         value = binding.document.get("assistant_version")
         if not isinstance(value, str):
             raise bindings.DynamicAssistantError("Assistant binding has no valid version")

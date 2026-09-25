@@ -52,17 +52,20 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
                 "Docker is unavailable",
                 code="docker-unavailable",
             ) from exc
+        bindings_by_id = (
+            {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
+        )
         for container in containers:
-            labels = container.labels
+            labels = container.labels or {}
             assistant_id = labels.get(ASSISTANT_LABEL)
-            versioned = self.registry.get_versioned(team_id, assistant_id)
-            if versioned is None:
+            binding = bindings_by_id.get(assistant_id)
+            if binding is None:
                 raise ApiProblem(
                     HTTPStatus.CONFLICT,
                     "an installed Assistant is no longer allowlisted",
                     code="assistant-registry-drift",
                 )
-            spec, version = versioned
+            spec, version = self.registry.versioned(binding)
             config, environment = self.assistant_lifecycle._validate_container_profile(
                 container,
                 team_id,

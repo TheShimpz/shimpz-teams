@@ -8,6 +8,7 @@ import json
 import ssl
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
@@ -17,6 +18,7 @@ from install.bindings import DynamicAssistantError, DynamicAssistantStore, bindi
 from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from local import app as local_app
+from local.assistant import api as assistant_api
 from local.assistant import resources as local_resources
 from local.chat import state as local_chat_state
 from local.install.developers import (
@@ -188,29 +190,17 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},
             )
 
-    def test_registry_reads_a_versioned_runtime_from_one_binding_snapshot(self) -> None:
+    def test_registry_requires_a_string_version_before_runtime_conversion(self) -> None:
         resolution = _runtime_resolution()
         binding = binding_from_resolution("team_1", resolution)
-        store = mock.Mock()
-        store.get.return_value = binding
-        registry = AssistantRegistry(store)
 
         self.assertEqual(
-            registry.get_versioned("team_1", binding.assistant_id),
-            (registry.spec(binding), resolution["assistant_version"]),
+            AssistantRegistry.versioned(binding),
+            (AssistantRegistry.spec(binding), resolution["assistant_version"]),
         )
-        store.get.assert_called_once_with("team_1", binding.assistant_id)
 
-        store.reset_mock()
-        store.get.return_value = None
-        self.assertIsNone(registry.get_versioned("team_1", binding.assistant_id))
-        store.get.assert_called_once_with("team_1", binding.assistant_id)
-
-        store.reset_mock()
-        store.get.return_value = SimpleNamespace(document={"assistant_version": 1})
         with self.assertRaisesRegex(DynamicAssistantError, "valid version"):
-            registry.get_versioned("team_1", binding.assistant_id)
-        store.get.assert_called_once_with("team_1", binding.assistant_id)
+            AssistantRegistry.versioned(SimpleNamespace(document={"assistant_version": 1}))
 
     def test_chat_inventory_reads_and_validates_the_registry_once_for_four_assistants(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -269,6 +259,73 @@ class LocalPublicationInstallTests(unittest.TestCase):
             lifecycle.client.containers.list.return_value = []
             with mock.patch.object(store, "_read", wraps=store._read) as read:
                 self.assertEqual(local_chat_state._active_chat_assistants(subject, "team_1", "network"), ())
+            read.assert_not_called()
+
+    def test_installed_inventory_uses_one_team_scoped_registry_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            containers = []
+            for index in range(4):
+                resolution = _runtime_resolution()
+                resolution["assistant_id"] = f"helper-{index}"
+                store.put("team_1", resolution)
+                containers.append(
+                    SimpleNamespace(
+                        labels={local_app.ASSISTANT_LABEL: resolution["assistant_id"]},
+                        status="running",
+                    )
+                )
+            foreign = _runtime_resolution()
+            foreign["assistant_id"] = "helper-0"
+            foreign["assistant_version"] = "9.9.9"
+            store.put("team_2", foreign)
+            order = []
+
+            def list_containers(**_kwargs):
+                order.append("docker")
+                return containers
+
+            read_registry = store._read
+
+            def read_bindings():
+                order.append("registry")
+                return read_registry()
+
+            lifecycle = SimpleNamespace(
+                _network=lambda _team_id: object(),
+                _assistant_filters=lambda _team_id: {},
+                _network_name=lambda _team_id: "network",
+                _validate_container_profile=mock.Mock(return_value=(object(), {})),
+                _validate_container_egress=mock.Mock(),
+                _has_current_assistant_artifact=lambda *_args: False,
+            )
+            controller = SimpleNamespace(
+                _lock=lambda _team_id: nullcontext(),
+                assistant_lifecycle=lifecycle,
+                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
+                registry=AssistantRegistry(store),
+            )
+
+            with mock.patch.object(store, "_read", side_effect=read_bindings) as read:
+                result = assistant_api.list_assistants(controller, "team_1")
+
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(order, ["docker", "registry"])
+            self.assertEqual(
+                tuple(item["assistant"] for item in result["assistants"]),
+                tuple(f"helper-{i}" for i in range(4)),
+            )
+            self.assertEqual(
+                {item["assistant_version"] for item in result["assistants"]},
+                {RESOLUTION["assistant_version"]},
+            )
+            self.assertEqual(lifecycle._validate_container_profile.call_count, 4)
+            self.assertEqual(lifecycle._validate_container_egress.call_count, 4)
+
+            controller.client.containers.list.side_effect = None
+            controller.client.containers.list.return_value = []
+            with mock.patch.object(store, "_read", wraps=store._read) as read:
+                self.assertEqual(assistant_api.list_assistants(controller, "team_1"), {"assistants": []})
             read.assert_not_called()
 
     def test_catalog_selects_the_latest_bound_publication(self) -> None:

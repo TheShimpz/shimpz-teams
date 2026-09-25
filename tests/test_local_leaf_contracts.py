@@ -191,7 +191,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _lock=lambda _team_id: nullcontext(),
             assistant_lifecycle=lifecycle,
             client=types.SimpleNamespace(containers=types.SimpleNamespace(list=mock.Mock())),
-            registry=types.SimpleNamespace(get_versioned=mock.Mock()),
+            registry=types.SimpleNamespace(team_bindings=mock.Mock(return_value=()), versioned=mock.Mock()),
         )
         controller.client.containers.list.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
@@ -200,11 +200,11 @@ class LocalLeafContractTests(unittest.TestCase):
         container = types.SimpleNamespace(labels={assistant_api.ASSISTANT_LABEL: "helper"}, status="running")
         controller.client.containers.list.side_effect = None
         controller.client.containers.list.return_value = [container]
-        controller.registry.get_versioned.return_value = None
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
             assistant_api.list_assistants(controller, "team_1")
 
-        controller.registry.get_versioned.return_value = (types.SimpleNamespace(provenance="published"), "0.1.0")
+        controller.registry.team_bindings.return_value = (types.SimpleNamespace(assistant_id="helper"),)
+        controller.registry.versioned.return_value = (types.SimpleNamespace(provenance="published"), "0.1.0")
         lifecycle._validate_container_egress = mock.Mock(
             side_effect=ApiProblemError(409, "unexpected egress failure", code="unexpected")
         )
@@ -225,6 +225,11 @@ class LocalLeafContractTests(unittest.TestCase):
                 ]
             },
         )
+
+        container.labels = None
+        with self.assertRaises(ApiProblemError) as caught:
+            assistant_api.list_assistants(controller, "team_1")
+        self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
     def test_assistant_rpc_maps_absence_encoding_and_readiness_states(self) -> None:
         missing = mock.Mock()

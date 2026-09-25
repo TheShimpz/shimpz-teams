@@ -49,9 +49,9 @@ class TestAssistantRegistry(dict):
     def binding(self, _team_id, assistant_id):
         return None
 
-    def get_versioned(self, _team_id, assistant_id):
-        spec = super().get(assistant_id)
-        return None if spec is None else (spec, TEST_ASSISTANT_VERSION)
+    @staticmethod
+    def versioned(binding):
+        return binding, TEST_ASSISTANT_VERSION
 
     def team_bindings(self, _team_id):
         return tuple(self.values())
