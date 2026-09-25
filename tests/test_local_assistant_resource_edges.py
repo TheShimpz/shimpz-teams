@@ -165,11 +165,27 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.images.get.return_value = image
 
         self.assertIs(resources._staged_image(controller, spec), image)
+        controller.client.images.get.assert_called_once_with(spec.image)
         controller.client.images.pull.assert_not_called()
+        image.reload.assert_not_called()
 
-        image.attrs["RepoTags"] = ["attacker/latest"]
+        for key, invalid in (
+            ("Id", "sha256:" + ("b" * 64)),
+            ("Architecture", "arm64"),
+            ("RepoDigests", ["registry/image@sha256:digest"]),
+            ("RepoTags", ["attacker/latest"]),
+        ):
+            with self.subTest(field=key):
+                original = image.attrs[key]
+                image.attrs[key] = invalid
+                with self.assertRaisesRegex(ApiProblemError, "does not match"):
+                    resources._staged_image(controller, spec)
+                image.attrs[key] = original
+        image.attrs["Config"]["Labels"]["local"] = "wrong"
         with self.assertRaisesRegex(ApiProblemError, "does not match"):
             resources._staged_image(controller, spec)
+        image.attrs["Config"]["Labels"]["local"] = "assistant-v1"
+
         controller.client.images.get.side_effect = ImageNotFound("missing")
         with self.assertRaisesRegex(ApiProblemError, "no longer available"):
             resources._staged_image(controller, spec)

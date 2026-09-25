@@ -159,7 +159,6 @@ def _staged_image(self, spec: AssistantSpec):
         )
     try:
         image = self.client.images.get(spec.image)
-        image.reload()
     except ImageNotFound as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
