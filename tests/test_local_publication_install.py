@@ -182,9 +182,13 @@ class LocalPublicationInstallTests(unittest.TestCase):
             )
             self.assertEqual(second, first)
             self.assertEqual(registry.get("team_1", first.assistant_id), first)
-            self.assertEqual(registry.list("team_2"), (second,))
+            self.assertEqual(registry.get("team_2", first.assistant_id), second)
+            self.assertEqual(
+                tuple((binding.team_id, binding.assistant_id) for binding in registry.team_bindings("team_2")),
+                (("team_2", first.assistant_id),),
+            )
             self.assertIsNone(registry.get("team_3", first.assistant_id))
-            self.assertEqual(registry.list("team_3"), ())
+            self.assertEqual(registry.team_bindings("team_3"), ())
             self.assertEqual(
                 registry.identities(),
                 {("team_1", first.assistant_id), ("team_2", first.assistant_id)},

@@ -110,9 +110,6 @@ class AssistantRegistry:
     def spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
         return _spec(binding)
 
-    def list(self, team_id: str) -> tuple[AssistantSpec, ...]:
-        return tuple(_spec(binding) for binding in self._store.list(team_id))
-
     def team_bindings(self, team_id: str) -> tuple[bindings.DynamicAssistantBinding, ...]:
         return self._store.list(team_id)
 
