@@ -30,7 +30,7 @@ class Subject:
             return_value=(SimpleNamespace(spec=self.spec),),
         )
         self.inference_store = SimpleNamespace(
-            load=mock.Mock(return_value=inference_config.InferenceConfig("openai", "gpt-5.6-terra")),
+            load=mock.Mock(return_value=inference_config.InferenceConfig("openai", "gpt-6-sol")),
         )
         self.brain_runtime = SimpleNamespace(
             action_labels=mock.Mock(
@@ -75,7 +75,7 @@ class LocalActionLabelTests(unittest.TestCase):
         )
         subject.brain_runtime.action_labels.assert_called_once_with(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key="private-model-key",
             language_exemplar="Quero listar minhas zonas DNS",
             action_ids=("get-zone", "list-zones"),
@@ -89,14 +89,14 @@ class LocalActionLabelTests(unittest.TestCase):
             "0.4.4",
             ("get-zone", "list-zones"),
             "openai",
-            "gpt-5.6-terra",
+            "gpt-6-sol",
         )
         after = capabilities.ActionLabelSnapshot(
             "network-generation-1",
             "0.4.5",
             ("get-zone", "list-zones"),
             "openai",
-            "gpt-5.6-terra",
+            "gpt-6-sol",
         )
         subject._action_label_snapshot = mock.Mock(side_effect=(before, after))
 

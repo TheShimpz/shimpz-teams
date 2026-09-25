@@ -369,7 +369,9 @@ class HostedChatLifecycleTests(unittest.TestCase):
             id=ANCHOR_ID,
             labels={"team.name": "Marketing", "team.owner": "account_1"},
         )
-        store = types.SimpleNamespace(load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-5.5"))
+        store = types.SimpleNamespace(
+            load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-6-luna")
+        )
 
         def require_current(owner: str, provider: str, generation: int, _session=None) -> None:
             checks.append((owner, provider, generation))

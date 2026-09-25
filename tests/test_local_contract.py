@@ -436,12 +436,12 @@ class LocalContractTests(LocalContractCase):
 
             configured = controller.configure_inference(
                 "team_1",
-                {"provider": "openai", "model": "gpt-5.5"},
+                {"provider": "openai", "model": "gpt-6-luna"},
             )
 
             self.assertEqual(
                 configured,
-                {"team_id": "team_1", "provider": "openai", "model": "gpt-5.5"},
+                {"team_id": "team_1", "provider": "openai", "model": "gpt-6-luna"},
             )
             self.assertEqual(controller.inference_status("team_1"), configured)
             stored = next((Path(directory) / "inference").iterdir()).read_text(encoding="utf-8")
@@ -449,7 +449,7 @@ class LocalContractTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem):
                 controller.configure_inference(
                     "team_1",
-                    {"provider": "openai", "model": "gpt-5.5", "api_key": "never"},
+                    {"provider": "openai", "model": "gpt-6-luna", "api_key": "never"},
                 )
 
     def test_private_model_headers_are_closed_and_never_echoed(self) -> None:

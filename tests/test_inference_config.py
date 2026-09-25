@@ -20,7 +20,7 @@ class InferenceConfigTests(unittest.TestCase):
         config = inference_config.normalize()
 
         self.assertEqual(config.provider, "openai")
-        self.assertEqual(config.model, "gpt-5.6-terra")
+        self.assertEqual(config.model, "gpt-6-sol")
         self.assertNotIn("image", inference_config.PROVIDERS[config.provider])
 
     def test_exact_provider_catalog_is_accepted(self):
@@ -52,7 +52,7 @@ class InferenceConfigTests(unittest.TestCase):
         self.assertNotIn(b"api_key", files[0].read_bytes())
 
     def test_replace_is_atomic_and_delete_is_idempotent(self):
-        self.store.save("team_1", inference_config.normalize("openai", "gpt-5.5"))
+        self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
         self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5"))
 
         self.assertEqual(self.store.load("team_1").provider, "anthropic")
@@ -68,7 +68,7 @@ class InferenceConfigTests(unittest.TestCase):
         for provider, model in (
             ("openai", "gpt-999"),
             ("openai", "claude-sonnet-5"),
-            ("anthropic", "gpt-5.6-terra"),
+            ("anthropic", "gpt-6-sol"),
             ("openai", "../../model"),
         ):
             with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
@@ -93,6 +93,36 @@ class InferenceConfigTests(unittest.TestCase):
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.load("team_1")
 
+    def test_persisted_retired_model_loads_as_its_catalog_successor(self):
+        self.root.mkdir(parents=True)
+        for (provider, retired), successor in inference_config.RETIRED_MODELS.items():
+            with self.subTest(provider=provider, model=retired):
+                self.assertIn(successor, inference_config.PROVIDERS[provider]["models"])
+                with self.assertRaises(inference_config.InferenceConfigError):
+                    inference_config.normalize(provider, retired)
+                self.store._path("team_1").write_text(
+                    json.dumps(
+                        {
+                            "schema": inference_config.SCHEMA,
+                            "team_id": "team_1",
+                            "provider": provider,
+                            "model": retired,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertEqual(
+                    self.store.load("team_1"), inference_config.InferenceConfig(provider=provider, model=successor)
+                )
+        self.store._path("team_1").write_text(
+            json.dumps(
+                {"schema": inference_config.SCHEMA, "team_id": "team_1", "provider": "anthropic", "model": "gpt-5.5"}
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(inference_config.InferenceConfigError):
+            self.store.load("team_1")
+
     def test_malformed_and_cross_team_persisted_metadata_fails_closed(self) -> None:
         self.root.mkdir(parents=True)
         target = self.store._path("team_1")
@@ -106,7 +136,7 @@ class InferenceConfigTests(unittest.TestCase):
                     "schema": inference_config.SCHEMA + 1,
                     "team_id": "team_1",
                     "provider": "openai",
-                    "model": "gpt-5.6-terra",
+                    "model": "gpt-6-sol",
                 }
             ).encode(),
             json.dumps(
@@ -114,7 +144,7 @@ class InferenceConfigTests(unittest.TestCase):
                     "schema": inference_config.SCHEMA,
                     "team_id": "team_2",
                     "provider": "openai",
-                    "model": "gpt-5.6-terra",
+                    "model": "gpt-6-sol",
                 }
             ).encode(),
         ):

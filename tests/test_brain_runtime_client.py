@@ -195,7 +195,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         labels = client.action_labels(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             language_exemplar="Quero listar minhas zonas DNS",
             action_ids=("list-zones", "get-zone"),
@@ -214,7 +214,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(
             json.loads(raw_body),
             {
-                "provider": {"provider": "openai", "model": "gpt-5.6-terra", "api_key": self.secret},
+                "provider": {"provider": "openai", "model": "gpt-6-sol", "api_key": self.secret},
                 "language_exemplar": "Quero listar minhas zonas DNS",
                 "actions": ["list-zones", "get-zone"],
             },
@@ -232,7 +232,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         plan = client.capability_plan(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             objective="Configure example.com and send the result by WhatsApp.",
             candidates=capability_candidates(),
@@ -277,7 +277,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 client, _connection = self.client(_Response(payload))
                 client.capability_plan(
                     provider="openai",
-                    model="gpt-5.6-terra",
+                    model="gpt-6-sol",
                     api_key=self.secret,
                     objective="Configure DNS.",
                     candidates=capability_candidates(),
@@ -316,7 +316,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.capability_plan(
                         provider="openai",
-                        model="gpt-5.6-terra",
+                        model="gpt-6-sol",
                         api_key=self.secret,
                         objective="Configure DNS.",
                         candidates=candidates,
@@ -327,7 +327,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.capability_plan(
                 provider="invalid",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="Configure DNS.",
                 candidates=capability_candidates(),
@@ -350,7 +350,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         route = client.intent_route(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             objective="tire o cloudflare",
             expected_intent="assistant-uninstall",
@@ -388,7 +388,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="liste minhas zonas",
                 expected_intent=None,
@@ -415,7 +415,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         self.assertEqual(
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="remove it",
                 expected_intent="assistant-uninstall",
@@ -437,7 +437,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="liste minhas zonas",
                 expected_intent=None,
@@ -459,7 +459,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         route = client.intent_route(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             objective="desinstala esse então",
             expected_intent=None,
@@ -499,7 +499,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
 
         route = client.intent_route(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             objective="desinstale desconhecido",
             expected_intent="assistant-uninstall",
@@ -519,7 +519,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         )
         route = client.intent_route(
             provider="openai",
-            model="gpt-5.6-terra",
+            model="gpt-6-sol",
             api_key=self.secret,
             objective="désinstalle",
             expected_intent="assistant-uninstall",
@@ -538,7 +538,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
             with self.subTest(separator=separator), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 client.intent_route(
                     provider="openai",
-                    model="gpt-5.6-terra",
+                    model="gpt-6-sol",
                     api_key=self.secret,
                     objective="désinstalle",
                     expected_intent="assistant-uninstall",
@@ -577,7 +577,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 client, _connection = self.client(_Response(payload))
                 client.intent_route(
                     provider="openai",
-                    model="gpt-5.6-terra",
+                    model="gpt-6-sol",
                     api_key=self.secret,
                     objective="install cloudflare",
                     expected_intent="assistant-install",
@@ -609,7 +609,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.intent_route(
                         provider="openai",
-                        model="gpt-5.6-terra",
+                        model="gpt-6-sol",
                         api_key=self.secret,
                         objective="lifecycle objective",
                         expected_intent=expected,
@@ -633,7 +633,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 client, _connection = self.client(_Response(payload))
                 client.intent_route(
                     provider="openai",
-                    model="gpt-5.6-terra",
+                    model="gpt-6-sol",
                     api_key=self.secret,
                     objective="hello",
                     expected_intent=None,
@@ -666,7 +666,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.intent_route(
                         provider="openai",
-                        model="gpt-5.6-terra",
+                        model="gpt-6-sol",
                         api_key=self.secret,
                         objective="hello",
                         expected_intent=None,
@@ -684,7 +684,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         ):
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="hello",
                 expected_intent=None,
@@ -701,7 +701,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="install",
                 expected_intent="assistant-install",
@@ -714,7 +714,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
                 provider="invalid",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="hello",
                 expected_intent=None,
@@ -727,7 +727,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 objective="remove it",
                 expected_intent="assistant-uninstall",
@@ -772,7 +772,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 client, _connection = self.client(_Response(payload))
                 client.action_labels(
                     provider="openai",
-                    model="gpt-5.6-terra",
+                    model="gpt-6-sol",
                     api_key=self.secret,
                     language_exemplar="Liste minhas zonas",
                     action_ids=("list-zones", "get-zone"),
@@ -788,7 +788,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.action_labels(
                 provider="openai",
-                model="gpt-5.6-terra",
+                model="gpt-6-sol",
                 api_key=self.secret,
                 language_exemplar="Liste minhas zonas",
                 action_ids=("list-zones", "get-zone"),
@@ -810,7 +810,7 @@ class BrainRuntimeClientTests(unittest.TestCase):
                 client, connection = self.client(_Response(valid))
                 request = {
                     "provider": "openai",
-                    "model": "gpt-5.6-terra",
+                    "model": "gpt-6-sol",
                     "api_key": self.secret,
                     "language_exemplar": "Liste minhas zonas",
                     "action_ids": ("list-zones", "get-zone"),

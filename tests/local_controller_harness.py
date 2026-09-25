@@ -86,7 +86,7 @@ class LocalContractCase(unittest.TestCase):
         controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
         controller.inference_store.save(
             "team_1",
-            inference_config.normalize("openai", "gpt-5.5"),
+            inference_config.normalize("openai", "gpt-6-luna"),
         )
         controller.brain_runtime = runtime
         controller.action_state = local_app.action_journal.ActionJournal(

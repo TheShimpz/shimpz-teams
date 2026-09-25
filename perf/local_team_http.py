@@ -174,7 +174,7 @@ def _start(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> None:
         flow.token,
         "PUT",
         "/v1/teams/demo_team/inference",
-        {"provider": "openai", "model": "gpt-5.6-terra"},
+        {"provider": "openai", "model": "gpt-6-sol"},
     )
     if status != 200:
         raise MeasurementError("disposable Team inference setup failed")

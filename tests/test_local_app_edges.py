@@ -141,7 +141,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         )
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),
-            load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-5.5")),
+            load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-6-luna")),
             save=mock.Mock(),
         )
         controller.client = types.SimpleNamespace(
@@ -389,7 +389,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.configure_inference(
                 "team_1",
-                {"provider": "openai", "model": "gpt-5.5"},
+                {"provider": "openai", "model": "gpt-6-luna"},
             )
         self.assertEqual(caught.exception.code, "inference-store-failed")
 

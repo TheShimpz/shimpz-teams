@@ -56,7 +56,7 @@ def pending(image: str = IMAGE) -> local_chat_continuations.PendingLocalChat:
                     "size": 42,
                 }
             ],
-            inference_config.normalize("openai", "gpt-5.5"),
+            inference_config.normalize("openai", "gpt-6-luna"),
         ),
     )
 
