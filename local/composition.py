@@ -15,7 +15,6 @@ class AssistantLifecycleDependencies:
     cpuset_cpus: str | None = None
     lock_for: object | None = None
     invoke: object | None = None
-    list_assistants: object | None = None
     developers: object | None = None
     artifact_trust: object | None = None
     updates: object | None = None

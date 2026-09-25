@@ -132,15 +132,6 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: "Marketing"
         controller.assistant_lifecycle._assistant_container = lambda _team_id, _assistant: container
         controller.assistant_lifecycle._validate_container = lambda *_args: None
-        controller.assistant_lifecycle.list_assistants = lambda _team_id: {
-            "assistants": [
-                {
-                    "assistant": "shimpz-cloudflare",
-                    "assistant_version": TEST_ASSISTANT_VERSION,
-                    "status": "running",
-                }
-            ]
-        }
         controller.chat_turn_service._active_chat_assistants = lambda _team_id, _network: (
             ActiveAssistant(controller.registry["shimpz-cloudflare"], container.id, container),
         )

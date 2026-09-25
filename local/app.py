@@ -128,7 +128,6 @@ class AssistantLifecycle:
         self.cpuset_cpus = dependencies.cpuset_cpus
         self._lock = dependencies.lock_for
         self.invoke = dependencies.invoke
-        self.list_assistants = dependencies.list_assistants
         self.developers = dependencies.developers
         self.artifact_trust = dependencies.artifact_trust
         self.updates = dependencies.updates
@@ -510,7 +509,6 @@ class LocalController:
                 cpuset_cpus=getattr(self, "cpuset_cpus", None),
                 lock_for=self._lock,
                 invoke=self.invoke,
-                list_assistants=self.list_assistants,
                 developers=getattr(self, "developers", None),
                 artifact_trust=getattr(self, "artifact_trust", None),
                 updates=getattr(self, "assistant_updates", None),
