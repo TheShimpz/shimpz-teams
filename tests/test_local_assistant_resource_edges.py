@@ -21,7 +21,11 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
             _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
             _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
             _labels_include=lambda actual, expected: all(actual.get(key) == value for key, value in expected.items()),
-            registry=types.SimpleNamespace(get=mock.Mock()),
+            registry=types.SimpleNamespace(
+                get=mock.Mock(),
+                team_bindings=mock.Mock(return_value=()),
+                spec=mock.Mock(),
+            ),
             client=types.SimpleNamespace(
                 containers=types.SimpleNamespace(get=mock.Mock(), list=mock.Mock()),
                 images=types.SimpleNamespace(get=mock.Mock(), pull=mock.Mock()),
@@ -48,18 +52,17 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.containers.list.side_effect = None
         missing = types.SimpleNamespace(labels={}, name="unknown", status="running")
         controller.client.containers.list.return_value = [missing]
-        controller.registry.get.return_value = None
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
             resources._assistant_ids(controller, "team_1")
 
-        spec = types.SimpleNamespace(assistant_id="helper")
+        binding = types.SimpleNamespace(assistant_id="helper")
         invalid = types.SimpleNamespace(
             labels={resources.ASSISTANT_LABEL: "helper"},
             name="wrong",
             status="running",
         )
         controller.client.containers.list.return_value = [invalid]
-        controller.registry.get.return_value = spec
+        controller.registry.team_bindings.return_value = (binding,)
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
             resources._assistant_ids(controller, "team_1")
 
@@ -67,6 +70,10 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         stopped = types.SimpleNamespace(labels=labels, name="team_1-helper", status="exited")
         controller.client.containers.list.return_value = [stopped]
         self.assertEqual(resources._assistant_ids(controller, "team_1", running_only=True), ())
+        controller.registry.team_bindings.return_value = ()
+        with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
+            resources._assistant_ids(controller, "team_1", running_only=True)
+        controller.registry.team_bindings.return_value = (binding,)
 
         duplicate = types.SimpleNamespace(labels=labels, name="team_1-helper", status="running")
         controller.client.containers.list.return_value = [duplicate, duplicate]

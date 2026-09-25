@@ -62,18 +62,23 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
             "Docker is unavailable",
             code="docker-unavailable",
         ) from exc
+    bindings_by_id = (
+        {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
+    )
     seen: set[str] = set()
     assistant_ids: list[str] = []
     for container in containers:
         labels = container.labels
         assistant_id = labels.get(ASSISTANT_LABEL) if isinstance(labels, dict) else None
-        spec = self.registry.get(team_id, assistant_id) if isinstance(assistant_id, str) else None
-        if spec is None:
+        binding = bindings_by_id.get(assistant_id) if isinstance(assistant_id, str) else None
+        if binding is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "an installed Assistant is no longer allowlisted",
                 code="assistant-registry-drift",
             )
+        # Identity-only callers still require the binding's runtime contract to validate.
+        self.registry.spec(binding)
         expected_labels = self._base_labels(team_id, "assistant")
         expected_labels[ASSISTANT_LABEL] = assistant_id
         if (

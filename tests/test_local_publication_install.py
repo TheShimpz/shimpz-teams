@@ -21,6 +21,8 @@ from local import app as local_app
 from local.assistant import api as assistant_api
 from local.assistant import resources as local_resources
 from local.chat import state as local_chat_state
+from local.errors import ApiProblemError
+from local.install import registry as local_registry
 from local.install.developers import (
     DevelopersClient,
     DevelopersError,
@@ -264,6 +266,87 @@ class LocalPublicationInstallTests(unittest.TestCase):
             with mock.patch.object(store, "_read", wraps=store._read) as read:
                 self.assertEqual(local_chat_state._active_chat_assistants(subject, "team_1", "network"), ())
             read.assert_not_called()
+
+    def test_identity_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            containers = []
+            for index in range(4):
+                resolution = _runtime_resolution()
+                resolution["assistant_id"] = f"helper-{index}"
+                store.put("team_1", resolution)
+                labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
+                containers.append(
+                    SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running")
+                )
+            foreign = _runtime_resolution()
+            foreign["assistant_id"] = "helper-0"
+            foreign["name"] = "Foreign Assistant"
+            store.put("team_2", foreign)
+            foreign_only = _runtime_resolution()
+            foreign_only["assistant_id"] = "foreign-only"
+            store.put("team_2", foreign_only)
+            order = []
+
+            def list_containers(**_kwargs):
+                order.append("docker")
+                return containers
+
+            read_registry = store._read
+
+            def read_bindings():
+                order.append("registry")
+                return read_registry()
+
+            lifecycle = SimpleNamespace(
+                _network=lambda _team_id: object(),
+                _assistant_filters=lambda _team_id: {},
+                _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
+                _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
+                _labels_include=lambda actual, expected: all(
+                    actual.get(key) == value for key, value in expected.items()
+                ),
+                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
+                registry=AssistantRegistry(store),
+            )
+
+            with (
+                mock.patch.object(store, "_read", side_effect=read_bindings) as read,
+                mock.patch.object(local_registry, "_spec", wraps=local_registry._spec) as convert,
+            ):
+                actual = local_resources._assistant_ids(lifecycle, "team_1")
+
+            self.assertEqual(actual, tuple(f"helper-{index}" for index in range(4)))
+            self.assertEqual(order, ["docker", "registry"])
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(convert.call_count, 4)
+            self.assertTrue(all(call.args[0].team_id == "team_1" for call in convert.call_args_list))
+            self.assertEqual(convert.call_args_list[0].args[0].document["name"], RESOLUTION["name"])
+
+            containers.clear()
+            with mock.patch.object(store, "_read", wraps=store._read) as read:
+                self.assertEqual(local_resources._assistant_ids(lifecycle, "team_1"), ())
+            read.assert_not_called()
+
+            containers.append(
+                SimpleNamespace(
+                    labels={
+                        "team": "team_1",
+                        "kind": "assistant",
+                        local_app.ASSISTANT_LABEL: "foreign-only",
+                    },
+                    name="team_1-foreign-only",
+                    status="running",
+                )
+            )
+            with self.assertRaises(ApiProblemError) as caught:
+                local_resources._assistant_ids(lifecycle, "team_1")
+            self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
+
+            containers[0].labels[local_app.ASSISTANT_LABEL] = "Bad_Id"
+            with self.assertRaises(ApiProblemError) as caught:
+                local_resources._assistant_ids(lifecycle, "team_1")
+            self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
 
     def test_installed_inventory_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
