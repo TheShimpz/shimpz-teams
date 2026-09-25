@@ -186,6 +186,10 @@ class HostedCheckHarness:
         self.calls["registry.validate"] += 1
         return self.spec
 
+    def _network_members_valid(self, *_args, **_kwargs) -> bool:
+        self.calls["policy.members-scan"] += 1
+        return True
+
     def run(self) -> tuple[object, ...]:
         engine = types.SimpleNamespace(
             containers=types.SimpleNamespace(get=self._container),
@@ -221,7 +225,7 @@ class HostedCheckHarness:
                 runtime_identity_valid=lambda attrs, _team_id: (
                     attrs.get("Config", {}).get("Labels", {}).get("team.runtime") == "1"
                 ),
-                network_members_valid=lambda *_args, **_kwargs: True,
+                network_members_valid=self._network_members_valid,
                 workload_endpoint_valid=lambda *_args: True,
                 workload_live_membership_valid=lambda *_args: True,
                 workload_security_valid=lambda *_args, **_kwargs: True,
@@ -250,6 +254,7 @@ class HostedChatEfficiencyContractTests(unittest.TestCase):
         self.assertEqual(harness.calls["docker.images.get"], 1 + assistants)
         self.assertEqual(harness.calls["docker.networks.get"], 1)
         self.assertEqual(harness.calls["network.reload"], 1)
+        self.assertEqual(harness.calls["policy.members-scan"], 2)
         self.assertEqual(
             sum(
                 value for name, value in harness.calls.items() if name.startswith(("docker.", "container.", "network."))
@@ -272,6 +277,7 @@ class HostedChatEfficiencyContractTests(unittest.TestCase):
             "docker.images.get",
             "docker.networks.get",
             "network.reload",
+            "policy.members-scan",
             "registry.read",
             "egress.file-read",
             "sqlite.query",

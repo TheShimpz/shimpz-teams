@@ -12,6 +12,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_network_policy import TEAM_ID as POLICY_TEAM_ID
+from test_network_policy import _valid_topology
 
 resources = harness.hosted_resources
 state = harness.runtime_state
@@ -146,6 +148,77 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
                 require_runtime=True,
                 require_dependencies=True,
             )
+
+    def test_network_policy_memo_reuses_only_matching_evidence(self) -> None:
+        network = _network(attrs={"Containers": {}})
+        memo = {}
+        with (
+            mock.patch.object(resources, "_network_container_metadata", return_value={}),
+            mock.patch.object(resources.network_policy, "network_members_valid", return_value=True) as scan,
+        ):
+
+            def check(runtime: bool, dependencies: bool, evidence: dict | None) -> None:
+                resources._require_network_policy(
+                    network,
+                    TEAM_ID,
+                    resources.network_policy.CORE_KIND,
+                    require_runtime=runtime,
+                    require_dependencies=dependencies,
+                    inspect_memo=evidence,
+                )
+
+            check(False, False, memo)
+            check(False, False, memo)
+            self.assertEqual(scan.call_count, 1)
+            check(True, False, memo)
+            check(True, True, memo)
+            self.assertEqual(scan.call_count, 3)
+            check(True, True, {})
+            check(True, True, None)
+            check(True, True, None)
+            self.assertEqual(scan.call_count, 6)
+            network.attrs = {"Containers": {}}
+            check(True, True, memo)
+            self.assertEqual(scan.call_count, 7)
+
+        with (
+            mock.patch.object(resources, "_network_container_metadata", return_value={}),
+            mock.patch.object(resources.network_policy, "network_members_valid", side_effect=(False, True)) as scan,
+        ):
+            retry_memo = {}
+            with self.assertRaises(state.ApiError):
+                check(False, False, retry_memo)
+            check(False, False, retry_memo)
+            self.assertEqual(scan.call_count, 2)
+
+    def test_network_policy_memo_cannot_promote_missing_required_roles(self) -> None:
+        for missing, first, second in (
+            ("runtime-id", (False, True), (True, True)),
+            ("postgres-id", (True, False), (True, True)),
+        ):
+            with self.subTest(missing=missing):
+                metadata, containers = _valid_topology()
+                del metadata["Containers"][missing]
+                network = _network(id=metadata["Id"], attrs=metadata)
+                memo = {}
+                with mock.patch.object(resources, "_network_container_metadata", return_value=containers):
+                    resources._require_network_policy(
+                        network,
+                        POLICY_TEAM_ID,
+                        resources.network_policy.CORE_KIND,
+                        require_runtime=first[0],
+                        require_dependencies=first[1],
+                        inspect_memo=memo,
+                    )
+                    with self.assertRaises(state.ApiError):
+                        resources._require_network_policy(
+                            network,
+                            POLICY_TEAM_ID,
+                            resources.network_policy.CORE_KIND,
+                            require_runtime=second[0],
+                            require_dependencies=second[1],
+                            inspect_memo=memo,
+                        )
 
     def test_network_ensure_creates_exact_internal_plane_and_maps_docker_failures(self) -> None:
         not_found = resources.docker.errors.NotFound()

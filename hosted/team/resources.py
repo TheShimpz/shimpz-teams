@@ -616,8 +616,18 @@ def _require_network_policy(
     inspect_memo: dict[str, object] | None = None,
 ) -> None:
     containers = _network_container_metadata(network, inspect_memo)
+    network_metadata = network.attrs
+    if inspect_memo is not None:
+        # The memo retains members; callers do not reload this network again while sharing it,
+        # so both snapshot IDs stay live. Keep both role flags to protect the Team anchor.
+        memo_key = (
+            f"policy:{id(network_metadata)}:{id(containers)}:{team_id}:{kind}:"
+            f"{int(require_runtime)}:{int(require_dependencies)}"
+        )
+        if inspect_memo.get(memo_key) is True:
+            return
     if not network_policy.network_members_valid(
-        network.attrs,
+        network_metadata,
         containers,
         team_id,
         kind,
@@ -628,6 +638,8 @@ def _require_network_policy(
             HTTPStatus.SERVICE_UNAVAILABLE,
             f"Team isolation is blocked: invalid or contaminated {kind} network",
         )
+    if inspect_memo is not None:
+        inspect_memo[memo_key] = True
 
 
 def _ensure_team_network_kind(team_id: str, kind: str):
