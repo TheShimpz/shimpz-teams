@@ -18,6 +18,7 @@ from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
 from local import app as local_app
 from local.assistant import resources as local_resources
+from local.chat import state as local_chat_state
 from local.install.developers import (
     DevelopersClient,
     DevelopersError,
@@ -210,6 +211,65 @@ class LocalPublicationInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(DynamicAssistantError, "valid version"):
             registry.get_versioned("team_1", binding.assistant_id)
         store.get.assert_called_once_with("team_1", binding.assistant_id)
+
+    def test_chat_inventory_reads_and_validates_the_registry_once_for_four_assistants(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = DynamicAssistantStore(Path(directory) / "bindings.json")
+            containers = []
+            for index in range(4):
+                resolution = _runtime_resolution()
+                resolution["assistant_id"] = f"helper-{index}"
+                if index == 0:
+                    first_name = resolution["name"]
+                store.put("team_1", resolution)
+                containers.append(
+                    SimpleNamespace(
+                        id=f"container-{index}",
+                        labels={local_app.ASSISTANT_LABEL: resolution["assistant_id"]},
+                        status="running",
+                    )
+                )
+            foreign = _runtime_resolution()
+            foreign["assistant_id"] = "helper-0"
+            foreign["name"] = "Foreign Assistant"
+            store.put("team_2", foreign)
+            order = []
+
+            def list_containers(**_kwargs):
+                order.append("docker")
+                return containers
+
+            read_registry = store._read
+
+            def read_bindings():
+                order.append("registry")
+                return read_registry()
+
+            lifecycle = SimpleNamespace(
+                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
+                _assistant_filters=lambda _team_id: {},
+                _validate_container=mock.Mock(),
+                _blocked_action_workloads=set(),
+            )
+            subject = SimpleNamespace(
+                assistant_lifecycle=lifecycle,
+                registry=AssistantRegistry(store),
+            )
+
+            with mock.patch.object(store, "_read", side_effect=read_bindings) as read:
+                active = local_chat_state._active_chat_assistants(subject, "team_1", "network")
+
+            self.assertEqual(read.call_count, 1)
+            self.assertEqual(order, ["docker", "registry"])
+            self.assertEqual(tuple(item.spec.assistant_id for item in active), tuple(f"helper-{i}" for i in range(4)))
+            self.assertEqual(active[0].spec.name, first_name)
+            self.assertEqual(lifecycle._validate_container.call_count, 4)
+
+            lifecycle.client.containers.list.side_effect = None
+            lifecycle.client.containers.list.return_value = []
+            with mock.patch.object(store, "_read", wraps=store._read) as read:
+                self.assertEqual(local_chat_state._active_chat_assistants(subject, "team_1", "network"), ())
+            read.assert_not_called()
 
     def test_catalog_selects_the_latest_bound_publication(self) -> None:
         older = _runtime_resolution()

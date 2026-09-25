@@ -7,6 +7,7 @@ from http import HTTPStatus
 from unittest import mock
 
 from docker.errors import DockerException
+from local_controller_harness import TestAssistantRegistry
 
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
@@ -158,13 +159,13 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         )
         lifecycle.client.containers.list.side_effect = None
         lifecycle.client.containers.list.return_value = [container]
-        subject.registry = types.SimpleNamespace(get=lambda *_args: None)
+        subject.registry = TestAssistantRegistry()
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._active_chat_assistants(subject, "team_1", "network")
         self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
         spec = types.SimpleNamespace(assistant_id="assistant")
-        subject.registry.get = lambda *_args: spec
+        subject.registry["assistant"] = spec
         lifecycle._validate_container = mock.Mock()
         lifecycle._blocked_action_workloads = {"container"}
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -177,6 +178,11 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             local_chat_state._active_chat_assistants(subject, "team_1", "network"),
             (),
         )
+
+        container.labels = {local_app.ASSISTANT_LABEL: "Malformed!"}
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_state._active_chat_assistants(subject, "team_1", "network")
+        self.assertEqual(caught.exception.code, "assistant-registry-drift")
 
     def test_integration_state_mutations_map_store_failures_and_pruning(self) -> None:
         failure = integration_store.OAuthIntegrationStoreError("unavailable")

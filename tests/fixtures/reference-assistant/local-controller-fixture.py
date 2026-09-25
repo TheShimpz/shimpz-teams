@@ -147,7 +147,7 @@ def _install_chat_spans() -> None:
     recorder = _PhaseSpans()
     targets = (
         (app.AssistantLifecycle, ("_validate_container", "_egress_proxy", "_admit_assistant_allowed_hosts")),
-        (local_registry.AssistantRegistry, ("get",)),
+        (local_registry.AssistantRegistry, ("team_bindings",)),
         (assistant_manifest.ManifestContractCache, ("get",)),
         (assistant_manifest.MachineContractCache, ("get",)),
         (ContainerCollection, ("list", "get")),
@@ -156,6 +156,9 @@ def _install_chat_spans() -> None:
     for owner, names in targets:
         for name in names:
             setattr(owner, name, recorder.timed(f"{owner.__name__}.{name}", getattr(owner, name)))
+    local_registry.AssistantRegistry.spec = staticmethod(
+        recorder.timed("AssistantRegistry.spec", local_registry.AssistantRegistry.spec)
+    )
     assistant_manifest.reviewed_manifest_contract = recorder.timed(
         "reviewed_manifest_contract", assistant_manifest.reviewed_manifest_contract
     )

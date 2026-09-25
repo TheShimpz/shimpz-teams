@@ -115,6 +115,9 @@ class AssistantRegistry:
     def list(self, team_id: str) -> tuple[AssistantSpec, ...]:
         return tuple(_spec(binding) for binding in self._store.list(team_id))
 
+    def team_bindings(self, team_id: str) -> tuple[bindings.DynamicAssistantBinding, ...]:
+        return self._store.list(team_id)
+
     def delete(self, team_id: str, assistant_id: str) -> bool:
         return self._store.delete(team_id, assistant_id)
 

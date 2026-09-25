@@ -174,6 +174,9 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
         ) from exc
     active: list[_ActiveAssistant] = []
     egress_proxy = None
+    bindings_by_id = (
+        {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
+    )
 
     def current_egress_proxy():
         nonlocal egress_proxy
@@ -183,13 +186,14 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
 
     for container in containers:
         assistant_id = (container.labels or {}).get(ASSISTANT_LABEL)
-        spec = self.registry.get(team_id, assistant_id)
-        if spec is None:
+        binding = bindings_by_id.get(assistant_id)
+        if binding is None:
             raise ApiProblem(
                 HTTPStatus.CONFLICT,
                 "an installed Assistant is no longer allowlisted",
                 code="assistant-registry-drift",
             )
+        spec = self.registry.spec(binding)
         self.assistant_lifecycle._validate_container(
             container,
             team_id,

@@ -53,7 +53,8 @@ CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", "
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 CHAT_SPAN_NAMES = (
     "ContainerCollection.list",
-    "AssistantRegistry.get",
+    "AssistantRegistry.team_bindings",
+    "AssistantRegistry.spec",
     "AssistantLifecycle._validate_container",
     "AssistantLifecycle._egress_proxy",
     "ContainerCollection.get",
@@ -464,7 +465,8 @@ def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, f
             children[parent] += elapsed
     required = {
         "ContainerCollection.list": 1,
-        "AssistantRegistry.get": int(installed),
+        "AssistantRegistry.team_bindings": int(installed),
+        "AssistantRegistry.spec": int(installed),
         "AssistantLifecycle._validate_container": int(installed),
         "AssistantLifecycle._admit_assistant_allowed_hosts": int(installed),
         "AssistantLifecycle._egress_proxy": int(installed),
@@ -484,6 +486,7 @@ def _chat_span_sample(record: dict[str, object], installed: bool) -> dict[str, f
         f"{name}_exclusive_ms": max(0.0, durations[name] - children[name])
         for name in (
             "ContainerCollection.list",
+            "AssistantRegistry.spec",
             "AssistantLifecycle._validate_container",
             "AssistantLifecycle._egress_proxy",
             "AssistantLifecycle._admit_assistant_allowed_hosts",

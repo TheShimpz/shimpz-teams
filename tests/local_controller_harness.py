@@ -53,6 +53,13 @@ class TestAssistantRegistry(dict):
         spec = super().get(assistant_id)
         return None if spec is None else (spec, TEST_ASSISTANT_VERSION)
 
+    def team_bindings(self, _team_id):
+        return tuple(self.values())
+
+    @staticmethod
+    def spec(binding):
+        return binding
+
 
 class LocalContractCase(unittest.TestCase):
     def _registry(self, image: str) -> dict[str, AssistantSpec]:
