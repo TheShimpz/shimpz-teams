@@ -135,7 +135,6 @@ def _trusted_image(self, spec: AssistantSpec):
             "Docker is unavailable",
             code="docker-unavailable",
         ) from exc
-    image.reload()
     repo_digests = image.attrs.get("RepoDigests") or []
     labels = (image.attrs.get("Config") or {}).get("Labels") or {}
     if (

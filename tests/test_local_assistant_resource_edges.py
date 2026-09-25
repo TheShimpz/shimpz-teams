@@ -106,12 +106,30 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.images.get.side_effect = ImageNotFound("missing")
         controller.client.images.pull.return_value = image
         self.assertIs(resources._trusted_image(controller, spec), image)
+        controller.client.images.get.assert_called_once_with(spec.image)
+        controller.client.images.pull.assert_called_once_with(spec.image)
+        image.reload.assert_not_called()
+
+        image.attrs["RepoDigests"] = []
+        with self.assertRaisesRegex(ApiProblemError, "trusted contract"):
+            resources._trusted_image(controller, spec)
+        image.attrs["RepoDigests"] = [spec.image]
+
+        controller.client.images.get.side_effect = None
+        controller.client.images.get.return_value = image
+        controller.client.images.get.reset_mock()
+        controller.client.images.pull.reset_mock()
+        self.assertIs(resources._trusted_image(controller, spec), image)
+        controller.client.images.get.assert_called_once_with(spec.image)
+        controller.client.images.pull.assert_not_called()
+        image.reload.assert_not_called()
 
         image.attrs["Config"]["Labels"][snapshots.LOCAL_STAGE_LABEL] = snapshots.LOCAL_STAGE_VALUE
         with self.assertRaisesRegex(ApiProblemError, "trusted contract"):
             resources._trusted_image(controller, spec)
         image.attrs["Config"]["Labels"].pop(snapshots.LOCAL_STAGE_LABEL)
 
+        controller.client.images.get.side_effect = ImageNotFound("missing")
         controller.client.images.pull.side_effect = DockerException("pull failed")
         with self.assertRaisesRegex(ApiProblemError, "could not be pulled"):
             resources._trusted_image(controller, spec)
