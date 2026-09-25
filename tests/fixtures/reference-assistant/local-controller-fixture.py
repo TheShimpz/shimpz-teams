@@ -12,7 +12,7 @@ from pathlib import Path
 
 from docker.models.containers import Container, ContainerCollection
 from docker.models.images import ImageCollection
-from docker.models.networks import Network
+from docker.models.networks import Network, NetworkCollection
 
 sys.path.insert(0, "/app")
 
@@ -167,17 +167,45 @@ def _install_chat_spans() -> None:
     )
 
 
+def _install_inventory_spans() -> None:
+    recorder = _PhaseSpans()
+    targets = (
+        (app.AssistantLifecycle, ("_network", "_egress_proxy", "_validate_container_profile")),
+        (app.AssistantLifecycle, ("_validate_container_egress", "_admit_assistant_allowed_hosts")),
+        (local_registry.AssistantRegistry, ("team_bindings",)),
+        (assistant_manifest.ManifestContractCache, ("get",)),
+        (assistant_manifest.MachineContractCache, ("get",)),
+        (ContainerCollection, ("list", "get")),
+        (Container, ("reload", "get_archive")),
+        (NetworkCollection, ("get",)),
+    )
+    for owner, names in targets:
+        for name in names:
+            setattr(owner, name, recorder.timed(f"{owner.__name__}.{name}", getattr(owner, name)))
+    local_registry.AssistantRegistry.versioned = staticmethod(
+        recorder.timed("AssistantRegistry.versioned", local_registry.AssistantRegistry.versioned)
+    )
+    app.LocalController.list_assistants = recorder.root("INVENTORY", app.LocalController.list_assistants)
+
+
 def main() -> int:
     resolution = json.loads(RESOLUTION_PATH.read_bytes())
     bindings._CONTRACTS = _LocalRegistryContract()
     app.local_developers.DevelopersClient = lambda: _Developers(resolution)
     app.artifact_trust.ArtifactTrustVerifier = lambda *_args, **_kwargs: _ArtifactTrust(resolution)
-    if os.environ.get("SHIMPZ_PERF_PHASE_SPANS") == "1" and os.environ.get("SHIMPZ_PERF_CHAT_SPANS") == "1":
+    modes = (
+        os.environ.get("SHIMPZ_PERF_PHASE_SPANS") == "1",
+        os.environ.get("SHIMPZ_PERF_CHAT_SPANS") == "1",
+        os.environ.get("SHIMPZ_PERF_INVENTORY_SPANS") == "1",
+    )
+    if sum(modes) > 1:
         raise RuntimeError("fixture performance span modes cannot be combined")
-    if os.environ.get("SHIMPZ_PERF_PHASE_SPANS") == "1":
+    if modes[0]:
         _install_phase_spans()
-    if os.environ.get("SHIMPZ_PERF_CHAT_SPANS") == "1":
+    if modes[1]:
         _install_chat_spans()
+    if modes[2]:
+        _install_inventory_spans()
     return app.main()
 
 

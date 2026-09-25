@@ -51,6 +51,23 @@ CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": []}
 SELECTED_ASSISTANT_ID = "shimpz-cloudflare"
 CHAT_PROMPT = json.dumps({"files": [], "message": OBJECTIVE}, separators=(",", ":"), ensure_ascii=False)
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
+INVENTORY_SPAN_PREFIX = "SHIMPZ-PERF-INVENTORY "
+INVENTORY_SPAN_NAMES = (
+    "AssistantLifecycle._network",
+    "AssistantLifecycle._egress_proxy",
+    "AssistantLifecycle._validate_container_profile",
+    "AssistantLifecycle._validate_container_egress",
+    "AssistantLifecycle._admit_assistant_allowed_hosts",
+    "AssistantRegistry.team_bindings",
+    "AssistantRegistry.versioned",
+    "ManifestContractCache.get",
+    "MachineContractCache.get",
+    "ContainerCollection.list",
+    "ContainerCollection.get",
+    "Container.reload",
+    "Container.get_archive",
+    "NetworkCollection.get",
+)
 CHAT_SPAN_NAMES = (
     "ContainerCollection.list",
     "AssistantRegistry.team_bindings",
@@ -635,6 +652,177 @@ def _measure_chat_inventory(
     }
 
 
+def _inventory_span_records(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> list[dict[str, object]]:
+    logs = runner._run("logs", flow.controller)
+    records = []
+    for line in (logs.stdout + logs.stderr).splitlines():
+        if line.startswith(INVENTORY_SPAN_PREFIX):
+            record = json.loads(line.removeprefix(INVENTORY_SPAN_PREFIX))
+            if not isinstance(record, dict):
+                raise MeasurementError("Assistant inventory span record is invalid")
+            records.append(record)
+    return records
+
+
+def _inventory_span_sample(record: dict[str, object]) -> dict[str, float | int]:
+    if set(record) != {"seq", "total_ms", "spans"} or not isinstance(record["spans"], list):
+        raise MeasurementError("Assistant inventory span record shape changed")
+    total = record["total_ms"]
+    if not isinstance(total, (int, float)) or total < 0:
+        raise MeasurementError("Assistant inventory span duration is invalid")
+    durations = dict.fromkeys(INVENTORY_SPAN_NAMES, 0.0)
+    counts = dict.fromkeys(INVENTORY_SPAN_NAMES, 0)
+    children = dict.fromkeys(INVENTORY_SPAN_NAMES, 0.0)
+    get_parents = dict.fromkeys(("ContainerCollection.list", "Container.reload", "AssistantLifecycle._egress_proxy"), 0)
+    top_level = 0.0
+    for span in record["spans"]:
+        if not isinstance(span, dict) or set(span) != {"name", "parent", "ms"}:
+            raise MeasurementError("Assistant inventory child span shape changed")
+        name, parent, elapsed = span["name"], span["parent"], span["ms"]
+        if name not in durations or (parent is not None and parent not in durations):
+            raise MeasurementError("Assistant inventory span ownership changed")
+        if not isinstance(elapsed, (int, float)) or elapsed < 0:
+            raise MeasurementError("Assistant inventory child span duration is invalid")
+        durations[name] += elapsed
+        counts[name] += 1
+        if parent is None:
+            top_level += elapsed
+        else:
+            children[parent] += elapsed
+        if name == "ContainerCollection.get" and parent in get_parents:
+            get_parents[parent] += 1
+    if total + 0.02 < top_level or any(children[name] > durations[name] + 0.02 for name in INVENTORY_SPAN_NAMES):
+        raise MeasurementError("Assistant inventory span arithmetic changed")
+    exclusive = {
+        f"{name}_exclusive_ms": max(0.0, durations[name] - children[name])
+        for name in (
+            "AssistantLifecycle._network",
+            "AssistantLifecycle._egress_proxy",
+            "AssistantLifecycle._validate_container_profile",
+            "AssistantLifecycle._validate_container_egress",
+            "ContainerCollection.list",
+            "Container.reload",
+        )
+    }
+    return (
+        {"total_ms": float(total), "remainder_ms": max(0.0, total - top_level)}
+        | durations
+        | exclusive
+        | {f"{name}_calls": count for name, count in counts.items()}
+        | {f"ContainerCollection.get_from_{name}_calls": count for name, count in get_parents.items()}
+    )
+
+
+def _inventory_span_summary(records: list[dict[str, object]], installed: bool) -> dict[str, object]:
+    if len(records) != SAMPLES + 2:
+        raise MeasurementError("Assistant inventory span record count changed")
+    samples = [_inventory_span_sample(record) for record in records[2:]]
+    expected = {
+        "NetworkCollection.get_calls": 1,
+        "ContainerCollection.list_calls": 1,
+        "AssistantLifecycle._network_calls": 1,
+        "AssistantRegistry.team_bindings_calls": int(installed),
+        "AssistantRegistry.versioned_calls": int(installed),
+        "AssistantLifecycle._validate_container_profile_calls": int(installed),
+        "AssistantLifecycle._validate_container_egress_calls": int(installed),
+        "AssistantLifecycle._admit_assistant_allowed_hosts_calls": int(installed),
+        "AssistantLifecycle._egress_proxy_calls": int(installed),
+        "Container.reload_calls": int(installed),
+        "ContainerCollection.get_calls": 3 * int(installed),
+        "ContainerCollection.get_from_ContainerCollection.list_calls": int(installed),
+        "ContainerCollection.get_from_Container.reload_calls": int(installed),
+        "ContainerCollection.get_from_AssistantLifecycle._egress_proxy_calls": int(installed),
+        "ManifestContractCache.get_calls": int(installed),
+        "MachineContractCache.get_calls": int(installed),
+        "Container.get_archive_calls": 0,
+    }
+    if any(sample.get(name) != value for sample in samples for name, value in expected.items()):
+        raise MeasurementError("Assistant inventory operation count changed")
+    return {
+        name: {"min": min(sample[name] for sample in samples), "max": max(sample[name] for sample in samples)}
+        if name.endswith("_calls")
+        else _percentiles([sample[name] for sample in samples])
+        for name in samples[0]
+    }
+
+
+def _host_container_count(runner: DockerFlowTests) -> int:
+    return len(runner._run("ps", "--all", "--quiet").stdout.splitlines())
+
+
+def _measure_inventory_route_block(
+    runner: DockerFlowTests,
+    flow: flow_fixture.DockerFlow,
+    *,
+    installed: bool,
+    spans: bool,
+) -> dict[str, object]:
+    expected = {
+        "assistants": [
+            {
+                "assistant": "shimpz-cloudflare",
+                "assistant_version": "0.1.0",
+                "status": "running",
+                "provenance": "published",
+            }
+        ]
+        if installed
+        else []
+    }
+    before = len(_inventory_span_records(runner, flow)) if spans else 0
+    host_containers = _host_container_count(runner)
+    samples: list[float] = []
+    for index in range(-2, SAMPLES):
+        started = time.perf_counter_ns()
+        status, body = runner._api(flow.port, flow.token, "GET", "/v1/teams/demo_team/assistants")
+        elapsed = (time.perf_counter_ns() - started) / 1_000_000
+        trace_id = body.get("trace_id") if isinstance(body, dict) else None
+        payload = {key: value for key, value in body.items() if key != "trace_id"} if isinstance(body, dict) else None
+        if (
+            status != 200
+            or payload != expected
+            or not isinstance(trace_id, str)
+            or len(trace_id) != 32
+            or any(character not in "0123456789abcdef" for character in trace_id)
+        ):
+            rows = body.get("assistants") if isinstance(body, dict) else None
+            row_count = len(rows) if isinstance(rows, list) else -1
+            statuses = [row.get("status") for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+            raise MeasurementError(
+                "Assistant inventory route returned a noncanonical result: "
+                f"installed={installed}, HTTP={status}, code={body.get('code') if isinstance(body, dict) else None}, "
+                f"keys={sorted(body) if isinstance(body, dict) else []}, row_count={row_count}, statuses={statuses}"
+            )
+        if index >= 0:
+            samples.append(elapsed)
+    if _host_container_count(runner) != host_containers:
+        raise MeasurementError("host Docker container count changed during inventory route samples")
+    result: dict[str, object] = {"client_http_ms": _percentiles(samples), "host_containers": host_containers}
+    if spans:
+        result["spans"] = _inventory_span_summary(_inventory_span_records(runner, flow)[before:], installed)
+    return result
+
+
+def _measure_inventory_route(
+    runner: DockerFlowTests, flow: flow_fixture.DockerFlow, *, spans: bool
+) -> dict[str, object]:
+    none_initial = _measure_inventory_route_block(runner, flow, installed=False, spans=spans)
+    try:
+        runner._exercise_assistant(flow)
+    except AssertionError as exc:
+        raise MeasurementError("reference Assistant installation contract failed") from exc
+    _require_installed_assistant(runner, flow)
+    one_installed = _measure_inventory_route_block(runner, flow, installed=True, spans=spans)
+    _require_installed_assistant(runner, flow)
+    status, body = runner._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team/assistants/shimpz-cloudflare")
+    if status != 200 or body.get("uninstalled") is not True:
+        raise MeasurementError("reference Assistant uninstall failed")
+    if runner._owned_ids("container", flow.space_id, "assistant"):
+        raise MeasurementError("reference Assistant remained after uninstall")
+    none_restored = _measure_inventory_route_block(runner, flow, installed=False, spans=spans)
+    return {"none_initial": none_initial, "one_installed": one_installed, "none_restored": none_restored}
+
+
 def _measure(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -> dict[str, object]:
     for _ in range(2):
         _sample(runner, flow, 0)
@@ -707,19 +895,107 @@ def _measure_team_list(runner: DockerFlowTests, flow: flow_fixture.DockerFlow) -
     return results
 
 
-def _configured_runner() -> tuple[DockerFlowTests, bool, bool]:
-    if sys.argv[1:] not in ([], ["--chat-spans"], ["--chat-spans", "--age-probe"]):
-        raise SystemExit("usage: python -m perf.local_team_http [--chat-spans [--age-probe]]")
+def _configured_runner() -> tuple[DockerFlowTests, bool, bool, bool, bool]:
+    if sys.argv[1:] not in (
+        [],
+        ["--chat-spans"],
+        ["--chat-spans", "--age-probe"],
+        ["--inventory-route"],
+        ["--inventory-route", "--inventory-spans"],
+    ):
+        raise SystemExit(
+            "usage: python -m perf.local_team_http [--chat-spans [--age-probe] | --inventory-route [--inventory-spans]]"
+        )
     chat_spans = "--chat-spans" in sys.argv[1:]
     age_probe = "--age-probe" in sys.argv[1:]
+    inventory_route = "--inventory-route" in sys.argv[1:]
+    inventory_spans = "--inventory-spans" in sys.argv[1:]
     runner = DockerFlowTests("test_real_pull_isolation_lifecycle_and_space_reset")
     if chat_spans:
         runner.controller_extra_env = ("--env", "SHIMPZ_PERF_CHAT_SPANS=1")
-    return runner, chat_spans, age_probe
+    if inventory_spans:
+        runner.controller_extra_env = ("--env", "SHIMPZ_PERF_INVENTORY_SPANS=1")
+    return runner, chat_spans, age_probe, inventory_route, inventory_spans
+
+
+def _record_workload(
+    result: dict[str, object],
+    runner: DockerFlowTests,
+    flow: flow_fixture.DockerFlow,
+    *,
+    chat_spans: bool,
+    age_probe: bool,
+    inventory_route: bool,
+    inventory_spans: bool,
+) -> None:
+    if inventory_route:
+        result["inventory_route"] = _measure_inventory_route(runner, flow, spans=inventory_spans)
+    else:
+        result["samples"] = _measure(runner, flow)
+        result["chat_inventory"] = _measure_chat_inventory(runner, flow, chat_spans=chat_spans, age_probe=age_probe)
+        result["team_create"] = _measure_team_create(runner, flow)
+        result["team_list"] = _measure_team_list(runner, flow)
+    result.update(
+        status="complete",
+        scope=(
+            "authenticated Local Team HTTP Assistant inventory with 0/1/0 installed reference Assistants; "
+            "one Team, sequential requests, 2 warmups and 12 measured GETs per arm; real digest-pull "
+            "installation and uninstall; excludes Admin, browser, chat, and provider"
+        )
+        if inventory_route
+        else (
+            "authenticated Local Team HTTP for intent routing, Brain-only chat with 0/1/1/0 installed "
+            "reference Assistants, Team creation, and Team listing (1/9/33); the installed Assistant "
+            "is unselected in one arm and selected in the next, with its Genesis and Actions sent to the "
+            "deterministic Brain peer but no Action invoked; one connection per sample; each chat arm "
+            "reuses one Team and "
+            "stateless Brain peer across 2 warmups and 24 measured turns; the first post-install chat "
+            "is excluded from steady-state samples; "
+            "excludes Admin WebSocket, browser, and real provider"
+        ),
+        percentile_method="nearest-rank",
+        errors=0,
+        team_cpus=TEAM_CPUS,
+        team_memory_mib=TEAM_MEMORY_MIB,
+        team_cpuset=flow.test_cpuset,
+        host_processors=os.cpu_count(),
+        docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
+        team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
+    )
+    if inventory_route:
+        result["inventory_span_mode"] = inventory_spans
+        result["inventory_timing_definition"] = (
+            "client HTTP includes Supervisor signing and log emission in span mode; root span excludes "
+            "HTTP transport and span log emission; repeated spans are summed per request, parent spans include "
+            "their children, and exclusive spans subtract timed children; compare client timing only within "
+            "the same mode"
+        )
+    else:
+        result.update(
+            chat_timing_definition=(
+                "first progress and terminal include client Supervisor signing; unattributed time starts "
+                "after first progress and includes unspanned context checks, commit, transport, scheduling, "
+                "and up to 3 ms of phase truncation"
+            ),
+            chat_phase_resolution_ms=1,
+            chat_span_mode=chat_spans,
+            assistant_age_probe=age_probe,
+            assistant_age_checkpoints_seconds=ASSISTANT_AGE_CHECKPOINTS_SECONDS if age_probe else None,
+            host_list_probe_definition=(
+                "raw API (daemon, socket transport, JSON decode) versus full Docker SDK list in the harness "
+                "process outside the Team's 1-CPU cgroup, using the Team's five exact owned-Assistant filters; "
+                "sampled after each measured chat block with no chat turn in flight"
+            )
+            if chat_spans
+            else None,
+            outside_peer_definition=(
+                "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
+            ),
+        )
 
 
 def main() -> int:
-    runner, chat_spans, age_probe = _configured_runner()
+    runner, chat_spans, age_probe, inventory_route, inventory_spans = _configured_runner()
     with mock.patch.object(flow_fixture, "BrainLifecycleHandler", BrainPeer):
         flow = runner._new_flow()
     flow.trusted_ref = f"127.0.0.1:1/shimpz/perf-placeholder@sha256:{secrets.token_hex(32)}"
@@ -737,53 +1013,14 @@ def main() -> int:
             owns_names = True
             runner._prepare_images(flow)
             _start(runner, flow)
-            samples = _measure(runner, flow)
-            chat_inventory = _measure_chat_inventory(runner, flow, chat_spans=chat_spans, age_probe=age_probe)
-            team_create = _measure_team_create(runner, flow)
-            team_list = _measure_team_list(runner, flow)
-            result["samples"] = samples
-            result["chat_inventory"] = chat_inventory
-            result["team_create"] = team_create
-            result["team_list"] = team_list
-            result.update(
-                status="complete",
-                scope=(
-                    "authenticated Local Team HTTP for intent routing, Brain-only chat with 0/1/1/0 installed "
-                    "reference Assistants, Team creation, and Team listing (1/9/33); the installed Assistant "
-                    "is unselected in one arm and selected in the next, with its Genesis and Actions sent to the "
-                    "deterministic Brain peer but no Action invoked; one connection per sample; each chat arm "
-                    "reuses one Team and "
-                    "stateless Brain peer across 2 warmups and 24 measured turns; the first post-install chat "
-                    "is excluded from steady-state samples; "
-                    "excludes Admin WebSocket, browser, and real provider"
-                ),
-                chat_timing_definition=(
-                    "first progress and terminal include client Supervisor signing; unattributed time starts "
-                    "after first progress and includes unspanned context checks, commit, transport, scheduling, "
-                    "and up to 3 ms of phase truncation"
-                ),
-                chat_phase_resolution_ms=1,
-                chat_span_mode=chat_spans,
-                assistant_age_probe=age_probe,
-                assistant_age_checkpoints_seconds=ASSISTANT_AGE_CHECKPOINTS_SECONDS if age_probe else None,
-                host_list_probe_definition=(
-                    "raw API (daemon, socket transport, JSON decode) versus full Docker SDK list in the harness "
-                    "process outside the Team's 1-CPU cgroup, using the Team's five exact owned-Assistant filters; "
-                    "sampled after each measured chat block with no chat turn in flight"
-                )
-                if chat_spans
-                else None,
-                outside_peer_definition=(
-                    "Team HTTP elapsed minus peer handler elapsed; includes connection and peer header parsing"
-                ),
-                percentile_method="nearest-rank",
-                errors=0,
-                team_cpus=TEAM_CPUS,
-                team_memory_mib=TEAM_MEMORY_MIB,
-                team_cpuset=flow.test_cpuset,
-                host_processors=os.cpu_count(),
-                docker_logging_driver=runner._run("info", "--format", "{{.LoggingDriver}}").stdout.strip(),
-                team_image=runner._run("image", "inspect", "--format", "{{.Id}}", flow.controller_tag).stdout.strip(),
+            _record_workload(
+                result,
+                runner,
+                flow,
+                chat_spans=chat_spans,
+                age_probe=age_probe,
+                inventory_route=inventory_route,
+                inventory_spans=inventory_spans,
             )
     except (OSError, RuntimeError, AssertionError, ValueError, queue.Empty, subprocess.SubprocessError) as exc:
         result.update(status="error", error_type=type(exc).__name__)
