@@ -279,9 +279,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 resolution["assistant_id"] = f"helper-{index}"
                 store.put("team_1", resolution)
                 labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
-                containers.append(
-                    SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running")
-                )
+                containers.append(SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running"))
             foreign = _runtime_resolution()
             foreign["assistant_id"] = "helper-0"
             foreign["name"] = "Foreign Assistant"
@@ -366,9 +364,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 resolution["assistant_id"] = f"helper-{index}"
                 store.put("team_1", resolution)
                 labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
-                containers.append(
-                    SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running")
-                )
+                containers.append(SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running"))
             foreign = _runtime_resolution()
             foreign["assistant_id"] = "helper-0"
             foreign["name"] = "Foreign Assistant"
