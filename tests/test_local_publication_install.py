@@ -14,12 +14,15 @@ from types import SimpleNamespace
 from typing import ClassVar
 from unittest import mock
 
+from action import stored_input as action_stored_input
 from install.bindings import DynamicAssistantError, DynamicAssistantStore, binding_from_resolution
 from install.contract import CONTRACT_ROOT
 from install.icons import AssistantIconStore
+from integrations import store as integration_store
 from local import app as local_app
 from local.assistant import api as assistant_api
 from local.assistant import resources as local_resources
+from local.chat import private as local_chat_private
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError
 from local.install import registry as local_registry
@@ -267,7 +270,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 self.assertEqual(local_chat_state._active_chat_assistants(subject, "team_1", "network"), ())
             read.assert_not_called()
 
-    def test_identity_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
+    def test_spec_enumeration_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = DynamicAssistantStore(Path(directory) / "bindings.json")
             containers = []
@@ -283,6 +286,7 @@ class LocalPublicationInstallTests(unittest.TestCase):
             foreign["assistant_id"] = "helper-0"
             foreign["name"] = "Foreign Assistant"
             store.put("team_2", foreign)
+            containers.reverse()
             foreign_only = _runtime_resolution()
             foreign_only["assistant_id"] = "foreign-only"
             store.put("team_2", foreign_only)
@@ -314,18 +318,22 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 mock.patch.object(store, "_read", side_effect=read_bindings) as read,
                 mock.patch.object(local_registry, "_spec", wraps=local_registry._spec) as convert,
             ):
-                actual = local_resources._assistant_ids(lifecycle, "team_1")
+                actual = local_resources._assistant_specs(lifecycle, "team_1")
 
-            self.assertEqual(actual, tuple(f"helper-{index}" for index in range(4)))
+            self.assertEqual(
+                tuple(spec.assistant_id for spec in actual),
+                tuple(f"helper-{index}" for index in range(4)),
+            )
             self.assertEqual(order, ["docker", "registry"])
             self.assertEqual(read.call_count, 1)
             self.assertEqual(convert.call_count, 4)
             self.assertTrue(all(call.args[0].team_id == "team_1" for call in convert.call_args_list))
-            self.assertEqual(convert.call_args_list[0].args[0].document["name"], RESOLUTION["name"])
+            homonym = next(call.args[0] for call in convert.call_args_list if call.args[0].assistant_id == "helper-0")
+            self.assertEqual(homonym.document["name"], RESOLUTION["name"])
 
             containers.clear()
             with mock.patch.object(store, "_read", wraps=store._read) as read:
-                self.assertEqual(local_resources._assistant_ids(lifecycle, "team_1"), ())
+                self.assertEqual(local_resources._assistant_specs(lifecycle, "team_1"), ())
             read.assert_not_called()
 
             containers.append(
@@ -340,13 +348,105 @@ class LocalPublicationInstallTests(unittest.TestCase):
                 )
             )
             with self.assertRaises(ApiProblemError) as caught:
-                local_resources._assistant_ids(lifecycle, "team_1")
+                local_resources._assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
 
             containers[0].labels[local_app.ASSISTANT_LABEL] = "Bad_Id"
             with self.assertRaises(ApiProblemError) as caught:
-                local_resources._assistant_ids(lifecycle, "team_1")
+                local_resources._assistant_specs(lifecycle, "team_1")
             self.assertEqual((caught.exception.status, caught.exception.code), (409, "assistant-registry-drift"))
+
+    def test_private_inventories_reuse_one_team_scoped_spec_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = DynamicAssistantStore(root / "bindings.json")
+            containers = []
+            for index in range(4):
+                resolution = _runtime_resolution()
+                resolution["assistant_id"] = f"helper-{index}"
+                store.put("team_1", resolution)
+                labels = {"team": "team_1", "kind": "assistant", local_app.ASSISTANT_LABEL: resolution["assistant_id"]}
+                containers.append(
+                    SimpleNamespace(labels=labels, name=f"team_1-helper-{index}", status="running")
+                )
+            foreign = _runtime_resolution()
+            foreign["assistant_id"] = "helper-0"
+            foreign["name"] = "Foreign Assistant"
+            foreign["assistant_version"] = "9.9.9"
+            store.put("team_2", foreign)
+            order = []
+
+            def list_containers(**_kwargs):
+                order.append("docker")
+                return containers
+
+            read_registry = store._read
+
+            def read_bindings():
+                order.append("registry")
+                return read_registry()
+
+            lifecycle = SimpleNamespace(
+                _network=lambda _team_id: object(),
+                _assistant_filters=lambda _team_id: {},
+                _base_labels=lambda team_id, kind: {"team": team_id, "kind": kind},
+                _container_name=lambda team_id, assistant_id: f"{team_id}-{assistant_id}",
+                _labels_include=lambda actual, expected: all(
+                    actual.get(key) == value for key, value in expected.items()
+                ),
+                client=SimpleNamespace(containers=SimpleNamespace(list=mock.Mock(side_effect=list_containers))),
+                registry=AssistantRegistry(store),
+            )
+            lifecycle._assistant_specs = lambda team_id: local_resources._assistant_specs(lifecycle, team_id)
+            subject = SimpleNamespace(
+                _lock=lambda _team_id: nullcontext(),
+                assistant_lifecycle=lifecycle,
+                assistant_integrations=integration_store.OAuthIntegrationStore(
+                    root / "oauth-state" / "state.json", root / "oauth-key" / "key"
+                ),
+                assistant_stored_inputs=action_stored_input.StoredInputStore(
+                    root / "input-state" / "state.json", root / "input-key" / "key"
+                ),
+            )
+
+            for route in (
+                local_chat_private.list_assistant_integrations,
+                local_chat_private.list_assistant_stored_inputs,
+            ):
+                with self.subTest(route=route.__name__):
+                    order.clear()
+                    with (
+                        mock.patch.object(store, "_read", side_effect=read_bindings) as read,
+                        mock.patch.object(local_registry, "_spec", wraps=local_registry._spec) as convert,
+                    ):
+                        payload = route(subject, "team_1")
+                    self.assertEqual(order, ["docker", "registry"])
+                    self.assertEqual(read.call_count, 1)
+                    self.assertEqual(convert.call_count, 4)
+                    self.assertTrue(all(call.args[0].team_id == "team_1" for call in convert.call_args_list))
+                    if route is local_chat_private.list_assistant_integrations:
+                        first = next(item for item in payload["integrations"] if item["assistant_id"] == "helper-0")
+                        self.assertEqual(
+                            (first["assistant_name"], first["assistant_version"]),
+                            (RESOLUTION["name"], RESOLUTION["assistant_version"]),
+                        )
+                    else:
+                        self.assertEqual(
+                            {item["assistant_id"] for item in payload["stored_inputs"]},
+                            {f"helper-{index}" for index in range(4)},
+                        )
+
+            containers.clear()
+            for route in (
+                local_chat_private.list_assistant_integrations,
+                local_chat_private.list_assistant_stored_inputs,
+            ):
+                with (
+                    self.subTest(empty_route=route.__name__),
+                    mock.patch.object(store, "_read", wraps=store._read) as read,
+                ):
+                    route(subject, "team_1")
+                read.assert_not_called()
 
     def test_installed_inventory_uses_one_team_scoped_registry_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

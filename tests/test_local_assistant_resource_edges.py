@@ -24,7 +24,7 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
             registry=types.SimpleNamespace(
                 get=mock.Mock(),
                 team_bindings=mock.Mock(return_value=()),
-                spec=mock.Mock(),
+                spec=mock.Mock(side_effect=lambda binding: types.SimpleNamespace(assistant_id=binding.assistant_id)),
             ),
             client=types.SimpleNamespace(
                 containers=types.SimpleNamespace(get=mock.Mock(), list=mock.Mock()),
@@ -47,13 +47,13 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller = self._controller()
         controller.client.containers.list.side_effect = DockerException("unavailable")
         with self.assertRaisesRegex(ApiProblemError, "Docker is unavailable"):
-            resources._assistant_ids(controller, "team_1")
+            resources._assistant_specs(controller, "team_1")
 
         controller.client.containers.list.side_effect = None
         missing = types.SimpleNamespace(labels={}, name="unknown", status="running")
         controller.client.containers.list.return_value = [missing]
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
-            resources._assistant_ids(controller, "team_1")
+            resources._assistant_specs(controller, "team_1")
 
         binding = types.SimpleNamespace(assistant_id="helper")
         invalid = types.SimpleNamespace(
@@ -64,21 +64,25 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller.client.containers.list.return_value = [invalid]
         controller.registry.team_bindings.return_value = (binding,)
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._assistant_ids(controller, "team_1")
+            resources._assistant_specs(controller, "team_1")
 
         labels = {"team": "team_1", "kind": "assistant", resources.ASSISTANT_LABEL: "helper"}
         stopped = types.SimpleNamespace(labels=labels, name="team_1-helper", status="exited")
         controller.client.containers.list.return_value = [stopped]
-        self.assertEqual(resources._assistant_ids(controller, "team_1", running_only=True), ())
+        self.assertEqual(resources._assistant_specs(controller, "team_1", running_only=True), ())
         controller.registry.team_bindings.return_value = ()
         with self.assertRaisesRegex(ApiProblemError, "no longer allowlisted"):
-            resources._assistant_ids(controller, "team_1", running_only=True)
+            resources._assistant_specs(controller, "team_1", running_only=True)
         controller.registry.team_bindings.return_value = (binding,)
+
+        controller.client.containers.list.return_value = [stopped, stopped]
+        with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
+            resources._assistant_specs(controller, "team_1", running_only=True)
 
         duplicate = types.SimpleNamespace(labels=labels, name="team_1-helper", status="running")
         controller.client.containers.list.return_value = [duplicate, duplicate]
         with self.assertRaisesRegex(ApiProblemError, "isolation profile"):
-            resources._assistant_ids(controller, "team_1")
+            resources._assistant_specs(controller, "team_1")
 
     def test_resolution_and_image_trust_fail_closed(self) -> None:
         controller = self._controller()

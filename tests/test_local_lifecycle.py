@@ -22,15 +22,22 @@ OUTDATED_ASSISTANT_IMAGE = "ghcr.io/theshimpz/shimpz-assistant@sha256:" + "a" * 
 
 
 class LocalLifecycleTests(LocalContractCase):
-    def test_assistant_id_enumeration_avoids_deep_container_admission(self) -> None:
+    def test_assistant_spec_enumeration_avoids_deep_container_admission(self) -> None:
         controller, _container, events = self._lifecycle_controller()
         controller.assistant_lifecycle._validate_container_security = mock.Mock(
             side_effect=AssertionError("deep admission must not run"),
         )
 
-        self.assertEqual(controller.assistant_lifecycle._assistant_ids("team_1"), ("shimpz-cloudflare",))
         self.assertEqual(
-            controller.assistant_lifecycle._assistant_ids("team_1", running_only=True), ("shimpz-cloudflare",)
+            tuple(spec.assistant_id for spec in controller.assistant_lifecycle._assistant_specs("team_1")),
+            ("shimpz-cloudflare",),
+        )
+        self.assertEqual(
+            tuple(
+                spec.assistant_id
+                for spec in controller.assistant_lifecycle._assistant_specs("team_1", running_only=True)
+            ),
+            ("shimpz-cloudflare",),
         )
         self.assertEqual(events, [])
         controller.assistant_lifecycle._validate_container_security.assert_not_called()

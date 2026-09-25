@@ -175,7 +175,9 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                 Path(directory) / "key" / "aes256.key",
             )
             controller._wire_collaborators()
-            controller.assistant_lifecycle._assistant_ids = lambda _team: ("shimpz-cloudflare",)
+            controller.assistant_lifecycle._assistant_specs = lambda _team: (
+                controller.registry.get("team_1", "shimpz-cloudflare"),
+            )
 
             payload = controller.chat_turn_service.list_assistant_integrations("team_1")
 

@@ -168,10 +168,7 @@ def _raise_stored_input_problem(exc: action_stored_input.StoredInputStoreError) 
 def list_assistant_stored_inputs(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     with self._lock(team_id):
-        specs = [
-            self.assistant_lifecycle._resolve(team_id, assistant_id)
-            for assistant_id in self.assistant_lifecycle._assistant_ids(team_id)
-        ]
+        specs = self.assistant_lifecycle._assistant_specs(team_id)
         try:
             return self.assistant_stored_inputs.inventory(team_id, specs)
         except action_stored_input.StoredInputStoreError as exc:
@@ -208,10 +205,7 @@ def clear_assistant_stored_input(
 def list_assistant_integrations(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     with self._lock(team_id):
-        specs = [
-            self.assistant_lifecycle._resolve(team_id, assistant_id)
-            for assistant_id in self.assistant_lifecycle._assistant_ids(team_id)
-        ]
+        specs = self.assistant_lifecycle._assistant_specs(team_id)
         try:
             payload = integration_flow.inventory_payload(
                 team_id,
@@ -278,7 +272,10 @@ def _current_integration_declaration(
         spec = self.assistant_lifecycle._resolve(team_id, assistant_id)
         declaration = spec.integrations.get(integration_id)
         if (
-            assistant_id not in self.assistant_lifecycle._assistant_ids(team_id, running_only=True)
+            not any(
+                admitted.assistant_id == assistant_id
+                for admitted in self.assistant_lifecycle._assistant_specs(team_id, running_only=True)
+            )
             or declaration is None
         ):
             raise integration_service.OAuthIntegrationDeclarationError("OAuth integration declaration is unavailable")

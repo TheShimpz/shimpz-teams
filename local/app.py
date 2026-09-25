@@ -167,7 +167,7 @@ class AssistantLifecycle:
 
     _assistant_filters = local_assistant_resources._assistant_filters
     _assistant_container = local_assistant_resources._assistant_container
-    _assistant_ids = local_assistant_resources._assistant_ids
+    _assistant_specs = local_assistant_resources._assistant_specs
     _resolve = local_assistant_resources._resolve
     _image_labels_valid = staticmethod(local_assistant_resources._image_labels_valid)
     _trusted_image = local_assistant_resources._trusted_image

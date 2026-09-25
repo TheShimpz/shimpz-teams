@@ -51,8 +51,8 @@ def _assistant_container(self, team_id: str, assistant_id: str, *, required: boo
     return container
 
 
-def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[str, ...]:
-    """Enumerate owned, allowlisted Assistant identities without deep container admission."""
+def _assistant_specs(self, team_id: str, *, running_only: bool = False) -> tuple[AssistantSpec, ...]:
+    """Return Team specs after ownership, label, and uniqueness gates; no deep container or artifact admission."""
     self._network(team_id)
     try:
         containers = self.client.containers.list(**self._assistant_filters(team_id))
@@ -66,7 +66,7 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
         {binding.assistant_id: binding for binding in self.registry.team_bindings(team_id)} if containers else {}
     )
     seen: set[str] = set()
-    assistant_ids: list[str] = []
+    specs: list[AssistantSpec] = []
     for container in containers:
         labels = container.labels
         assistant_id = labels.get(ASSISTANT_LABEL) if isinstance(labels, dict) else None
@@ -77,8 +77,8 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
                 "an installed Assistant is no longer allowlisted",
                 code="assistant-registry-drift",
             )
-        # Identity-only callers still require the binding's runtime contract to validate.
-        self.registry.spec(binding)
+        # Convert before accepting container labels so every matched runtime contract is validated.
+        spec = self.registry.spec(binding)
         expected_labels = self._base_labels(team_id, "assistant")
         expected_labels[ASSISTANT_LABEL] = assistant_id
         if (
@@ -94,8 +94,8 @@ def _assistant_ids(self, team_id: str, *, running_only: bool = False) -> tuple[s
             )
         seen.add(assistant_id)
         if not running_only or container.status == "running":
-            assistant_ids.append(assistant_id)
-    return tuple(sorted(assistant_ids))
+            specs.append(spec)
+    return tuple(sorted(specs, key=lambda item: item.assistant_id))
 
 
 def _resolve(self, team_id: str, assistant_id: str) -> AssistantSpec:

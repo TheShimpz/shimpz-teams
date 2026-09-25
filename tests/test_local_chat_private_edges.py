@@ -325,8 +325,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 subject = types.SimpleNamespace(
                     _lock=lambda _team_id: nullcontext(),
                     assistant_lifecycle=types.SimpleNamespace(
-                        _assistant_ids=lambda _team_id: (),
-                        _resolve=mock.Mock(),
+                        _assistant_specs=lambda _team_id: (),
                     ),
                     assistant_integrations=object(),
                     _raise_integration_problem=local_chat_private._raise_integration_problem,
@@ -388,24 +387,41 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                     )
                 self.assertEqual(caught.exception.code, expected_code)
 
-    def test_current_declaration_rejects_lifecycle_and_artifact_drift(self) -> None:
+    def test_current_declaration_admits_running_artifact_and_rejects_drift(self) -> None:
         declaration = object()
-        spec = types.SimpleNamespace(integrations={"integration": declaration})
+        spec = types.SimpleNamespace(assistant_id="assistant", integrations={"integration": declaration})
 
-        def subject(*, assistant_ids=("assistant",), container=None, current=True):
+        def subject(*, assistant_specs=None, container=None, current=True):
             return types.SimpleNamespace(
                 _lock=lambda _team_id: nullcontext(),
                 assistant_lifecycle=types.SimpleNamespace(
                     _resolve=lambda *_args: spec,
-                    _assistant_ids=lambda *_args, **_kwargs: assistant_ids,
+                    _assistant_specs=lambda *_args, **_kwargs: (spec,) if assistant_specs is None else assistant_specs,
                     _assistant_container=lambda *_args: container,
                     _has_current_assistant_artifact=lambda *_args: current,
                 ),
             )
 
+        running = types.SimpleNamespace(reload=mock.Mock(), attrs={"Config": {}})
+        self.assertIs(
+            local_chat_private._current_integration_declaration(
+                subject(container=running), "team_1", "assistant", "integration"
+            ),
+            declaration,
+        )
+        running.reload.assert_called_once_with()
+
         with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
             local_chat_private._current_integration_declaration(
-                subject(assistant_ids=()),
+                subject(assistant_specs=(types.SimpleNamespace(assistant_id="other"),), container=running),
+                "team_1",
+                "assistant",
+                "integration",
+            )
+
+        with self.assertRaises(integration_service.OAuthIntegrationDeclarationError):
+            local_chat_private._current_integration_declaration(
+                subject(assistant_specs=()),
                 "team_1",
                 "assistant",
                 "integration",
@@ -516,7 +532,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace(
             _lock=lambda _team_id: nullcontext(),
             assistant_lifecycle=types.SimpleNamespace(
-                _assistant_ids=lambda _team_id: ("whatsapp",),
+                _assistant_specs=lambda _team_id: (spec,),
                 _resolve=lambda *_args: spec,
             ),
             assistant_stored_inputs=store,
