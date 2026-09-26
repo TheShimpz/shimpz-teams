@@ -392,10 +392,11 @@ def _run_hosted_chat_segment_with_metadata(
                 lambda request: hosted_assistants._action_integration_generations(
                     team_id, bindings[request.assistant_id], request.action
                 ),
-                lambda request: hosted_assistants._action_stored_input_generations(
+                lambda request, origins: hosted_assistants._action_stored_input_generations(
                     team_id,
                     bindings[request.assistant_id],
                     request,
+                    origins,
                 ),
             ),
         )

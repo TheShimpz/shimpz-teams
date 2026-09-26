@@ -5,9 +5,11 @@ import sys
 import tempfile
 import threading
 from contextlib import closing
+from dataclasses import replace
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -15,8 +17,10 @@ from local_controller_harness import LocalContractCase, TestAssistantRegistry
 
 from action import execution as action_execution
 from action import human as action_human
+from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
+from local import audit as local_audit
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -132,6 +136,75 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(completed["reply"], "Approved")
         self.assertEqual(runtime.resumes, 1)
         self.assertEqual(len(invocations), 2)
+
+    def test_a_stored_input_supplied_by_one_batched_action_serves_its_siblings(self) -> None:
+        schema = {"type": "object", "additionalProperties": False, "properties": {"query": {"type": "string"}}}
+        request = {
+            "kind": "input:password",
+            "ordinal": 0,
+            "title": "Exa API key",
+            "description": "Provide the key once.",
+            "label": "Exa API key",
+            "required": True,
+            "placeholder": None,
+            "min_length": 8,
+            "max_length": 256,
+            "stored_input": "exa-api-key",
+        }
+        request["fingerprint"] = action_human._fingerprint(request)
+        batch = (
+            brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "search-web", {"query": "news"}),
+            brain_runtime_client.ActionRequest("action-2", "shimpz-cloudflare", "search-web", {"query": "brazil"}),
+        )
+
+        class Runtime:
+            def start(self, _context, _message):
+                return brain_runtime_client.RuntimeTurn("action-required", "", batch)
+
+            def resume(self, _context, results):
+                if sorted(results) != ["action-1", "action-2"]:
+                    raise AssertionError("the batched results changed")
+                return brain_runtime_client.RuntimeTurn("completed", "Searched", ())
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            spec = controller.registry["shimpz-cloudflare"]
+            controller.registry["shimpz-cloudflare"] = replace(
+                spec,
+                actions={
+                    **spec.actions,
+                    "search-web": assistant_spec.ActionSpec(
+                        "Search the web", schema, schema, (), ("exa-api-key",), ("input:password",)
+                    ),
+                },
+                stored_inputs={"exa-api-key": assistant_spec.StoredInputSpec("password", "Exa API key", "Key")},
+            )
+            supplied: list[tuple[str, list[str]]] = []
+
+            def rpc(_container, _action, payload):
+                supplied.append((payload["input"]["query"], sorted(payload["stored_inputs"])))
+                if not payload["stored_inputs"] and not payload.get("responses"):
+                    return {"type": "request", "request": request}
+                return {"type": "result", "result": {"query": payload["input"]["query"]}}
+
+            controller.assistant_lifecycle._rpc = rpc
+            with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
+                paused = controller.chat_turn_service.chat(
+                    "team_1",
+                    {"message": "Search", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                    "openai",
+                    "sk-test-0123456789",
+                )
+                completed = controller.chat_turn_service.resume_chat_human(
+                    "team_1",
+                    {"challenge_id": paused["challenge_id"], "decision": "submit", "value": "exa-key-0123456789"},
+                    "openai",
+                    "sk-test-0123456789",
+                )
+
+        self.assertEqual(paused["status"], "human-required")
+        self.assertEqual(completed["reply"], "Searched")
+        self.assertEqual(supplied[-1], ("brazil", ["exa-api-key"]))
 
     def test_denied_human_request_purges_the_action_batch_without_brain_resume(self) -> None:
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)

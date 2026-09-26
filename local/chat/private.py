@@ -72,13 +72,14 @@ def _action_stored_input_generations(
     team_id: str,
     active: _ActiveAssistant,
     request: brain_runtime_client.ActionRequest,
+    origins: frozenset[str] | None = None,
 ) -> tuple[tuple[str, int], ...]:
     try:
         return action_execution.stored_input_generations(
             active.spec.actions,
             active.spec.stored_inputs,
             request.action,
-            action_execution.stored_input_origin(request),
+            origins if origins is not None else frozenset({action_execution.stored_input_origin(request)}),
             lambda stored_input_id, declaration: self.assistant_stored_inputs.resolve(
                 team_id,
                 active.spec.assistant_id,

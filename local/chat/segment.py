@@ -137,10 +137,11 @@ def _run_chat_segment_with_metadata(
                     _required_active_assistant(bindings, action_request.assistant_id),
                     action_request.action,
                 ),
-                lambda action_request: self._action_stored_input_generations(
+                lambda action_request, origins: self._action_stored_input_generations(
                     request.team_id,
                     _required_active_assistant(bindings, action_request.assistant_id),
                     action_request,
+                    origins,
                 ),
             ),
         )

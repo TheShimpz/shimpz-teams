@@ -143,7 +143,9 @@ class ActionBatchStrategy:
     execute: Callable[[object, object], object]
     preflight: Callable[[object], object]
     integration_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
-    stored_input_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
+    stored_input_generations: Callable[[object, frozenset[str]], tuple[tuple[str, int], ...]] = (
+        lambda _request, _origins: ()
+    )
 
 
 class ActionBatch:
@@ -166,6 +168,7 @@ class ActionBatch:
         self._batch: action_journal.Batch | None = None
         self._operations: dict[str, action_journal.Operation] = {}
         self._executing_here: set[str] = set()
+        self._origins: frozenset[str] = frozenset()
 
     def _operation_with_evidence(self, request: object) -> tuple[action_journal.Operation, object]:
         active = self._bindings.get(request.assistant_id)
@@ -179,7 +182,7 @@ class ActionBatch:
                 container_id,
                 image,
                 self._strategy.integration_generations(request),
-                self._strategy.stored_input_generations(request),
+                self._strategy.stored_input_generations(request, self._origins),
             ),
             evidence,
         )
@@ -190,6 +193,9 @@ class ActionBatch:
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
             raise action_journal.ActionJournalConflictError("Action batch is already prepared")
+        # A Stored Input first supplied by one operation of this batch is sealed under that operation's origin.
+        # Excluding every origin of the batch keeps its siblings' fingerprints stable after that seal.
+        self._origins = frozenset(stored_input_origin(request) for request in requests)
         operations = tuple(self._operation(request) for request in requests)
         if self._journal is None:
             self._journal = self._journal_source()
@@ -228,6 +234,7 @@ class ActionBatch:
         self._journal.delivered(self._batch)
         self._batch = None
         self._operations = {}
+        self._origins = frozenset()
         self._executing_here.clear()
         if callable(self._journal_source):
             self._journal = None
@@ -508,14 +515,14 @@ def stored_input_generations(
     actions: Mapping[str, object],
     stored_inputs: Mapping[str, object],
     action_id: str,
-    origin: str,
+    origins: frozenset[str],
     resolve: Callable[[str, object], action_stored_input.StoredInputValue],
 ) -> tuple[tuple[str, int], ...]:
-    """Fingerprint reusable generations while preserving a just-sealed journal replay."""
+    """Fingerprint reusable generations while preserving values just sealed by the same journal batch."""
     values = resolve_action_stored_inputs(actions, stored_inputs, action_id, resolve)
     generations: list[tuple[str, int]] = []
     for stored_input_id, value in values.items():
-        if value.origin == origin:
+        if value.origin in origins:
             continue
         if type(value.generation) is not int or value.generation < 1:
             raise action_journal.ActionJournalConflictError("Action Stored Input generation is unavailable")

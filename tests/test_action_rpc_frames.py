@@ -186,7 +186,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 actions,
                 declarations,
                 "send",
-                origin,
+                frozenset({origin}),
                 lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
                     "private",
                     2,
@@ -200,7 +200,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 actions,
                 declarations,
                 "send",
-                "b" * 64,
+                frozenset({"b" * 64}),
                 lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
                     "private",
                     2,
@@ -246,7 +246,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 actions,
                 declarations,
                 "send",
-                "b" * 64,
+                frozenset({"b" * 64}),
                 lambda _stored_input, _declaration: action_stored_input.StoredInputValue(
                     "private",
                     0,
