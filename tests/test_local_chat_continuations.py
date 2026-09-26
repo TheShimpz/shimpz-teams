@@ -4,6 +4,7 @@ import sys
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -143,6 +144,78 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 ),
             ):
                 local_chat_continuations.encode("integrations", requirements, pending(image))
+
+    def test_every_admitted_human_request_kind_round_trips(self) -> None:
+        options = [
+            {"value": "safe", "label": "Safe", "description": None},
+            {"value": "fast", "label": "Fast", "description": "Apply all."},
+        ]
+        base = {"ordinal": 0, "title": "Continue", "description": "Continue this Action."}
+        text = {"label": "Value", "required": True, "placeholder": None, "min_length": 1}
+        shapes = [({"kind": kind}, (), None) for kind in ("approval", *sorted(action_human.AUTH_KINDS))]
+        shapes += [
+            ({"kind": kind, **text, "max_length": limit}, (), None)
+            for kind, limit in sorted(action_human.LENGTH_KINDS.items())
+        ]
+        shapes.append(
+            (
+                {"kind": "input:password", **text, "max_length": 256, "stored_input": "exa-api-key"},
+                ("exa-api-key",),
+                "exa-api-key",
+            )
+        )
+        shapes += [
+            ({"kind": kind, "label": "Mode", "required": True, "options": options}, (), None)
+            for kind in sorted(action_human.CHOICE_KINDS)
+        ]
+        shapes.append(
+            (
+                {
+                    "kind": "input:choices",
+                    "label": "Modes",
+                    "required": True,
+                    "options": options,
+                    "min_selections": 1,
+                    "max_selections": 2,
+                },
+                (),
+                None,
+            )
+        )
+        for fields, declared, stored_input in shapes:
+            request = {**base, **fields}
+            request["fingerprint"] = action_human._fingerprint(request)
+            admitted = action_human.validate_request(request, (request["kind"],), declared)
+            with self.subTest(kind=request["kind"], stored_input=stored_input):
+                self._round_trip(
+                    "human",
+                    (
+                        action_challenges.HumanRequirement(
+                            "demo-assistant",
+                            "Demo Assistant",
+                            "publish",
+                            "Publish.",
+                            "action-1",
+                            admitted,
+                            "0.4.1",
+                        ),
+                    ),
+                )
+
+    def test_encoding_refuses_a_continuation_that_would_not_restore(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        drifted = local_chat_continuations.DecodedContinuation(
+            "integrations", requirements, replace(pending(), provider="anthropic")
+        )
+        with (
+            mock.patch.object(local_chat_continuations, "_decoded", return_value=drifted),
+            self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "does not round-trip"),
+        ):
+            local_chat_continuations.encode("integrations", requirements, pending())
 
     def test_round_trips_a_pending_stored_input_request(self) -> None:
         request = {

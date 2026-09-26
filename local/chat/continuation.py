@@ -292,7 +292,12 @@ def encode(
         raise ContinuationCodecError("continuation could not be encoded") from exc
     if not 1 <= len(payload) <= local_chat_continuation_store.MAX_PLAINTEXT_BYTES:
         raise ContinuationCodecError("continuation exceeds its fixed byte limit")
-    return _bindings(kind, requirements, pending), payload
+    bindings = _bindings(kind, requirements, pending)
+    # Never persist what a restart cannot restore: an undecodable record would stop Local Team at startup.
+    decoded = _decoded(kind, payload, bindings)
+    if decoded.requirements != tuple(requirements) or decoded.pending != pending:
+        raise ContinuationCodecError("continuation does not round-trip")
+    return bindings, payload
 
 
 def _decode_payload(payload: bytes) -> dict[str, object]:
@@ -589,19 +594,23 @@ def decode(
     """Authenticate structural bindings again after decrypting one record."""
     if not isinstance(stored, local_chat_continuation_store.StoredContinuation):
         raise ContinuationCodecError("stored continuation is malformed")
-    body = _decode_payload(stored.payload)
-    if body["schema"] != SCHEMA_VERSION or body["kind"] != stored.kind:
+    return _decoded(stored.kind, stored.payload, stored.bindings)
+
+
+def _decoded(kind: str, payload: bytes, bindings: tuple[str, ...]) -> DecodedContinuation:
+    body = _decode_payload(payload)
+    if body["schema"] != SCHEMA_VERSION or body["kind"] != kind:
         raise ContinuationCodecError("stored continuation contract changed")
     raw_requirements = _sequence(body["requirements"], 64, "continuation requirements")
-    if stored.kind == "integrations":
+    if kind == "integrations":
         requirements = tuple(_integration_requirement(item) for item in raw_requirements)
-    elif stored.kind == "human" and len(raw_requirements) == 1:
+    elif kind == "human" and len(raw_requirements) == 1:
         requirements = (_human_requirement(raw_requirements[0]),)
     else:
         raise ContinuationCodecError("stored continuation kind is malformed")
     if not requirements:
         raise ContinuationCodecError("continuation requirements are malformed")
     pending = _pending(body["pending"])
-    if _bindings(stored.kind, requirements, pending) != stored.bindings:
+    if _bindings(kind, requirements, pending) != bindings:
         raise ContinuationCodecError("stored continuation release binding changed")
-    return DecodedContinuation(stored.kind, requirements, pending)
+    return DecodedContinuation(kind, requirements, pending)
