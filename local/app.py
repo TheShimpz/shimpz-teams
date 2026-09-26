@@ -929,6 +929,7 @@ def main() -> int:
         updater = local_automatic_updates.AutomaticAssistantUpdater(
             controller,
             record=_record_automatic_update,
+            activity=server.activity,
         )
     except (KeyError, RuntimeError, DockerException) as exc:
         print(f"team-local: startup failed: {exc}", file=sys.stderr, flush=True)

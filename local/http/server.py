@@ -15,6 +15,7 @@ from chat import turn as chat_turn_engine
 from core.http import stdlib
 from core.http import strict as strict_http
 from integrations import broker as integration_broker
+from local import activity as local_activity
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
@@ -39,7 +40,8 @@ MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
 MAX_PATH_BYTES = 512
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
-_MACHINE_ONLY_OPERATIONS = frozenset({"health", "space-bootstrap-reset", "assistant-integration-complete"})
+_MACHINE_ONLY_OPERATIONS = frozenset({"health", "activity", "space-bootstrap-reset", "assistant-integration-complete"})
+_READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
     "assistant-action-labels": MAX_BODY_BYTES,
     "assistant-install": MAX_BODY_BYTES,
@@ -68,6 +70,7 @@ class BoundedServer(ThreadingHTTPServer):
         super().__init__(address, handler)
         self.controller = controller
         self.token = token
+        self.activity = local_activity.Activity()
         self._slots = threading.BoundedSemaphore(16)
 
     def process_request(self, request, client_address) -> None:
@@ -303,12 +306,20 @@ class Handler(BaseHTTPRequestHandler):
             ) from exc
         return HTTPStatus.OK, self.server.controller.reset_space(), "space-bootstrap-reset", None, None
 
+    def _machine_read_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
+        if self.command == "GET" and parts == ["healthz"]:
+            return HTTPStatus.OK, self.server.controller.health(), "health", None, None
+        if self.command == "GET" and parts == ["v1", "activity"]:
+            return HTTPStatus.OK, {"state": self.server.activity.state()}, "activity", None, None
+        return None
+
     def _fixed_route(
         self, parts: list[str]
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         controller = self.server.controller
-        if self.command == "GET" and parts == ["healthz"]:
-            return HTTPStatus.OK, controller.health(), "health", None, None
+        machine_read = self._machine_read_route(parts)
+        if machine_read is not None:
+            return machine_read
         if self.command == "GET" and parts == ["v1", "assistants"]:
             return HTTPStatus.OK, controller.list_registry(), "registry-list", None, None
         if self.command == "GET" and parts == ["v1", "teams"]:
@@ -949,13 +960,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.UNAUTHORIZED, {"error": "authentication required", "trace_id": trace_id})
             return
 
-        local.dispatch_route(
-            lambda: self._authorized_route(request_audit),
-            request_audit.record,
-            self._send,
-            ApiProblem,
-            DockerException,
-        )
+        work = contextlib.nullcontext() if self.command in _READ_METHODS else self.server.activity.working()
+        with work:
+            local.dispatch_route(
+                lambda: self._authorized_route(request_audit),
+                request_audit.record,
+                self._send,
+                ApiProblem,
+                DockerException,
+            )
 
     def do_GET(self) -> None:
         self._handle()

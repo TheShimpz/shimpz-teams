@@ -334,6 +334,7 @@ class ControllerRouteMatch:
     def group(self) -> str | None:
         fixed = {
             "health",
+            "activity",
             "registry-list",
             "team-list",
             "space-bootstrap-reset",
@@ -427,6 +428,7 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/start", "team-start", _HOSTED_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/teams/:team_id/restart", "team-restart", _HOSTED_CONTROLLER_ONLY),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/v1/activity", "activity", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route(
         "GET",

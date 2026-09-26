@@ -45,6 +45,9 @@ failure. It does not remove shared images, the controller container, or unlabele
   used for that operation and is never persisted, echoed, or forwarded to Assistant containers.
 
 The image healthcheck reads the controller bearer and performs authenticated `GET /healthz` on loopback.
+`python -m local.activity` uses the same loopback pattern for `GET /v1/activity` and prints only `idle` or `busy`:
+busy while any authenticated non-read request (chat turns, Action invocations, Assistant lifecycle) or automatic
+Assistant update is in flight. A chat paused on a human or Integration request is idle.
 
 ## HTTP API
 
@@ -57,6 +60,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/healthz` | authenticated process/registry health |
+| `GET` | `/v1/activity` | machine-only `idle`/`busy` work signal for scheduled Local release reconciliation |
 | `GET` | `/v1/assistants` | trusted installable Assistant registry |
 | `DELETE` | `/v1/space/bootstrap` | Team cleanup before Supervisor establishment; machine bearer plus independent key-absence proof |
 | `GET` | `/v1/teams` | running Team inventory |

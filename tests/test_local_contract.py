@@ -160,6 +160,7 @@ class LocalContractTests(LocalContractCase):
         server = SimpleNamespace(
             serve_forever=lambda **_kwargs: events.append("serve"),
             server_close=lambda: events.append("server-close"),
+            activity=object(),
         )
         updater = SimpleNamespace(
             start=lambda: events.append("updates-start"),

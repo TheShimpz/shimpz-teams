@@ -11,6 +11,7 @@ from collections.abc import Callable
 from docker.errors import DockerException
 
 from install import bindings
+from local.activity import Activity
 from local.errors import ApiProblemError as ApiProblem
 from local.install import developers
 
@@ -29,12 +30,14 @@ class AutomaticAssistantUpdater:
         jitter: Callable[[int], int] = secrets.randbelow,
         record: Callable[[str | None, str | None, str, str], None] | None = None,
         clock: Callable[[], float] = time.monotonic,
+        activity: Activity | None = None,
     ) -> None:
         self._controller = controller
         self._interval_seconds = interval_seconds
         self._jitter = jitter
         self._record = record
         self._clock = clock
+        self._activity = activity or Activity()
         self._failures: dict[tuple[str, str, str], int] = {}
         self._retry_after: dict[tuple[str, str, str], float] = {}
         self._stop = threading.Event()
@@ -92,12 +95,13 @@ class AutomaticAssistantUpdater:
                 self._clear_failure(key)
                 continue
             try:
-                self._controller.install_publication(
-                    binding.team_id,
-                    binding.assistant_id,
-                    str(target["source_digest"]),
-                    expected_binding_digest=binding.binding_digest,
-                )
+                with self._activity.working():
+                    self._controller.install_publication(
+                        binding.team_id,
+                        binding.assistant_id,
+                        str(target["source_digest"]),
+                        expected_binding_digest=binding.binding_digest,
+                    )
             except (ApiProblem, DockerException, bindings.DynamicAssistantError) as exc:
                 code = exc.code if isinstance(exc, ApiProblem) else "runtime-unavailable"
                 log.warning(

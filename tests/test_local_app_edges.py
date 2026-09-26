@@ -626,6 +626,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
         server = types.SimpleNamespace(
             serve_forever=mock.Mock(side_effect=KeyboardInterrupt),
             server_close=mock.Mock(),
+            activity=mock.sentinel.activity,
         )
         updater = types.SimpleNamespace(start=mock.Mock(), close=mock.Mock())
         with (
@@ -653,11 +654,12 @@ class LocalAppMainEdgeTests(unittest.TestCase):
                 local_app.local_automatic_updates,
                 "AutomaticAssistantUpdater",
                 return_value=updater,
-            ),
+            ) as updater_class,
             mock.patch.object(local_app.local_audit, "record"),
             mock.patch.object(local_app.local_audit, "close"),
         ):
             self.assertEqual(local_app.main(), 0)
+        self.assertIs(updater_class.call_args.kwargs["activity"], mock.sentinel.activity)
         updater.close.assert_called_once_with()
         server.server_close.assert_called_once_with()
         client.close.assert_called_once_with()

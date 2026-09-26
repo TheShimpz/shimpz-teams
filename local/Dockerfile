@@ -33,7 +33,7 @@ ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
-COPY local/__init__.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
+COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
     local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
 COPY local/install/__init__.py local/install/automatic.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
@@ -111,7 +111,7 @@ RUN test -x /usr/bin/timeout && \
         /var/lib/shimpz-local/assistant-stored-inputs/state /var/lib/shimpz-local/assistant-stored-inputs/key \
         /var/lib/shimpz-local/chat-continuations/state /var/lib/shimpz-local/chat-continuations/key \
         /var/lib/shimpz-local/publications /var/lib/shimpz-local/cosign && \
-    chmod 0555 /app/local/healthcheck.py
+    chmod 0555 /app/local/healthcheck.py /app/local/activity.py
 
 LABEL org.opencontainers.image.source="https://github.com/TheShimpz/shimpz-teams" \
       org.shimpz.component="team-local" \
