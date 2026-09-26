@@ -200,17 +200,15 @@ class ActionBatch:
     ) -> action_journal.Operation:
         return self._operation_with_evidence(request, excluded_origins)[0]
 
-    def _sibling_sealed_only(self, request: object, operation: action_journal.Operation) -> bool:
-        """Excuse only a Stored Input absent at prepare and since sealed by a sibling of this batch.
+    def _prepared_stored_inputs_unchanged(self, request: object) -> bool:
+        """Require every Stored Input present at prepare, whatever its origin, to keep its exact generation.
 
-        Every value present at prepare, whatever its origin, must keep its generation; excluding values sealed under
-        this batch's origins must then restore the exact prepared fingerprint.
+        Only a value absent at prepare and since sealed by a sibling of this batch may then change the strict
+        fingerprint, and excluding this batch's origins must restore the prepared one.
         """
         present = self._prepared_stored_inputs[request.interrupt_id]
         current = dict(self._strategy.stored_input_generations(request, frozenset()))
-        if any(current.get(stored_input_id) != generation for stored_input_id, generation in present.items()):
-            return False
-        return self._operation(request, self._origins) == operation
+        return all(current.get(stored_input_id) == generation for stored_input_id, generation in present.items())
 
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
@@ -233,7 +231,9 @@ class ActionBatch:
         if operation is None:
             raise action_journal.ActionJournalConflictError("Action operation is not prepared")
         current_operation, evidence = self._operation_with_evidence(request)
-        if current_operation != operation and not self._sibling_sealed_only(request, operation):
+        if not self._prepared_stored_inputs_unchanged(request) or (
+            current_operation != operation and self._operation(request, self._origins) != operation
+        ):
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
