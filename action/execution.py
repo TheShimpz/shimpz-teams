@@ -169,6 +169,7 @@ class ActionBatch:
         self._operations: dict[str, action_journal.Operation] = {}
         self._executing_here: set[str] = set()
         self._origins: frozenset[str] = frozenset()
+        self._prepared_stored_inputs: dict[str, dict[str, int]] = {}
 
     def _operation_with_evidence(
         self,
@@ -199,11 +200,27 @@ class ActionBatch:
     ) -> action_journal.Operation:
         return self._operation_with_evidence(request, excluded_origins)[0]
 
+    def _sibling_sealed_only(self, request: object, operation: action_journal.Operation) -> bool:
+        """Excuse only a Stored Input absent at prepare and since sealed by a sibling of this batch.
+
+        Every value present at prepare, whatever its origin, must keep its generation; excluding values sealed under
+        this batch's origins must then restore the exact prepared fingerprint.
+        """
+        present = self._prepared_stored_inputs[request.interrupt_id]
+        current = dict(self._strategy.stored_input_generations(request, frozenset()))
+        if any(current.get(stored_input_id) != generation for stored_input_id, generation in present.items()):
+            return False
+        return self._operation(request, self._origins) == operation
+
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
             raise action_journal.ActionJournalConflictError("Action batch is already prepared")
         self._origins = frozenset(stored_input_origin(request) for request in requests)
         operations = tuple(self._operation(request) for request in requests)
+        self._prepared_stored_inputs = {
+            request.interrupt_id: dict(self._strategy.stored_input_generations(request, frozenset()))
+            for request in requests
+        }
         if self._journal is None:
             self._journal = self._journal_source()
         self._batch = self._journal.prepare_batch(self._generation, self._thread_id, operations)
@@ -216,10 +233,7 @@ class ActionBatch:
         if operation is None:
             raise action_journal.ActionJournalConflictError("Action operation is not prepared")
         current_operation, evidence = self._operation_with_evidence(request)
-        # A Stored Input absent at prepare may since have been supplied and sealed by a sibling of this batch. Only
-        # that addition is excused: excluding sibling-sealed values must restore the exact prepared fingerprint, so a
-        # value bound at prepare that later changed still fails closed.
-        if current_operation != operation and self._operation(request, self._origins) != operation:
+        if current_operation != operation and not self._sibling_sealed_only(request, operation):
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
@@ -245,6 +259,7 @@ class ActionBatch:
         self._batch = None
         self._operations = {}
         self._origins = frozenset()
+        self._prepared_stored_inputs = {}
         self._executing_here.clear()
         if callable(self._journal_source):
             self._journal = None

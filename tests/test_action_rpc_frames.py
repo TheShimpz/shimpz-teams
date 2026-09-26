@@ -731,6 +731,9 @@ class ActionRpcFrameTests(unittest.TestCase):
             run({"key": (1, sibling)}, (2, sibling))
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation changed"):
             run({}, (1, "c" * 64))
+        own = action_execution.stored_input_origin(second)
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation changed"):
+            run({"key": (1, own)}, (2, sibling))
 
     def test_action_batch_rejects_unprepared_duplicate_and_changed_delivery(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {})
