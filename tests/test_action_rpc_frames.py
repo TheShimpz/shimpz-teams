@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import socket
 import struct
 import sys
@@ -276,6 +277,23 @@ class ActionRpcFrameTests(unittest.TestCase):
         for invalid in ([], {"type": "unknown", "result": None}):
             with self.subTest(invalid=invalid), self.assertRaises(action_execution.RpcInvalidResultError):
                 action_execution.project_rpc_result(invalid, {}, lambda value: value)
+
+    def test_rpc_result_projection_refuses_what_the_action_journal_cannot_persist(self) -> None:
+        large = {"text": "ação " * 20_000}
+        self.assertGreater(len(json.dumps(large, ensure_ascii=False).encode()), 32 * 1024)
+        self.assertEqual(
+            action_execution.project_rpc_result({"type": "result", "result": large}, {}, lambda value: value), large
+        )
+        frames = (
+            b'{"type":"result","result":{"n":1E400}}',
+            b'{"type":"result","result":{"items":[' + b",".join([b"0"] * 5000) + b"]}}",
+            b'{"type":"result","result":{"text":"' + b"x" * action_journal.MAX_RESULT_BYTES + b'"}}',
+        )
+        for frame in frames:
+            with self.subTest(size=len(frame)), self.assertRaises(action_execution.RpcInvalidResultError):
+                action_execution.project_rpc_result(
+                    action_execution.decode_rpc_response(frame), {}, lambda value: value
+                )
 
     def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
         request = {

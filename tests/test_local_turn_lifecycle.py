@@ -138,6 +138,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(len(invocations), 2)
 
     def test_a_stored_input_supplied_by_one_batched_action_serves_its_siblings(self) -> None:
+        # Page text makes each result larger than 32 KiB of UTF-8, as a real Exa search with include_text does.
+        page_text = " ação" * 8_000
         schema = {"type": "object", "additionalProperties": False, "properties": {"query": {"type": "string"}}}
         request = {
             "kind": "input:password",
@@ -162,7 +164,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 return brain_runtime_client.RuntimeTurn("action-required", "", batch)
 
             def resume(self, _context, results):
-                if sorted(results) != ["action-1", "action-2"]:
+                if results != {"action-1": {"query": "news" + page_text}, "action-2": {"query": "brazil" + page_text}}:
                     raise AssertionError("the batched results changed")
                 return brain_runtime_client.RuntimeTurn("completed", "Searched", ())
 
@@ -185,7 +187,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 supplied.append((payload["input"]["query"], sorted(payload["stored_inputs"])))
                 if not payload["stored_inputs"] and not payload.get("responses"):
                     return {"type": "request", "request": request}
-                return {"type": "result", "result": {"query": payload["input"]["query"]}}
+                return {"type": "result", "result": {"query": payload["input"]["query"] + page_text}}
 
             controller.assistant_lifecycle._rpc = rpc
             with mock.patch.object(local_audit, "record_request", return_value="a" * 32):

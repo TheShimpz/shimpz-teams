@@ -355,9 +355,11 @@ def project_rpc_result(
     if response_type != "result" or "result" not in raw_result:
         raise RpcInvalidResultError
     try:
-        return validate(raw_result["result"])
-    except ValueError as exc:
+        result = validate(raw_result["result"])
+        action_journal.require_durable_result(result)
+    except (ValueError, action_journal.ActionJournalConflictError) as exc:
         raise RpcInvalidResultError from exc
+    return result
 
 
 def decode_rpc_response(raw: bytes) -> dict[str, object]:

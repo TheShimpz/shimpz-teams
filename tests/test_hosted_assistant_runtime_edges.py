@@ -506,6 +506,18 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(persistence.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-token", persistence.exception.message)
 
+        with (
+            mock.patch.object(
+                assistants, "_assistant_rpc", return_value={"type": "result", "result": {"items": [0] * 5_000}}
+            ),
+            mock.patch.object(assistants, "_validate_action_payload", side_effect=lambda _c, _a, value, **_k: value),
+            mock.patch.object(assistants, "_seal_hosted_stored_inputs") as seal,
+            self.assertRaises(state.ApiError) as undurable,
+        ):
+            assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
+        self.assertEqual(undurable.exception.status, HTTPStatus.BAD_GATEWAY)
+        seal.assert_not_called()
+
     def test_stored_input_rejection_and_sealing_preserve_secret_custody(self) -> None:
         action = SimpleNamespace(
             human_requests=("input:password",),

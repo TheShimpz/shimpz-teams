@@ -27,7 +27,8 @@ SCHEMA_VERSION = 1
 APPLICATION_ID = 0x53484A31  # SHJ1
 MAX_GENERATIONS = 1024
 MAX_OPERATIONS = 64
-MAX_RESULT_BYTES = 32 * 1024
+# Matches the Assistant RPC frame bound; the RPC boundary refuses any result this journal could not admit.
+MAX_RESULT_BYTES = 512 * 1024
 MAX_JSON_DEPTH = 32
 MAX_JSON_NODES = 4096
 # NORMAL preserves SQLite consistency and process-crash recovery, but a sudden action loss may
@@ -144,6 +145,11 @@ def _canonical_result(value: object, max_bytes: int) -> bytes:
     if len(encoded) > max_bytes:
         raise ActionJournalConflictError("Action result exceeds the durable size limit")
     return encoded
+
+
+def require_durable_result(value: object) -> None:
+    """Refuse, before any follow-up side effect, a result the journal could not persist."""
+    _canonical_result(value, MAX_RESULT_BYTES)
 
 
 class ActionJournal:
