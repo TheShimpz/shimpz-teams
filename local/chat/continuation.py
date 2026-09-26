@@ -561,8 +561,15 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
     request_value = raw["request"]
     if not isinstance(request_value, dict) or not isinstance(request_value.get("kind"), str):
         raise ContinuationCodecError("human requirement request is malformed")
+    # The record is Team-authenticated and its Stored Input was admitted against the Action declaration at pause;
+    # sealing a submitted value re-checks that declaration, so restore admits exactly the recorded identifier.
+    stored_input = request_value.get("stored_input")
     try:
-        request = action_human.validate_request(request_value, (request_value["kind"],))
+        request = action_human.validate_request(
+            request_value,
+            (request_value["kind"],),
+            (stored_input,) if isinstance(stored_input, str) else (),
+        )
     except action_human.HumanRequestError as exc:
         raise ContinuationCodecError("human requirement request is malformed") from exc
     return action_challenges.HumanRequirement(

@@ -144,6 +144,34 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ):
                 local_chat_continuations.encode("integrations", requirements, pending(image))
 
+    def test_round_trips_a_pending_stored_input_request(self) -> None:
+        request = {
+            "kind": "input:password",
+            "ordinal": 0,
+            "title": "Exa API key",
+            "description": "Paste the Exa API key once.",
+            "label": "API key",
+            "required": True,
+            "placeholder": None,
+            "min_length": 1,
+            "max_length": 1024,
+            "stored_input": "exa-api-key",
+        }
+        request["fingerprint"] = action_human._fingerprint(request)
+        requirement = (
+            action_challenges.HumanRequirement(
+                "demo-assistant",
+                "Demo Assistant",
+                "publish",
+                "Search the web.",
+                "action-1",
+                action_human.validate_request(request, ("input:password",), ("exa-api-key",)),
+                "0.4.1",
+            ),
+        )
+        self._round_trip("human", requirement)
+        self.assertEqual(requirement[0].request.stored_input, "exa-api-key")
+
     def test_round_trips_human_suspension_and_nonsecret_transcript(self) -> None:
         first = {
             "kind": "approval",
