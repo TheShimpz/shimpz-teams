@@ -94,6 +94,21 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         ):
             self.state.atomic_write(path, b"payload", "state")
 
+        read_only = OSError(30, "Read-only file system")
+        real_open = os.open
+
+        def create_denied(path, flags, *args):
+            if flags & os.O_CREAT:
+                raise read_only
+            return real_open(path, flags, *args)
+
+        with (
+            mock.patch.object(private_state.os, "open", side_effect=create_denied),
+            mock.patch.object(Path, "unlink", side_effect=read_only),
+            self.assertRaisesRegex(RuntimeError, "could not be persisted"),
+        ):
+            self.state.key(self.root / "private" / "new-key", "key", allow_create=True)
+
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
             self.state.key(self.root / "missing-key", "key")
         invalid = self.root / "invalid-key"

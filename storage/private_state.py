@@ -153,7 +153,9 @@ class PrivateState:
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
-            with suppress(FileNotFoundError):
+            # After a successful replace the temporary is gone; after a failure (for example a read-only volume)
+            # its cleanup must not replace the fail-closed persistence error with a raw OSError.
+            with suppress(OSError):
                 temporary.unlink()
 
     def key(self, path: Path, label: str, *, allow_create: bool = False) -> bytes:
