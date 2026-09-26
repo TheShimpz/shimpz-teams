@@ -170,31 +170,38 @@ class ActionBatch:
         self._executing_here: set[str] = set()
         self._origins: frozenset[str] = frozenset()
 
-    def _operation_with_evidence(self, request: object) -> tuple[action_journal.Operation, object]:
+    def _operation_with_evidence(
+        self,
+        request: object,
+        excluded_origins: frozenset[str] | None = None,
+    ) -> tuple[action_journal.Operation, object]:
         active = self._bindings.get(request.assistant_id)
         if active is None:
             raise action_journal.ActionJournalConflictError("Action Assistant is unavailable")
         evidence = self._strategy.preflight(request)
         container_id, image = self._strategy.binding_identity(active)
+        origins = excluded_origins if excluded_origins is not None else frozenset({stored_input_origin(request)})
         return (
             action_operation(
                 request,
                 container_id,
                 image,
                 self._strategy.integration_generations(request),
-                self._strategy.stored_input_generations(request, self._origins),
+                self._strategy.stored_input_generations(request, origins),
             ),
             evidence,
         )
 
-    def _operation(self, request: object) -> action_journal.Operation:
-        return self._operation_with_evidence(request)[0]
+    def _operation(
+        self,
+        request: object,
+        excluded_origins: frozenset[str] | None = None,
+    ) -> action_journal.Operation:
+        return self._operation_with_evidence(request, excluded_origins)[0]
 
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
             raise action_journal.ActionJournalConflictError("Action batch is already prepared")
-        # A Stored Input first supplied by one operation of this batch is sealed under that operation's origin.
-        # Excluding every origin of the batch keeps its siblings' fingerprints stable after that seal.
         self._origins = frozenset(stored_input_origin(request) for request in requests)
         operations = tuple(self._operation(request) for request in requests)
         if self._journal is None:
@@ -209,7 +216,10 @@ class ActionBatch:
         if operation is None:
             raise action_journal.ActionJournalConflictError("Action operation is not prepared")
         current_operation, evidence = self._operation_with_evidence(request)
-        if current_operation != operation:
+        # A Stored Input absent at prepare may since have been supplied and sealed by a sibling of this batch. Only
+        # that addition is excused: excluding sibling-sealed values must restore the exact prepared fingerprint, so a
+        # value bound at prepare that later changed still fails closed.
+        if current_operation != operation and self._operation(request, self._origins) != operation:
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:

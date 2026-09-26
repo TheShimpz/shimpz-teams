@@ -688,6 +688,50 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.assertEqual(evidence, [{"sequence": 1}, {"sequence": 2}])
         execute.assert_called_once_with(request, evidence[1])
 
+    def test_action_batch_excuses_only_a_stored_input_newly_sealed_by_a_sibling(self) -> None:
+        first = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "search", {"q": "a"})
+        second = brain_runtime_client.ActionRequest("interrupt-2", "assistant", "search", {"q": "b"})
+        sibling = action_execution.stored_input_origin(first)
+        binding = SimpleNamespace(container_id="container", spec=SimpleNamespace(image="image"))
+        store: dict[str, tuple[int, str]] = {}
+
+        def generations(request, origins):
+            return tuple(
+                (stored_input_id, generation)
+                for stored_input_id, (generation, origin) in store.items()
+                if origin not in origins
+            )
+
+        def run(initial: dict[str, tuple[int, str]], sealed: tuple[int, str]) -> object:
+            store.clear()
+            store.update(initial)
+            with tempfile.TemporaryDirectory() as directory:
+                journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+                self.addCleanup(journal.close)
+                batch = action_execution.ActionBatch(
+                    journal,
+                    "generation",
+                    "thread",
+                    {"assistant": binding},
+                    action_execution.ActionBatchStrategy(
+                        lambda item: (item.container_id, item.spec.image),
+                        lambda _request, _evidence: {"ok": True},
+                        lambda _request: None,
+                        stored_input_generations=generations,
+                    ),
+                )
+                batch.prepare((first, second))
+                batch.invoke(first)
+                store["key"] = sealed
+                return batch.invoke(second)
+
+        self.assertEqual(run({}, (1, sibling)), {"ok": True})
+        self.assertEqual(run({"key": (1, sibling)}, (1, sibling)), {"ok": True})
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation changed"):
+            run({"key": (1, sibling)}, (2, sibling))
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "generation changed"):
+            run({}, (1, "c" * 64))
+
     def test_action_batch_rejects_unprepared_duplicate_and_changed_delivery(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {})
         unknown = brain_runtime_client.ActionRequest("interrupt-2", "assistant", "lookup", {})
