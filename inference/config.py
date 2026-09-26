@@ -33,16 +33,6 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 TEAM_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
-# Stored Team selections of retired catalog models load as their successor instead of failing closed.
-RETIRED_MODELS: dict[tuple[str, str], str] = {
-    ("openai", "gpt-5.5"): "gpt-6-sol",
-    ("openai", "gpt-5.6-sol"): "gpt-6-sol",
-    ("openai", "gpt-5.6-terra"): "gpt-6-sol",
-    ("openai", "gpt-5.6-luna"): "gpt-6-luna",
-    ("anthropic", "claude-fable-5"): "claude-opus-5-5",
-    ("anthropic", "claude-opus-4-8"): "claude-opus-5-5",
-    ("anthropic", "claude-haiku-4-5-20251001"): "claude-sonnet-5",
-}
 
 
 class InferenceConfigError(ValueError):
@@ -121,8 +111,7 @@ class InferenceConfigStore:
             raise InferenceConfigError("Team inference configuration is invalid")
         if value["schema"] != SCHEMA or value["team_id"] != team_id:
             raise InferenceConfigError("Team inference configuration is invalid")
-        model = RETIRED_MODELS.get((value["provider"], value["model"]), value["model"])
-        return normalize(value["provider"], model)
+        return normalize(value["provider"], value["model"])
 
     def delete(self, team_id: object) -> None:
         team_id = _team_id(team_id)

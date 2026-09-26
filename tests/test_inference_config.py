@@ -93,33 +93,20 @@ class InferenceConfigTests(unittest.TestCase):
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.load("team_1")
 
-    def test_persisted_retired_model_loads_as_its_catalog_successor(self):
+    def test_persisted_model_removed_from_the_catalog_fails_closed(self):
         self.root.mkdir(parents=True)
-        for (provider, retired), successor in inference_config.RETIRED_MODELS.items():
-            with self.subTest(provider=provider, model=retired):
-                self.assertIn(successor, inference_config.PROVIDERS[provider]["models"])
-                with self.assertRaises(inference_config.InferenceConfigError):
-                    inference_config.normalize(provider, retired)
-                self.store._path("team_1").write_text(
-                    json.dumps(
-                        {
-                            "schema": inference_config.SCHEMA,
-                            "team_id": "team_1",
-                            "provider": provider,
-                            "model": retired,
-                        }
-                    ),
-                    encoding="utf-8",
-                )
-                self.assertEqual(
-                    self.store.load("team_1"), inference_config.InferenceConfig(provider=provider, model=successor)
-                )
         self.store._path("team_1").write_text(
             json.dumps(
-                {"schema": inference_config.SCHEMA, "team_id": "team_1", "provider": "anthropic", "model": "gpt-5.5"}
+                {
+                    "schema": inference_config.SCHEMA,
+                    "team_id": "team_1",
+                    "provider": "openai",
+                    "model": "gpt-5.6-luna",
+                }
             ),
             encoding="utf-8",
         )
+
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.load("team_1")
 
