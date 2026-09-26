@@ -185,6 +185,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertEqual(
             result,
             {
+                "task_follows": False,
                 "team_id": "team_1",
                 "intent": "assistant-uninstall",
                 "query": "",

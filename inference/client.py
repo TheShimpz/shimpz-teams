@@ -152,6 +152,7 @@ class RuntimeIntentRoute:
     query: str = ""
     assistant_ids: tuple[str, ...] = ()
     reply: str = ""
+    task_follows: bool = False
 
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
@@ -540,7 +541,11 @@ class BrainRuntimeClient:
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
     ) -> RuntimeIntentRoute:
-        if not isinstance(value, dict) or set(value) != {"intent", "query", "assistant_ids", "reply"}:
+        if not isinstance(value, dict) or set(value) != {"intent", "query", "assistant_ids", "reply", "task_follows"}:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        task_follows = value["task_follows"]
+        continues_install = expected_intent is None and value["intent"] == "assistant-install" and bool(value["query"])
+        if type(task_follows) is not bool or (task_follows and not continues_install):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         intent = value["intent"]
         query = value["query"]
@@ -574,7 +579,7 @@ class BrainRuntimeClient:
             )
             if bool(reply) != requires_reply:
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
-            return RuntimeIntentRoute(intent, query, reply=reply)
+            return RuntimeIntentRoute(intent, query, reply=reply, task_follows=task_follows)
         expected_ids = frozenset(candidate.id for candidate in candidates)
         if intent == "unresolved" and not query and not assistant_ids and reply:
             return RuntimeIntentRoute("unresolved", reply=reply)

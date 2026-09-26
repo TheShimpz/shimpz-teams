@@ -372,4 +372,5 @@ def intent_route(
         "query": route.query,
         "assistant_ids": list(route.assistant_ids),
         "reply": route.reply,
+        "task_follows": route.task_follows,
     }
