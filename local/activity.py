@@ -38,29 +38,40 @@ class Activity:
             return "busy" if self._active else "idle"
 
 
-def main() -> int:
-    connection = None
+def _token() -> str | None:
     try:
         token = TOKEN_PATH.read_text(encoding="ascii")
-        if len(token) != 64:
-            return 1
-        connection = http.client.HTTPConnection("127.0.0.1", 7077, timeout=3)
+    except OSError, UnicodeError:
+        return None
+    return token if len(token) == 64 else None
+
+
+def _state(token: str) -> str | None:
+    connection = http.client.HTTPConnection("127.0.0.1", 7077, timeout=3)
+    try:
         connection.request("GET", "/v1/activity", headers={"Authorization": f"Bearer {token}"})
         response = connection.getresponse()
         if response.status != 200 or response.getheader("Content-Type") != "application/json":
-            return 1
+            return None
         length = int(response.getheader("Content-Length", "0"))
         if not 1 <= length <= 1024:
-            return 1
+            return None
         payload = json.loads(response.read(length))
-    except OSError, UnicodeError, ValueError, json.JSONDecodeError, http.client.HTTPException:
-        return 1
+    except OSError, ValueError, json.JSONDecodeError, http.client.HTTPException:
+        return None
     finally:
-        if connection is not None:
-            connection.close()
+        connection.close()
     if not isinstance(payload, dict) or set(payload) != {"state", "trace_id"} or payload["state"] not in STATES:
+        return None
+    return payload["state"]
+
+
+def main() -> int:
+    token = _token()
+    state = _state(token) if token is not None else None
+    if state is None:
         return 1
-    print(payload["state"])
+    print(state)
     return 0
 
 

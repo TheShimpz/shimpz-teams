@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import runpy
 import threading
 import unittest
 from pathlib import Path
@@ -122,6 +123,30 @@ class LoopbackActivityTests(unittest.TestCase):
         connection.close()
         with mock.patch.object(Path, "read_text", return_value="short"):
             self.assertEqual(local_activity.main(), 1)
+        with mock.patch.object(Path, "read_text", side_effect=OSError):
+            self.assertEqual(local_activity.main(), 1)
+            with self.assertRaises(SystemExit) as exit_:
+                runpy.run_module("local.activity", run_name="__main__")
+        self.assertEqual(exit_.exception.code, 1)
+        empty = mock.Mock()
+        empty.getresponse.return_value.status = 200
+        empty.getresponse.return_value.getheader.side_effect = lambda name, default=None: (
+            "application/json" if name == "Content-Type" else "0"
+        )
+        with (
+            mock.patch.object(Path, "read_text", return_value=TOKEN),
+            mock.patch.object(local_activity.http.client, "HTTPConnection", return_value=empty),
+        ):
+            self.assertEqual(local_activity.main(), 1)
+        empty.close.assert_called_once_with()
+        refused = mock.Mock()
+        refused.request.side_effect = ConnectionRefusedError
+        with (
+            mock.patch.object(Path, "read_text", return_value=TOKEN),
+            mock.patch.object(local_activity.http.client, "HTTPConnection", return_value=refused),
+        ):
+            self.assertEqual(local_activity.main(), 1)
+        refused.close.assert_called_once_with()
         for payload in ({"state": "unknown"}, {"state": "idle", "extra": 1}, ["idle"]):
             with (
                 self.subTest(payload=payload),
