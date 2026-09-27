@@ -292,9 +292,9 @@ class IntegrationSecretsClientTests(unittest.TestCase):
                 )
 
         tampered = dict(valid)
-        tampered["ciphertext"] = integration_secrets_client._b64encode(
-            integration_secrets_client._b64decode(valid["ciphertext"])[:-1] + b"x"
-        )
+        ciphertext = integration_secrets_client._b64decode(valid["ciphertext"])
+        # Flip one tag bit; overwriting the byte with a constant leaves it unchanged when it already held it.
+        tampered["ciphertext"] = integration_secrets_client._b64encode(ciphertext[:-1] + bytes([ciphertext[-1] ^ 1]))
         with self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "authentication failed"):
             integration_secrets_client._open_delivery(
                 private_key,
