@@ -167,6 +167,12 @@ class InferenceConfigTests(unittest.TestCase):
                 with self.assertRaises(inference_config.InferenceConfigError) as caught:
                     self.store.load("team_1")
                 self.assertNotIsInstance(caught.exception, inference_config.InferenceConfigMissingError)
+        with (
+            mock.patch.object(Path, "read_bytes", side_effect=PermissionError("denied")),
+            self.assertRaises(inference_config.InferenceConfigError) as caught,
+        ):
+            self.store.load("team_1")
+        self.assertNotIsInstance(caught.exception, inference_config.InferenceConfigMissingError)
 
     def test_delete_wraps_filesystem_failure(self) -> None:
         with (
