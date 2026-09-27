@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import runpy
+import signal
 import threading
 import types
 import unittest
@@ -628,8 +629,17 @@ class LocalAppMainEdgeTests(unittest.TestCase):
             self.assertEqual(local_app.main(), 1)
 
         client = types.SimpleNamespace(close=mock.Mock())
+        previous_sigterm = signal.getsignal(signal.SIGTERM)
+        self.addCleanup(signal.signal, signal.SIGTERM, previous_sigterm)
+
+        def terminated(**_kwargs):
+            # Docker's stop signal must take the same graceful path as an interrupt.
+            handler = signal.getsignal(signal.SIGTERM)
+            self.assertIs(handler, local_app._terminate)
+            handler(signal.SIGTERM, None)
+
         server = types.SimpleNamespace(
-            serve_forever=mock.Mock(side_effect=KeyboardInterrupt),
+            serve_forever=mock.Mock(side_effect=terminated),
             server_close=mock.Mock(),
             activity=mock.sentinel.activity,
         )

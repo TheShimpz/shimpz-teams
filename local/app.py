@@ -11,6 +11,7 @@ import hashlib
 import logging
 import os
 import secrets
+import signal
 import sys
 import threading
 from contextlib import contextmanager
@@ -943,6 +944,8 @@ def main() -> int:
         result="ok",
         principal=local_audit.AuditPrincipal("team-local", "machine"),
     )
+    # Docker stops PID 1 with SIGTERM, which is otherwise ignored; route it into the same graceful shutdown.
+    signal.signal(signal.SIGTERM, _terminate)
     try:
         updater.start()
         server.serve_forever(poll_interval=0.2)
@@ -954,6 +957,10 @@ def main() -> int:
         client.close()
         local_audit.close()
     return 0
+
+
+def _terminate(_signum: int, _frame: object) -> NoReturn:
+    raise KeyboardInterrupt
 
 
 def _record_automatic_update(
