@@ -363,7 +363,9 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
         state._inference_store.load = mock.Mock(side_effect=resources.inference_config.InferenceConfigError("state"))
         described = resources._describe(_container())
         self.assertIsNone(described["provider"])
-        state._inference_store.load = mock.Mock(return_value=SimpleNamespace(provider="openai", model="model"))
+        state._inference_store.load = mock.Mock(
+            return_value=SimpleNamespace(provider="openai", model="model", effort="low")
+        )
         self.assertEqual(resources._describe(_container())["provider"], "openai")
 
     def test_cleanup_and_principal_authorization_are_fail_closed(self) -> None:

@@ -59,6 +59,7 @@ def context(secret: str) -> brain_runtime_client.RuntimeContext:
         provider="openai",
         model="gpt-test",
         api_key=secret,
+        effort="low",
     )
 
 

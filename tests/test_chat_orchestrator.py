@@ -28,6 +28,7 @@ def context(*actions: brain_runtime_client.RuntimeAction) -> brain_runtime_clien
         provider="openai",
         model="gpt-test",
         api_key="not-a-real-key",
+        effort="low",
     )
 
 
@@ -384,6 +385,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             provider=base.provider,
             model=base.model,
             api_key=base.api_key,
+            effort="low",
         )
         runtime = FakeRuntime(
             [

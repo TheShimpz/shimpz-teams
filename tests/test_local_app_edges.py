@@ -141,7 +141,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         )
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),
-            load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-6-luna")),
+            load=mock.Mock(return_value=types.SimpleNamespace(provider="openai", model="gpt-6-luna", effort="low")),
             save=mock.Mock(),
         )
         controller.client = types.SimpleNamespace(
@@ -373,15 +373,20 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
 
     def test_inference_registry_and_health_cover_failure_and_success(self) -> None:
         controller = self.controller()
-        controller.inference_store.load.side_effect = inference_config.InferenceConfigError("missing")
+        controller.inference_store.load.side_effect = inference_config.InferenceConfigMissingError("missing")
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.inference_status("team_1")
         self.assertEqual(caught.exception.code, "inference-not-configured")
+        # Only missing state may be initialized with defaults; unreadable or invalid state fails closed.
+        controller.inference_store.load.side_effect = inference_config.InferenceConfigError("invalid")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.inference_status("team_1")
+        self.assertEqual(caught.exception.code, "inference-store-failed")
 
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.configure_inference(
                 "team_1",
-                {"provider": "unknown", "model": "model"},
+                {"provider": "unknown", "model": "model", "effort": "low"},
             )
         self.assertEqual(caught.exception.code, "invalid-inference")
 
@@ -389,7 +394,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             controller.configure_inference(
                 "team_1",
-                {"provider": "openai", "model": "gpt-6-luna"},
+                {"provider": "openai", "model": "gpt-6-luna", "effort": "medium"},
             )
         self.assertEqual(caught.exception.code, "inference-store-failed")
 

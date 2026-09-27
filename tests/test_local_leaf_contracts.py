@@ -54,7 +54,7 @@ class LocalLeafContractTests(unittest.TestCase):
                 "a" * 12,
                 (active,),
                 (),
-                types.SimpleNamespace(provider="openai", model="model"),
+                types.SimpleNamespace(provider="openai", model="model", effort="low"),
             ),
             _chat_identity=lambda *_args: ("identity",),
             _active_assistant_genesis=lambda _active: "genesis",

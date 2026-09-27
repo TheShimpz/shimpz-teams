@@ -71,6 +71,7 @@ class RuntimeContext:
     provider: Literal["anthropic", "openai"]
     model: str
     api_key: str = field(repr=False)
+    effort: Literal["low", "medium", "high"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +220,7 @@ class BrainRuntimeClient:
                 "provider": context.provider,
                 "model": context.model,
                 "api_key": context.api_key,
+                "effort": context.effort,
             },
         }
 

@@ -374,6 +374,7 @@ def _run_hosted_chat_segment_with_metadata(
             provider=config.provider,
             model=config.model,
             api_key=api_key,
+            effort=config.effort,
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
         batch = action_execution.ActionBatch(

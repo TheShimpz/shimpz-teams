@@ -117,6 +117,7 @@ def _run_chat_segment_with_metadata(
             provider=config.provider,
             model=config.model,
             api_key=request.api_key,
+            effort=config.effort,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         batch = action_execution.ActionBatch(

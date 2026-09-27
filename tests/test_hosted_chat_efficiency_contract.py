@@ -102,7 +102,7 @@ class HostedCheckHarness:
     def __init__(self, assistant_count: int, member_count: int) -> None:
         self.calls: Counter = Counter()
         self.spec = HOSTED_SPEC
-        self.config = types.SimpleNamespace(provider="openai", model="gpt-test")
+        self.config = types.SimpleNamespace(provider="openai", model="gpt-test", effort="low")
         self.files = [{"id": "f" * 32, "name": "brief.txt", "media_type": "text/plain", "size": 5}]
         selected_ids = ASSISTANT_IDS[:assistant_count]
         self.anchor = CountingContainer(

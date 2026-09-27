@@ -140,6 +140,34 @@ class InferenceConfigTests(unittest.TestCase):
                 with self.assertRaisesRegex(inference_config.InferenceConfigError, "invalid"):
                     self.store.load("team_1")
 
+    def test_effort_is_closed_defaults_low_and_round_trips_in_schema_two(self) -> None:
+        self.assertEqual(inference_config.normalize().effort, "low")
+        for effort in inference_config.EFFORTS:
+            with self.subTest(effort=effort):
+                saved = self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna", effort))
+                self.assertEqual(self.store.load("team_1"), saved)
+        stored = json.loads(next(self.root.iterdir()).read_text(encoding="utf-8"))
+        self.assertEqual(set(stored), {"schema", "team_id", "provider", "model", "effort"})
+        self.assertEqual(stored["schema"], 2)
+        for effort in ("", "minimal", "xhigh", "LOW", 1):
+            with self.subTest(effort=effort), self.assertRaises(inference_config.InferenceConfigError):
+                inference_config.normalize("openai", "gpt-6-luna", effort)
+
+    def test_only_absent_configuration_is_reported_as_missing(self) -> None:
+        with self.assertRaises(inference_config.InferenceConfigMissingError):
+            self.store.load("team_1")
+        self.store.save("team_1", inference_config.normalize())
+        path = next(self.root.iterdir())
+        for payload in (
+            {"schema": 1, "team_id": "team_1", "provider": "openai", "model": "gpt-6-sol"},
+            {"schema": 2, "team_id": "team_1", "provider": "openai", "model": "gpt-6-sol", "effort": None},
+        ):
+            with self.subTest(payload=payload):
+                path.write_text(json.dumps(payload), encoding="utf-8")
+                with self.assertRaises(inference_config.InferenceConfigError) as caught:
+                    self.store.load("team_1")
+                self.assertNotIsInstance(caught.exception, inference_config.InferenceConfigMissingError)
+
     def test_delete_wraps_filesystem_failure(self) -> None:
         with (
             mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),

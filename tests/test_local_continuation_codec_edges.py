@@ -212,6 +212,14 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         value = copy.deepcopy(base)
         value["inference"] = {"provider": "unknown", "model": "model"}
         mutations.append(value)
+        for inference in (
+            {"provider": "openai", "model": "gpt-6-sol"},
+            {"provider": "openai", "model": "gpt-6-sol", "effort": "xhigh"},
+            {"provider": "openai", "model": "gpt-6-sol", "effort": 1},
+        ):
+            value = copy.deepcopy(base)
+            value["inference"] = inference
+            mutations.append(value)
 
         for value in mutations:
             with self.subTest(value=value), self.assertRaises(continuation.ContinuationCodecError):

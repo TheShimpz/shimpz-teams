@@ -437,16 +437,23 @@ class LocalContractTests(LocalContractCase):
 
             configured = controller.configure_inference(
                 "team_1",
-                {"provider": "openai", "model": "gpt-6-luna"},
+                {"provider": "openai", "model": "gpt-6-luna", "effort": "medium"},
             )
 
             self.assertEqual(
                 configured,
-                {"team_id": "team_1", "provider": "openai", "model": "gpt-6-luna"},
+                {"team_id": "team_1", "provider": "openai", "model": "gpt-6-luna", "effort": "medium"},
             )
             self.assertEqual(controller.inference_status("team_1"), configured)
             stored = next((Path(directory) / "inference").iterdir()).read_text(encoding="utf-8")
             self.assertNotIn("api_key", stored)
+            for body in (
+                {"provider": "openai", "model": "gpt-6-luna"},
+                {"provider": "openai", "model": "gpt-6-luna", "effort": "xhigh"},
+                {"provider": "openai", "model": "gpt-6-luna", "effort": None},
+            ):
+                with self.subTest(body=body), self.assertRaises(local_app.ApiProblem):
+                    controller.configure_inference("team_1", body)
             with self.assertRaises(local_app.ApiProblem):
                 controller.configure_inference(
                     "team_1",

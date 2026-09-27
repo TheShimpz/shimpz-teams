@@ -540,16 +540,22 @@ def _inference_status(team_id: str, lease: hosted_resources._AuthorizationLease)
         hosted_resources._require_current_authorization(team_id, lease)
         try:
             config = runtime_state._inference_store.load(team_id)
-        except inference_config.InferenceConfigError as exc:
+        except inference_config.InferenceConfigMissingError as exc:
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team model provider is not configured") from exc
-    return {"team_id": team_id, "provider": config.provider, "model": config.model}
+        except inference_config.InferenceConfigError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE, "Team model provider metadata is unavailable"
+            ) from exc
+    return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
 
 
 def _configure_inference(team_id: str, body: object, lease: hosted_resources._AuthorizationLease) -> dict:
-    if not isinstance(body, dict) or set(body) != {"provider", "model"}:
-        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "inference requires provider and model")
+    if not isinstance(body, dict) or set(body) != {"provider", "model", "effort"}:
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "inference requires provider, model, and effort")
+    if not isinstance(body["effort"], str):
+        raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "effort must be a string")
     try:
-        config = inference_config.normalize(body["provider"], body["model"])
+        config = inference_config.normalize(body["provider"], body["model"], body["effort"])
     except inference_config.InferenceConfigError as exc:
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
     with runtime_state._lock_for(team_id):
@@ -561,7 +567,7 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team model provider could not be saved"
             ) from exc
-    return {"team_id": team_id, "provider": config.provider, "model": config.model}
+    return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
 
 
 def _logs(team_id: str, lines: int, lease: hosted_resources._AuthorizationLease) -> dict:

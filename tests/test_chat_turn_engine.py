@@ -52,6 +52,7 @@ def _context() -> brain_runtime_client.RuntimeContext:
         provider="openai",
         model="gpt-test",
         api_key="test-key",
+        effort="low",
     )
 
 

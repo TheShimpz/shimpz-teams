@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import sys
 import unittest
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -74,7 +75,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
 
     def test_idempotent_create_preserves_owner_name_and_updates_inference(self) -> None:
         existing = _container()
-        inference = SimpleNamespace(provider="openai", model="model")
+        inference = SimpleNamespace(provider="openai", model="model", effort="low")
         with (
             mock.patch.object(resources, "_cleanup_record", return_value=None),
             mock.patch.object(resources, "_get_container", return_value=_container(labels={"team.owner": "other"})),
@@ -108,7 +109,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
         save.assert_called_once_with(TEAM_ID, inference)
 
     def test_new_create_requires_clean_storage_and_commits_all_resources(self) -> None:
-        inference = SimpleNamespace(provider="openai", model="model")
+        inference = SimpleNamespace(provider="openai", model="model", effort="low")
         with (
             mock.patch.object(lifecycle.inference_config, "normalize", return_value=inference),
             mock.patch.object(resources, "_cleanup_record", return_value=None),
@@ -141,7 +142,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
         self.assertEqual(result["status"], "running")
 
     def test_create_rollback_distinguishes_incomplete_api_and_generic_failures(self) -> None:
-        inference = SimpleNamespace(provider="openai", model="model")
+        inference = SimpleNamespace(provider="openai", model="model", effort="low")
 
         def run(error: Exception, cleanup_complete: bool) -> state.ApiError:
             patches = (
@@ -302,14 +303,31 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             self.assertRaises(state.ApiError),
         ):
             lifecycle._inference_status(TEAM_ID, lease)
-        config = SimpleNamespace(provider="openai", model="model")
+        for error, status in (
+            (lifecycle.inference_config.InferenceConfigMissingError("missing"), HTTPStatus.CONFLICT),
+            (lifecycle.inference_config.InferenceConfigError("invalid"), HTTPStatus.SERVICE_UNAVAILABLE),
+        ):
+            with (
+                mock.patch.object(resources, "_require_current_authorization"),
+                mock.patch.object(state._inference_store, "load", side_effect=error),
+                self.assertRaises(state.ApiError) as caught,
+            ):
+                lifecycle._inference_status(TEAM_ID, lease)
+            self.assertEqual(caught.exception.status, status)
+        config = SimpleNamespace(provider="openai", model="model", effort="low")
         with (
             mock.patch.object(resources, "_require_current_authorization"),
             mock.patch.object(state._inference_store, "load", return_value=config),
         ):
             self.assertEqual(lifecycle._inference_status(TEAM_ID, lease)["model"], "model")
 
-        for body in (None, {}, {"provider": "openai", "model": "m", "extra": True}):
+        for body in (
+            None,
+            {},
+            {"provider": "openai", "model": "m"},
+            {"provider": "openai", "model": "m", "effort": 1},
+            {"provider": "openai", "model": "m", "effort": "low", "extra": True},
+        ):
             with self.assertRaises(state.ApiError):
                 lifecycle._configure_inference(TEAM_ID, body, lease)
         with (
@@ -320,7 +338,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m"}, lease)
+            lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m", "effort": "low"}, lease)
         with (
             mock.patch.object(lifecycle.inference_config, "normalize", return_value=config),
             mock.patch.object(resources, "_require_current_authorization"),
@@ -332,7 +350,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m"}, lease)
+            lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m", "effort": "low"}, lease)
         with (
             mock.patch.object(lifecycle.inference_config, "normalize", return_value=config),
             mock.patch.object(resources, "_require_current_authorization"),
@@ -340,7 +358,9 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             mock.patch.object(state._inference_store, "save"),
         ):
             self.assertEqual(
-                lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m"}, lease)["model"],
+                lifecycle._configure_inference(TEAM_ID, {"provider": "openai", "model": "m", "effort": "low"}, lease)[
+                    "model"
+                ],
                 "model",
             )
 

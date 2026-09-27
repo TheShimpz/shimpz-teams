@@ -266,7 +266,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             image="image",
             version="0.4.1",
         )
-        config = SimpleNamespace(provider="openai", model="model")
+        config = SimpleNamespace(provider="openai", model="model", effort="low")
         identity = ("identity",)
         request = segment.HostedChatSegmentRequest(
             "team_1",

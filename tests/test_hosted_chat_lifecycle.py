@@ -131,7 +131,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             id=ANCHOR_ID,
             labels={"team.name": "Marketing", "team.owner": "account_1"},
         )
-        config = types.SimpleNamespace(provider="openai", model="gpt-test")
+        config = types.SimpleNamespace(provider="openai", model="gpt-test", effort="low")
         assistant_integrations = integration_store.OAuthIntegrationStore(
             journal.path.parent / "oauth-state" / "integrations.json",
             journal.path.parent / "oauth-key" / "aes256.key",
@@ -370,7 +370,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             labels={"team.name": "Marketing", "team.owner": "account_1"},
         )
         store = types.SimpleNamespace(
-            load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-6-luna")
+            load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-6-luna", effort="low")
         )
 
         def require_current(owner: str, provider: str, generation: int, _session=None) -> None:
@@ -502,7 +502,9 @@ class HostedChatLifecycleTests(unittest.TestCase):
             id=ANCHOR_ID,
             labels={"team.name": "Marketing", "team.owner": "account_1"},
         )
-        store = types.SimpleNamespace(load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-test"))
+        store = types.SimpleNamespace(
+            load=lambda _team_id: types.SimpleNamespace(provider="openai", model="gpt-test", effort="low")
+        )
         invoked: list[tuple[str, str, object]] = []
 
         def run(_runtime, context, _prompt, strategy):
@@ -547,7 +549,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "Marketing",
                 (("places", "places-container"), ("weather", "weather-container")),
                 [],
-                types.SimpleNamespace(provider="openai", model="gpt-test"),
+                types.SimpleNamespace(provider="openai", model="gpt-test", effort="low"),
                 7,
             )
 

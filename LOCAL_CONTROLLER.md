@@ -82,8 +82,8 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider/model selection |
-| `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider/model selection |
+| `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider, model, and chat reasoning effort; `409` only when none is set |
+| `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider, model, and effort (`low`, `medium`, `high`) |
 | `POST` | `/v1/teams/{team_id}/chat/capability-plan` | select an exact bounded subset from a public Assistant shortlist |
 | `POST` | `/v1/teams/{team_id}/chat/intent-route` | classify one Assistant lifecycle intent with bounded conversation evidence or resolve it against a closed directory |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |

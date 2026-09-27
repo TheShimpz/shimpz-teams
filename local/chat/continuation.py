@@ -202,7 +202,7 @@ def _identity_payload(identity: tuple[object, ...]) -> dict[str, object]:
         "network_id": network_id,
         "assistants": [list(item) if isinstance(item, tuple) else item for item in assistants],
         "files": _json_value(files),
-        "inference": {"provider": config.provider, "model": config.model},
+        "inference": {"provider": config.provider, "model": config.model, "effort": config.effort},
     }
 
 
@@ -422,9 +422,11 @@ def _identity(value: object) -> tuple[object, ...]:
         files.append(dict(entry))
     if len({item["id"] for item in files}) != len(files):
         raise ContinuationCodecError("continuation files are malformed")
-    inference = _mapping(raw["inference"], {"provider", "model"}, "continuation inference")
+    inference = _mapping(raw["inference"], {"provider", "model", "effort"}, "continuation inference")
+    if not isinstance(inference["effort"], str):
+        raise ContinuationCodecError("continuation inference is malformed")
     try:
-        config = inference_config.normalize(inference["provider"], inference["model"])
+        config = inference_config.normalize(inference["provider"], inference["model"], inference["effort"])
     except inference_config.InferenceConfigError as exc:
         raise ContinuationCodecError("continuation inference is malformed") from exc
     return team_name, network_id, tuple(assistants), files, config
