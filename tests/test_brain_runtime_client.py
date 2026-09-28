@@ -24,6 +24,10 @@ class _Connection:
         self.response = response
         self.requests = []
         self.closed = False
+        self.sock = None
+
+    def connect(self) -> None:
+        self.sock = mock.Mock()
 
     def request(self, *request) -> None:
         self.requests.append(request)

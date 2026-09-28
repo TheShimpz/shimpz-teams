@@ -148,10 +148,12 @@ class LocalLeafContractTests(unittest.TestCase):
             _active_chat_tokens={"team_1": "token"},
             _cancelled_chat_tokens=set(),
             _active_action_containers={"team_1": ("token", container)},
+            _brain_aborts={"token": (brain_abort := mock.Mock())},
         )
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertTrue(result["accepted"])
         self.assertTrue(result["confirmed"])
+        brain_abort.abort.assert_called_once_with()
         controller._purge_human_generation.assert_called_once_with("network-id")
         lifecycle._fail_stop_action.assert_called_once_with(container)
 

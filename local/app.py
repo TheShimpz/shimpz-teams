@@ -244,6 +244,7 @@ class ChatTurnService:
         self._active_chat_tokens: dict[str, str] = {}
         self._active_action_containers: dict[str, tuple[str, object]] = {}
         self._cancelled_chat_tokens: set[str] = set()
+        self._brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -269,6 +270,9 @@ class ChatTurnService:
                 self._cancelled_chat_tokens.add(token)
             active = self._active_action_containers.get(team_id)
             active_action = active[1] if token is not None and active is not None and active[0] == token else None
+            brain_abort = self._brain_aborts.get(token) if token is not None else None
+        if brain_abort is not None:
+            brain_abort.abort()
         if active_action is not None:
             self.assistant_lifecycle._fail_stop_action(active_action)
 
@@ -282,12 +286,17 @@ class ChatTurnService:
                 code="chat-active",
             )
         token = secrets.token_hex(16)
+        # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
+        brain_abort = brain_runtime_client.RequestAbort()
         with self._active_chat_guard:
             self._active_chat_tokens[team_id] = token
+            self._brain_aborts[token] = brain_abort
         try:
-            yield token
+            with brain_runtime_client.abortable(brain_abort):
+                yield token
         finally:
             with self._active_chat_guard:
+                self._brain_aborts.pop(token, None)
                 if self._active_chat_tokens.get(team_id) == token:
                     self._active_chat_tokens.pop(team_id, None)
                 active = self._active_action_containers.get(team_id)

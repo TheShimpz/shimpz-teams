@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 from action import human as action_human
@@ -88,6 +89,16 @@ class ChatStrategy:
     cancelled: CancellationCheck = lambda: False
     validate_context: ContextCheck = lambda: None
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
+
+
+def _brain_call[T](strategy: ChatStrategy, call: Callable[[], T]) -> T:
+    """A Brain failure after Stop won is the stopped turn itself: Stop aborts the in-flight request (ADR-0079)."""
+    try:
+        return call()
+    except brain_runtime_client.BrainRuntimeError:
+        if strategy.cancelled():
+            raise ChatStoppedError("chat turn stopped") from None
+        raise
 
 
 def _validate_batch(
@@ -193,7 +204,7 @@ def _drive(
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)
         with strategy.progress.span("model"):
-            resumed = runtime.resume(context, results)
+            resumed = _brain_call(strategy, partial(runtime.resume, context, results))
         if resumed.status == "action-required" and not seen_interrupts.isdisjoint(
             request.interrupt_id for request in resumed.actions
         ):
@@ -222,7 +233,7 @@ def run_until_pause(
         raise ChatStoppedError("chat turn stopped")
     strategy.validate_context()
     with strategy.progress.span("model"):
-        turn = runtime.start(context, message, conversation=conversation)
+        turn = _brain_call(strategy, partial(runtime.start, context, message, conversation=conversation))
     return _drive(
         runtime,
         context,

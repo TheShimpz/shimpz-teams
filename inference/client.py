@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import contextvars
 import http.client
 import json
 import os
 import re
+import socket
+import threading
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -158,6 +162,61 @@ class RuntimeIntentRoute:
 
 ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
 
+# Brain shares a local network with Team, so a connection is established quickly or not at all; a turn then may
+# legitimately wait on the model provider.
+CONNECT_TIMEOUT_SECONDS = 5.0
+RESPONSE_TIMEOUT_SECONDS = 65.0
+
+
+class RequestAbort:
+    """Stop's handle on the Brain request a Local chat turn is waiting for (ADR-0079).
+
+    ``abort`` shuts down the attached connection's socket, which wakes the blocked read and makes Brain see the
+    disconnect and cancel the turn's provider call. A request attached after the abort fails before connecting, and
+    one still connecting fails as soon as its bounded connect returns.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._aborted = False
+        self._connection: http.client.HTTPConnection | None = None
+
+    def abort(self) -> None:
+        # Shutting down under the lock keeps the request from detaching and closing the connection meanwhile.
+        with self._lock:
+            self._aborted = True
+            sock = getattr(self._connection, "sock", None)
+            if sock is not None:
+                with suppress(OSError):
+                    sock.shutdown(socket.SHUT_RDWR)
+
+    def attach(self, connection: http.client.HTTPConnection) -> None:
+        with self._lock:
+            self._connection = connection
+        self.check()
+
+    def check(self) -> None:
+        with self._lock:
+            if self._aborted:
+                raise BrainRuntimeError("Brain runtime request was stopped")
+
+    def detach(self) -> None:
+        with self._lock:
+            self._connection = None
+
+
+_ABORT: contextvars.ContextVar[RequestAbort | None] = contextvars.ContextVar("brain_request_abort", default=None)
+
+
+@contextmanager
+def abortable(handle: RequestAbort) -> Iterator[None]:
+    """Let ``handle`` abort every Brain request this thread makes inside the block."""
+    token = _ABORT.set(handle)
+    try:
+        yield
+    finally:
+        _ABORT.reset(token)
+
 
 def _connection(host: str, port: int, timeout: float) -> http.client.HTTPConnection:
     return http.client.HTTPConnection(host, port, timeout=timeout)
@@ -240,8 +299,15 @@ class BrainRuntimeClient:
 
     def _post(self, path: str, payload: Mapping[str, object]) -> object:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
-        connection = self._connection_factory(self._host, self._port, 65.0)
+        abort = _ABORT.get()
+        connection = self._connection_factory(self._host, self._port, CONNECT_TIMEOUT_SECONDS)
         try:
+            if abort is not None:
+                abort.attach(connection)
+            connection.connect()
+            connection.sock.settimeout(RESPONSE_TIMEOUT_SECONDS)
+            if abort is not None:
+                abort.check()
             connection.request(
                 "POST",
                 path,
@@ -253,9 +319,11 @@ class BrainRuntimeClient:
             )
             response = connection.getresponse()
             raw = response.read(MAX_RESPONSE_BYTES + 1)
-        except OSError as exc:
+        except (OSError, http.client.HTTPException) as exc:
             raise BrainRuntimeError("Brain runtime is unavailable") from exc
         finally:
+            if abort is not None:
+                abort.detach()
             connection.close()
         if len(raw) > MAX_RESPONSE_BYTES:
             raise BrainRuntimeError("Brain runtime returned an invalid response")

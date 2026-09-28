@@ -21,6 +21,10 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
         active = self._active_action_containers.get(team_id)
         if token is not None and active is not None and active[0] == token:
             active_action = active[1]
+        brain_abort = self._brain_aborts.get(token) if token is not None else None
+    # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
+    if brain_abort is not None:
+        brain_abort.abort()
     if active_action is not None:
         self.assistant_lifecycle._fail_stop_action(active_action)
         action_stopped = True
