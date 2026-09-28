@@ -156,6 +156,22 @@ class LocalSnapshotTests(unittest.TestCase):
                 with self.assertRaisesRegex(snapshots.LocalSnapshotError, "current snapshot"):
                     snapshots.require_candidate(client, IMAGE_ID)
 
+    def test_accepts_only_a_never_pulled_snapshot_digest(self) -> None:
+        client, image, _container_value = _client()
+        image.attrs["RepoDigests"] = [f"shimpz-local/fixture-assistant@{IMAGE_ID}"]
+        self.assertEqual(len(snapshots.list_candidates(client)), 1)
+        for digests in (
+            ["ghcr.io/theshimpz/shimpz-assistant@sha256:" + ("d" * 64)],
+            ["shimpz-local/other-assistant@" + IMAGE_ID],
+            ["shimpz-local/fixture-assistant@sha256:" + ("d" * 64)],
+            [f"shimpz-local/fixture-assistant@{IMAGE_ID}"] * 2,
+        ):
+            with self.subTest(digests=digests):
+                client, image, _container_value = _client()
+                image.attrs["RepoDigests"] = digests
+                with self.assertRaisesRegex(snapshots.LocalSnapshotError, "identity is invalid"):
+                    snapshots.admit(client, IMAGE_ID)
+
     def test_candidate_overflow_fails_before_deep_inspection(self) -> None:
         client, _image_value, _container_value = _client()
         client.api.images.return_value = [{"Id": IMAGE_ID}] * (snapshots.MAX_CANDIDATES + 1)

@@ -19,6 +19,14 @@ _UNDIGESTED = (None, [], ["<none>@<none>"])
 log = logging.getLogger("shimpz-team-local-snapshot-collector")
 
 
+def _local_digests(labels: dict, repo_digests: object, image_id: str) -> bool:
+    """A superseded snapshot was never pulled: no digest, or its own digest on a containerd image store."""
+    if repo_digests == []:
+        return True
+    assistant_id = labels.get(snapshots.ASSISTANT_LABEL)
+    return isinstance(assistant_id, str) and snapshots.local_repo_digests_valid(repo_digests, assistant_id, image_id)
+
+
 class SupersededSnapshotCollector:
     """Delete stage-labeled images that lost their tag once no binding or container keeps them."""
 
@@ -73,7 +81,10 @@ class SupersededSnapshotCollector:
             and isinstance(summary.get("Labels"), dict)
             and summary["Labels"].get(snapshots.LOCAL_STAGE_LABEL) == snapshots.LOCAL_STAGE_VALUE
             and summary.get("RepoTags") in _UNTAGGED
-            and summary.get("RepoDigests") in _UNDIGESTED
+            and (
+                summary.get("RepoDigests") in _UNDIGESTED
+                or _local_digests(summary["Labels"], summary.get("RepoDigests"), summary["Id"])
+            )
         }
 
     def _retained(self) -> set[str] | None:
@@ -106,7 +117,7 @@ class SupersededSnapshotCollector:
             not isinstance(labels, dict)
             or labels.get(snapshots.LOCAL_STAGE_LABEL) != snapshots.LOCAL_STAGE_VALUE
             or attrs.get("RepoTags") != []
-            or attrs.get("RepoDigests") != []
+            or not _local_digests(labels, attrs.get("RepoDigests"), image_id)
         ):
             return True
         try:

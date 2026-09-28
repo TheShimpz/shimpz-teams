@@ -97,6 +97,11 @@ def canonical_reference(assistant_id: str) -> str:
     return f"{LOCAL_SNAPSHOT_REPOSITORY}/{assistant_id}:{LOCAL_SNAPSHOT_TAG}"
 
 
+def local_repo_digests_valid(repo_digests: object, assistant_id: str, image_id: str) -> bool:
+    """Accept only a never-pulled snapshot: no digest, or the containerd store's digest of this exact local image."""
+    return repo_digests in ([], [f"{LOCAL_SNAPSHOT_REPOSITORY}/{assistant_id}@{image_id}"])
+
+
 def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapshotCandidate, ...]:
     """Return only bounded current snapshots, never general daemon inventory.
 
@@ -231,7 +236,6 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         or _IMAGE_ID_RE.fullmatch(image_id) is None
         or attrs.get("Id") != image_id
         or attrs.get("Architecture") != platform.rpartition("/")[2]
-        or attrs.get("RepoDigests") != []
         or not isinstance(created, str)
         or _CREATED_RE.fullmatch(created) is None
     ):
@@ -259,6 +263,8 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         integrations = _capability_ids(labels[INTEGRATIONS_LABEL], maximum=16, required=False)
     except (KeyError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid") from exc
+    if not local_repo_digests_valid(attrs.get("RepoDigests"), identity.assistant_id, image_id):
+        raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
     if attrs.get("RepoTags") != [canonical_reference(identity.assistant_id)]:
         raise LocalSnapshotError("the Local Assistant snapshot is not its Assistant's current snapshot")
     if (

@@ -177,7 +177,7 @@ def _staged_image(self, spec: AssistantSpec):
         image.id != spec.image
         or attrs.get("Id") != spec.image
         or attrs.get("Architecture") != architecture
-        or attrs.get("RepoDigests") != []
+        or not local_snapshots.local_repo_digests_valid(attrs.get("RepoDigests"), spec.assistant_id, spec.image)
         # A bound snapshot keeps running after a newer stage supersedes it and takes the Assistant's tag.
         or attrs.get("RepoTags") not in ([], [local_snapshots.canonical_reference(spec.assistant_id)])
         or not self._image_labels_valid(image, spec)

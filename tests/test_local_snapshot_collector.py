@@ -103,6 +103,25 @@ class SupersededSnapshotCollectorTests(unittest.TestCase):
         subject.collect()
         client.images.remove.assert_called_once()
 
+    def test_collects_a_superseded_snapshot_that_keeps_its_containerd_digest(self) -> None:
+        labels = {**STAGE, snapshots.ASSISTANT_LABEL: "proof"}
+        local = [f"shimpz-local/proof@{SUPERSEDED}"]
+        subject, client, _registry, clock = _collector(
+            [
+                _summary(SUPERSEDED, Labels=labels, RepoDigests=local),
+                _summary(BOUND, Labels=labels, RepoDigests=[f"registry/proof@{BOUND}"]),
+            ]
+        )
+        client.api.inspect_image.side_effect = lambda image_id: {
+            "Config": {"Labels": labels},
+            "RepoTags": [],
+            "RepoDigests": local,
+        }
+        subject.collect()
+        clock.now += collector.GRACE_SECONDS
+        subject.collect()
+        client.images.remove.assert_called_once_with(image=SUPERSEDED, force=False, noprune=True)
+
     def test_reinspects_before_removal_and_never_deletes_an_image_that_gained_a_tag(self) -> None:
         subject, client, _registry, clock = _collector([_summary(SUPERSEDED)])
         client.api.inspect_image.side_effect = lambda image_id: {

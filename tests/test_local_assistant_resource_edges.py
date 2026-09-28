@@ -170,6 +170,10 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         # A bound snapshot runs both while it is the Assistant's current tag and after a restage supersedes it.
         image.attrs["RepoTags"] = ["shimpz-local/fixture-assistant:staged"]
         self.assertIs(resources._staged_image(controller, spec), image)
+        # A containerd image store reports the local image's own digest under its repository.
+        image.attrs["RepoDigests"] = [f"shimpz-local/fixture-assistant@{spec.image}"]
+        self.assertIs(resources._staged_image(controller, spec), image)
+        image.attrs["RepoDigests"] = []
         image.attrs["RepoTags"] = []
         controller.client.images.pull.assert_not_called()
         image.reload.assert_not_called()
