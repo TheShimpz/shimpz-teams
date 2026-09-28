@@ -53,6 +53,7 @@ class ActivityCounterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: (binding,)),
             install_publication=lambda *_args, **_options: observed.append(activity.state()),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         self.assertTrue(AutomaticAssistantUpdater(controller, activity=activity).run_once())
         self.assertEqual((observed, activity.state()), (["busy"], "idle"))

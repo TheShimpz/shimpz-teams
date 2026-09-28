@@ -63,6 +63,7 @@ from local.composition import AssistantLifecycleDependencies, ChatTurnDependenci
 from local.errors import ApiProblemError as ApiProblem
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import automatic as local_automatic_updates
+from local.install import collector as local_snapshot_collector
 from local.install import developers as local_developers
 from local.install import inventory as local_snapshot_inventory
 from local.install import preview as local_snapshot_preview
@@ -495,6 +496,7 @@ class LocalController:
             raise RuntimeError("the Docker daemon architecture is unsupported") from exc
         self.local_snapshot_inventory = local_snapshot_inventory.LocalSnapshotInventory(client, local_platform)
         self.local_snapshot_previews = local_snapshot_preview.LocalSnapshotPreviewCache(client, local_platform)
+        self.local_snapshot_collector = local_snapshot_collector.SupersededSnapshotCollector(client, registry)
         self._wire_collaborators()
         self.assistant_lifecycle._reconcile_egress_proxy_attachments()
         self.assistant_lifecycle.recover_updates()

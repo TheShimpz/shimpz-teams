@@ -48,6 +48,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=lambda *args, **options: calls.append((*args, options)),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
 
         self.assertTrue(AutomaticAssistantUpdater(controller).run_once())
@@ -81,6 +82,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             developers=SimpleNamespace(latest=lambda _digest: (_ for _ in ()).throw(DevelopersError("offline"))),
             registry=SimpleNamespace(bindings=lambda: (unavailable_binding,)),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         self.assertTrue(AutomaticAssistantUpdater(unavailable).run_once())
 
@@ -106,6 +108,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: bindings),
             install_publication=install,
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
 
         self.assertTrue(AutomaticAssistantUpdater(controller, record=lambda *event: audits.append(event)).run_once())
@@ -137,6 +140,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             developers=SimpleNamespace(latest=lambda _digest: (_ for _ in ()).throw(next(errors))),
             registry=SimpleNamespace(bindings=lambda: (binding,)),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         checks = iter((0.0, 1.0, 2.0, 3.0))
         updater = AutomaticAssistantUpdater(
@@ -179,6 +183,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: (binding,)),
             install_publication=install,
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         updater = AutomaticAssistantUpdater(
             controller,
@@ -198,6 +203,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
         controller = SimpleNamespace(
             registry=SimpleNamespace(bindings=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable"))),
             assistant_lifecycle=SimpleNamespace(sweep_residues=mock.Mock()),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         records: list[tuple[object, ...]] = []
         updater = AutomaticAssistantUpdater(controller, record=lambda *event: records.append(event))
@@ -234,6 +240,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: (local,)),
             install_publication=mock.Mock(),
             assistant_lifecycle=SimpleNamespace(sweep_residues=mock.Mock()),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
 
         self.assertTrue(AutomaticAssistantUpdater(controller).run_once())
@@ -272,6 +279,7 @@ class AutomaticAssistantUpdaterTests(unittest.TestCase):
             registry=SimpleNamespace(bindings=lambda: (invalid, mismatch, current)),
             install_publication=mock.Mock(),
             assistant_lifecycle=SimpleNamespace(sweep_residues=lambda: None),
+            local_snapshot_collector=SimpleNamespace(collect=lambda: None),
         )
         updater = AutomaticAssistantUpdater(controller, record=lambda *event: records.append(event))
         self.assertTrue(updater.run_once())

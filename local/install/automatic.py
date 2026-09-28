@@ -58,6 +58,7 @@ class AutomaticAssistantUpdater:
 
     def run_once(self) -> bool:
         self._controller.assistant_lifecycle.sweep_residues()
+        self._controller.local_snapshot_collector.collect()
         try:
             installed = self._controller.registry.bindings()
         except bindings.DynamicAssistantError:
