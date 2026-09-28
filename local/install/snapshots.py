@@ -24,6 +24,9 @@ DECLARED_CREATORS_LABEL = "org.shimpz.assistant.declared-creators"
 BUILD_LABEL = "org.shimpz.local.build.digest"
 ACTIONS_LABEL = "org.shimpz.assistant.actions"
 INTEGRATIONS_LABEL = "org.shimpz.assistant.integrations"
+# Each Assistant's current snapshot carries exactly this tag; a stage-labeled image without it is superseded.
+LOCAL_SNAPSHOT_REPOSITORY = "shimpz-local"
+LOCAL_SNAPSHOT_TAG = "staged"
 SOURCE_PATH = "/opt/shimpz/.shimpz/source.package"
 ICON_PATH = "/opt/shimpz/icon.png"
 RUNTIME_USER = "10001:10001"
@@ -89,13 +92,18 @@ class AdmittedLocalSnapshot:
     icon: bytes
 
 
+def canonical_reference(assistant_id: str) -> str:
+    """Return the one tag that makes a staged image its Assistant's current snapshot."""
+    return f"{LOCAL_SNAPSHOT_REPOSITORY}/{assistant_id}:{LOCAL_SNAPSHOT_TAG}"
+
+
 def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapshotCandidate, ...]:
-    """Return only bounded stage-labeled images, never general daemon inventory."""
+    """Return only bounded current snapshots, never general daemon inventory.
+
+    The reference filter reads Docker's name index, so discovery never scans every image's configuration.
+    """
     try:
-        summaries = client.api.images(
-            all=True,
-            filters={"label": [f"{LOCAL_STAGE_LABEL}={LOCAL_STAGE_VALUE}"]},
-        )
+        summaries = client.api.images(filters={"reference": [f"{LOCAL_SNAPSHOT_REPOSITORY}/*:{LOCAL_SNAPSHOT_TAG}"]})
     except DockerException as exc:
         raise LocalSnapshotUnavailableError("Docker cannot enumerate Local Assistant snapshots") from exc
     if not isinstance(summaries, list) or len(summaries) > MAX_CANDIDATES:
@@ -224,7 +232,6 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         or attrs.get("Id") != image_id
         or attrs.get("Architecture") != platform.rpartition("/")[2]
         or attrs.get("RepoDigests") != []
-        or attrs.get("RepoTags") != []
         or not isinstance(created, str)
         or _CREATED_RE.fullmatch(created) is None
     ):
@@ -252,6 +259,8 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         integrations = _capability_ids(labels[INTEGRATIONS_LABEL], maximum=16, required=False)
     except (KeyError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid") from exc
+    if attrs.get("RepoTags") != [canonical_reference(identity.assistant_id)]:
+        raise LocalSnapshotError("the Local Assistant snapshot is not its Assistant's current snapshot")
     if (
         labels.get(LOCAL_STAGE_LABEL) != LOCAL_STAGE_VALUE
         or _IMAGE_ID_RE.fullmatch(str(labels.get(SOURCE_LABEL))) is None

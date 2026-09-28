@@ -78,7 +78,7 @@ def _image(source_digest: str):
         "Id": IMAGE_ID,
         "Architecture": "amd64",
         "RepoDigests": [],
-        "RepoTags": [],
+        "RepoTags": [snapshots.canonical_reference("fixture-assistant")],
         "Created": CREATED,
         "Config": {
             "Labels": labels,

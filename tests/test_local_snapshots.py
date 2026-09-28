@@ -140,12 +140,21 @@ class LocalSnapshotTests(unittest.TestCase):
                 ),
             ),
         )
-        client.api.images.assert_called_once_with(
-            all=True,
-            filters={"label": [f"{snapshots.LOCAL_STAGE_LABEL}={snapshots.LOCAL_STAGE_VALUE}"]},
-        )
+        client.api.images.assert_called_once_with(filters={"reference": ["shimpz-local/*:staged"]})
         client.images.get.assert_called_once_with(IMAGE_ID)
         client.containers.create.assert_not_called()
+
+    def test_only_the_assistants_canonical_tag_makes_a_current_snapshot(self) -> None:
+        for tags in ([], ["shimpz-local/other-assistant:staged"], ["shimpz-local/fixture-assistant:latest"]):
+            with self.subTest(tags=tags):
+                client, image, _container_value = _client()
+                image.attrs["RepoTags"] = tags
+                with self.assertRaisesRegex(snapshots.InvalidLabeledSnapshotError, "failed validation"):
+                    snapshots.list_candidates(client)
+                with self.assertRaisesRegex(snapshots.LocalSnapshotError, "current snapshot"):
+                    snapshots.admit(client, IMAGE_ID)
+                with self.assertRaisesRegex(snapshots.LocalSnapshotError, "current snapshot"):
+                    snapshots.require_candidate(client, IMAGE_ID)
 
     def test_candidate_overflow_fails_before_deep_inspection(self) -> None:
         client, _image_value, _container_value = _client()

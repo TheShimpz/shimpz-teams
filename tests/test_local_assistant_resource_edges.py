@@ -146,6 +146,7 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
         controller = self._controller()
         controller._image_labels_valid = resources._image_labels_valid
         spec = types.SimpleNamespace(
+            assistant_id="fixture-assistant",
             image="sha256:" + ("a" * 64),
             platform="linux/amd64",
             provenance="local",
@@ -166,6 +167,10 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
 
         self.assertIs(resources._staged_image(controller, spec), image)
         controller.client.images.get.assert_called_once_with(spec.image)
+        # A bound snapshot runs both while it is the Assistant's current tag and after a restage supersedes it.
+        image.attrs["RepoTags"] = ["shimpz-local/fixture-assistant:staged"]
+        self.assertIs(resources._staged_image(controller, spec), image)
+        image.attrs["RepoTags"] = []
         controller.client.images.pull.assert_not_called()
         image.reload.assert_not_called()
 
@@ -174,6 +179,8 @@ class LocalAssistantResourceEdgeTests(unittest.TestCase):
             ("Architecture", "arm64"),
             ("RepoDigests", ["registry/image@sha256:digest"]),
             ("RepoTags", ["attacker/latest"]),
+            ("RepoTags", ["shimpz-local/other-assistant:staged"]),
+            ("RepoTags", ["shimpz-local/fixture-assistant:staged", "shimpz-local/fixture-assistant:old"]),
         ):
             with self.subTest(field=key):
                 original = image.attrs[key]
