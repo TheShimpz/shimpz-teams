@@ -180,6 +180,13 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "language_exemplar": None,
         }
 
+        with self.assertRaises(capabilities.ApiProblem) as refused:
+            capabilities.intent_route(
+                subject, "team_1", body, "openai", "private-model-key", "tsk-test-0123456789abcdef"
+            )
+        self.assertEqual(refused.exception.code, "invalid-decision-credential")
+        subject.brain_runtime.intent_route.assert_not_called()
+
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
 
         self.assertEqual(
@@ -194,9 +201,10 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             },
         )
         request = subject.brain_runtime.intent_route.call_args.kwargs
-        self.assertEqual(request["provider"], "openai")
-        self.assertEqual(request["model"], "gpt-6-sol")
-        self.assertEqual(request["api_key"], "private-model-key")
+        self.assertEqual(
+            request["credentials"],
+            brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", "private-model-key"),
+        )
         self.assertEqual(request["expected_intent"], "assistant-uninstall")
         self.assertEqual(request["candidates"][0].summary, "")
         self.assertEqual(request["context"], brain_runtime_client.RuntimeLifecycleContext())

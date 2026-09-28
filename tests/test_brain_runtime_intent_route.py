@@ -26,9 +26,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
 
         route = client.intent_route(
-            provider="openai",
-            model="gpt-6-sol",
-            api_key=self.secret,
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
             objective="tire o cloudflare",
             expected_intent="assistant-uninstall",
             candidates=directory_candidates(uninstall=True),
@@ -85,15 +83,53 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             with self.subTest(value=value), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 parse(value, expected, candidates)
 
+    def test_a_decision_key_reaches_brain_only_for_classification(self):
+        ordinary = {"task_follows": False, "intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""}
+        key = "tsk-test-0123456789abcdef"
+        client, connection = self.client(_Response(ordinary))
+        client.intent_route(
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret, key),
+            objective="oi",
+            expected_intent=None,
+            candidates=(),
+            context=None,
+        )
+        payload = json.loads(connection.requests[0][2])
+        self.assertEqual(payload["decision_provider"], {"provider": "typesafe", "api_key": key})
+        client, connection = self.client(_Response(ordinary))
+        client.intent_route(
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
+            objective="oi",
+            expected_intent=None,
+            candidates=(),
+            context=None,
+        )
+        self.assertNotIn("decision_provider", json.loads(connection.requests[0][2]))
+        for credentials, expected in (
+            (brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret, key), "assistant-uninstall"),
+            (brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret, "short"), None),
+            (brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret, "tsk-\0-0123456789ab"), None),
+        ):
+            client, connection = self.client(_Response(ordinary))
+            with self.subTest(expected=expected), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client.intent_route(
+                    credentials=credentials,
+                    objective="cloudflare",
+                    expected_intent=expected,
+                    candidates=directory_candidates(uninstall=True) if expected else (),
+                    context=None,
+                )
+            self.assertEqual(connection.requests, [])
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.intent_route(credentials=object(), objective="oi", expected_intent=None, candidates=(), context=None)
+
     def test_intent_route_accepts_closed_classification_and_unresolved_results(self):
         client, connection = self.client(
             _Response({"task_follows": False, "intent": "ordinary-task", "query": "", "assistant_ids": [], "reply": ""})
         )
         self.assertEqual(
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="liste minhas zonas",
                 expected_intent=None,
                 candidates=(),
@@ -126,9 +162,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
         self.assertEqual(
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="remove it",
                 expected_intent="assistant-uninstall",
                 candidates=directory_candidates(uninstall=True),
@@ -148,9 +182,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="liste minhas zonas",
                 expected_intent=None,
                 candidates=(),
@@ -171,9 +203,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
 
         route = client.intent_route(
-            provider="openai",
-            model="gpt-6-sol",
-            api_key=self.secret,
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
             objective="desinstala esse então",
             expected_intent=None,
             candidates=(),
@@ -211,9 +241,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
 
         route = client.intent_route(
-            provider="openai",
-            model="gpt-6-sol",
-            api_key=self.secret,
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
             objective="desinstale desconhecido",
             expected_intent="assistant-uninstall",
             candidates=(),
@@ -231,9 +259,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             _Response({"task_follows": False, "intent": "unresolved", "query": "", "assistant_ids": [], "reply": reply})
         )
         route = client.intent_route(
-            provider="openai",
-            model="gpt-6-sol",
-            api_key=self.secret,
+            credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
             objective="désinstalle",
             expected_intent="assistant-uninstall",
             candidates=(),
@@ -252,9 +278,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             )
             with self.subTest(separator=separator), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 client.intent_route(
-                    provider="openai",
-                    model="gpt-6-sol",
-                    api_key=self.secret,
+                    credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                     objective="désinstalle",
                     expected_intent="assistant-uninstall",
                     candidates=(),
@@ -307,9 +331,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 client, _connection = self.client(_Response(payload))
                 client.intent_route(
-                    provider="openai",
-                    model="gpt-6-sol",
-                    api_key=self.secret,
+                    credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                     objective="install cloudflare",
                     expected_intent="assistant-install",
                     candidates=directory_candidates(),
@@ -339,9 +361,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 client, connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.intent_route(
-                        provider="openai",
-                        model="gpt-6-sol",
-                        api_key=self.secret,
+                        credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                         objective="lifecycle objective",
                         expected_intent=expected,
                         candidates=shortlist,
@@ -370,9 +390,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             with self.subTest(payload=payload), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 client, _connection = self.client(_Response(payload))
                 client.intent_route(
-                    provider="openai",
-                    model="gpt-6-sol",
-                    api_key=self.secret,
+                    credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                     objective="hello",
                     expected_intent=None,
                     candidates=(),
@@ -411,9 +429,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 )
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.intent_route(
-                        provider="openai",
-                        model="gpt-6-sol",
-                        api_key=self.secret,
+                        credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                         objective="hello",
                         expected_intent=None,
                         candidates=(),
@@ -429,9 +445,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             self.assertRaises(brain_runtime_client.BrainRuntimeError),
         ):
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="hello",
                 expected_intent=None,
                 candidates=(),
@@ -448,9 +462,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         )
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="install",
                 expected_intent="assistant-install",
                 candidates=[],
@@ -461,9 +473,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         client, connection = self.client(_Response({"intent": "ordinary-task", "query": "", "assistant_ids": []}))
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
-                provider="invalid",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("invalid", "gpt-6-sol", self.secret),
                 objective="hello",
                 expected_intent=None,
                 candidates=(),
@@ -474,9 +484,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
         client, connection = self.client(_Response({"intent": "unresolved", "query": "", "assistant_ids": []}))
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.intent_route(
-                provider="openai",
-                model="gpt-6-sol",
-                api_key=self.secret,
+                credentials=brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", self.secret),
                 objective="remove it",
                 expected_intent="assistant-uninstall",
                 candidates=directory_candidates(uninstall=True),

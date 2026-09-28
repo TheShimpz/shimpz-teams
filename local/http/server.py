@@ -22,6 +22,10 @@ from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
 from local.http.audit import RequestAudit
 from local.validation import (
+    MODEL_BOUND_OPERATIONS,
+    credential_binding,
+    decision_binding,
+    validate_decision_credential_header,
     validate_model_credential_headers,
     validate_team_id,
     validate_team_name,
@@ -231,6 +235,11 @@ class Handler(BaseHTTPRequestHandler):
             )
         return body["image_id"]
 
+    def _decision_key(self, operation: str) -> str | None:
+        return validate_decision_credential_header(
+            self.headers.get_all("X-Shimpz-Decision-Api-Key", failobj=[]), operation
+        )
+
     def _model_credential_headers(self) -> tuple[str, str]:
         return validate_model_credential_headers(
             self.headers.get_all("X-Shimpz-Model-Provider", failobj=[]),
@@ -268,20 +277,7 @@ class Handler(BaseHTTPRequestHandler):
         return parts, route
 
     def _model_binding(self, operation: str) -> dict[str, str] | None:
-        if operation not in {
-            "assistant-action-labels",
-            "chat",
-            "chat-capability-plan",
-            "chat-intent-route",
-            "chat-human-submit",
-            "chat-integration-submit",
-        }:
-            return None
-        provider, api_key = self._model_credential_headers()
-        return {
-            "provider": provider,
-            "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
-        }
+        return credential_binding(*self._model_credential_headers()) if operation in MODEL_BOUND_OPERATIONS else None
 
     def _space_reset_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
         if self.command != "DELETE" or parts[:2] != ["v1", "space"]:
@@ -524,9 +520,14 @@ class Handler(BaseHTTPRequestHandler):
         method_name, operation_name, max_bytes = decision
         operation = getattr(self.server.controller.chat_turn_service, method_name)
         provider, api_key = self._model_credential_headers()
+        credentials = (
+            (provider, api_key, self._decision_key(operation_name))
+            if segment == "intent-route"
+            else (provider, api_key)
+        )
         return (
             HTTPStatus.OK,
-            operation(team_id, self._body(max_bytes=max_bytes), provider, api_key),
+            operation(team_id, self._body(max_bytes=max_bytes), *credentials),
             operation_name,
             team_id,
             None,
@@ -837,6 +838,7 @@ class Handler(BaseHTTPRequestHandler):
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
+        decision = decision_binding(self._decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
             self._capture_body(route.operation)
             request_audit.machine()
@@ -857,6 +859,7 @@ class Handler(BaseHTTPRequestHandler):
                     path="/" + "/".join(parts),
                     body=body,
                     model=model,
+                    decision=decision,
                     assurance=assurance,
                     authority_kinds=(
                         frozenset({"session", "host-reset"})

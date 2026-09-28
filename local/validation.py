@@ -75,6 +75,49 @@ def validate_chat_assistant_ids(value: object) -> tuple[str, ...]:
     return tuple(sorted(assistant_ids))
 
 
+DECISION_OPERATION = "chat-intent-route"
+# Requests that carry the Team's model credential, whose digest the Supervisor assertion must bind.
+MODEL_BOUND_OPERATIONS = frozenset(
+    {
+        "assistant-action-labels",
+        "chat",
+        "chat-capability-plan",
+        "chat-intent-route",
+        "chat-human-submit",
+        "chat-integration-submit",
+    }
+)
+
+
+def credential_binding(provider: str, key: str) -> dict[str, str]:
+    return {"provider": provider, "key_sha256": hashlib.sha256(key.encode("ascii")).hexdigest()}
+
+
+def validate_decision_credential_header(values: list[str], operation: str) -> str | None:
+    """Admit at most one TypeSafe key, and only on intent classification requests."""
+    if not values:
+        return None
+    key = values[0]
+    if (
+        operation != DECISION_OPERATION
+        or len(values) != 1
+        or not isinstance(key, str)
+        or not key.isascii()
+        or not MIN_API_KEY_BYTES <= len(key) <= MAX_API_KEY_BYTES
+        or any(not 33 <= ord(character) <= 126 for character in key)
+    ):
+        raise ApiProblemError(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "a private decision credential is accepted only on intent classification",
+            code="invalid-decision-credential",
+        )
+    return key
+
+
+def decision_binding(key: str | None) -> dict[str, str] | None:
+    return None if key is None else credential_binding("typesafe", key)
+
+
 def validate_model_credential_headers(
     providers: list[str],
     api_keys: list[str],

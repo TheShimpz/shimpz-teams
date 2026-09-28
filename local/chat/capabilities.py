@@ -338,16 +338,21 @@ def intent_route(
     body: object,
     provider: str,
     api_key: str,
+    decision_key: str | None = None,
 ) -> dict[str, object]:
     """Route one objective without exposing Team state or granting lifecycle authority."""
     team_id = validate_team_id(team_id)
     objective, expected_intent, candidates, context = _intent_route_input(body)
+    if decision_key is not None and expected_intent is not None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "a decision credential applies only to intent classification",
+            code="invalid-decision-credential",
+        )
     before = self._capability_plan_snapshot(team_id, provider)
     try:
         route = self.brain_runtime.intent_route(
-            provider=before.provider,
-            model=before.model,
-            api_key=api_key,
+            credentials=brain_runtime_client.RouteCredentials(before.provider, before.model, api_key, decision_key),
             objective=objective,
             expected_intent=expected_intent,
             candidates=candidates,

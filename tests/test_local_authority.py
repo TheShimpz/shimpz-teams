@@ -178,6 +178,27 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
                 now=NOW + contract.ASSERTION_MAX_TTL_SECONDS + 1,
             )
 
+    def test_a_decision_key_is_admitted_only_with_its_exact_bound_digest(self) -> None:
+        decision = {"provider": "typesafe", "key_sha256": "f" * 64}
+        claims = _claims(decision=decision)
+        evidence = authority.verify(
+            self._headers(claims),
+            request=_binding(decision=decision),
+            replay_guard=authority.ReplayGuard(),
+            now=NOW,
+        )
+        self.assertEqual(evidence.supervisor_id, "a" * 32)
+        for request, signed in (
+            (_binding(), {**claims, "jti": "c" * 32}),
+            (_binding(decision={"provider": "typesafe", "key_sha256": "e" * 64}), {**claims, "jti": "d" * 32}),
+            (_binding(decision=decision), _claims(jti="e" * 32)),
+        ):
+            with (
+                self.subTest(request=request.decision),
+                self.assertRaisesRegex(authority.SupervisorDeniedError, "does not match"),
+            ):
+                authority.verify(self._headers(signed), request=request, replay_guard=authority.ReplayGuard(), now=NOW)
+
     def test_host_reset_authority_is_admitted_only_by_the_explicit_reset_binding(self) -> None:
         claims = _claims(authority="host-reset")
         headers = self._headers(claims)

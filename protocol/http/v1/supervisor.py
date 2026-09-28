@@ -10,6 +10,8 @@ ASSERTION_HEADER = "X-Shimpz-Supervisor"
 ASSERTION_AUDIENCE = "team-local"
 ASSERTION_KEY_ID = "local-supervisor-v1"
 ASSERTION_MAX_TTL_SECONDS = 15
+# The only decision credential a Supervisor assertion can bind: the TypeSafe key for intent classification.
+DECISION_PROVIDER = "typesafe"
 ASSERTION_CLOCK_SKEW_SECONDS = 5
 ASSERTION_MAX_BYTES = 4096
 MAX_JSON_BODY_BYTES = 128 * 1024
@@ -121,6 +123,19 @@ def _model(value: object) -> dict[str, str]:
     }
 
 
+def _decision(value: object) -> dict[str, str]:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"provider", "key_sha256"}
+        or value["provider"] != DECISION_PROVIDER
+    ):
+        raise SupervisorAssertionError("invalid decision credential binding")
+    return {
+        "provider": DECISION_PROVIDER,
+        "key_sha256": _digest(value["key_sha256"], label="decision credential digest"),
+    }
+
+
 def _assurance(value: object) -> dict[str, str]:
     if not isinstance(value, dict) or set(value) != {"kind", "challenge_id"}:
         raise SupervisorAssertionError("invalid human assurance binding")
@@ -180,7 +195,7 @@ def canonical_claims(value: object) -> dict[str, object]:
         "path",
         "body",
     }
-    if not required <= set(value) or set(value) - required - {"model", "assurance"}:
+    if not required <= set(value) or set(value) - required - {"model", "decision", "assurance"}:
         raise SupervisorAssertionError("invalid Supervisor assertion claims")
     if type(value["v"]) is not int or value["v"] != 1 or value["aud"] != ASSERTION_AUDIENCE:
         raise SupervisorAssertionError("unsupported Supervisor assertion")
@@ -207,6 +222,8 @@ def canonical_claims(value: object) -> dict[str, object]:
         raise SupervisorAssertionError("invalid Supervisor authority kind")
     if "model" in value:
         result["model"] = _model(value["model"])
+    if "decision" in value:
+        result["decision"] = _decision(value["decision"])
     if "assurance" in value:
         result["assurance"] = _assurance(value["assurance"])
     return result

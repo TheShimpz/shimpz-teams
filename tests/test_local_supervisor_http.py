@@ -63,6 +63,19 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             expires_at=2_200_000_015,
         )
 
+    def test_a_machine_route_refuses_a_decision_key_before_running(self) -> None:
+        health = mock.Mock(return_value={"status": "ok"})
+        handler = self._handler(
+            "GET",
+            "/healthz",
+            SimpleNamespace(health=health),
+            headers=(("X-Shimpz-Decision-Api-Key", "tsk-test-0123456789abcdef"),),
+        )
+        with self.assertRaises(ApiProblemError) as refused:
+            handler._authorized_route(http_audit.RequestAudit())
+        self.assertEqual(refused.exception.code, "invalid-decision-credential")
+        health.assert_not_called()
+
     def test_health_is_the_only_bearer_only_fixed_read(self) -> None:
         controller = SimpleNamespace(health=lambda: {"status": "ok"})
         handler = self._handler("GET", "/healthz", controller)
@@ -168,6 +181,46 @@ class LocalSupervisorHttpTests(unittest.TestCase):
         self.assertEqual({principal.principal_class for principal in principals}, {"machine"})
         self.assertEqual({principal.principal_id for principal in principals}, {"admin"})
         self.assertEqual([principal.trace_id for principal in principals], [None, "e" * 32])
+
+    def test_intent_classification_binds_and_forwards_the_decision_key_only(self) -> None:
+        raw = b'{"objective":"oi"}'
+        intent_route = mock.Mock(return_value={"team_id": "team_1", "intent": "ordinary-task"})
+        controller = SimpleNamespace(chat_turn_service=SimpleNamespace(intent_route=intent_route))
+        decision_key = "tsk-test-0123456789abcdef"
+        headers = (
+            (contract.ASSERTION_HEADER, "Bearer assertion"),
+            ("Content-Type", "application/json"),
+            ("Content-Length", str(len(raw))),
+            ("X-Shimpz-Model-Provider", "openai"),
+            ("X-Shimpz-Model-Api-Key", "sk-test-0123456789"),
+            ("X-Shimpz-Decision-Api-Key", decision_key),
+        )
+        handler = self._handler("POST", "/v1/teams/team_1/chat/intent-route", controller, body=raw, headers=headers)
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
+            mock.patch.object(http_audit.local_audit, "record", return_value="c" * 32),
+        ):
+            handler._authorized_route(http_audit.RequestAudit())
+        self.assertEqual(
+            verify.call_args.kwargs["request"].decision,
+            {"provider": "typesafe", "key_sha256": hashlib.sha256(decision_key.encode("ascii")).hexdigest()},
+        )
+        self.assertEqual(intent_route.call_args.args[2:], ("openai", "sk-test-0123456789", decision_key))
+
+        chat = self._handler(
+            "POST",
+            "/v1/teams/team_1/chat",
+            SimpleNamespace(chat_turn_service=SimpleNamespace(chat=mock.Mock())),
+            body=raw,
+            headers=headers,
+        )
+        with (
+            mock.patch.object(authority, "verify", return_value=self._evidence()) as verify,
+            self.assertRaises(ApiProblemError) as refused,
+        ):
+            chat._authorized_route(http_audit.RequestAudit())
+        self.assertEqual(refused.exception.code, "invalid-decision-credential")
+        verify.assert_not_called()
 
     def test_chat_assertion_binds_raw_json_and_model_credential_digest(self) -> None:
         raw = b'{"message":"hello","files":[],"assistant_ids":[]}'

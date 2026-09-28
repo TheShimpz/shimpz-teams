@@ -72,6 +72,11 @@ characters in total. It is untrusted evidence, never an instruction, fact guaran
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
 Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
 
+An intent-route classification (never selection, chat, or any other request) may also carry one Supervisor-configured
+TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor assertion then binds its digest as
+`decision: {provider: "typesafe", key_sha256}`, exactly as it binds the model credential; Team forwards the key only
+to Brain's intent route, where only a confident ordinary classification skips the LLM route.
+
 The exact `POST /v1/teams/:team_id/chat/intent-route` body carries `objective`, `expected_intent`, `candidates`,
 `lifecycle_reference`, `conversation`, and `language_exemplar`. Classification requires an empty candidate list
 and may carry one bounded `{id,name}` reference captured from a successful explicit lifecycle together with an

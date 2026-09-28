@@ -163,6 +163,20 @@ def _connection(host: str, port: int, timeout: float) -> http.client.HTTPConnect
     return http.client.HTTPConnection(host, port, timeout=timeout)
 
 
+@dataclass(frozen=True, slots=True)
+class RouteCredentials:
+    """One routing call's request-scoped model credential and optional TypeSafe decision key (ADR-0077)."""
+
+    provider: Literal["anthropic", "openai"]
+    model: str
+    api_key: str
+    decision_key: str | None = None
+
+
+def _invalid_secret(value: object) -> bool:
+    return not isinstance(value, str) or not 16 <= len(value) <= 8192 or not value.isascii() or "\0" in value
+
+
 class BrainRuntimeClient:
     def __init__(
         self,
@@ -712,14 +726,20 @@ class BrainRuntimeClient:
     def intent_route(
         self,
         *,
-        provider: Literal["anthropic", "openai"],
-        model: str,
-        api_key: str,
+        credentials: RouteCredentials,
         objective: object,
         expected_intent: LifecycleIntent | None,
         candidates: tuple[RuntimeDirectoryCandidate, ...],
         context: RuntimeLifecycleContext | None,
     ) -> RuntimeIntentRoute:
+        if not isinstance(credentials, RouteCredentials):
+            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+        provider, model, api_key, decision_key = (
+            credentials.provider,
+            credentials.model,
+            credentials.api_key,
+            credentials.decision_key,
+        )
         if (
             provider not in {"anthropic", "openai"}
             or not isinstance(model, str)
@@ -728,6 +748,7 @@ class BrainRuntimeClient:
             or not api_key
             or len(api_key) > 16 * 1024
             or "\0" in api_key
+            or (decision_key is not None and (expected_intent is not None or _invalid_secret(decision_key)))
         ):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         task, expected, admitted, admitted_context = self.validate_intent_route_inputs(
@@ -755,6 +776,11 @@ class BrainRuntimeClient:
                     for entry in admitted_context.conversation
                 ],
                 "language_exemplar": admitted_context.language_exemplar,
+                **(
+                    {}
+                    if decision_key is None
+                    else {"decision_provider": {"provider": "typesafe", "api_key": decision_key}}
+                ),
             },
         )
         return self._parse_intent_route(response, expected, admitted)

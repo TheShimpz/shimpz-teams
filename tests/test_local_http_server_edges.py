@@ -501,6 +501,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             exact_body,
             "openai",
             "private-model-key",
+            None,
         )
 
 

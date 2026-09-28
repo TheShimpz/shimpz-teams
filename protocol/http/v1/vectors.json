@@ -26,9 +26,59 @@
           "kind": "auth:password",
           "challenge_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
         }
+      },
+      {
+        "v": 1,
+        "aud": "team-local",
+        "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "authority": "session",
+        "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "jti": "cccccccccccccccccccccccccccccccc",
+        "iat": 2200000000,
+        "exp": 2200000015,
+        "method": "POST",
+        "path": "/v1/teams/team_1/chat/intent-route",
+        "body": {
+          "kind": "json",
+          "length": 2,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "model": {
+          "provider": "openai",
+          "key_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "decision": {
+          "provider": "typesafe",
+          "key_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
       }
     ],
     "invalid": [
+      {
+        "v": 1,
+        "aud": "team-local",
+        "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "authority": "session",
+        "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "jti": "cccccccccccccccccccccccccccccccc",
+        "iat": 2200000000,
+        "exp": 2200000015,
+        "method": "POST",
+        "path": "/v1/teams/team_1/chat/intent-route",
+        "body": {
+          "kind": "json",
+          "length": 2,
+          "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "model": {
+          "provider": "openai",
+          "key_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+        },
+        "decision": {
+          "provider": "openai",
+          "key_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        }
+      },
       {
         "v": 1,
         "aud": "team-local",

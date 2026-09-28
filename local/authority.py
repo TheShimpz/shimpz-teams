@@ -66,6 +66,7 @@ class RequestBinding:
     model: dict[str, str] | None
     assurance: dict[str, str] | None
     authority_kinds: frozenset[str]
+    decision: dict[str, str] | None = None
 
 
 class ReplayGuard:
@@ -289,6 +290,7 @@ def verify(
     if (
         actual != expected
         or claims.get("model") != request.model
+        or claims.get("decision") != request.decision
         or claims.get("assurance") != request.assurance
         or claims.get("authority") not in request.authority_kinds
     ):

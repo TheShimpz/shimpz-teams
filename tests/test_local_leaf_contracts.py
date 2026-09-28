@@ -275,3 +275,46 @@ class LocalLeafContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DecisionCredentialTests(unittest.TestCase):
+    def test_one_bounded_decision_key_is_admitted_only_on_intent_classification(self) -> None:
+        from local import validation
+
+        key = "tsk-test-0123456789abcdef"
+        self.assertIsNone(validation.validate_decision_credential_header([], "chat"))
+        self.assertEqual(validation.validate_decision_credential_header([key], "chat-intent-route"), key)
+        self.assertIsNone(validation.decision_binding(None))
+        self.assertEqual(validation.decision_binding(key)["provider"], "typesafe")
+        for values, operation in (
+            ([key], "chat"),
+            ([key], "chat-capability-plan"),
+            ([key, key], "chat-intent-route"),
+            (["short"], "chat-intent-route"),
+            (["tsk-with space-0123456789"], "chat-intent-route"),
+            (["tsk-ümlaut-0123456789abc"], "chat-intent-route"),
+        ):
+            with self.subTest(operation=operation, count=len(values)), self.assertRaises(validation.ApiProblemError):
+                validation.validate_decision_credential_header(values, operation)
+
+    def test_the_supervisor_assertion_binds_only_a_typesafe_decision_credential(self) -> None:
+        from protocol.http.v1 import supervisor
+
+        claims = {
+            "v": 1,
+            "aud": supervisor.ASSERTION_AUDIENCE,
+            "sub": "a" * 32,
+            "authority": "session",
+            "authority_sha256": "b" * 64,
+            "jti": "c" * 32,
+            "iat": 2_200_000_000,
+            "exp": 2_200_000_015,
+            "method": "POST",
+            "path": "/v1/teams/team_1/chat/intent-route",
+            "body": {"kind": "json", "length": 2, "sha256": "d" * 64},
+            "decision": {"provider": "typesafe", "key_sha256": "f" * 64},
+        }
+        self.assertEqual(supervisor.canonical_claims(claims)["decision"]["provider"], "typesafe")
+        for decision in ({"provider": "openai", "key_sha256": "f" * 64}, {"provider": "typesafe"}, "typesafe"):
+            with self.subTest(decision=decision), self.assertRaises(supervisor.SupervisorAssertionError):
+                supervisor.canonical_claims({**claims, "decision": decision})
