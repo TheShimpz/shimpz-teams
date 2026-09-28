@@ -87,7 +87,7 @@ class FakeRuntime:
         self.turns = iter(turns)
         self.resumes = []
 
-    def start(self, _context, _message):
+    def start(self, _context, _message, *, conversation=()):
         return next(self.turns)
 
     def resume(self, _context, results):

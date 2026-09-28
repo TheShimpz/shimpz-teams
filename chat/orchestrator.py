@@ -211,13 +211,18 @@ def run_until_pause(
     context: brain_runtime_client.RuntimeContext,
     message: str,
     strategy: ChatStrategy,
+    conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = (),
 ) -> ChatOutcome | ChatSuspension | ChatHumanSuspension:
-    """Start a turn and optionally pause before an all-or-nothing Action batch."""
+    """Start a turn and optionally pause before an all-or-nothing Action batch.
+
+    ``conversation`` is the committed presentation history before this turn; the Brain uses it only when it
+    retains no completed exchange of its own.
+    """
     if strategy.cancelled():
         raise ChatStoppedError("chat turn stopped")
     strategy.validate_context()
     with strategy.progress.span("model"):
-        turn = runtime.start(context, message)
+        turn = runtime.start(context, message, conversation=conversation)
     return _drive(
         runtime,
         context,

@@ -93,7 +93,7 @@ class ScriptedRuntime:
     def __init__(self, turns) -> None:
         self._turns = iter(turns)
 
-    def start(self, _context, _message):
+    def start(self, _context, _message, *, conversation=()):
         return next(self._turns)
 
     def resume(self, _context, _results):
@@ -334,7 +334,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         class Runtime:
             context = None
 
-            def start(self, context, _message):
+            def start(self, context, _message, *, conversation=()):
                 self.context = context
                 return brain_runtime_client.RuntimeTurn("completed", "Brain only.", ())
 
@@ -381,7 +381,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     "model credential changed or was revoked; retry",
                 )
 
-        def run(_runtime, _context, _message, strategy):
+        def run(_runtime, _context, _message, strategy, _conversation=()):
             strategy.validate_context()
             strategy.validate_context()
             return chat_orchestrator.ChatOutcome(reply="late reply", actions=())
@@ -507,7 +507,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
         )
         invoked: list[tuple[str, str, object]] = []
 
-        def run(_runtime, context, _prompt, strategy):
+        def run(_runtime, context, _prompt, strategy, _conversation=()):
             self.assertEqual([assistant.id for assistant in context.assistants], ["places", "weather"])
             self.assertEqual(
                 [assistant.genesis for assistant in context.assistants],
@@ -614,7 +614,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.resume_calls = 0
                 self.results: list[dict[str, object]] = []
 
-            def start(self, _context, _message):
+            def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, results):
@@ -684,7 +684,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
 
         class Runtime:
             @staticmethod
-            def start(_context, _message):
+            def start(_context, _message, *, conversation=()):
                 raw = brain_runtime_client.ActionRequest(
                     "action-1",
                     "shimpz-cloudflare",

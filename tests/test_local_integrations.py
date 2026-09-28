@@ -504,7 +504,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         )
 
         class Runtime:
-            def start(self, _context, _message):
+            def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, _results):  # pragma: no cover - must stay unreachable
@@ -670,7 +670,7 @@ class LocalOAuthRefreshTurnTests(LocalContractCase):
     @staticmethod
     def _runtime(request, *, reply="Done"):
         class Runtime:
-            def start(self, _context, _message):
+            def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, _results):

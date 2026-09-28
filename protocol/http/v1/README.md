@@ -64,6 +64,14 @@ The browser visibly attributes the resumed objective, clears it on Team change, 
 page disposal, or consumption, and never writes it to browser storage. The retained Hosted Store backend does not
 accept `resume-task`.
 
+The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, and `conversation`.
+`conversation` is one window of committed presentation history strictly before this turn, projected server-side
+by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role, text, truncated}` where `role` is
+`user` or `assistant`, each text 1 to 512 NFC printable characters with middle truncation, and at most 4,096
+characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
+forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
+Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
+
 The exact `POST /v1/teams/:team_id/chat/intent-route` body carries `objective`, `expected_intent`, `candidates`,
 `lifecycle_reference`, `conversation`, and `language_exemplar`. Classification requires an empty candidate list
 and may carry one bounded `{id,name}` reference captured from a successful explicit lifecycle together with an

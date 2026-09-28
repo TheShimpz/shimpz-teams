@@ -2,6 +2,7 @@
 
 from http import HTTPStatus
 
+from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -10,6 +11,7 @@ from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_chat_assistant_ids, validate_team_id
+from protocol.http.v1 import payload as http_payload
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
 
@@ -84,15 +86,23 @@ def chat(
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    if not isinstance(body, dict) or set(body) != {"message", "files", "assistant_ids"}:
+    if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Team chat requires only message, files, and assistant_ids",
+            "Team chat requires only message, files, assistant_ids, and conversation",
             code="invalid-body",
         )
     message = body["message"]
     file_ids = body["files"]
     assistant_ids = validate_chat_assistant_ids(body["assistant_ids"])
+    try:
+        conversation = assistant_chat.conversation_window(body["conversation"])
+    except ValueError as exc:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "conversation must be a bounded committed history window",
+            code="invalid-conversation",
+        ) from exc
     if not isinstance(message, str) or not message.strip() or len(message) > MAX_CHAT_MESSAGE_CHARS or "\0" in message:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
@@ -115,6 +125,7 @@ def chat(
                 api_key=api_key,
                 token=token,
                 message=message,
+                conversation=conversation,
                 progress=progress or chat_progress.Reporter(),
             )
         )

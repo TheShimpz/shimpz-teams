@@ -81,7 +81,8 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             else:
                 valid_assistants = assistants == []
             return (
-                set(body) == {"thread_id", "team_name", "assistants", "provider", "message"}
+                set(body) == {"thread_id", "team_name", "assistants", "provider", "message", "conversation"}
+                and body["conversation"] == []
                 and isinstance(body["thread_id"], str)
                 and bool(body["thread_id"])
                 and body["team_name"] == "Demo Team"

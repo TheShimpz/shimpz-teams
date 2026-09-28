@@ -24,6 +24,8 @@ class SegmentRequest:
     api_key: str
     token: str
     message: str | None = None
+    # Committed presentation history before a new turn; never set for a continuation.
+    conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = ()
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
@@ -183,6 +185,7 @@ def _run_chat_segment_with_metadata(
         ),
         message=request.message,
         continuation=request.continuation,
+        conversation=request.conversation,
         expected_identity=request.expected_identity,
     )
     return chat_turn_engine.SegmentResult(

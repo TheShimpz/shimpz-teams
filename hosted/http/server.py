@@ -713,11 +713,9 @@ class Handler(BaseHTTPRequestHandler):
         stream: bool,
     ) -> None:
         body = self._read_body()
-        if not isinstance(body, dict) or set(body) != {"message", "files", "assistant_ids"}:
-            raise runtime_state.ApiError(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                "Team chat requires message, files, and assistant_ids",
-            )
+        if not isinstance(body, dict) or set(body) != team_http_contract.CHAT_BODY_FIELDS:
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team chat body fields are invalid")
+        validate.validate_hosted_conversation(body["conversation"])
         message = validate.validate_chat_message(body["message"])
         file_ids = body["files"]
         assistant_ids = hosted_assistants._chat_assistant_ids(body["assistant_ids"])

@@ -303,6 +303,22 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
+    def test_rejects_missing_or_drifted_chat_conversation_vectors(self) -> None:
+        def missing(value: dict[str, object]) -> None:
+            value["chat_conversation"]["invalid"] = []
+
+        def accepted_invalid(value: dict[str, object]) -> None:
+            value["chat_conversation"]["invalid"] = [[]]
+
+        def rejected_valid(value: dict[str, object]) -> None:
+            value["chat_conversation"]["valid"] = [{"generated": "nine-entries"}]
+
+        for mutate in (missing, accepted_invalid, rejected_valid):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_a_positive_supervisor_vector_that_is_not_canonical(self) -> None:
         from protocol.http.v1 import supervisor
 

@@ -120,7 +120,7 @@ class LocalChatScopeTests(LocalContractCase):
     def test_chat_reuses_one_selected_file_connection_across_revalidation(self) -> None:
         class Runtime:
             @staticmethod
-            def start(_context, _message):
+            def start(_context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
 
         file_id = "a" * 32
@@ -145,7 +145,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Summarize", "files": [file_id], "assistant_ids": []},
+                {"message": "Summarize", "files": [file_id], "assistant_ids": [], "conversation": []},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -159,7 +159,7 @@ class LocalChatScopeTests(LocalContractCase):
         class Runtime:
             context = None
 
-            def start(self, context, _message):
+            def start(self, context, _message, *, conversation=()):
                 self.context = context
                 return brain_runtime_client.RuntimeTurn(status="completed", reply="Integrated.", actions=())
 
@@ -185,6 +185,7 @@ class LocalChatScopeTests(LocalContractCase):
                     "message": "Check the accounts",
                     "files": [],
                     "assistant_ids": ["account-helper", "shimpz-cloudflare"],
+                    "conversation": [],
                 },
                 "openai",
                 "sk-test-0123456789",
@@ -207,7 +208,7 @@ class LocalChatScopeTests(LocalContractCase):
         class Runtime:
             context = None
 
-            def start(self, context, _message):
+            def start(self, context, _message, *, conversation=()):
                 self.context = context
                 return brain_runtime_client.RuntimeTurn(status="completed", reply="Brain only.", actions=())
 
@@ -222,7 +223,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": []},
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": []},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -231,9 +232,44 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(response["reply"], "Brain only.")
 
+    def test_chat_forwards_the_committed_conversation_only_to_the_turn_start(self) -> None:
+        class Runtime:
+            conversation = None
+
+            def start(self, _context, _message, *, conversation=()):
+                type(self).conversation = conversation
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Hello.", actions=())
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, Runtime())
+            window = [{"role": "user", "text": "List my DNS zones", "truncated": False}]
+            controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": window},
+                "openai",
+                "sk-test-0123456789",
+            )
+            self.assertEqual(
+                Runtime.conversation,
+                (brain_runtime_client.RuntimeConversationEntry("user", "List my DNS zones", False),),
+            )
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.chat_turn_service.chat(
+                    "team_1",
+                    {
+                        "message": "Hello",
+                        "files": [],
+                        "assistant_ids": [],
+                        "conversation": [{"role": [], "text": "x", "truncated": False}],
+                    },
+                    "openai",
+                    "sk-test-0123456789",
+                )
+            self.assertEqual(caught.exception.code, "invalid-conversation")
+
     def test_chat_rejects_invalid_or_unavailable_assistant_scope_before_runtime(self) -> None:
         class Runtime:
-            def start(self, _context, _message):
+            def start(self, _context, _message, *, conversation=()):
                 raise AssertionError("an invalid Assistant scope must not reach the Brain")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -248,7 +284,7 @@ class LocalChatScopeTests(LocalContractCase):
                 with self.subTest(assistant_ids=assistant_ids), self.assertRaises(local_app.ApiProblem) as caught:
                     controller.chat_turn_service.chat(
                         "team_1",
-                        {"message": "Hello", "files": [], "assistant_ids": assistant_ids},
+                        {"message": "Hello", "files": [], "assistant_ids": assistant_ids, "conversation": []},
                         "openai",
                         "sk-test-0123456789",
                     )
@@ -257,7 +293,7 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as unavailable:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Hello", "files": [], "assistant_ids": ["account-helper"]},
+                    {"message": "Hello", "files": [], "assistant_ids": ["account-helper"], "conversation": []},
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -268,7 +304,7 @@ class LocalChatScopeTests(LocalContractCase):
 
     def test_chat_revalidates_the_selected_assistant_generation_before_provider_use(self) -> None:
         class Runtime:
-            def start(self, _context, _message):
+            def start(self, _context, _message, *, conversation=()):
                 raise AssertionError("Assistant generation drift must not reach the Brain")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -286,7 +322,7 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                    {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -335,7 +371,7 @@ class LocalChatScopeTests(LocalContractCase):
 
     def test_chat_never_exposes_or_executes_an_unselected_assistant(self) -> None:
         class Runtime:
-            def start(self, context, _message):
+            def start(self, context, _message, *, conversation=()):
                 self.context = context
                 return brain_runtime_client.RuntimeTurn(
                     status="action-required",
@@ -371,7 +407,7 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Accounts", "files": [], "assistant_ids": ["shimpz-cloudflare"]},
+                    {"message": "Accounts", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
                     "openai",
                     "sk-test-0123456789",
                 )

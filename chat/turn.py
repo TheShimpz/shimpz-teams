@@ -152,6 +152,7 @@ def run_segment(
     message: str | None,
     continuation: chat_orchestrator.ChatContinuation | None,
     expected_identity: tuple[object, ...] | None,
+    conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = (),
 ) -> tuple[
     str,
     tuple[object, ...],
@@ -159,7 +160,7 @@ def run_segment(
     SegmentRequirements,
 ]:
     """Apply the same continuation, identity and suspension decisions on both Controllers."""
-    if (message is None) == (continuation is None):
+    if (message is None) == (continuation is None) or (conversation and message is None):
         strategy.raise_problem("invalid-continuation", None)
     with strategy.progress.span("team-context"):
         segment = strategy.prepare()
@@ -173,6 +174,7 @@ def run_segment(
             message=message,
             continuation=continuation,
             requirements=requirements,
+            conversation=conversation,
         )
     except Exception as exc:
         try:
@@ -201,6 +203,7 @@ def drive(
     message: str | None = None,
     continuation: chat_orchestrator.ChatContinuation | None = None,
     requirements: SegmentRequirements,
+    conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = (),
 ) -> chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension:
     """Run or resume one turn with the same durable Action hooks on both Controllers."""
 
@@ -223,6 +226,7 @@ def drive(
             segment.context,
             assistant_chat.build_prompt(message, segment.files),
             orchestration,
+            conversation,
         )
     else:
         outcome = chat_orchestrator.continue_after_pause(

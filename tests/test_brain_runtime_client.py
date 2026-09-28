@@ -122,7 +122,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
     def test_start_uses_only_the_fixed_runtime_endpoint_and_private_token(self):
         client, connection = self.client(_Response({"status": "completed", "reply": "Hello.", "actions": []}))
 
-        result = client.start(context(self.secret), "Hello")
+        result = client.start(context(self.secret), "Hello", conversation=())
 
         self.assertEqual(result.status, "completed")
         method, path, raw_body, headers = connection.requests[0]
@@ -137,6 +137,39 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             "Combine the declared greeting Actions into one bounded welcome.",
         )
         self.assertTrue(connection.closed)
+
+    def test_start_carries_the_committed_conversation_and_resume_never_does(self):
+        window = (
+            brain_runtime_client.RuntimeConversationEntry("user", "List my DNS zones", False),
+            brain_runtime_client.RuntimeConversationEntry("assistant", "Install Cloudflare first.", False),
+        )
+        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+        client.start(context(self.secret), "Can you enable it?", conversation=window)
+        payload = json.loads(connection.requests[0][2])
+        self.assertEqual(
+            payload["conversation"],
+            [
+                {"role": "user", "text": "List my DNS zones", "truncated": False},
+                {"role": "assistant", "text": "Install Cloudflare first.", "truncated": False},
+            ],
+        )
+        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+        client.resume(context(self.secret), {"interrupt-1": {"status": "ok"}})
+        self.assertNotIn("conversation", json.loads(connection.requests[0][2]))
+
+    def test_an_invalid_conversation_is_refused_before_any_request(self):
+        oversized = tuple(
+            brain_runtime_client.RuntimeConversationEntry("user", "x", False)
+            for _ in range(brain_runtime_client.MAX_CONVERSATION_ENTRIES + 1)
+        )
+        for window in (oversized, (brain_runtime_client.RuntimeConversationEntry("system", "x", False),), [object()]):
+            client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+            with (
+                self.subTest(window=type(window)),
+                self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "conversation window is invalid"),
+            ):
+                client.start(context(self.secret), "Hello", conversation=window)
+            self.assertEqual(connection.requests, [])
 
     def test_action_suspension_is_parsed_without_gaining_execution_authority(self):
         client, _connection = self.client(
@@ -156,7 +189,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             )
         )
 
-        result = client.start(context(self.secret), "Greet Ada")
+        result = client.start(context(self.secret), "Greet Ada", conversation=())
 
         self.assertEqual(result.actions[0].action, "hello")
         self.assertEqual(result.actions[0].assistant_id, "hello-pulse")
@@ -456,7 +489,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             with self.subTest(payload=payload):
                 client, _connection = self.client(_Response(payload))
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
-                    client.start(context(self.secret), "Hello")
+                    client.start(context(self.secret), "Hello", conversation=())
 
     def test_provider_or_transport_errors_never_echo_the_api_key(self):
         for response in (
@@ -466,7 +499,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             with self.subTest(status=response.status):
                 client, _connection = self.client(response)
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError) as raised:
-                    client.start(context(self.secret), "Hello")
+                    client.start(context(self.secret), "Hello", conversation=())
                 self.assertNotIn(self.secret, str(raised.exception))
 
     def test_runtime_url_cannot_carry_credentials_paths_or_queries(self):
@@ -509,12 +542,12 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             connection_factory=lambda *_args: connection,
         )
         with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "unavailable"):
-            client.start(context(self.secret), "Hello")
+            client.start(context(self.secret), "Hello", conversation=())
         self.assertTrue(connection.closed)
 
         client, connection = self.client(_Response({}, raw=b"x" * (brain_runtime_client.MAX_RESPONSE_BYTES + 1)))
         with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "invalid response"):
-            client.start(context(self.secret), "Hello")
+            client.start(context(self.secret), "Hello", conversation=())
         self.assertTrue(connection.closed)
 
     def test_root_and_action_identity_response_shapes_fail_closed(self) -> None:
@@ -538,7 +571,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             with self.subTest(payload=payload):
                 client, _connection = self.client(_Response(payload))
                 with self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "invalid response"):
-                    client.start(context(self.secret), "Hello")
+                    client.start(context(self.secret), "Hello", conversation=())
 
 
 if __name__ == "__main__":

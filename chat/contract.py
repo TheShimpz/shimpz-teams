@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 import re
 
+from inference import client as brain_runtime_client
+from protocol.http.v1 import payload as http_payload
+
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*")
 
 
@@ -25,3 +28,14 @@ def build_prompt(
         "message": message,
     }
     return json.dumps(request, separators=(",", ":"), ensure_ascii=False)
+
+
+def conversation_window(value: object) -> tuple[brain_runtime_client.RuntimeConversationEntry, ...]:
+    """Admit one untrusted window of committed presentation history through Team's HTTP reference validator."""
+    entries = http_payload.canonical_conversation(value)
+    if entries is None:
+        raise ValueError("invalid conversation window")
+    return tuple(
+        brain_runtime_client.RuntimeConversationEntry(entry["role"], entry["text"], entry["truncated"])
+        for entry in entries
+    )

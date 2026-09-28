@@ -458,7 +458,7 @@ class BrainRuntimeClient:
         if not isinstance(value, RuntimeLifecycleContext):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         reference = cls._validate_lifecycle_reference(value.reference)
-        conversation = cls._validate_conversation(value.conversation)
+        conversation = cls.validate_conversation(value.conversation)
         exemplar = value.language_exemplar
         if exemplar is not None:
             exemplar = cls._capability_text(exemplar, MAX_LANGUAGE_EXEMPLAR_CHARS, allow_layout=True)
@@ -470,12 +470,13 @@ class BrainRuntimeClient:
         return RuntimeLifecycleContext(reference, conversation, exemplar)
 
     @classmethod
-    def _validate_conversation(
+    def validate_conversation(
         cls,
         value: object,
     ) -> tuple[RuntimeConversationEntry, ...]:
+        """Admit one bounded window of untrusted committed presentation history."""
         if not isinstance(value, tuple) or len(value) > MAX_CONVERSATION_ENTRIES:
-            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+            raise BrainRuntimeError("Brain runtime conversation window is invalid")
         admitted: list[RuntimeConversationEntry] = []
         for entry in value:
             if (
@@ -483,7 +484,7 @@ class BrainRuntimeClient:
                 or entry.role not in {"user", "assistant"}
                 or not isinstance(entry.truncated, bool)
             ):
-                raise BrainRuntimeError("Brain runtime intent route request is invalid")
+                raise BrainRuntimeError("Brain runtime conversation window is invalid")
             admitted.append(
                 RuntimeConversationEntry(
                     entry.role,
@@ -493,7 +494,7 @@ class BrainRuntimeClient:
             )
         result = tuple(admitted)
         if sum(len(entry.text) for entry in result) > MAX_CONVERSATION_CHARS:
-            raise BrainRuntimeError("Brain runtime intent route request is invalid")
+            raise BrainRuntimeError("Brain runtime conversation window is invalid")
         return result
 
     @classmethod
@@ -597,9 +598,20 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return RuntimeIntentRoute(intent, assistant_ids=assistant_ids)
 
-    def start(self, context: RuntimeContext, message: str) -> RuntimeTurn:
+    def start(
+        self,
+        context: RuntimeContext,
+        message: str,
+        *,
+        conversation: tuple[RuntimeConversationEntry, ...],
+    ) -> RuntimeTurn:
+        """Start a turn; the Brain uses ``conversation`` only when it retains no completed exchange."""
         payload = self._context(context)
         payload["message"] = message
+        payload["conversation"] = [
+            {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
+            for entry in self.validate_conversation(conversation)
+        ]
         return self._parse_turn(self._post("/v1/turns", payload))
 
     def resume(self, context: RuntimeContext, results: Mapping[str, object]) -> RuntimeTurn:

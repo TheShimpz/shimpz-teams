@@ -101,6 +101,30 @@ for case in vectors.get("chat_stream_lines", []):
         if not case["valid"] or value != case["record"]:
             fail(f"Team HTTP chat stream line vector differs: {case['name']}")
 
+
+def _conversation_case(case: object) -> object:
+    generated = case.get("generated") if isinstance(case, dict) and set(case) == {"generated"} else None
+    entry = {"role": "user", "truncated": False}
+    if generated == "eight-maximal-entries":
+        return [{**entry, "text": "x" * payload.MAX_CONVERSATION_TEXT_CHARS}] * payload.MAX_CONVERSATION_ENTRIES
+    if generated == "nine-entries":
+        return [{**entry, "text": "x"}] * (payload.MAX_CONVERSATION_ENTRIES + 1)
+    if generated == "overlong-entry":
+        return [{**entry, "text": "x" * (payload.MAX_CONVERSATION_TEXT_CHARS + 1)}]
+    return case
+
+
+conversations = vectors.get("chat_conversation", {})
+if not conversations.get("valid") or not conversations.get("invalid"):
+    fail("Team HTTP chat conversation vectors are missing")
+for case in conversations["valid"]:
+    window = _conversation_case(case)
+    if payload.canonical_conversation(window) != window:
+        fail("Team HTTP chat conversation positive vector differs")
+for case in conversations["invalid"]:
+    if payload.canonical_conversation(_conversation_case(case)) is not None:
+        fail("Team HTTP chat conversation negative vector differs")
+
 identifiers = vectors.get("identifiers", {})
 validators = {
     "team": payload.canonical_team_id,

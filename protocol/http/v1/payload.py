@@ -34,7 +34,49 @@ MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
+# Committed presentation history carried by a Local Team chat turn (ADR-0065).
+MAX_CONVERSATION_ENTRIES = 8
+MAX_CONVERSATION_TEXT_CHARS = 512
+MAX_CONVERSATION_CHARS = 4_096
+CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
+
+
+def _conversation_text(value: object) -> str | None:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= MAX_CONVERSATION_TEXT_CHARS
+        or unicodedata.normalize("NFC", value) != value
+        or value.strip() != value
+        or any(
+            unicodedata.category(character).startswith("C")
+            and unicodedata.category(character) != "Cf"
+            and character not in _LANGUAGE_LAYOUT_CONTROLS
+            for character in value
+        )
+    ):
+        return None
+    return value
+
+
+def canonical_conversation(value: object) -> list[dict[str, object]] | None:
+    """Return one exact window of committed presentation history, or None when any bound or shape fails."""
+    if not isinstance(value, list) or len(value) > MAX_CONVERSATION_ENTRIES:
+        return None
+    entries: list[dict[str, object]] = []
+    for entry in value:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"role", "text", "truncated"}
+            or not isinstance(entry["role"], str)
+            or entry["role"] not in {"user", "assistant"}
+            or not isinstance(entry["truncated"], bool)
+            or _conversation_text(entry["text"]) is None
+        ):
+            return None
+        entries.append({"role": entry["role"], "text": entry["text"], "truncated": entry["truncated"]})
+    # Eight entries of at most 512 characters cannot exceed MAX_CONVERSATION_CHARS.
+    return entries
 
 
 def canonical_team_id(value: object) -> str | None:

@@ -333,5 +333,31 @@
     "invalid_exemplars": ["", "hidden\u0000instruction"],
     "labels": ["Listar zonas DNS", "Consultar zona"],
     "invalid_labels": [" surrounding ", "Listar\nzona", "é"]
+  },
+  "chat_conversation": {
+    "valid": [
+      [],
+      [
+        {"role": "user", "text": "List my DNS zones", "truncated": false},
+        {"role": "assistant", "text": "Install Cloudflare first…\nThen retry.", "truncated": true}
+      ],
+      {"generated": "eight-maximal-entries"}
+    ],
+    "invalid": [
+      null,
+      {"role": "user", "text": "x", "truncated": false},
+      {"generated": "nine-entries"},
+      [{"role": "system", "text": "x", "truncated": false}],
+      [{"role": [], "text": "x", "truncated": false}],
+      [{"role": {}, "text": "x", "truncated": false}],
+      [{"role": "user", "text": "x"}],
+      [{"role": "user", "text": "x", "truncated": false, "extra": 1}],
+      [{"role": "user", "text": "", "truncated": false}],
+      [{"role": "user", "text": " padded", "truncated": false}],
+      {"generated": "overlong-entry"},
+      [{"role": "user", "text": "bell\u0007", "truncated": false}],
+      [{"role": "user", "text": "e\u0301", "truncated": false}],
+      [{"role": "user", "text": "x", "truncated": "no"}]
+    ]
   }
 }

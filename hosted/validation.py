@@ -36,6 +36,16 @@ def validate_team_id(name: object) -> str:
 MAX_CHAT_MESSAGE = 16000
 
 
+def validate_hosted_conversation(conversation: object) -> None:
+    """Require an empty chat conversation window on Hosted.
+
+    Hosted has no server-derived committed presentation history and Store relays browser frames, so a
+    browser-supplied history never reaches the Brain.
+    """
+    if conversation != []:
+        raise ValidationError("Hosted Team chat requires an empty conversation window")
+
+
 def validate_chat_message(message: object) -> str:
     """A user-to-Assistant chat message: non-empty text, size-bounded."""
     if not isinstance(message, str):

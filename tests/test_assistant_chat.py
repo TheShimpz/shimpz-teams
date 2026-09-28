@@ -33,3 +33,28 @@ class AssistantChatContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConversationWindowTests(unittest.TestCase):
+    def test_only_the_exact_bounded_wire_shape_is_admitted(self) -> None:
+        window = assistant_chat.conversation_window(
+            [
+                {"role": "user", "text": "List my DNS zones", "truncated": False},
+                {"role": "assistant", "text": "Install Cloudflare first.", "truncated": False},
+            ]
+        )
+        self.assertEqual([entry.role for entry in window], ["user", "assistant"])
+        self.assertEqual(assistant_chat.conversation_window([]), ())
+        for value in (
+            None,
+            ({"role": "user", "text": "x", "truncated": False},),
+            [{"role": "user", "text": "x"}],
+            [{"role": "user", "text": "x", "truncated": False, "extra": 1}],
+            [{"role": "system", "text": "x", "truncated": False}],
+            [{"role": "user", "text": "", "truncated": False}],
+            [{"role": "user", "text": "x", "truncated": "no"}],
+            [{"role": "user", "text": "x" * 513, "truncated": False}],
+            [{"role": "user", "text": "x" * 512, "truncated": False}] * 9,
+        ):
+            with self.subTest(value=str(value)[:60]), self.assertRaises(ValueError):
+                assistant_chat.conversation_window(value)

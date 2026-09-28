@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -58,7 +59,7 @@ def _context() -> brain_runtime_client.RuntimeContext:
 
 class _Runtime:
     @staticmethod
-    def start(_context, _message):
+    def start(_context, _message, *, conversation=()):
         return brain_runtime_client.RuntimeTurn(
             status="action-required",
             reply="",
@@ -222,6 +223,29 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         self.assertEqual(hosted[2], local[2])
         self.assertEqual(hosted[3].integrations, local[3].integrations)
         self.assertEqual(decisions, {"hosted": ["integrations"], "local": ["integrations"]})
+
+    def test_a_conversation_window_travels_only_with_a_new_turn(self) -> None:
+        decisions: list[str] = []
+        strategy = self._strategy(decisions=decisions)
+        problems: list[str] = []
+
+        def raise_problem(reason: str, _exc: BaseException | None) -> None:
+            problems.append(reason)
+            raise RuntimeError(reason)
+
+        strategy = dataclasses.replace(strategy, raise_problem=raise_problem)
+        window = (brain_runtime_client.RuntimeConversationEntry("user", "Earlier", False),)
+        continuation = chat_orchestrator.ChatContinuation(
+            turn=brain_runtime_client.RuntimeTurn("completed", "done", ()),
+            seen_interrupts=(),
+            invoked=(),
+            round_index=0,
+        )
+        with self.assertRaisesRegex(RuntimeError, "invalid-continuation"):
+            chat_turn_engine.run_segment(
+                strategy, message=None, continuation=continuation, expected_identity=None, conversation=window
+            )
+        self.assertEqual(problems, ["invalid-continuation"])
 
     def test_matching_suspension_commits_without_rollback(self) -> None:
         decisions: list[str] = []

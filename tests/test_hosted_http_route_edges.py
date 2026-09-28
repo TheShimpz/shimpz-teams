@@ -334,7 +334,9 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
 
     def test_stream_checks_pending_state_before_starting_transport(self) -> None:
         handler = _handler()
-        handler._read_body = mock.Mock(return_value={"message": "hello", "files": [], "assistant_ids": []})
+        handler._read_body = mock.Mock(
+            return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": []}
+        )
         pending = {"status": "input-required"}
         with (
             mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
@@ -348,7 +350,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
     def test_stream_delegates_validated_inputs_when_no_continuation_is_pending(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(
-            return_value={"message": "hello", "files": ["file"], "assistant_ids": ["assistant"]}
+            return_value={"message": "hello", "files": ["file"], "assistant_ids": ["assistant"], "conversation": []}
         )
         handler._stream_chat = mock.Mock()
         request = _request()
@@ -367,6 +369,19 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
             request.lease,
         )
 
+    def test_hosted_chat_refuses_any_nonempty_conversation_window(self) -> None:
+        handler = _handler()
+        handler._read_body = mock.Mock(
+            return_value={
+                "message": "hello",
+                "files": [],
+                "assistant_ids": [],
+                "conversation": [{"role": "user", "text": "hi", "truncated": False}],
+            }
+        )
+        with self.assertRaisesRegex(server.validate.ValidationError, "empty conversation window"):
+            handler._route_chat_turn(_request(), stream=False)
+
     def test_nonstream_chat_maps_paused_and_completed_results(self) -> None:
         cases = (
             ({"status": next(iter(server.hosted_assistants.CHAT_PAUSED_STATUSES))}, HTTPStatus.PRECONDITION_REQUIRED),
@@ -375,7 +390,9 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
         for result, expected_status in cases:
             with self.subTest(result=result):
                 handler = _handler()
-                handler._read_body = mock.Mock(return_value={"message": "hello", "files": [], "assistant_ids": []})
+                handler._read_body = mock.Mock(
+                    return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": []}
+                )
                 with (
                     mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
                     mock.patch.object(server.hosted_assistants, "_chat_assistant_ids", return_value=()),
