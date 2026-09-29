@@ -39,7 +39,7 @@ class InferenceConfigTests(unittest.TestCase):
                     self.assertEqual(inference_config.normalize(provider, model).model, model)
 
     def test_save_and_load_preserve_only_provider_and_model(self):
-        expected = inference_config.normalize("anthropic", "claude-sonnet-5")
+        expected = inference_config.normalize("anthropic", "claude-sonnet-5-5")
 
         self.store.save("team_1", expected)
         actual = self.store.load("team_1")
@@ -53,7 +53,7 @@ class InferenceConfigTests(unittest.TestCase):
 
     def test_replace_is_atomic_and_delete_is_idempotent(self):
         self.store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
-        self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5"))
+        self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
 
         self.assertEqual(self.store.load("team_1").provider, "anthropic")
         self.assertEqual(list(self.root.glob("*.tmp")), [])
@@ -67,7 +67,7 @@ class InferenceConfigTests(unittest.TestCase):
             inference_config.normalize("codex", "gpt-test")
         for provider, model in (
             ("openai", "gpt-999"),
-            ("openai", "claude-sonnet-5"),
+            ("openai", "claude-sonnet-5-5"),
             ("anthropic", "gpt-6-sol"),
             ("openai", "../../model"),
         ):

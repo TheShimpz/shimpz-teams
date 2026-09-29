@@ -28,7 +28,7 @@
     {
       "id": "anthropic",
       "title": "Anthropic",
-      "default_model": "claude-sonnet-5",
+      "default_model": "claude-sonnet-5-5",
       "credential_validation": {
         "host": "api.anthropic.com",
         "path": "/v1/models"
@@ -41,8 +41,8 @@
           "output_usd_per_million_cents": 2000
         },
         {
-          "id": "claude-sonnet-5",
-          "title": "Claude Sonnet 5",
+          "id": "claude-sonnet-5-5",
+          "title": "Claude Sonnet 5.5",
           "input_usd_per_million_cents": 200,
           "output_usd_per_million_cents": 1000
         }
