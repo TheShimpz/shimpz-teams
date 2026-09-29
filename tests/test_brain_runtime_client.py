@@ -124,7 +124,9 @@ class RuntimeClientCase(unittest.TestCase):
 
 class BrainRuntimeClientTests(RuntimeClientCase):
     def test_start_uses_only_the_fixed_runtime_endpoint_and_private_token(self):
-        client, connection = self.client(_Response({"status": "completed", "reply": "Hello.", "actions": []}))
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Hello.", "actions": []})
+        )
 
         result = client.start(context(self.secret), "Hello", conversation=())
 
@@ -147,7 +149,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             brain_runtime_client.RuntimeConversationEntry("user", "List my DNS zones", False),
             brain_runtime_client.RuntimeConversationEntry("assistant", "Install Cloudflare first.", False),
         )
-        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
         client.start(context(self.secret), "Can you enable it?", conversation=window)
         payload = json.loads(connection.requests[0][2])
         self.assertEqual(
@@ -157,7 +161,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 {"role": "assistant", "text": "Install Cloudflare first.", "truncated": False},
             ],
         )
-        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
         client.resume(context(self.secret), {"interrupt-1": {"status": "ok"}})
         self.assertNotIn("conversation", json.loads(connection.requests[0][2]))
 
@@ -167,7 +173,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             for _ in range(brain_runtime_client.MAX_CONVERSATION_ENTRIES + 1)
         )
         for window in (oversized, (brain_runtime_client.RuntimeConversationEntry("system", "x", False),), [object()]):
-            client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+            client, connection = self.client(
+                _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+            )
             with (
                 self.subTest(window=type(window)),
                 self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "conversation window is invalid"),
@@ -180,6 +188,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             _Response(
                 {
                     "status": "action-required",
+                    "clarification": None,
                     "reply": "",
                     "actions": [
                         {
@@ -200,7 +209,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         self.assertEqual(result.actions[0].input, {"name": "Ada"})
 
     def test_resume_sends_only_interrupt_results(self):
-        client, connection = self.client(_Response({"status": "completed", "reply": "Done.", "actions": []}))
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
 
         client.resume(context(self.secret), {"interrupt-1": {"message": "Hello, Ada."}})
 
@@ -480,14 +491,39 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.delete_thread("team:hello-pulse:conversation-1")
 
+    def test_a_completed_turn_carries_one_closed_clarification(self):
+        asked = {
+            "question": "Qual período?",
+            "options": [{"label": "Hoje", "description": ""}, {"label": "Semana", "description": "Sete dias."}],
+            "default_index": 1,
+        }
+        client, _connection = self.client(
+            _Response({"status": "completed", "clarification": asked, "reply": "Qual período?", "actions": []})
+        )
+        turn = client.start(context(self.secret), "Quais modelos?", conversation=())
+        self.assertEqual(turn.clarification, asked)
+        self.assertEqual(turn.reply, "Qual período?")
+
     def test_malformed_runtime_responses_fail_closed(self):
         invalid = (
-            {"status": "completed", "reply": "", "actions": []},
-            {"status": "completed", "reply": "x" * 60_001, "actions": []},
-            {"status": "completed", "reply": "unsafe\u0000reply", "actions": []},
-            {"status": "completed", "reply": "ok", "actions": [{"action": "hello"}]},
-            {"status": "action-required", "reply": "unexpected", "actions": []},
-            {"status": "unknown", "reply": "ok", "actions": []},
+            {"status": "completed", "clarification": None, "reply": "", "actions": []},
+            {"status": "completed", "clarification": None, "reply": "x" * 60_001, "actions": []},
+            {"status": "completed", "clarification": None, "reply": "unsafe\u0000reply", "actions": []},
+            {"status": "completed", "clarification": None, "reply": "ok", "actions": [{"action": "hello"}]},
+            {"status": "action-required", "clarification": None, "reply": "unexpected", "actions": []},
+            {"status": "unknown", "clarification": None, "reply": "ok", "actions": []},
+            {"status": "completed", "reply": "ok", "actions": []},
+            {"status": "completed", "clarification": {"question": "Q?"}, "reply": "ok", "actions": []},
+            {
+                "status": "action-required",
+                "clarification": {
+                    "question": "Qual?",
+                    "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],
+                    "default_index": 0,
+                },
+                "reply": "",
+                "actions": [{"interrupt_id": "i-1", "assistant_id": "hello-pulse", "action": "hello", "input": {}}],
+            },
         )
         for payload in invalid:
             with self.subTest(payload=payload):
@@ -557,9 +593,10 @@ class BrainRuntimeClientTests(RuntimeClientCase):
     def test_root_and_action_identity_response_shapes_fail_closed(self) -> None:
         invalid = (
             [],
-            {"status": "completed", "reply": "ok", "actions": [], "extra": True},
+            {"status": "completed", "clarification": None, "reply": "ok", "actions": [], "extra": True},
             {
                 "status": "action-required",
+                "clarification": None,
                 "reply": "",
                 "actions": [
                     {

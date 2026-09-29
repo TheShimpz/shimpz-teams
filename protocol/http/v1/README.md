@@ -25,6 +25,13 @@ resumption after Account consumes it successfully. Handle issuance, freshness, b
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
 
+A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
+multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
+`label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to
+one option. Every text is already NFC, trimmed, and free of control and line-separator characters, and
+labels are distinct ignoring case. `payload.canonical_clarification` validates it. The question is
+presentation only: it requests and authorizes nothing, and the user answers with a new chat message.
+
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.

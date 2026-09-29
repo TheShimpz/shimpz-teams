@@ -409,5 +409,28 @@
       [{"role": "user", "text": "e\u0301", "truncated": false}],
       [{"role": "user", "text": "x", "truncated": "no"}]
     ]
+  },
+  "clarification": {
+    "valid": [
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
+      {"question": "Which format?", "options": [{"label": "List", "description": ""}, {"label": "Table", "description": "Compact."}, {"label": "Report", "description": ""}, {"label": "Slides", "description": ""}, {"label": "Email", "description": ""}], "default_index": 4}
+    ],
+    "invalid": [
+      null,
+      [],
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0, "extra": 1},
+      {"question": "Linha 1\nLinha 2", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
+      {"question": " Hoje?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
+      {"question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "O0", "description": ""}, {"label": "O1", "description": ""}, {"label": "O2", "description": ""}, {"label": "O3", "description": ""}, {"label": "O4", "description": ""}, {"label": "O5", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": ""}, {"label": "hoje", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": ""}, {"label": "B​", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje"}, {"label": "B", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "é", "description": ""}, {"label": "B", "description": ""}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 2},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": true},
+      {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": "0"}
+    ]
   }
 }

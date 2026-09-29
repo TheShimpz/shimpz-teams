@@ -32,6 +32,7 @@ class InvokedAction:
 class ChatOutcome:
     reply: str
     actions: tuple[InvokedAction, ...]
+    clarification: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +155,7 @@ def _drive(
         if turn.status == "completed":
             with strategy.progress.span("team-context"):
                 strategy.validate_context()
-            return ChatOutcome(reply=turn.reply, actions=tuple(invoked))
+            return ChatOutcome(reply=turn.reply, actions=tuple(invoked), clarification=turn.clarification)
         if _round == MAX_ACTION_ROUNDS:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")
 

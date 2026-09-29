@@ -270,6 +270,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     "team_id": "team_1",
                     "team_name": "Marketing",
                     "reply": "Campaign ready.",
+                    "clarification": None,
                 },
             ),
         ):
@@ -296,6 +297,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 "team_id": "team_1",
                 "team_name": "Marketing",
                 "reply": "Campaign ready.",
+                "clarification": None,
             },
         )
 
@@ -599,7 +601,10 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 )
 
         self.assertEqual([item[:2] for item in invoked], [("places", "search"), ("weather", "current")])
-        self.assertEqual(result, {"team_id": "team_1", "team_name": "Marketing", "reply": "Berlin weather is ready."})
+        self.assertEqual(
+            result,
+            {"team_id": "team_1", "team_name": "Marketing", "reply": "Berlin weather is ready.", "clarification": None},
+        )
 
     def test_completed_action_is_cached_until_a_successful_brain_resume(self) -> None:
         request = brain_runtime_client.ActionRequest(

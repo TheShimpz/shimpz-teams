@@ -38,6 +38,11 @@ MAX_MEDIA_TYPE_CHARS = 127
 MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
+MAX_CLARIFICATION_QUESTION_CHARS = 240
+MAX_CLARIFICATION_LABEL_CHARS = 80
+MAX_CLARIFICATION_DESCRIPTION_CHARS = 160
+MIN_CLARIFICATION_OPTIONS = 2
+MAX_CLARIFICATION_OPTIONS = 5
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
@@ -119,6 +124,71 @@ def canonical_action_label(value: object) -> str | None:
     if any(unicodedata.category(character).startswith("C") for character in value):
         return None
     return value
+
+
+class _ClarificationShapeError(ValueError):
+    pass
+
+
+def _clarification_text(value: object, maximum: int, *, empty: bool = False) -> str:
+    if (
+        not isinstance(value, str)
+        or unicodedata.normalize("NFC", value) != value
+        or value.strip() != value
+        or len(value) > maximum
+        or (not value and not empty)
+        or any(
+            unicodedata.category(character)[0] == "C" or unicodedata.category(character) in {"Zl", "Zp"}
+            for character in value
+        )
+    ):
+        raise _ClarificationShapeError
+    return value
+
+
+def _clarification(value: object) -> dict[str, object]:
+    if not isinstance(value, dict) or set(value) != {"question", "options", "default_index"}:
+        raise _ClarificationShapeError
+    question = _clarification_text(value["question"], MAX_CLARIFICATION_QUESTION_CHARS)
+    raw_options = value["options"]
+    if (
+        not isinstance(raw_options, list)
+        or not MIN_CLARIFICATION_OPTIONS <= len(raw_options) <= MAX_CLARIFICATION_OPTIONS
+    ):
+        raise _ClarificationShapeError
+    options = []
+    for option in raw_options:
+        if not isinstance(option, dict) or set(option) != {"label", "description"}:
+            raise _ClarificationShapeError
+        options.append(
+            {
+                "label": _clarification_text(option["label"], MAX_CLARIFICATION_LABEL_CHARS),
+                "description": _clarification_text(
+                    option["description"], MAX_CLARIFICATION_DESCRIPTION_CHARS, empty=True
+                ),
+            }
+        )
+    default_index = value["default_index"]
+    if (
+        len({option["label"].casefold() for option in options}) != len(options)
+        or isinstance(default_index, bool)
+        or not isinstance(default_index, int)
+        or not 0 <= default_index < len(options)
+    ):
+        raise _ClarificationShapeError
+    return {"question": question, "options": options, "default_index": default_index}
+
+
+def canonical_clarification(value: object) -> dict[str, object] | None:
+    """Return one exact Brain multiple-choice clarification, or None when it breaks the closed shape (ADR-0081).
+
+    Every text is already NFC, trimmed, and free of control and line-separator characters; labels are distinct
+    ignoring case; the default points to one option. The shape is presentation only and carries no authority.
+    """
+    try:
+        return _clarification(value)
+    except _ClarificationShapeError:
+        return None
 
 
 def canonical_source_digest(value: object) -> str | None:

@@ -52,7 +52,12 @@ def _segment_response(
         self._delete_chat_continuation(team_id)
         if not self._commit_chat_terminal(team_id, token):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
-        return {"team_id": team_id, "team_name": segment.team_name, "reply": terminal.reply}
+        return {
+            "team_id": team_id,
+            "team_name": segment.team_name,
+            "reply": terminal.reply,
+            "clarification": terminal.clarification,
+        }
 
     try:
         return chat_turn_engine.dispatch(

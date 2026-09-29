@@ -126,6 +126,7 @@ def _json_value(value: object) -> object:
 
 
 def _turn_payload(turn: brain_runtime_client.RuntimeTurn) -> dict[str, object]:
+    # A suspended turn requested Actions, so it never carries a clarification.
     return {
         "status": turn.status,
         "reply": turn.reply,
@@ -336,6 +337,7 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
         {
             "status": turn_value["status"],
             "reply": turn_value["reply"],
+            "clarification": None,
             "actions": [
                 {
                     "interrupt_id": item.interrupt_id,

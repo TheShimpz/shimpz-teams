@@ -793,7 +793,9 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
 
         self.assertEqual(invoked, [("team_1", "shimpz-cloudflare", LOOKUP_INPUT)])
-        self.assertEqual(response, {"team_id": "team_1", "team_name": "Marketing", "reply": "Done"})
+        self.assertEqual(
+            response, {"team_id": "team_1", "team_name": "Marketing", "reply": "Done", "clarification": None}
+        )
 
     def test_chat_reuses_a_completed_action_after_resume_failure_then_delivers(self) -> None:
         request = brain_runtime_client.ActionRequest(

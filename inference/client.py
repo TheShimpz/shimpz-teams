@@ -18,6 +18,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from core import strict_json
+from protocol.http.v1 import payload as http_payload
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
@@ -91,6 +92,8 @@ class RuntimeTurn:
     status: Literal["completed", "action-required"]
     reply: str
     actions: tuple[ActionRequest, ...]
+    # One closed multiple-choice question that ended a completed turn (ADR-0081), or None.
+    clarification: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,8 +340,13 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
-        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions"}:
+        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions", "clarification"}:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
+        clarification = value["clarification"]
+        if clarification is not None:
+            clarification = http_payload.canonical_clarification(clarification)
+            if clarification is None or value["status"] != "completed":
+                raise BrainRuntimeError("Brain runtime returned an invalid response")
         status = value["status"]
         reply = value["reply"]
         raw_actions = value["actions"]
@@ -389,7 +397,7 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         if status == "action-required" and (reply or not actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        return RuntimeTurn(status=status, reply=reply, actions=tuple(actions))
+        return RuntimeTurn(status=status, reply=reply, actions=tuple(actions), clarification=clarification)
 
     @staticmethod
     def _parse_action_labels(value: object, action_ids: tuple[str, ...]) -> tuple[RuntimeActionLabel, ...]:

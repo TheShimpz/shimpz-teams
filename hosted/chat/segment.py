@@ -610,6 +610,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply[: hosted_assistants.CHAT_OUTPUT_CAP],
+            "clarification": terminal.clarification,
         }
 
     try:

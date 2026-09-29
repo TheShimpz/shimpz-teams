@@ -140,6 +140,13 @@ for kind, validator in validators.items():
     if any(validator(value) is not None for value in cases.get("invalid", [])):
         fail(f"Team HTTP {kind} negative vector differs")
 
+clarifications = vectors.get("clarification", {})
+if not clarifications.get("valid") or not clarifications.get("invalid"):
+    fail("clarification vectors are missing")
+if any(payload.canonical_clarification(value) != value for value in clarifications["valid"]):
+    fail("a valid clarification vector was not admitted exactly")
+if any(payload.canonical_clarification(value) is not None for value in clarifications["invalid"]):
+    fail("an invalid clarification vector was admitted")
 action_label_text = vectors.get("action_label_text", {})
 for case in action_label_text.get("exemplars", []):
     if payload.canonical_language_exemplar(case["input"]) != case["canonical"]:
