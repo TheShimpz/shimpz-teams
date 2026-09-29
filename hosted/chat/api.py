@@ -18,6 +18,7 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
+from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
@@ -41,13 +42,23 @@ def _exclusive_chat_turn(team_id: str, lease: hosted_resources._AuthorizationLea
         lock.release()
         raise
     token = secrets.token_hex(16)
+    # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
+    brain_abort = brain_runtime_client.RequestAbort()
     with runtime_state._active_chat_guard:
-        runtime_state._active_chat_tokens[team_id] = token
-        runtime_state._active_chat_container_ids[team_id] = container.id
+        draining = team_id in runtime_state._draining_chats
+        if not draining:
+            runtime_state._active_chat_tokens[team_id] = token
+            runtime_state._active_chat_container_ids[team_id] = container.id
+            runtime_state._brain_aborts[token] = brain_abort
+    if draining:
+        lock.release()
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"team {team_id!r} is being destroyed")
     try:
-        yield token, container
+        with brain_runtime_client.abortable(brain_abort):
+            yield token, container
     finally:
         with runtime_state._active_chat_guard:
+            runtime_state._brain_aborts.pop(token, None)
             runtime_state._active_chat_tokens.pop(team_id, None)
             runtime_state._active_chat_container_ids.pop(team_id, None)
             runtime_state._active_action_container_ids.pop(team_id, None)
@@ -448,14 +459,18 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
                 raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
             if token is not None:
                 runtime_state._cancelled_chat_tokens.add(token)
+            brain_abort = runtime_state._brain_aborts.get(token) if token is not None else None
+        # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
+        if brain_abort is not None:
+            brain_abort.abort()
         action_stopped = _stop_active_action(team_id, token)
     accepted = token is not None or integration_cancelled or human_cancelled
     return {
         "team_id": team_id,
         "requested": accepted,
         "accepted": accepted,
-        # An executing Action is synchronously terminated. A provider HTTP request is only marked
-        # cancelled; its result is discarded before any subsequent Action or terminal reply.
+        # An executing Action is synchronously terminated. An in-flight Brain request is aborted, and any
+        # late result is discarded before any subsequent Action or terminal reply.
         "confirmed": action_stopped,
         "forced_restart": False,
     }

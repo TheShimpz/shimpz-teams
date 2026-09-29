@@ -486,37 +486,47 @@ def _destroy(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
                     HTTPStatus.SERVICE_UNAVAILABLE,
                     "Team cleanup state is unavailable",
                 ) from exc
-        chat_lock = runtime_state._chat_lock_for(team_id)
-        if container is not None:
-            container.reload()
-            if container.status == "running":
-                hosted_resources._fail_stop_team(container, timeout=30)
-        if not chat_lock.acquire(timeout=30):
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
-        try:
-            residue_absent = _delete_generation_state(team_id, lease.container_id)
-            cleanup = _teardown(team_id, owner=lease.owner, runtime_id=lease.container_id)
-            runtime_state._clear_team_id_runtime_state(team_id)
-            residue_absent.update(cleanup.residue_absent)
-            residue_absent.add("runtime_state")
-            if not cleanup.complete:
-                raise runtime_state.ApiError(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    "Team teardown is incomplete; retry destroy or contact the Supervisor",
-                )
-            if residue_absent != _TEAM_RESIDUE_ABSENCE:
-                raise runtime_state.ApiError(
-                    HTTPStatus.INTERNAL_SERVER_ERROR,
-                    "Team teardown proof is incomplete; retry destroy or contact the Supervisor",
-                )
-            return {
-                "team_id": team_id,
-                "destroyed": True,
-                "db_dropped": cleanup.db_dropped,
-                "residue_absent": sorted(residue_absent),
-            }
-        finally:
-            chat_lock.release()
+        # No new turn registers while destruction runs, and the active turn's Brain request is aborted so its chat
+        # lock drains within the wait below (ADR-0079). A failed destruction leaves the Team pending cleanup, which
+        # only a later successful destruction ends, so registration reopens only after one.
+        runtime_state._close_chat_registration(team_id)
+        destroyed = _stop_and_tear_down(team_id, lease, container)
+        runtime_state._reopen_chat_registration(team_id)
+        return destroyed
+
+
+def _stop_and_tear_down(team_id: str, lease: hosted_resources._AuthorizationLease, container) -> dict:
+    chat_lock = runtime_state._chat_lock_for(team_id)
+    if container is not None:
+        container.reload()
+        if container.status == "running":
+            hosted_resources._fail_stop_team(container, timeout=30)
+    if not chat_lock.acquire(timeout=30):
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
+    try:
+        residue_absent = _delete_generation_state(team_id, lease.container_id)
+        cleanup = _teardown(team_id, owner=lease.owner, runtime_id=lease.container_id)
+        runtime_state._clear_team_id_runtime_state(team_id)
+        residue_absent.update(cleanup.residue_absent)
+        residue_absent.add("runtime_state")
+        if not cleanup.complete:
+            raise runtime_state.ApiError(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "Team teardown is incomplete; retry destroy or contact the Supervisor",
+            )
+        if residue_absent != _TEAM_RESIDUE_ABSENCE:
+            raise runtime_state.ApiError(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                "Team teardown proof is incomplete; retry destroy or contact the Supervisor",
+            )
+        return {
+            "team_id": team_id,
+            "destroyed": True,
+            "db_dropped": cleanup.db_dropped,
+            "residue_absent": sorted(residue_absent),
+        }
+    finally:
+        chat_lock.release()
 
 
 def _list(*, owner: str | None) -> dict:

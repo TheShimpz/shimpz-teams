@@ -149,6 +149,10 @@ _active_chat_container_ids: dict[str, str] = {}
 _active_action_container_ids: dict[str, tuple[str, str]] = {}
 _blocked_action_workloads: set[tuple[str, str]] = set()
 _cancelled_chat_tokens: set[str] = set()
+# The abort handle of each active turn's in-flight Brain request, keyed by chat token (ADR-0079).
+_brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
+# Teams being destroyed: no new chat turn may register until destruction ends.
+_draining_chats: set[str] = set()
 # Docker inventory and slow provisioning run outside this lock. The generation detects snapshot churn.
 _capacity_lock = threading.Lock()
 _capacity_reservations: dict[str, object] = {}
@@ -334,6 +338,27 @@ def _clear_team_id_runtime_state(team_id: str) -> None:
                 _blocked_action_workloads.discard(blocked)
         if token is not None:
             _cancelled_chat_tokens.discard(token)
+
+
+def _close_chat_registration(team_id: str) -> None:
+    """Refuse new chat turns, cancel the active one, and abort its in-flight Brain request.
+
+    Closing registration and cancelling the current token happen under one guard, so a turn that won the chat lock but
+    has not registered yet can never start a Brain request that this drain would miss (ADR-0079).
+    """
+    with _active_chat_guard:
+        _draining_chats.add(team_id)
+        token = _active_chat_tokens.get(team_id)
+        if token is not None:
+            _cancelled_chat_tokens.add(token)
+        brain_abort = _brain_aborts.get(token) if token is not None else None
+    if brain_abort is not None:
+        brain_abort.abort()
+
+
+def _reopen_chat_registration(team_id: str) -> None:
+    with _active_chat_guard:
+        _draining_chats.discard(team_id)
 
 
 def _token_cancelled(token: str) -> bool:
