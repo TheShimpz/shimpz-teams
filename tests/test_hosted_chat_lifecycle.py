@@ -534,8 +534,8 @@ class HostedChatLifecycleTests(unittest.TestCase):
             return chat_orchestrator.ChatOutcome(
                 reply="Berlin weather is ready.",
                 actions=(
-                    chat_orchestrator.InvokedAction("places", "search"),
-                    chat_orchestrator.InvokedAction("weather", "current"),
+                    chat_orchestrator.InvokedAction("places", "search", (), "sha256:" + "a" * 64),
+                    chat_orchestrator.InvokedAction("weather", "current", (), "sha256:" + "b" * 64),
                 ),
             )
 

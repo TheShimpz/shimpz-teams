@@ -10,6 +10,7 @@ from typing import Any
 from action import human as action_human
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
+from protocol.http.v1 import payload as http_payload
 
 MAX_ACTION_ROUNDS = 8
 
@@ -26,6 +27,11 @@ class ChatStoppedError(ChatOrchestrationError):
 class InvokedAction:
     assistant_id: str
     action: str
+    # What a learned skill keeps of a succeeded Action (ADR-0085): its input names and its contract fingerprint.
+    # An Action whose input names a skill cannot hold is not learnable, so no procedure is saved incompletely.
+    inputs: tuple[str, ...]
+    contract: str
+    learnable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +155,7 @@ def _drive(
     invoked = list(continuation.invoked)
     seen_interrupts = set(continuation.seen_interrupts)
     declared = {(assistant.id, action.id): action for assistant in context.assistants for action in assistant.actions}
+    contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
     for _round in range(continuation.round_index, MAX_ACTION_ROUNDS + 1):
         if strategy.cancelled():
@@ -206,7 +213,15 @@ def _drive(
                 except action_human.HumanRequestSuspensionError as exc:
                     return ChatHumanSuspension(checkpoint, request, exc.request, tuple(results))
             results[request.interrupt_id] = result
-            batch_invoked.append(InvokedAction(assistant_id=request.assistant_id, action=request.action))
+            batch_invoked.append(
+                InvokedAction(
+                    assistant_id=request.assistant_id,
+                    action=request.action,
+                    inputs=tuple(sorted(name for name in request.input if http_payload.SKILL_INPUT_RE.fullmatch(name))),
+                    contract=contracts[request.assistant_id],
+                    learnable=all(http_payload.SKILL_INPUT_RE.fullmatch(name) for name in request.input),
+                )
+            )
 
         strategy.validate_context()
         seen_interrupts.update(batch_interrupts)

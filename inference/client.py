@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import http.client
 import json
 import os
@@ -69,6 +70,20 @@ class RuntimeAssistant:
     actions: tuple[RuntimeAction, ...]
 
 
+def contract_digest(assistant: RuntimeAssistant) -> str:
+    """The `sha256:` fingerprint of one Assistant contract as Brain receives it; a changed contract changes it."""
+    contract = {
+        "id": assistant.id,
+        "genesis": assistant.genesis,
+        "actions": [
+            {"id": action.id, "summary": action.summary, "input_schema": dict(action.input_schema)}
+            for action in assistant.actions
+        ],
+    }
+    body = json.dumps(contract, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeContext:
     thread_id: str
@@ -80,6 +95,8 @@ class RuntimeContext:
     effort: Literal["low", "medium", "high"]
     # The Team's learned memory (ADR-0084), already validated by its store; None withholds the Brain's memory tool.
     memories: tuple[dict[str, str], ...] | None = None
+    # The learned skills usable in this turn (ADR-0085); None where learning is unavailable.
+    skills: tuple[dict[str, object], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +321,7 @@ class BrainRuntimeClient:
                 "effort": context.effort,
             },
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
+            "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
         }
 
     def _post(self, path: str, payload: Mapping[str, object]) -> object:

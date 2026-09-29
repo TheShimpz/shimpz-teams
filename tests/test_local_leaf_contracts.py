@@ -58,7 +58,7 @@ class LocalLeafContractTests(unittest.TestCase):
                 types.SimpleNamespace(provider="openai", model="model", effort="low"),
             ),
             _chat_identity=lambda *_args: ("identity",),
-            inference_store=types.SimpleNamespace(load_memory=lambda _team_id: []),
+            inference_store=types.SimpleNamespace(load_knowledge=lambda _team_id: ([], [])),
             _active_assistant_genesis=lambda _active: "genesis",
             space_id="local",
             action_state=mock.Mock(),
@@ -127,13 +127,13 @@ class LocalLeafContractTests(unittest.TestCase):
             return strategy.prepare()
 
         unavailable = inference_config.InferenceConfigError("disk")
-        controller.inference_store = types.SimpleNamespace(load_memory=mock.Mock(side_effect=unavailable))
+        controller.inference_store = types.SimpleNamespace(load_knowledge=mock.Mock(side_effect=unavailable))
         with (
             mock.patch.object(chat_segment.chat_turn_engine, "run_segment", side_effect=prepare_only),
             self.assertRaisesRegex(ApiProblemError, "metadata is unavailable"),
         ):
             chat_segment._run_chat_segment_with_metadata(controller, request, None)
-        controller.inference_store = types.SimpleNamespace(load_memory=lambda _team_id: [])
+        controller.inference_store = types.SimpleNamespace(load_knowledge=lambda _team_id: ([], []))
 
         with (
             mock.patch.object(chat_segment.chat_turn_engine, "run_segment", side_effect=prepare_only),

@@ -40,6 +40,13 @@ line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn
 with an empty preference removes it, and `payload.apply_memory_changes` applies them in order, dropping the oldest
 entries beyond the bound. Memory has no browser route; it carries no Action authority.
 
+A Team's learned skills (ADR-0085) are structure only (`payload.canonical_skills`, at most 8): each has 2 to 16
+ordered steps naming an Assistant, an Action, and the sorted input names it used, the `sha256:` contract fingerprint
+of every Assistant it names, and a `procedure-` content key derived from both. No argument value or text is kept.
+`payload.apply_knowledge` applies one committed turn: its memory changes (a `forget` of a skill key removes that
+skill), then its new skill, which becomes the newest while the oldest give way beyond the bound; a skill the same turn
+forgets is not learned again.
+
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.

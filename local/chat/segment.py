@@ -6,6 +6,7 @@ from action import challenges as action_challenges
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -101,33 +102,35 @@ def _run_chat_segment_with_metadata(
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
         try:
-            # Read at every segment; Brain keeps the memory a logical turn started with across resumes (ADR-0084).
-            memories = tuple(self.inference_store.load_memory(request.team_id))
+            # Read at every segment; Brain keeps the knowledge a logical turn started with across resumes.
+            memories, skills = self.inference_store.load_knowledge(request.team_id)
         except inference_config.InferenceConfigError as exc:
             local_inference._raise_inference_problem(exc)
+        runtime_assistants = tuple(
+            brain_runtime_client.RuntimeAssistant(
+                id=active.spec.assistant_id,
+                genesis=genesis_by_id[active.spec.assistant_id],
+                actions=tuple(
+                    brain_runtime_client.RuntimeAction(
+                        id=action_id,
+                        summary=action.summary,
+                        input_schema=action.input_schema,
+                    )
+                    for action_id, action in sorted(active.spec.actions.items())
+                ),
+            )
+            for active in assistants
+        )
         context = brain_runtime_client.RuntimeContext(
             thread_id=_brain_thread_id(self.space_id, request.team_id, network_id),
             team_name=team_name,
-            assistants=tuple(
-                brain_runtime_client.RuntimeAssistant(
-                    id=active.spec.assistant_id,
-                    genesis=genesis_by_id[active.spec.assistant_id],
-                    actions=tuple(
-                        brain_runtime_client.RuntimeAction(
-                            id=action_id,
-                            summary=action.summary,
-                            input_schema=action.input_schema,
-                        )
-                        for action_id, action in sorted(active.spec.actions.items())
-                    ),
-                )
-                for active in assistants
-            ),
+            assistants=runtime_assistants,
             provider=config.provider,
             model=config.model,
             api_key=request.api_key,
             effort=config.effort,
-            memories=memories,
+            memories=tuple(memories),
+            skills=chat_knowledge.turn_skills(skills, runtime_assistants),
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         batch = action_execution.ActionBatch(

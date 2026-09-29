@@ -3,6 +3,7 @@
 from http import HTTPStatus
 
 from chat import contract as assistant_chat
+from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
@@ -50,15 +51,17 @@ def _segment_response(
             requests_used=response.requests_used,
         )
 
-    def save_memory(changes: tuple[dict[str, str], ...]) -> None:
-        # Saved only as the reply commits, under the Stop guard; a failed save fails the turn (ADR-0084).
-        if not changes:
+    def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
+        # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
+        skill = chat_knowledge.learned_skill(terminal.actions)
+        if not terminal.memory and skill is None:
             return
         # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
-        # memory is never touched and the turn fails. A failed save adds an error event when the journal allows it.
-        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=f"attempt:{len(changes)}")
+        # nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
+        detail = f"attempt:memory={len(terminal.memory)},skill={int(skill is not None)}"
+        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
         try:
-            self.inference_store.apply_memory_changes(team_id, list(changes))
+            self.inference_store.apply_knowledge(team_id, list(terminal.memory), skill)
         except inference_config.InferenceConfigError as exc:
             local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
             raise ApiProblem(
@@ -67,7 +70,7 @@ def _segment_response(
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        if not self._commit_chat_terminal(team_id, token, lambda: save_memory(terminal.memory)):
+        if not self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
         return {
             "team_id": team_id,

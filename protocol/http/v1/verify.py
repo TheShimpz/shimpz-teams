@@ -157,6 +157,20 @@ for kind, validator in (("memory", payload.canonical_memory), ("memory_changes",
         fail(f"a valid {kind} vector was not admitted exactly")
     if any(validator(value) is not None for value in cases["invalid"]):
         fail(f"an invalid {kind} vector was admitted")
+skills = vectors.get("skills", {})
+if not skills.get("valid") or not skills.get("invalid"):
+    fail("skills vectors are missing")
+if any(payload.canonical_skills(value) != value for value in skills["valid"]):
+    fail("a valid skills vector was not admitted exactly")
+if any(payload.canonical_skills(value) is not None for value in skills["invalid"]):
+    fail("an invalid skills vector was admitted")
+knowledge = vectors.get("knowledge_apply", [])
+if not knowledge or any(
+    payload.apply_knowledge(case["memory"], case["skills"], case["changes"], case["skill"])
+    != (case["result"]["memory"], case["result"]["skills"])
+    for case in knowledge
+):
+    fail("a knowledge application vector differs")
 applied = vectors.get("memory_apply", [])
 if not applied or any(
     payload.apply_memory_changes(case["memory"], case["changes"]) != case["result"] for case in applied

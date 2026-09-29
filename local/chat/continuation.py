@@ -15,6 +15,7 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
+from protocol.http.v1 import payload as http_payload
 
 SCHEMA_VERSION = 3
 MAX_JSON_DEPTH = 16
@@ -150,7 +151,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "continuation": {
             "turn": _turn_payload(pending.continuation.turn),
             "seen_interrupts": list(pending.continuation.seen_interrupts),
-            "invoked": [asdict(item) for item in pending.continuation.invoked],
+            "invoked": [{**asdict(item), "inputs": list(item.inputs)} for item in pending.continuation.invoked],
             "round_index": pending.continuation.round_index,
         },
         "assistant_ids": list(pending.assistant_ids),
@@ -369,11 +370,23 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
         raise ContinuationCodecError("seen Brain interrupts are malformed")
     invoked: list[chat_orchestrator.InvokedAction] = []
     for item in _sequence(raw["invoked"], MAX_INVOKED_ACTIONS, "invoked Actions"):
-        entry = _mapping(item, {"assistant_id", "action"}, "invoked Action")
+        entry = _mapping(item, {"assistant_id", "action", "inputs", "contract", "learnable"}, "invoked Action")
+        inputs = entry["inputs"]
+        if (
+            not isinstance(inputs, list)
+            or any(not isinstance(name, str) or http_payload.SKILL_INPUT_RE.fullmatch(name) is None for name in inputs)
+            or inputs != sorted(set(inputs))
+            or http_payload.canonical_source_digest(entry["contract"]) is None
+            or type(entry["learnable"]) is not bool
+        ):
+            raise ContinuationCodecError("invoked Action is malformed")
         invoked.append(
             chat_orchestrator.InvokedAction(
                 _component_id(entry["assistant_id"], "invoked Action Assistant"),
                 _component_id(entry["action"], "invoked Action"),
+                tuple(inputs),
+                entry["contract"],
+                entry["learnable"],
             )
         )
     round_index = raw["round_index"]
