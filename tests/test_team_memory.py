@@ -50,6 +50,7 @@ class ContractTests(unittest.TestCase):
             [dict(forget, op="replace")],
             [dict(REMEMBER_LANGUAGE, topic="Bad Topic")],
             [dict(REMEMBER_LANGUAGE, evidence="x")],
+            [dict(REMEMBER_LANGUAGE, op=[])],
             ["remember"],
         ):
             with self.subTest(value=value):
@@ -86,6 +87,21 @@ class StoreTests(unittest.TestCase):
         forget = [{"op": "forget", "topic": topic, "preference": ""} for topic in ("format", "language")]
         self.assertEqual(self.store.apply_memory_changes("team_1", forget), [])
         self.assertEqual(list(self.root.glob("*.memory.json")), [])
+
+    def test_a_failed_write_leaves_the_saved_memory_untouched(self):
+        self.store.apply_memory_changes("team_1", [REMEMBER_LANGUAGE])
+        [stored] = self.root.glob("*.memory.json")
+        before = stored.read_bytes()
+        for failing in ("fchmod", "fsync"):
+            with (
+                self.subTest(failing=failing),
+                mock.patch.object(inference_config.os, failing, side_effect=OSError("disk")),
+                self.assertRaises(inference_config.InferenceConfigError),
+            ):
+                self.store.apply_memory_changes("team_1", [{"op": "remember", **FORMAT}])
+            self.assertEqual(stored.read_bytes(), before)
+            self.assertEqual(stored.stat().st_mode & 0o777, 0o600)
+        self.assertEqual([path.name for path in self.root.iterdir()], [stored.name])
 
     def test_invalid_changes_and_team_ids_are_refused(self):
         for team_id, changes in (
@@ -207,9 +223,43 @@ class CommitTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "chat-stopped")
         self.assertEqual(self.store.load_memory("team_1"), [])
 
+    def test_a_failed_audit_fails_the_turn_before_memory_changes(self):
+        self.store.apply_memory_changes("team_1", [{"op": "remember", **FORMAT}])
+        with (
+            mock.patch.object(local_audit, "record_request", side_effect=RuntimeError("audit down")),
+            self.service._exclusive_chat_turn("team_1") as token,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "audit down"):
+                self._complete(token, (REMEMBER_LANGUAGE,))
+            self.assertEqual(self.service._active_chat_tokens.get("team_1"), token)
+        self.assertEqual(self.store.load_memory("team_1"), [FORMAT])
+
+    def test_a_failed_save_whose_error_audit_also_fails_changes_nothing(self):
+        self.store.apply_memory_changes("team_1", [{"op": "remember", **FORMAT}])
+        events = []
+
+        def record(operation, **fields):
+            events.append((operation, fields["result"], fields.get("detail")))
+            if fields["result"] == "error":
+                raise RuntimeError("audit down")
+            return "trace"
+
+        with (
+            mock.patch.object(local_audit, "record_request", side_effect=record),
+            mock.patch.object(
+                self.store, "apply_memory_changes", side_effect=inference_config.InferenceConfigError("disk")
+            ),
+            self.service._exclusive_chat_turn("team_1") as token,
+            self.assertRaisesRegex(RuntimeError, "audit down"),
+        ):
+            self._complete(token, (REMEMBER_LANGUAGE,))
+        self.assertEqual(events, [("chat-memory", "ok", "attempt:1"), ("chat-memory", "error", "save-failed")])
+        self.assertEqual(self.store.load_memory("team_1"), [FORMAT])
+
     def test_a_failed_save_fails_the_turn_and_keeps_it_uncommitted(self):
         self.service.inference_store = SimpleNamespace(
-            apply_memory_changes=mock.Mock(side_effect=inference_config.InferenceConfigError("disk"))
+            load_memory=lambda _team_id: [],
+            apply_memory_changes=mock.Mock(side_effect=inference_config.InferenceConfigError("disk")),
         )
         with self.service._exclusive_chat_turn("team_1") as token:
             with self.assertRaises(local_app.ApiProblem) as caught:

@@ -54,13 +54,16 @@ def _segment_response(
         # Saved only as the reply commits, under the Stop guard; a failed save fails the turn (ADR-0084).
         if not changes:
             return
+        # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
+        # memory is never touched and the turn fails. A failed save adds an error event when the journal allows it.
+        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=f"attempt:{len(changes)}")
         try:
             self.inference_store.apply_memory_changes(team_id, list(changes))
         except inference_config.InferenceConfigError as exc:
+            local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
             raise ApiProblem(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
             ) from exc
-        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=f"changes:{len(changes)}")
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)

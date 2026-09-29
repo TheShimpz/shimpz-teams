@@ -130,10 +130,13 @@ class InferenceConfigStore:
         if admitted is None:
             raise InferenceConfigError("Team memory changes are invalid")
         entries = http_payload.apply_memory_changes(self.load_memory(team_id), admitted)
-        if entries:
-            self._write(self._memory_path(team_id), {"schema": MEMORY_SCHEMA, "team_id": team_id, "memory": entries})
-        else:
+        if not entries:
             self._unlink(self._memory_path(team_id))
+            return entries
+        try:
+            self._write(self._memory_path(team_id), {"schema": MEMORY_SCHEMA, "team_id": team_id, "memory": entries})
+        except OSError as exc:
+            raise InferenceConfigError("Team memory could not be saved") from exc
         return entries
 
     def _write(self, target: Path, value: dict[str, object]) -> None:
@@ -143,11 +146,12 @@ class InferenceConfigStore:
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(descriptor, "wb") as stream:
+                # The mode is final before the swap, so a failure can never leave a readable replaced file.
+                os.fchmod(stream.fileno(), 0o600)
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
             temporary.replace(target)
-            target.chmod(0o600)
         finally:
             temporary.unlink(missing_ok=True)
 

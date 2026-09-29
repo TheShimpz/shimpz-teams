@@ -242,8 +242,9 @@ def canonical_memory_changes(value: object) -> list[dict[str, str]] | None:
         for change in value:
             if not isinstance(change, dict) or set(change) != {"op", "topic", "preference"}:
                 raise _ClarificationShapeError
-            forget = change["op"] == "forget"
-            if change["op"] not in {"remember", "forget"} or forget != (change["preference"] == ""):
+            op = change["op"]
+            forget = op == "forget"
+            if not isinstance(op, str) or op not in {"remember", "forget"} or forget != (change["preference"] == ""):
                 raise _ClarificationShapeError
             changes.append({"op": change["op"], **_memory_entry(change["topic"], change["preference"], empty=forget)})
     except _ClarificationShapeError:
