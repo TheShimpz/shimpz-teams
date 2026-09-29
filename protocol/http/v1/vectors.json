@@ -457,7 +457,8 @@
   "memory_changes": {
     "valid": [
       [],
-      [{"op": "remember", "topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"op": "forget", "topic": "format", "preference": ""}]
+      [{"op": "remember", "topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"op": "forget", "topic": "format", "preference": ""}],
+      [{"op": "forget", "topic": "procedure-0123456789ab", "preference": ""}]
     ],
     "invalid": [
       null,
@@ -485,7 +486,8 @@
       [{"key": "procedure-75050ee47610", "contracts": {}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}],
       [{"key": "procedure-75050ee47610", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}, {"key": "procedure-75050ee47610", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}],
       [{"key": "procedure-75050ee47610", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}], "extra": 1}],
-      [{"key": "procedure-d1b0383ed8d1", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": ["b", "a"]}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}]
+      [{"key": "procedure-d1b0383ed8d1", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": ["b", "a"]}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}],
+      [{"key": "procedure-75050ee47610", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": ["list-zones", "ensure-dns-record"]}]
     ]
   },
   "knowledge_apply": [
