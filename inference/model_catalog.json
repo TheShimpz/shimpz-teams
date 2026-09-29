@@ -5,7 +5,7 @@
     {
       "id": "openai",
       "title": "OpenAI",
-      "default_model": "gpt-6-sol",
+      "default_model": "gpt-6-luna",
       "credential_validation": {
         "host": "api.openai.com",
         "path": "/v1/models"

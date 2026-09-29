@@ -20,7 +20,7 @@ class InferenceConfigTests(unittest.TestCase):
         config = inference_config.normalize()
 
         self.assertEqual(config.provider, "openai")
-        self.assertEqual(config.model, "gpt-6-sol")
+        self.assertEqual(config.model, "gpt-6-luna")
         self.assertNotIn("image", inference_config.PROVIDERS[config.provider])
 
     def test_exact_provider_catalog_is_accepted(self):
