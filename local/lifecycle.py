@@ -320,9 +320,8 @@ def _remove_space_resources(
         self.assistant_lifecycle._disconnect_egress_proxy_if_attached(network)
     storage_removed = self.storage.destroy_all()
     absent.add("team_storage")
-    for network in networks:
-        team_id = network.attrs["Labels"][TEAM_LABEL]
-        self.inference_store.delete(team_id)
+    # Every owned file goes, even for a Team whose network a crash already removed.
+    self.inference_store.delete_all()
     absent.add("inference_configuration")
     for network in networks:
         network.remove()

@@ -45,9 +45,7 @@ class LocalSpaceResetTests(LocalContractCase):
             networks=SimpleNamespace(list=lambda **_kwargs: [network]),
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
-        controller.inference_store = SimpleNamespace(
-            delete=lambda team_id: events.append(("delete-inference", team_id))
-        )
+        controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
         )
@@ -95,7 +93,7 @@ class LocalSpaceResetTests(LocalContractCase):
             networks=SimpleNamespace(list=lambda **_kwargs: []),
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
-        controller.inference_store = SimpleNamespace(delete=lambda _team_id: None)
+        controller.inference_store = SimpleNamespace(delete_all=lambda: None)
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)
         controller._wire_collaborators()

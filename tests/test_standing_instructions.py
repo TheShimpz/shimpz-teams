@@ -77,6 +77,28 @@ class StoreTests(unittest.TestCase):
             self.store.delete("team_1")
 
 
+class SpaceResetTests(unittest.TestCase):
+    def test_reset_removes_every_owned_file_even_without_a_team_network_and_keeps_foreign_ones(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "inference"
+            store = inference_config.InferenceConfigStore(root)
+            store.delete_all()
+            store.save("team_1", inference_config.normalize("openai", "gpt-6-luna"))
+            store.save_instructions("orphan_team", RULES)
+            interrupted = root / f".{'a' * 64}.instructions.json.{'b' * 16}.tmp"
+            interrupted.write_text("partial", encoding="utf-8")
+            foreign = ["notes.txt", f".{'c' * 64}.json", f"{'c' * 64}.json.{'d' * 16}.tmp"]
+            for name in foreign:
+                (root / name).write_text("not ours", encoding="utf-8")
+            store.delete_all()
+            self.assertEqual(sorted(path.name for path in root.iterdir()), sorted(foreign))
+            with (
+                mock.patch.object(Path, "iterdir", side_effect=PermissionError("denied")),
+                self.assertRaises(inference_config.InferenceConfigError),
+            ):
+                store.delete_all()
+
+
 class ControllerTests(unittest.TestCase):
     def controller(self, directory: str) -> local_app.LocalController:
         controller = object.__new__(local_app.LocalController)

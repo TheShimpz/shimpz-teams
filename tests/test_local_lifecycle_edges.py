@@ -249,7 +249,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
             registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
-            inference_store=types.SimpleNamespace(delete=lambda _team_id: events.append("inference-delete")),
+            inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),
         )
 

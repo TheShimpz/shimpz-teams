@@ -39,6 +39,10 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 TEAM_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
+# Every name this store writes: a Team's configuration, its standing instructions, and their interrupted temp files.
+OWNED_NAME_RE = re.compile(
+    r"(?:[0-9a-f]{64}(?:\.instructions)?\.json|\.[0-9a-f]{64}(?:\.instructions)?\.json\.[0-9a-f]{16}\.tmp)\Z"
+)
 
 
 class InferenceConfigError(ValueError):
@@ -171,6 +175,17 @@ class InferenceConfigStore:
         team_id = _team_id(team_id)
         self._unlink(self._path(team_id))
         self._unlink(self._instructions_path(team_id))
+
+    def delete_all(self) -> None:
+        """Remove every Team's configuration and standing instructions, including ones no Team network names now."""
+        try:
+            owned = [path for path in self.root.iterdir() if OWNED_NAME_RE.fullmatch(path.name)]
+        except FileNotFoundError:
+            return
+        except OSError as exc:
+            raise InferenceConfigError("Team inference configuration could not be listed") from exc
+        for path in owned:
+            self._unlink(path)
 
     @staticmethod
     def _unlink(path: Path) -> None:
