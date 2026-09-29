@@ -3,7 +3,8 @@
 `local/Dockerfile` packages the single-owner controller in the Local Space applied by the release-bound CLI. It is a
 local projection of the shared Team controller domain, not a lifecycle-only Docker wrapper. It owns
 Team/Assistant containers, submits turns to the separate Brain runtime, mediates Assistant Actions,
-enforces egress policy, stores Team files and inference selection, and coordinates OAuth Integrations.
+enforces egress policy, stores Team files, inference selection, and standing instructions, and coordinates OAuth
+Integrations.
 
 The Admin never receives the Docker socket or controller bearer. It mounts the token volume read-only
 and calls port `7077` over the private control network. Brain runtime receives only a separate runtime
@@ -37,9 +38,9 @@ failure. It does not remove shared images, the controller container, or unlabele
   `/run/shimpz-local/token`, `10001:10010`, mode `0440`, never environment/argv/log output.
 - Brain bearer/state: the controller writes the dedicated runtime token volume; Brain runtime mounts it
   read-only. Conversation checkpoints stay in the Brain runtime state volume.
-- Persistent controller state: audit, Team storage, inference selection, Action journal, Integration
-  state/key, chat continuations, and egress policies each use dedicated paths or volumes. Integration
-  tokens and continuations are encrypted at rest and never enter metadata-only audit JSONL.
+- Persistent controller state: audit, Team storage, inference selection and standing instructions, Action
+  journal, Integration state/key, chat continuations, and egress policies each use dedicated paths or volumes.
+  Integration tokens and continuations are encrypted at rest and never enter metadata-only audit JSONL.
 - Model credentials: Admin supplies `X-Shimpz-Model-Provider` and `X-Shimpz-Model-Api-Key` only on chat
   and challenge-resume requests. Strict HTTP parsing rejects duplicate/missing credentials. The key is
   used for that operation and is never persisted, echoed, or forwarded to Assistant containers.
@@ -84,6 +85,8 @@ into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limi
 | --- | --- | --- |
 | `GET` | `/v1/teams/{team_id}/inference` | read the Team's provider, model, and chat reasoning effort; `409` only when none is set |
 | `PUT` | `/v1/teams/{team_id}/inference` | replace the validated provider, model, and effort (`low`, `medium`, `high`) |
+| `GET` | `/v1/teams/{team_id}/inference/instructions` | read the Team's standing instructions; an empty list means none |
+| `PUT` | `/v1/teams/{team_id}/inference/instructions` | replace them with at most 16 single-line rules of at most 280 characters (ADR-0083) |
 | `POST` | `/v1/teams/{team_id}/chat/capability-plan` | select an exact bounded subset from a public Assistant shortlist |
 | `POST` | `/v1/teams/{team_id}/chat/intent-route` | classify one Assistant lifecycle intent with bounded conversation evidence or resolve it against a closed directory |
 | `POST` | `/v1/teams/{team_id}/chat` | start one bounded Brain turn |

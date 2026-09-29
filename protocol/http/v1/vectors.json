@@ -436,5 +436,27 @@
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": true},
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": "0"}
     ]
+  },
+  "instructions": {
+    "valid": [
+      [],
+      ["Responda sempre em português do Brasil.", "Use listas curtas, sem tabelas."],
+      ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+      ["Regra 0", "Regra 1", "Regra 2", "Regra 3", "Regra 4", "Regra 5", "Regra 6", "Regra 7", "Regra 8", "Regra 9", "Regra 10", "Regra 11", "Regra 12", "Regra 13", "Regra 14", "Regra 15"]
+    ],
+    "invalid": [
+      null,
+      "Use listas.",
+      [""],
+      [" Use listas."],
+      ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+      ["Linha 1\nLinha 2"],
+      ["Separada\u2028aqui"],
+      ["Invis\u00edvel\u200b"],
+      ["Cafe\u0301"],
+      [3],
+      ["Use listas.", "use LISTAS."],
+      ["Regra 0", "Regra 1", "Regra 2", "Regra 3", "Regra 4", "Regra 5", "Regra 6", "Regra 7", "Regra 8", "Regra 9", "Regra 10", "Regra 11", "Regra 12", "Regra 13", "Regra 14", "Regra 15", "Regra 16"]
+    ]
   }
 }

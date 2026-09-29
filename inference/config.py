@@ -11,8 +11,11 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
+from protocol.http.v1 import payload as http_payload
+
 ROOT = Path(os.environ.get("SHIMPZ_TEAM_INFERENCE_DIR", "/var/lib/team/inference"))
 SCHEMA = 2
+INSTRUCTIONS_SCHEMA = 1
 # The reasoning effort a Team's ordinary chat turns use; a new configuration starts at the default (ADR-0074).
 EFFORTS = ("low", "medium", "high")
 DEFAULT_EFFORT = "low"
@@ -85,17 +88,55 @@ class InferenceConfigStore:
         digest = hashlib.sha256(team_id.encode()).hexdigest()
         return self.root / f"{digest}.json"
 
+    def _instructions_path(self, team_id: str) -> Path:
+        digest = hashlib.sha256(team_id.encode()).hexdigest()
+        return self.root / f"{digest}.instructions.json"
+
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
         validated = normalize(config.provider, config.model, config.effort)
+        self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)})
+        return validated
+
+    def save_instructions(self, team_id: object, instructions: object) -> list[str]:
+        """Replace the Team's standing instructions (ADR-0083); an empty list removes them."""
+        team_id = _team_id(team_id)
+        rules = http_payload.canonical_instructions(instructions)
+        if rules is None:
+            raise InferenceConfigError("standing instructions are invalid")
+        if not rules:
+            self._unlink(self._instructions_path(team_id))
+            return []
+        self._write(
+            self._instructions_path(team_id),
+            {"schema": INSTRUCTIONS_SCHEMA, "team_id": team_id, "instructions": rules},
+        )
+        return rules
+
+    def load_instructions(self, team_id: object) -> list[str]:
+        team_id = _team_id(team_id)
+        try:
+            value = json.loads(self._instructions_path(team_id).read_bytes())
+        except FileNotFoundError:
+            return []
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise InferenceConfigError("Team standing instructions are unavailable") from exc
+        rules = (
+            http_payload.canonical_instructions(value["instructions"])
+            if isinstance(value, dict)
+            and set(value) == {"schema", "team_id", "instructions"}
+            and value["schema"] == INSTRUCTIONS_SCHEMA
+            and value["team_id"] == team_id
+            else None
+        )
+        if not rules:
+            raise InferenceConfigError("Team standing instructions are invalid")
+        return rules
+
+    def _write(self, target: Path, value: dict[str, object]) -> None:
         self._prepare()
-        target = self._path(team_id)
         temporary = self.root / f".{target.name}.{secrets.token_hex(8)}.tmp"
-        payload = json.dumps(
-            {"schema": SCHEMA, "team_id": team_id, **asdict(validated)},
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode()
+        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(descriptor, "wb") as stream:
@@ -106,7 +147,6 @@ class InferenceConfigStore:
             target.chmod(0o600)
         finally:
             temporary.unlink(missing_ok=True)
-        return validated
 
     def load(self, team_id: object) -> InferenceConfig:
         team_id = _team_id(team_id)
@@ -127,8 +167,14 @@ class InferenceConfigStore:
         return normalize(value["provider"], value["model"], value["effort"])
 
     def delete(self, team_id: object) -> None:
+        """Remove the Team's inference configuration and its standing instructions."""
         team_id = _team_id(team_id)
+        self._unlink(self._path(team_id))
+        self._unlink(self._instructions_path(team_id))
+
+    @staticmethod
+    def _unlink(path: Path) -> None:
         try:
-            self._path(team_id).unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
         except OSError as exc:
             raise InferenceConfigError("Team inference configuration could not be removed") from exc

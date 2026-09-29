@@ -34,6 +34,12 @@ must equal `payload.render_clarification`: the question, a blank line, then one 
 the default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
 
+The Local Controller's `GET` and `PUT /v1/teams/{team_id}/inference/instructions` carry
+`{"instructions": [...]}`: the Team's standing instructions (ADR-0083), at most 16 rules, each one NFC line of 1
+to 280 characters without control or line-separator characters, distinct ignoring case. The `GET` response adds
+`team_id` and an empty list means none are saved. `payload.canonical_instructions` validates them. Only a
+Supervisor-authenticated request replaces them; the Brain quotes them as data and they authorize no Action.
+
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.

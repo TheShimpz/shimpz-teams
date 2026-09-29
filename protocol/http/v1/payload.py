@@ -43,6 +43,8 @@ MAX_CLARIFICATION_LABEL_CHARS = 80
 MAX_CLARIFICATION_DESCRIPTION_CHARS = 160
 MIN_CLARIFICATION_OPTIONS = 2
 MAX_CLARIFICATION_OPTIONS = 5
+MAX_INSTRUCTIONS = 16
+MAX_INSTRUCTION_CHARS = 280
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
@@ -203,6 +205,21 @@ def render_clarification(clarification: dict[str, object]) -> str:
         detail = f" — {option['description']}" if option["description"] else ""
         lines.append(f"{index + 1}. {option['label']}{mark}{detail}")
     return "\n".join(lines)
+
+
+def canonical_instructions(value: object) -> list[str] | None:
+    """Return the Team's exact standing-instruction list, or None when it breaks the closed shape (ADR-0083).
+
+    At most 16 rules, each a single NFC line of 1 to 280 characters without control or line-separator characters,
+    distinct ignoring case. The rules are Supervisor-saved data for the Brain and carry no Action authority.
+    """
+    if not isinstance(value, list) or len(value) > MAX_INSTRUCTIONS:
+        return None
+    try:
+        rules = [_clarification_text(rule, MAX_INSTRUCTION_CHARS) for rule in value]
+    except _ClarificationShapeError:
+        return None
+    return rules if len({rule.casefold() for rule in rules}) == len(rules) else None
 
 
 def canonical_source_digest(value: object) -> str | None:

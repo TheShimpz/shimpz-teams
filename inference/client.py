@@ -78,6 +78,8 @@ class RuntimeContext:
     model: str
     api_key: str = field(repr=False)
     effort: Literal["low", "medium", "high"]
+    # The Supervisor's standing instructions for the Team, already validated by their store.
+    instructions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +301,7 @@ class BrainRuntimeClient:
                 "api_key": context.api_key,
                 "effort": context.effort,
             },
+            "instructions": list(context.instructions),
         }
 
     def _post(self, path: str, payload: Mapping[str, object]) -> object:

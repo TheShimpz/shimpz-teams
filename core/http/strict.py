@@ -380,6 +380,18 @@ CONTROLLER_ROUTES = (
     _controller_route("DELETE", "/v1/teams/:team_id/files/:file_id", "file-delete"),
     _controller_route("GET", "/v1/teams/:team_id/inference", "inference-status"),
     _controller_route("PUT", "/v1/teams/:team_id/inference", "inference-configure"),
+    _controller_route(
+        "GET",
+        "/v1/teams/:team_id/inference/instructions",
+        "inference-instructions-status",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "PUT",
+        "/v1/teams/:team_id/inference/instructions",
+        "inference-instructions-configure",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("POST", "/v1/teams/:team_id/chat", "chat"),
     _controller_route(
         "POST",

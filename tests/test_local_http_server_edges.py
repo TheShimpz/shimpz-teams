@@ -14,6 +14,7 @@ from integrations import broker as integration_broker
 from local import authority
 from local.errors import ApiProblemError
 from local.http import audit as http_audit
+from local.http import inference as http_inference
 from local.http import server
 
 TEST_TOKEN = "t" * 32
@@ -236,6 +237,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             delete_file=mock.Mock(return_value={"deleted": True}),
             inference_status=mock.Mock(return_value={"configured": True}),
             configure_inference=mock.Mock(return_value={"configured": True}),
+            instructions_status=mock.Mock(return_value={"instructions": []}),
+            configure_instructions=mock.Mock(return_value={"instructions": []}),
             create_team=mock.Mock(return_value={"created": True}),
             destroy_team=mock.Mock(return_value={"deleted": True}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
@@ -318,14 +321,19 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "PATCH"
         self.assertIsNone(handler._file_route(["v1", "teams", "team_1", "files"]))
 
-        self.assertIsNone(handler._inference_route(["other"]))
+        route = http_inference.route
+        base = ["v1", "teams", "team_1", "inference"]
+        self.assertIsNone(route(handler, ["other"]))
         handler.command = "GET"
-        self.assertEqual(handler._inference_route(["v1", "teams", "team_1", "inference"])[2], "inference-status")
+        self.assertEqual(route(handler, base)[2], "inference-status")
+        self.assertEqual(route(handler, [*base, "instructions"])[2], "inference-instructions-status")
+        self.assertIsNone(route(handler, [*base, "other"]))
         handler.command = "PUT"
         handler._body = mock.Mock(return_value={"provider": "openai"})
-        self.assertEqual(handler._inference_route(["v1", "teams", "team_1", "inference"])[2], "inference-configure")
+        self.assertEqual(route(handler, base)[2], "inference-configure")
+        self.assertEqual(route(handler, [*base, "instructions"])[2], "inference-instructions-configure")
         handler.command = "PATCH"
-        self.assertIsNone(handler._inference_route(["v1", "teams", "team_1", "inference"]))
+        self.assertIsNone(route(handler, base))
 
     def test_chat_route_variants_and_validation(self) -> None:
         handler = self.handler(controller=self.controller())

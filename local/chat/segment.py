@@ -10,6 +10,8 @@ from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
+from inference import config as inference_config
+from local import inference as local_inference
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.validation import brain_thread_id as _brain_thread_id
@@ -98,6 +100,11 @@ def _run_chat_segment_with_metadata(
             except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
+        try:
+            # Read at every segment; Brain keeps the rules a logical turn started with across resumes (ADR-0083).
+            instructions = tuple(self.inference_store.load_instructions(request.team_id))
+        except inference_config.InferenceConfigError as exc:
+            local_inference._raise_inference_problem(exc)
         context = brain_runtime_client.RuntimeContext(
             thread_id=_brain_thread_id(self.space_id, request.team_id, network_id),
             team_name=team_name,
@@ -120,6 +127,7 @@ def _run_chat_segment_with_metadata(
             model=config.model,
             api_key=request.api_key,
             effort=config.effort,
+            instructions=instructions,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         batch = action_execution.ActionBatch(

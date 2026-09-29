@@ -21,6 +21,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
+from local.http import inference as local_http_inference
 from local.http.audit import RequestAudit
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
@@ -63,6 +64,7 @@ _JSON_BODY_LIMITS = {
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
+    "inference-instructions-configure": local_http_inference.MAX_INSTRUCTIONS_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
 }
 
@@ -397,30 +399,6 @@ class Handler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 controller.delete_file(team_id, parts[4]),
                 "file-delete",
-                team_id,
-                None,
-            )
-        return None
-
-    def _inference_route(
-        self, parts: list[str]
-    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) != 4 or parts[:2] != ["v1", "teams"] or parts[3] != "inference":
-            return None
-        team_id = validate_team_id(parts[2])
-        if self.command == "GET":
-            return (
-                HTTPStatus.OK,
-                self.server.controller.inference_status(team_id),
-                "inference-status",
-                team_id,
-                None,
-            )
-        if self.command == "PUT":
-            return (
-                HTTPStatus.OK,
-                self.server.controller.configure_inference(team_id, self._body()),
-                "inference-configure",
                 team_id,
                 None,
             )
@@ -774,7 +752,7 @@ class Handler(BaseHTTPRequestHandler):
         grouped_resolver = {
             "fixed": self._fixed_route,
             "file": self._file_route,
-            "inference": self._inference_route,
+            "inference": lambda parts: local_http_inference.route(self, parts),
             "chat": self._chat_route,
             "assistant-integration": self._assistant_integration_route,
             "assistant-stored-input": self._assistant_stored_input_route,
