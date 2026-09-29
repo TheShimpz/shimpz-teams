@@ -6,6 +6,8 @@ from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
+from inference import config as inference_config
+from local import audit as local_audit
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
@@ -48,9 +50,21 @@ def _segment_response(
             requests_used=response.requests_used,
         )
 
+    def save_memory(changes: tuple[dict[str, str], ...]) -> None:
+        # Saved only as the reply commits, under the Stop guard; a failed save fails the turn (ADR-0084).
+        if not changes:
+            return
+        try:
+            self.inference_store.apply_memory_changes(team_id, list(changes))
+        except inference_config.InferenceConfigError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
+            ) from exc
+        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=f"changes:{len(changes)}")
+
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        if not self._commit_chat_terminal(team_id, token):
+        if not self._commit_chat_terminal(team_id, token, lambda: save_memory(terminal.memory)):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
         return {
             "team_id": team_id,

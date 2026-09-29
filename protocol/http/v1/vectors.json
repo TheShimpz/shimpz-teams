@@ -437,26 +437,39 @@
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": "0"}
     ]
   },
-  "instructions": {
+  "memory": {
     "valid": [
       [],
-      ["Responda sempre em português do Brasil.", "Use listas curtas, sem tabelas."],
-      ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
-      ["Regra 0", "Regra 1", "Regra 2", "Regra 3", "Regra 4", "Regra 5", "Regra 6", "Regra 7", "Regra 8", "Regra 9", "Regra 10", "Regra 11", "Regra 12", "Regra 13", "Regra 14", "Regra 15"]
+      [{"topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"topic": "format", "preference": "Use short lists, never tables."}],
+      [{"topic": "t0", "preference": "x"}, {"topic": "t1", "preference": "x"}, {"topic": "t2", "preference": "x"}, {"topic": "t3", "preference": "x"}, {"topic": "t4", "preference": "x"}, {"topic": "t5", "preference": "x"}, {"topic": "t6", "preference": "x"}, {"topic": "t7", "preference": "x"}, {"topic": "t8", "preference": "x"}, {"topic": "t9", "preference": "x"}, {"topic": "t10", "preference": "x"}, {"topic": "t11", "preference": "x"}, {"topic": "t12", "preference": "x"}, {"topic": "t13", "preference": "x"}, {"topic": "t14", "preference": "x"}, {"topic": "t15", "preference": "x"}, {"topic": "t16", "preference": "x"}, {"topic": "t17", "preference": "x"}, {"topic": "t18", "preference": "x"}, {"topic": "t19", "preference": "x"}, {"topic": "t20", "preference": "x"}, {"topic": "t21", "preference": "x"}, {"topic": "t22", "preference": "x"}, {"topic": "t23", "preference": "x"}, {"topic": "t24", "preference": "x"}, {"topic": "t25", "preference": "x"}, {"topic": "t26", "preference": "x"}, {"topic": "t27", "preference": "x"}, {"topic": "t28", "preference": "x"}, {"topic": "t29", "preference": "x"}, {"topic": "t30", "preference": "x"}, {"topic": "t31", "preference": "x"}]
     ],
     "invalid": [
       null,
-      "Use listas.",
-      [""],
-      [" Use listas."],
-      ["xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
-      ["Linha 1\nLinha 2"],
-      ["Separada\u2028aqui"],
-      ["Invis\u00edvel\u200b"],
-      ["Cafe\u0301"],
-      [3],
-      ["Use listas.", "use LISTAS."],
-      ["Regra 0", "Regra 1", "Regra 2", "Regra 3", "Regra 4", "Regra 5", "Regra 6", "Regra 7", "Regra 8", "Regra 9", "Regra 10", "Regra 11", "Regra 12", "Regra 13", "Regra 14", "Regra 15", "Regra 16"]
+      [{"topic": "Language", "preference": "x"}],
+      [{"topic": "language", "preference": ""}],
+      [{"topic": "language", "preference": "a\nb"}],
+      [{"topic": "language"}],
+      [{"topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"topic": "language", "preference": "Outra."}],
+      [{"topic": "t0", "preference": "x"}, {"topic": "t1", "preference": "x"}, {"topic": "t2", "preference": "x"}, {"topic": "t3", "preference": "x"}, {"topic": "t4", "preference": "x"}, {"topic": "t5", "preference": "x"}, {"topic": "t6", "preference": "x"}, {"topic": "t7", "preference": "x"}, {"topic": "t8", "preference": "x"}, {"topic": "t9", "preference": "x"}, {"topic": "t10", "preference": "x"}, {"topic": "t11", "preference": "x"}, {"topic": "t12", "preference": "x"}, {"topic": "t13", "preference": "x"}, {"topic": "t14", "preference": "x"}, {"topic": "t15", "preference": "x"}, {"topic": "t16", "preference": "x"}, {"topic": "t17", "preference": "x"}, {"topic": "t18", "preference": "x"}, {"topic": "t19", "preference": "x"}, {"topic": "t20", "preference": "x"}, {"topic": "t21", "preference": "x"}, {"topic": "t22", "preference": "x"}, {"topic": "t23", "preference": "x"}, {"topic": "t24", "preference": "x"}, {"topic": "t25", "preference": "x"}, {"topic": "t26", "preference": "x"}, {"topic": "t27", "preference": "x"}, {"topic": "t28", "preference": "x"}, {"topic": "t29", "preference": "x"}, {"topic": "t30", "preference": "x"}, {"topic": "t31", "preference": "x"}, {"topic": "t32", "preference": "x"}],
+      ["language"]
     ]
-  }
+  },
+  "memory_changes": {
+    "valid": [
+      [],
+      [{"op": "remember", "topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"op": "forget", "topic": "format", "preference": ""}]
+    ],
+    "invalid": [
+      null,
+      [{"op": "remember", "topic": "language", "preference": ""}],
+      [{"op": "forget", "topic": "format", "preference": "x"}],
+      [{"op": "replace", "topic": "format", "preference": "x"}],
+      [{"op": "remember", "topic": "Bad Topic", "preference": "x"}],
+      [{"op": "remember", "topic": "language", "preference": "x", "evidence": "y"}]
+    ]
+  },
+  "memory_apply": [
+    {"memory": [{"topic": "language", "preference": "Answer in Brazilian Portuguese."}, {"topic": "format", "preference": "Use short lists, never tables."}], "changes": [{"op": "remember", "topic": "format", "preference": "Use tables."}, {"op": "forget", "topic": "language", "preference": ""}], "result": [{"topic": "format", "preference": "Use tables."}]},
+    {"memory": [{"topic": "t0", "preference": "x"}, {"topic": "t1", "preference": "x"}, {"topic": "t2", "preference": "x"}, {"topic": "t3", "preference": "x"}, {"topic": "t4", "preference": "x"}, {"topic": "t5", "preference": "x"}, {"topic": "t6", "preference": "x"}, {"topic": "t7", "preference": "x"}, {"topic": "t8", "preference": "x"}, {"topic": "t9", "preference": "x"}, {"topic": "t10", "preference": "x"}, {"topic": "t11", "preference": "x"}, {"topic": "t12", "preference": "x"}, {"topic": "t13", "preference": "x"}, {"topic": "t14", "preference": "x"}, {"topic": "t15", "preference": "x"}, {"topic": "t16", "preference": "x"}, {"topic": "t17", "preference": "x"}, {"topic": "t18", "preference": "x"}, {"topic": "t19", "preference": "x"}, {"topic": "t20", "preference": "x"}, {"topic": "t21", "preference": "x"}, {"topic": "t22", "preference": "x"}, {"topic": "t23", "preference": "x"}, {"topic": "t24", "preference": "x"}, {"topic": "t25", "preference": "x"}, {"topic": "t26", "preference": "x"}, {"topic": "t27", "preference": "x"}, {"topic": "t28", "preference": "x"}, {"topic": "t29", "preference": "x"}, {"topic": "t30", "preference": "x"}, {"topic": "t31", "preference": "x"}], "changes": [{"op": "remember", "topic": "new", "preference": "y"}], "result": [{"topic": "t1", "preference": "x"}, {"topic": "t2", "preference": "x"}, {"topic": "t3", "preference": "x"}, {"topic": "t4", "preference": "x"}, {"topic": "t5", "preference": "x"}, {"topic": "t6", "preference": "x"}, {"topic": "t7", "preference": "x"}, {"topic": "t8", "preference": "x"}, {"topic": "t9", "preference": "x"}, {"topic": "t10", "preference": "x"}, {"topic": "t11", "preference": "x"}, {"topic": "t12", "preference": "x"}, {"topic": "t13", "preference": "x"}, {"topic": "t14", "preference": "x"}, {"topic": "t15", "preference": "x"}, {"topic": "t16", "preference": "x"}, {"topic": "t17", "preference": "x"}, {"topic": "t18", "preference": "x"}, {"topic": "t19", "preference": "x"}, {"topic": "t20", "preference": "x"}, {"topic": "t21", "preference": "x"}, {"topic": "t22", "preference": "x"}, {"topic": "t23", "preference": "x"}, {"topic": "t24", "preference": "x"}, {"topic": "t25", "preference": "x"}, {"topic": "t26", "preference": "x"}, {"topic": "t27", "preference": "x"}, {"topic": "t28", "preference": "x"}, {"topic": "t29", "preference": "x"}, {"topic": "t30", "preference": "x"}, {"topic": "t31", "preference": "x"}, {"topic": "new", "preference": "y"}]}
+  ]
 }

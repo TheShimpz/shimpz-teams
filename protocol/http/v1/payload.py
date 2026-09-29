@@ -43,8 +43,9 @@ MAX_CLARIFICATION_LABEL_CHARS = 80
 MAX_CLARIFICATION_DESCRIPTION_CHARS = 160
 MIN_CLARIFICATION_OPTIONS = 2
 MAX_CLARIFICATION_OPTIONS = 5
-MAX_INSTRUCTIONS = 16
-MAX_INSTRUCTION_CHARS = 280
+MAX_MEMORIES = 32
+MAX_MEMORY_PREFERENCE_CHARS = 280
+MEMORY_TOPIC_RE = re.compile(r"[a-z][a-z0-9-]{0,39}\Z")
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
@@ -207,19 +208,60 @@ def render_clarification(clarification: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def canonical_instructions(value: object) -> list[str] | None:
-    """Return the Team's exact standing-instruction list, or None when it breaks the closed shape (ADR-0083).
+def _memory_entry(topic: object, preference: object, *, empty: bool = False) -> dict[str, str]:
+    if not isinstance(topic, str) or MEMORY_TOPIC_RE.fullmatch(topic) is None:
+        raise _ClarificationShapeError
+    return {"topic": topic, "preference": _clarification_text(preference, MAX_MEMORY_PREFERENCE_CHARS, empty=empty)}
 
-    At most 16 rules, each a single NFC line of 1 to 280 characters without control or line-separator characters,
-    distinct ignoring case. The rules are Supervisor-saved data for the Brain and carry no Action authority.
+
+def canonical_memory(value: object) -> list[dict[str, str]] | None:
+    """Return the Team's exact learned memory, or None when it breaks the closed shape (ADR-0084).
+
+    At most 32 entries, each a distinct lowercase `topic` key and one NFC `preference` line of 1 to 280 characters
+    without control or line-separator characters. Memories are data for the Brain and carry no Action authority.
     """
-    if not isinstance(value, list) or len(value) > MAX_INSTRUCTIONS:
+    if not isinstance(value, list) or len(value) > MAX_MEMORIES:
         return None
     try:
-        rules = [_clarification_text(rule, MAX_INSTRUCTION_CHARS) for rule in value]
+        entries = []
+        for entry in value:
+            if not isinstance(entry, dict) or set(entry) != {"topic", "preference"}:
+                raise _ClarificationShapeError
+            entries.append(_memory_entry(entry["topic"], entry["preference"]))
     except _ClarificationShapeError:
         return None
-    return rules if len({rule.casefold() for rule in rules}) == len(rules) else None
+    return entries if len({entry["topic"] for entry in entries}) == len(entries) else None
+
+
+def canonical_memory_changes(value: object) -> list[dict[str, str]] | None:
+    """Return one completed turn's exact memory changes, or None: `remember` carries a preference, `forget` none."""
+    if not isinstance(value, list) or len(value) > MAX_MEMORIES:
+        return None
+    try:
+        changes = []
+        for change in value:
+            if not isinstance(change, dict) or set(change) != {"op", "topic", "preference"}:
+                raise _ClarificationShapeError
+            forget = change["op"] == "forget"
+            if change["op"] not in {"remember", "forget"} or forget != (change["preference"] == ""):
+                raise _ClarificationShapeError
+            changes.append({"op": change["op"], **_memory_entry(change["topic"], change["preference"], empty=forget)})
+    except _ClarificationShapeError:
+        return None
+    return changes
+
+
+def apply_memory_changes(memory: list[dict[str, str]], changes: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Apply canonical changes in order, keeping at most the 32 newest entries.
+
+    `remember` replaces its topic and makes it the newest entry; `forget` removes it.
+    """
+    entries = {entry["topic"]: entry["preference"] for entry in memory}
+    for change in changes:
+        entries.pop(change["topic"], None)
+        if change["op"] == "remember":
+            entries[change["topic"]] = change["preference"]
+    return [{"topic": topic, "preference": preference} for topic, preference in entries.items()][-MAX_MEMORIES:]
 
 
 def canonical_source_digest(value: object) -> str | None:

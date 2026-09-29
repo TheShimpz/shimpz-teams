@@ -255,11 +255,16 @@ class ChatTurnService:
         with self._active_chat_guard:
             return token in self._cancelled_chat_tokens
 
-    def _commit_chat_terminal(self, team_id: str, token: str) -> bool:
-        """Commit a reply only when Stop did not win this service-owned turn."""
+    def _commit_chat_terminal(self, team_id: str, token: str, before_commit=lambda: None) -> bool:
+        """Commit a reply only when Stop did not win this service-owned turn.
+
+        ``before_commit`` runs under the same guard, so its effect happens exactly when the reply commits; if it fails,
+        the turn stays uncommitted.
+        """
         with self._active_chat_guard:
             if token in self._cancelled_chat_tokens or self._active_chat_tokens.get(team_id) != token:
                 return False
+            before_commit()
             self._active_chat_tokens.pop(team_id, None)
             return True
 
@@ -420,8 +425,6 @@ class LocalController:
     _raise_inference_problem = staticmethod(local_inference._raise_inference_problem)
     inference_status = local_inference.inference_status
     configure_inference = local_inference.configure_inference
-    instructions_status = local_inference.instructions_status
-    configure_instructions = local_inference.configure_instructions
     list_assistants = local_assistant_api.list_assistants
     assistant_icon = local_assistant_api.assistant_icon
     install_publication = local_install_service.install_publication

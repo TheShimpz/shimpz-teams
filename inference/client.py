@@ -78,8 +78,8 @@ class RuntimeContext:
     model: str
     api_key: str = field(repr=False)
     effort: Literal["low", "medium", "high"]
-    # The Supervisor's standing instructions for the Team, already validated by their store.
-    instructions: tuple[str, ...] = ()
+    # The Team's learned memory (ADR-0084), already validated by its store; None withholds the Brain's memory tool.
+    memories: tuple[dict[str, str], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +97,8 @@ class RuntimeTurn:
     actions: tuple[ActionRequest, ...]
     # One closed multiple-choice question that ended a completed turn (ADR-0081), or None.
     clarification: dict[str, object] | None = None
+    # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
+    memory: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,7 +303,7 @@ class BrainRuntimeClient:
                 "api_key": context.api_key,
                 "effort": context.effort,
             },
-            "instructions": list(context.instructions),
+            "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
         }
 
     def _post(self, path: str, payload: Mapping[str, object]) -> object:
@@ -357,7 +359,10 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
-        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions", "clarification"}:
+        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions", "clarification", "memory"}:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        memory = http_payload.canonical_memory_changes(value["memory"])
+        if memory is None or (memory and value["status"] != "completed"):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         clarification = value["clarification"]
         if clarification is not None:
@@ -418,7 +423,9 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         if status == "action-required" and (reply or not actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        return RuntimeTurn(status=status, reply=reply, actions=tuple(actions), clarification=clarification)
+        return RuntimeTurn(
+            status=status, reply=reply, actions=tuple(actions), clarification=clarification, memory=tuple(memory)
+        )
 
     @staticmethod
     def _parse_action_labels(value: object, action_ids: tuple[str, ...]) -> tuple[RuntimeActionLabel, ...]:

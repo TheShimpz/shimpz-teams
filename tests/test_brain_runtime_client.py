@@ -22,6 +22,9 @@ class _Response:
         self.status = status
         if isinstance(payload, dict) and usage is not None and "usage" not in payload:
             payload = {**payload, "usage": usage}
+        # A turn response always carries its memory changes; a test that checks that field states it itself.
+        if isinstance(payload, dict) and {"reply", "actions"} <= set(payload) and "memory" not in payload:
+            payload = {**payload, "memory": []}
         self._raw = raw if raw is not None else json.dumps(payload).encode()
 
     def read(self, _maximum: int) -> bytes:

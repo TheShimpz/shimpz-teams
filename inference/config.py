@@ -15,7 +15,7 @@ from protocol.http.v1 import payload as http_payload
 
 ROOT = Path(os.environ.get("SHIMPZ_TEAM_INFERENCE_DIR", "/var/lib/team/inference"))
 SCHEMA = 2
-INSTRUCTIONS_SCHEMA = 1
+MEMORY_SCHEMA = 1
 # The reasoning effort a Team's ordinary chat turns use; a new configuration starts at the default (ADR-0074).
 EFFORTS = ("low", "medium", "high")
 DEFAULT_EFFORT = "low"
@@ -39,9 +39,9 @@ PROVIDERS: dict[str, ProviderDefinition] = {
 DEFAULT_PROVIDER = _MODEL_CATALOG["default_provider"]
 MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}\Z")
 TEAM_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}\Z")
-# Every name this store writes: a Team's configuration, its standing instructions, and their interrupted temp files.
+# Every name this store writes: a Team's configuration, its learned memory, and their interrupted temp files.
 OWNED_NAME_RE = re.compile(
-    r"(?:[0-9a-f]{64}(?:\.instructions)?\.json|\.[0-9a-f]{64}(?:\.instructions)?\.json\.[0-9a-f]{16}\.tmp)\Z"
+    r"(?:[0-9a-f]{64}(?:\.memory)?\.json|\.[0-9a-f]{64}(?:\.memory)?\.json\.[0-9a-f]{16}\.tmp)\Z"
 )
 
 
@@ -92,9 +92,9 @@ class InferenceConfigStore:
         digest = hashlib.sha256(team_id.encode()).hexdigest()
         return self.root / f"{digest}.json"
 
-    def _instructions_path(self, team_id: str) -> Path:
+    def _memory_path(self, team_id: str) -> Path:
         digest = hashlib.sha256(team_id.encode()).hexdigest()
-        return self.root / f"{digest}.instructions.json"
+        return self.root / f"{digest}.memory.json"
 
     def save(self, team_id: object, config: InferenceConfig) -> InferenceConfig:
         team_id = _team_id(team_id)
@@ -102,40 +102,39 @@ class InferenceConfigStore:
         self._write(self._path(team_id), {"schema": SCHEMA, "team_id": team_id, **asdict(validated)})
         return validated
 
-    def save_instructions(self, team_id: object, instructions: object) -> list[str]:
-        """Replace the Team's standing instructions (ADR-0083); an empty list removes them."""
-        team_id = _team_id(team_id)
-        rules = http_payload.canonical_instructions(instructions)
-        if rules is None:
-            raise InferenceConfigError("standing instructions are invalid")
-        if not rules:
-            self._unlink(self._instructions_path(team_id))
-            return []
-        self._write(
-            self._instructions_path(team_id),
-            {"schema": INSTRUCTIONS_SCHEMA, "team_id": team_id, "instructions": rules},
-        )
-        return rules
-
-    def load_instructions(self, team_id: object) -> list[str]:
+    def load_memory(self, team_id: object) -> list[dict[str, str]]:
+        """The Team's learned memory (ADR-0084); an absent file means it remembers nothing yet."""
         team_id = _team_id(team_id)
         try:
-            value = json.loads(self._instructions_path(team_id).read_bytes())
+            value = json.loads(self._memory_path(team_id).read_bytes())
         except FileNotFoundError:
             return []
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise InferenceConfigError("Team standing instructions are unavailable") from exc
-        rules = (
-            http_payload.canonical_instructions(value["instructions"])
+            raise InferenceConfigError("Team memory is unavailable") from exc
+        entries = (
+            http_payload.canonical_memory(value["memory"])
             if isinstance(value, dict)
-            and set(value) == {"schema", "team_id", "instructions"}
-            and value["schema"] == INSTRUCTIONS_SCHEMA
+            and set(value) == {"schema", "team_id", "memory"}
+            and value["schema"] == MEMORY_SCHEMA
             and value["team_id"] == team_id
             else None
         )
-        if not rules:
-            raise InferenceConfigError("Team standing instructions are invalid")
-        return rules
+        if not entries:
+            raise InferenceConfigError("Team memory is invalid")
+        return entries
+
+    def apply_memory_changes(self, team_id: object, changes: object) -> list[dict[str, str]]:
+        """Apply one committed turn's canonical changes; the file disappears when nothing is remembered."""
+        team_id = _team_id(team_id)
+        admitted = http_payload.canonical_memory_changes(changes)
+        if admitted is None:
+            raise InferenceConfigError("Team memory changes are invalid")
+        entries = http_payload.apply_memory_changes(self.load_memory(team_id), admitted)
+        if entries:
+            self._write(self._memory_path(team_id), {"schema": MEMORY_SCHEMA, "team_id": team_id, "memory": entries})
+        else:
+            self._unlink(self._memory_path(team_id))
+        return entries
 
     def _write(self, target: Path, value: dict[str, object]) -> None:
         self._prepare()
@@ -171,13 +170,13 @@ class InferenceConfigStore:
         return normalize(value["provider"], value["model"], value["effort"])
 
     def delete(self, team_id: object) -> None:
-        """Remove the Team's inference configuration and its standing instructions."""
+        """Remove the Team's inference configuration and its learned memory."""
         team_id = _team_id(team_id)
         self._unlink(self._path(team_id))
-        self._unlink(self._instructions_path(team_id))
+        self._unlink(self._memory_path(team_id))
 
     def delete_all(self) -> None:
-        """Remove every Team's configuration and standing instructions, including ones no Team network names now."""
+        """Remove every Team's configuration and memory, including ones no Team network names now."""
         try:
             owned = [path for path in self.root.iterdir() if OWNED_NAME_RE.fullmatch(path.name)]
         except FileNotFoundError:

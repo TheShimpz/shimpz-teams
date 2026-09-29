@@ -98,7 +98,7 @@ def _local_controller(local_active, config, events: list[str], fail):
         metadata=lambda _team_id, _files, _connection=None: [],
         metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
     )
-    controller.inference_store = SimpleNamespace(load=lambda _team_id: config, load_instructions=lambda _team_id: [])
+    controller.inference_store = SimpleNamespace(load=lambda _team_id: config, load_memory=lambda _team_id: [])
     controller._wire_collaborators()
     controller.assistant_lifecycle._network = lambda _team_id: SimpleNamespace(id="a" * 64, name="team-network")
     controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: "Team"

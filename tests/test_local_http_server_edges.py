@@ -237,8 +237,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             delete_file=mock.Mock(return_value={"deleted": True}),
             inference_status=mock.Mock(return_value={"configured": True}),
             configure_inference=mock.Mock(return_value={"configured": True}),
-            instructions_status=mock.Mock(return_value={"instructions": []}),
-            configure_instructions=mock.Mock(return_value={"instructions": []}),
             create_team=mock.Mock(return_value={"created": True}),
             destroy_team=mock.Mock(return_value={"deleted": True}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
@@ -324,14 +322,12 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         route = http_inference.route
         base = ["v1", "teams", "team_1", "inference"]
         self.assertIsNone(route(handler, ["other"]))
+        self.assertIsNone(route(handler, [*base, "instructions"]))
         handler.command = "GET"
         self.assertEqual(route(handler, base)[2], "inference-status")
-        self.assertEqual(route(handler, [*base, "instructions"])[2], "inference-instructions-status")
-        self.assertIsNone(route(handler, [*base, "other"]))
         handler.command = "PUT"
         handler._body = mock.Mock(return_value={"provider": "openai"})
         self.assertEqual(route(handler, base)[2], "inference-configure")
-        self.assertEqual(route(handler, [*base, "instructions"])[2], "inference-instructions-configure")
         handler.command = "PATCH"
         self.assertIsNone(route(handler, base))
 

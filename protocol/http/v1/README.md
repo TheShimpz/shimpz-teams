@@ -34,11 +34,11 @@ must equal `payload.render_clarification`: the question, a blank line, then one 
 the default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
 
-The Local Controller's `GET` and `PUT /v1/teams/{team_id}/inference/instructions` carry
-`{"instructions": [...]}`: the Team's standing instructions (ADR-0083), at most 16 rules, each one NFC line of 1
-to 280 characters without control or line-separator characters, distinct ignoring case. The `GET` response adds
-`team_id` and an empty list means none are saved. `payload.canonical_instructions` validates them. Only a
-Supervisor-authenticated request replaces them; the Brain quotes them as data and they authorize no Action.
+A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
+line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry changes
+(`payload.canonical_memory_changes`): `remember` with a preference replaces its topic and becomes newest, `forget`
+with an empty preference removes it, and `payload.apply_memory_changes` applies them in order, dropping the oldest
+entries beyond the bound. Memory has no browser route; it carries no Action authority.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants

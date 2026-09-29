@@ -338,17 +338,20 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
-    def test_rejects_missing_or_drifted_standing_instruction_vectors(self) -> None:
+    def test_rejects_missing_or_drifted_memory_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
-            value["instructions"]["valid"] = []
+            value["memory"]["valid"] = []
 
         def accepted_invalid(value: dict[str, object]) -> None:
-            value["instructions"]["invalid"] = [value["instructions"]["valid"][1]]
+            value["memory_changes"]["invalid"] = [value["memory_changes"]["valid"][1]]
 
         def rejected_valid(value: dict[str, object]) -> None:
-            value["instructions"]["valid"] = [["Linha\nquebrada"]]
+            value["memory"]["valid"] = [[{"topic": "Bad Topic", "preference": "x"}]]
 
-        for mutate in (missing, accepted_invalid, rejected_valid):
+        def drifted_apply(value: dict[str, object]) -> None:
+            value["memory_apply"][0]["result"] = []
+
+        for mutate in (missing, accepted_invalid, rejected_valid, drifted_apply):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)

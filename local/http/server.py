@@ -64,7 +64,6 @@ _JSON_BODY_LIMITS = {
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
-    "inference-instructions-configure": local_http_inference.MAX_INSTRUCTIONS_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
 }
 

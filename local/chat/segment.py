@@ -101,8 +101,8 @@ def _run_chat_segment_with_metadata(
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
         try:
-            # Read at every segment; Brain keeps the rules a logical turn started with across resumes (ADR-0083).
-            instructions = tuple(self.inference_store.load_instructions(request.team_id))
+            # Read at every segment; Brain keeps the memory a logical turn started with across resumes (ADR-0084).
+            memories = tuple(self.inference_store.load_memory(request.team_id))
         except inference_config.InferenceConfigError as exc:
             local_inference._raise_inference_problem(exc)
         context = brain_runtime_client.RuntimeContext(
@@ -127,7 +127,7 @@ def _run_chat_segment_with_metadata(
             model=config.model,
             api_key=request.api_key,
             effort=config.effort,
-            instructions=instructions,
+            memories=memories,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         batch = action_execution.ActionBatch(
