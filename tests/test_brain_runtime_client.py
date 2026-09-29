@@ -8,11 +8,20 @@ from pathlib import Path
 from unittest import mock
 
 from inference import client as brain_runtime_client
+from inference import usage as brain_usage
+
+NO_USAGE = dict.fromkeys(brain_usage.FIELDS, 0)
 
 
 class _Response:
-    def __init__(self, payload: object, *, status: int = 200, raw: bytes | None = None) -> None:
+    """A Brain response; an object payload carries Brain's usage report unless ``usage`` is None."""
+
+    def __init__(
+        self, payload: object, *, status: int = 200, raw: bytes | None = None, usage: object = NO_USAGE
+    ) -> None:
         self.status = status
+        if isinstance(payload, dict) and usage is not None and "usage" not in payload:
+            payload = {**payload, "usage": usage}
         self._raw = raw if raw is not None else json.dumps(payload).encode()
 
     def read(self, _maximum: int) -> bytes:
@@ -220,7 +229,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         self.assertEqual(json.loads(raw_body)["results"], {"interrupt-1": {"message": "Hello, Ada."}})
 
     def test_delete_thread_uses_the_closed_runtime_endpoint(self):
-        client, connection = self.client(_Response({"status": "deleted"}))
+        client, connection = self.client(_Response({"status": "deleted"}, usage=None))
 
         result = client.delete_thread("team:hello-pulse:conversation-1")
 
@@ -471,7 +480,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
     def test_delete_thread_rejects_invalid_ids_before_connecting(self):
         for thread_id in ("", "bad thread", "a" * 257, None):
             with self.subTest(thread_id=thread_id):
-                client, connection = self.client(_Response({"status": "deleted"}))
+                client, connection = self.client(_Response({"status": "deleted"}, usage=None))
 
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.delete_thread(thread_id)

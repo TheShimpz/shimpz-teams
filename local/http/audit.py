@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from inference import usage as brain_usage
 from local import audit as local_audit
 from local import authority as local_authority
 
@@ -54,5 +55,7 @@ class RequestAudit:
             team_id=team_id,
             assistant=assistant,
             detail=detail,
+            # The Brain usage of this request so far rides on its next event, never on a later one (ADR-0082).
+            model_usage=brain_usage.drain(),
         )
         return self.trace_id

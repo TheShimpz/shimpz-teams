@@ -34,6 +34,7 @@ from hosted.install import http as developers_http
 from hosted.team import lifecycle as hosted_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import token as brain_runtime_token_store
+from inference import usage as brain_usage
 from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
@@ -294,17 +295,18 @@ class Handler(BaseHTTPRequestHandler):
                 method,
             )
             return
-        stdlib.dispatch(
-            lambda: self._dispatch_resolved(method),
-            classify=lambda exc: hosted.classify_failure(
-                exc,
-                runtime_state.ApiError,
-                validate.ValidationError,
-                assistant_registry.AssistantSpecError,
-            ),
-            emit=lambda failure: self._emit_failure(method, failure),
-            unexpected_message="internal Team error",
-        )
+        with brain_usage.metered():
+            stdlib.dispatch(
+                lambda: self._dispatch_resolved(method),
+                classify=lambda exc: hosted.classify_failure(
+                    exc,
+                    runtime_state.ApiError,
+                    validate.ValidationError,
+                    assistant_registry.AssistantSpecError,
+                ),
+                emit=lambda failure: self._emit_failure(method, failure),
+                unexpected_message="internal Team error",
+            )
 
     def _validated_params(self, route: strict_http.ControllerRouteMatch) -> dict[str, str]:
         params = dict(route.params)
@@ -493,6 +495,10 @@ class Handler(BaseHTTPRequestHandler):
         credential_state = getattr(self, "_audit_credential_state", None)
         if isinstance(credential_state, str):
             principal["credential_state"] = credential_state
+        # The Brain usage of this request so far rides on its next security event, never on a later one (ADR-0082).
+        model_usage = brain_usage.drain()
+        if model_usage is not None:
+            principal["model_usage"] = model_usage
         return audit.log(
             operation,
             target,

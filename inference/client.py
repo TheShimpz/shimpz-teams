@@ -18,6 +18,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from core import strict_json
+from inference import usage as brain_usage
 from protocol.http.v1 import payload as http_payload
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
@@ -337,6 +338,19 @@ class BrainRuntimeClient:
         except (UnicodeError, ValueError) as exc:
             raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
         return decoded
+
+    @staticmethod
+    def _metered(value: object, operation: str, provider: str, model: str) -> object:
+        """Record the operation's reported model usage, even when the rest is invalid, and return the rest."""
+        if not isinstance(value, dict) or "usage" not in value:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        rest = dict(value)
+        try:
+            counts = brain_usage.parse(rest.pop("usage"))
+        except brain_usage.UsageError as exc:
+            raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
+        brain_usage.record(operation, provider, model, counts)
+        return rest
 
     @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
@@ -706,12 +720,14 @@ class BrainRuntimeClient:
             {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
             for entry in self.validate_conversation(conversation)
         ]
-        return self._parse_turn(self._post("/v1/turns", payload))
+        response = self._post("/v1/turns", payload)
+        return self._parse_turn(self._metered(response, "turn", context.provider, context.model))
 
     def resume(self, context: RuntimeContext, results: Mapping[str, object]) -> RuntimeTurn:
         payload = self._context(context)
         payload["results"] = dict(results)
-        return self._parse_turn(self._post("/v1/turns/resume", payload))
+        response = self._post("/v1/turns/resume", payload)
+        return self._parse_turn(self._metered(response, "turn-resume", context.provider, context.model))
 
     def delete_thread(self, thread_id: str) -> None:
         if not isinstance(thread_id, str) or SAFE_ID_RE.fullmatch(thread_id) is None:
@@ -759,7 +775,7 @@ class BrainRuntimeClient:
                 "actions": list(action_ids),
             },
         )
-        return self._parse_action_labels(response, action_ids)
+        return self._parse_action_labels(self._metered(response, "action-labels", provider, model), action_ids)
 
     def capability_plan(
         self,
@@ -801,7 +817,7 @@ class BrainRuntimeClient:
                 ],
             },
         )
-        return self._parse_capability_plan(response, admitted)
+        return self._parse_capability_plan(self._metered(response, "capability-plan", provider, model), admitted)
 
     def intent_route(
         self,
@@ -863,4 +879,4 @@ class BrainRuntimeClient:
                 ),
             },
         )
-        return self._parse_intent_route(response, expected, admitted)
+        return self._parse_intent_route(self._metered(response, "intent-route", provider, model), expected, admitted)

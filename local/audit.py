@@ -230,6 +230,7 @@ def record(
     team_id: str | None = None,
     assistant: str | None = None,
     detail: str | None = None,
+    model_usage: list[dict[str, object]] | None = None,
 ) -> str:
     """Append one metadata-only event and return its correlation id."""
     principal_id = principal.principal_id
@@ -270,6 +271,8 @@ def record(
         event["assistant"] = assistant
     if detail is not None:
         event["detail"] = detail
+    if model_usage is not None:
+        event["model_usage"] = model_usage
     if credential_state is not None:
         event["credential_state"] = credential_state
     encoded = (json.dumps(event, separators=(",", ":"), sort_keys=True) + "\n").encode("utf-8")

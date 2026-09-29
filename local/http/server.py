@@ -14,6 +14,7 @@ from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from core.http import stdlib
 from core.http import strict as strict_http
+from inference import usage as brain_usage
 from integrations import broker as integration_broker
 from local import activity as local_activity
 from local import audit as local_audit
@@ -964,7 +965,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         work = contextlib.nullcontext() if self.command in _READ_METHODS else self.server.activity.working()
-        with work:
+        with work, brain_usage.metered():
             local.dispatch_route(
                 lambda: self._authorized_route(request_audit),
                 request_audit.record,
