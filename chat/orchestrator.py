@@ -153,6 +153,9 @@ def _drive(
         if strategy.cancelled():
             raise ChatStoppedError("chat turn stopped")
         if turn.status == "completed":
+            if turn.clarification is not None and (_round > 0 or invoked):
+                # A question is only admissible before any Action of the logical turn ran (ADR-0081).
+                raise ChatOrchestrationError("Brain asked a clarification after Actions ran")
             with strategy.progress.span("team-context"):
                 strategy.validate_context()
             return ChatOutcome(reply=turn.reply, actions=tuple(invoked), clarification=turn.clarification)

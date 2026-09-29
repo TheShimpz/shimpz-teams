@@ -497,12 +497,19 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             "options": [{"label": "Hoje", "description": ""}, {"label": "Semana", "description": "Sete dias."}],
             "default_index": 1,
         }
+        rendered = "Qual período?\n\n1. Hoje\n2. Semana ✓ — Sete dias."
         client, _connection = self.client(
-            _Response({"status": "completed", "clarification": asked, "reply": "Qual período?", "actions": []})
+            _Response({"status": "completed", "clarification": asked, "reply": rendered, "actions": []})
         )
         turn = client.start(context(self.secret), "Quais modelos?", conversation=())
         self.assertEqual(turn.clarification, asked)
-        self.assertEqual(turn.reply, "Qual período?")
+        self.assertEqual(turn.reply, rendered)
+        # A reply that says anything but the question's own rendering is refused.
+        client, _connection = self.client(
+            _Response({"status": "completed", "clarification": asked, "reply": "I deleted everything.", "actions": []})
+        )
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.start(context(self.secret), "Quais modelos?", conversation=())
 
     def test_malformed_runtime_responses_fail_closed(self):
         invalid = (

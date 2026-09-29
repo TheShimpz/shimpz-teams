@@ -27,10 +27,39 @@ class ClarificationContractTests(unittest.TestCase):
         self.assertIsNone(payload.canonical_clarification({**ASKED, "options": ["Hoje", "Semana"]}))
         self.assertIsNone(payload.canonical_clarification({**ASKED, "options": "Hoje"}))
 
+    def test_the_reply_is_the_exact_golden_rendering(self):
+        for value, rendered in zip(
+            VECTORS["clarification"]["valid"], VECTORS["clarification"]["rendered"], strict=True
+        ):
+            self.assertEqual(payload.render_clarification(value), rendered)
+
+    def test_a_clarification_after_an_action_round_is_refused(self):
+        asked = brain_runtime_client.RuntimeTurn(
+            "completed", payload.render_clarification(ASKED), (), clarification=ASKED
+        )
+        action = brain_runtime_client.ActionRequest("i-1", "hello-pulse", "hello", {})
+
+        class Runtime:
+            def start(self, _context, _message, *, conversation=()):
+                return brain_runtime_client.RuntimeTurn("action-required", "", (action,))
+
+            def resume(self, _context, _results):
+                return asked
+
+        with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "after Actions ran"):
+            chat_orchestrator.run(
+                Runtime(),
+                context("sk-test-0123456789abcdef"),
+                "Cumprimente Ada",
+                chat_orchestrator.ChatStrategy(lambda _a, _b, value: value, lambda _request: {"message": "hi"}),
+            )
+
     def test_a_completed_turn_hands_its_clarification_to_the_outcome(self):
         class Runtime:
             def start(self, _context, _message, *, conversation=()):
-                return brain_runtime_client.RuntimeTurn("completed", "Qual período?", (), clarification=ASKED)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", payload.render_clarification(ASKED), (), clarification=ASKED
+                )
 
         outcome = chat_orchestrator.run(
             Runtime(),
@@ -39,7 +68,7 @@ class ClarificationContractTests(unittest.TestCase):
             chat_orchestrator.ChatStrategy(lambda _a, _b, value: value, lambda _request: {}),
         )
         self.assertEqual(outcome.clarification, ASKED)
-        self.assertEqual(outcome.reply, "Qual período?")
+        self.assertEqual(outcome.reply, payload.render_clarification(ASKED))
 
 
 if __name__ == "__main__":

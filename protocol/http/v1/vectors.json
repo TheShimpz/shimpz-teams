@@ -415,6 +415,10 @@
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
       {"question": "Which format?", "options": [{"label": "List", "description": ""}, {"label": "Table", "description": "Compact."}, {"label": "Report", "description": ""}, {"label": "Slides", "description": ""}, {"label": "Email", "description": ""}], "default_index": 4}
     ],
+    "rendered": [
+      "Qual período você quer cobrir?\n\n1. Hoje ✓ — Só lançamentos de hoje.\n2. Esta semana",
+      "Which format?\n\n1. List\n2. Table — Compact.\n3. Report\n4. Slides\n5. Email ✓"
+    ],
     "invalid": [
       null,
       [],

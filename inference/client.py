@@ -345,7 +345,11 @@ class BrainRuntimeClient:
         clarification = value["clarification"]
         if clarification is not None:
             clarification = http_payload.canonical_clarification(clarification)
-            if clarification is None or value["status"] != "completed":
+            if (
+                clarification is None
+                or value["status"] != "completed"
+                or value["reply"] != http_payload.render_clarification(clarification)
+            ):
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
         status = value["status"]
         reply = value["reply"]

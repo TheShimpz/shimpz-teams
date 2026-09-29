@@ -29,8 +29,10 @@ A completed Team chat terminal body carries `clarification`, either `null` or on
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
 `label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to
 one option. Every text is already NFC, trimmed, and free of control and line-separator characters, and
-labels are distinct ignoring case. `payload.canonical_clarification` validates it. The question is
-presentation only: it requests and authorizes nothing, and the user answers with a new chat message.
+labels are distinct ignoring case. `payload.canonical_clarification` validates it. The terminal `reply`
+must equal `payload.render_clarification`: the question, a blank line, then one numbered line per option,
+the default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
+it requests and authorizes nothing, and the user answers with a new chat message.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants

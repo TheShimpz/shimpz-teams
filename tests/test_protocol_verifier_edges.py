@@ -329,7 +329,10 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def rejected_valid(value: dict[str, object]) -> None:
             value["clarification"]["valid"] = [{**value["clarification"]["valid"][0], "extra": 1}]
 
-        for mutate in (missing, accepted_invalid, rejected_valid):
+        def drifted_rendering(value: dict[str, object]) -> None:
+            value["clarification"]["rendered"][0] = "Something else"
+
+        for mutate in (missing, accepted_invalid, rejected_valid, drifted_rendering):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)

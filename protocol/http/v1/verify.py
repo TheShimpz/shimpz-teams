@@ -147,6 +147,8 @@ if any(payload.canonical_clarification(value) != value for value in clarificatio
     fail("a valid clarification vector was not admitted exactly")
 if any(payload.canonical_clarification(value) is not None for value in clarifications["invalid"]):
     fail("an invalid clarification vector was admitted")
+if [payload.render_clarification(value) for value in clarifications["valid"]] != clarifications.get("rendered"):
+    fail("a clarification rendering vector differs")
 action_label_text = vectors.get("action_label_text", {})
 for case in action_label_text.get("exemplars", []):
     if payload.canonical_language_exemplar(case["input"]) != case["canonical"]:

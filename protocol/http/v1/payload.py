@@ -191,6 +191,20 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
         return None
 
 
+def render_clarification(clarification: dict[str, object]) -> str:
+    """The exact plain reply that accompanies one canonical clarification: the question, then numbered options.
+
+    The recommended default is marked with " ✓" and a non-empty description follows " — ". Every boundary requires a
+    clarified reply to equal this rendering, so a reply can never say something the question does not.
+    """
+    lines = [str(clarification["question"]), ""]
+    for index, option in enumerate(clarification["options"]):
+        mark = " ✓" if index == clarification["default_index"] else ""
+        detail = f" — {option['description']}" if option["description"] else ""
+        lines.append(f"{index + 1}. {option['label']}{mark}{detail}")
+    return "\n".join(lines)
+
+
 def canonical_source_digest(value: object) -> str | None:
     return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) is not None else None
 
