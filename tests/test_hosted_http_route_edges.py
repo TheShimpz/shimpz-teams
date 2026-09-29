@@ -549,7 +549,7 @@ class HostedHttpAssistantRouteEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(server.brain_runtime_token_store, "ensure") as ensure,
             mock.patch.object(runtime_state, "_initialize_developers_integration") as initialize,
-            mock.patch.object(server, "_BoundedThreadingHTTPServer", return_value=http_server) as constructor,
+            mock.patch.object(server, "BoundedThreadingHTTPServer", return_value=http_server) as constructor,
         ):
             server.main()
         ensure.assert_called_once_with()

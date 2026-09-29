@@ -194,6 +194,7 @@ hosted_chat_human = sys.modules["hosted.chat.human"]
 hosted_chat_lifecycle = sys.modules["hosted.chat.lifecycle"]
 hosted_chat_segment = sys.modules["hosted.chat.segment"]
 hosted_controller = sys.modules["hosted.http.server"]
+hosted_listener = sys.modules["hosted.http.listener"]
 hosted_developers_http = sys.modules["hosted.install.http"]
 
 from local_assistant_fixture import hosted_spec as _hosted_spec

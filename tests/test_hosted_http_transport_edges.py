@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
 
 server = harness.hosted_controller
+listener = harness.hosted_listener
 resources = harness.hosted_resources
 state = harness.runtime_state
 
@@ -39,20 +40,20 @@ def _route(operation: str, params: dict[str, str] | None = None):
 
 class HostedHttpTransportEdgeTests(unittest.TestCase):
     def test_bounded_server_sets_timeout_releases_slots_and_contains_spawn_failure(self) -> None:
-        with mock.patch.object(server.ThreadingHTTPServer, "__init__", return_value=None):
-            bounded = server._BoundedThreadingHTTPServer(("127.0.0.1", 0), server.Handler, max_concurrency=1)
+        with mock.patch.object(listener.ThreadingHTTPServer, "__init__", return_value=None):
+            bounded = listener.BoundedThreadingHTTPServer(("127.0.0.1", 0), server.Handler, max_concurrency=1)
         socket = mock.Mock()
-        with mock.patch.object(server.ThreadingHTTPServer, "get_request", return_value=(socket, ("client", 1))):
+        with mock.patch.object(listener.ThreadingHTTPServer, "get_request", return_value=(socket, ("client", 1))):
             self.assertEqual(bounded.get_request(), (socket, ("client", 1)))
         socket.settimeout.assert_called_once_with(state.HTTP_CONNECTION_TIMEOUT_SECONDS)
 
-        with mock.patch.object(server.ThreadingHTTPServer, "process_request", return_value=None):
+        with mock.patch.object(listener.ThreadingHTTPServer, "process_request", return_value=None):
             bounded.process_request(socket, ("client", 1))
         self.assertFalse(bounded._request_slots.acquire(blocking=False))
         bounded._request_slots.release()
 
         with (
-            mock.patch.object(server.ThreadingHTTPServer, "process_request", side_effect=RuntimeError("spawn")),
+            mock.patch.object(listener.ThreadingHTTPServer, "process_request", side_effect=RuntimeError("spawn")),
             self.assertRaises(RuntimeError),
         ):
             bounded.process_request(socket, ("client", 1))
@@ -60,7 +61,7 @@ class HostedHttpTransportEdgeTests(unittest.TestCase):
         bounded._request_slots.release()
 
         bounded._request_slots.acquire()
-        with mock.patch.object(server.ThreadingHTTPServer, "process_request_thread"):
+        with mock.patch.object(listener.ThreadingHTTPServer, "process_request_thread"):
             bounded.process_request_thread(socket, ("client", 1))
         self.assertTrue(bounded._request_slots.acquire(blocking=False))
         bounded._request_slots.release()

@@ -7,10 +7,9 @@ import functools
 import hashlib
 import json
 import re
-import threading
 from dataclasses import dataclass
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 
 import docker
 
@@ -29,6 +28,7 @@ from hosted.chat import segment as hosted_chat_segment
 from hosted.http import admission
 from hosted.http import routes as hosted
 from hosted.http import stored_input as hosted_stored_input_http
+from hosted.http.listener import BoundedThreadingHTTPServer
 from hosted.install import developers_client, publication
 from hosted.install import http as developers_http
 from hosted.team import lifecycle as hosted_lifecycle
@@ -65,38 +65,6 @@ class _AuthorizedRequest:
     lease: hosted_resources._AuthorizationLease
     query: dict[str, str]
     assurance: dict[str, str] | None = None
-
-
-class _BoundedThreadingHTTPServer(ThreadingHTTPServer):
-    """Thread-per-request server with hard admission and slow-client expiry."""
-
-    daemon_threads = True
-
-    def __init__(self, *args, max_concurrency: int | None = None, **kwargs) -> None:
-        concurrency = runtime_state.MAX_HTTP_CONCURRENCY if max_concurrency is None else max_concurrency
-        self._request_slots = threading.BoundedSemaphore(concurrency)
-        super().__init__(*args, **kwargs)
-
-    def get_request(self):
-        request, client_address = super().get_request()
-        request.settimeout(runtime_state.HTTP_CONNECTION_TIMEOUT_SECONDS)
-        return request, client_address
-
-    def process_request(self, request, client_address) -> None:
-        # Backpressure happens before a thread exists. At the ceiling, at most the kernel's bounded
-        # listen backlog plus this accepted socket waits; Python thread count cannot grow unbounded.
-        self._request_slots.acquire()
-        try:
-            super().process_request(request, client_address)
-        except BaseException:
-            self._request_slots.release()
-            raise
-
-    def process_request_thread(self, request, client_address) -> None:
-        try:
-            super().process_request_thread(request, client_address)
-        finally:
-            self._request_slots.release()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1002,4 +970,4 @@ def main() -> None:
     # cannot rotate or replace its authority.
     brain_runtime_token_store.ensure()
     runtime_state._initialize_developers_integration()
-    _BoundedThreadingHTTPServer((runtime_state.ALL_INTERFACES, runtime_state.LISTEN_PORT), Handler).serve_forever()
+    BoundedThreadingHTTPServer((runtime_state.ALL_INTERFACES, runtime_state.LISTEN_PORT), Handler).serve_forever()
