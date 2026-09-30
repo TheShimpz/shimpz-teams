@@ -501,6 +501,44 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             held = record.run(self.state(service), claim["run_id"])
         self.assertEqual((held.status, held.batch[1]), ("uncertain", batch.fingerprint))
 
+    def test_the_watchdog_survives_a_failed_audit_and_runs_its_next_pass(self) -> None:
+        second_pass = threading.Event()
+        passes = []
+
+        def teams():
+            passes.append(1)
+            if len(passes) >= 2:
+                second_pass.set()
+            raise routine_store.RoutineStoreError("down")
+
+        service = SimpleNamespace(
+            _active_chat_guard=threading.Lock(),
+            _routine_runs={},
+            routine_store=SimpleNamespace(teams=teams),
+        )
+        local_audit.record.side_effect = RuntimeError("the local audit journal could not be synchronized")
+        watchdog = routine_watchdog.RoutineWatchdog(service, interval=0.01)
+        with self.assertLogs(routine_watchdog.log, "ERROR") as logs:
+            watchdog.start()
+            self.assertTrue(second_pass.wait(5))
+            self.assertTrue(watchdog._thread.is_alive())
+            watchdog.close()
+        self.assertIn("could not audit routine-watchdog/check-failed (RuntimeError)", logs.output[0])
+        self.assertNotIn("synchronized", "".join(logs.output))
+
+    def test_a_failed_recovery_audit_never_stops_the_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            service.claim_routine_run(("anthropic", "openai"))
+            service.routine_store.put_continuation("team_1", "f" * 32, b"orphaned continuation")
+            local_audit.record.side_effect = RuntimeError("the local audit journal could not be written")
+            with self.assertLogs(routine_watchdog.log, "ERROR") as logs:
+                routine_watchdog.check(service, startup=True)
+            self.assertEqual(self.state(service).runs, ())
+            self.assertEqual(service.routine_store.continuations("team_1"), ())
+        self.assertIn("could not audit routine-recover/failed (RuntimeError)", logs.output[0])
+
     def test_a_failed_watchdog_pass_is_audited_and_retried(self) -> None:
         service = SimpleNamespace(
             _active_chat_guard=threading.Lock(),
@@ -513,6 +551,10 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
         watchdog.close()
         self.assertGreaterEqual(service.routine_store.teams.call_count, 1)
         local_audit.record.assert_any_call(
-            "routine-watchdog", result="error", principal=routine_watchdog._PRINCIPAL, detail="check-failed"
+            "routine-watchdog",
+            result="error",
+            principal=routine_watchdog._PRINCIPAL,
+            team_id=None,
+            detail="check-failed",
         )
         self.assertIs(routine_run._problem(409, "x", "y").code, "y")

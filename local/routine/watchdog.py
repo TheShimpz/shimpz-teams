@@ -7,6 +7,7 @@ run uncertain, and anything else ends it interrupted. Nothing is replayed automa
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 
@@ -21,6 +22,21 @@ from routine import record
 
 INTERVAL_SECONDS = 30
 _PRINCIPAL = local_audit.AuditPrincipal("team-local", "machine")
+log = logging.getLogger("shimpz.team.local.routine.watchdog")
+
+
+def _audit(operation: str, detail: str, team_id: str | None = None) -> None:
+    """Audit one watchdog event without letting a failed journal stop recovery.
+
+    The fallback log names only the event and the failure's type, never a message that could carry a secret.
+    """
+    try:
+        local_audit.record(operation, result="error", principal=_PRINCIPAL, team_id=team_id, detail=detail)
+    except RuntimeError as exc:
+        failure = type(exc).__name__
+    else:
+        return
+    log.error("Routine watchdog could not audit %s/%s (%s)", operation, detail, failure)
 
 
 def _recover(service, team_id: str, value: record.Run) -> str | None:
@@ -55,7 +71,7 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
             continue
         outcome = _recover(service, team_id, value)
         if outcome is not None:
-            local_audit.record("routine-recover", result="error", principal=_PRINCIPAL, team_id=team_id, detail=outcome)
+            _audit("routine-recover", outcome, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
     runs = {item.run_id for item in service.routine_store.load(team_id).runs}
     for run_id in service.routine_store.continuations(team_id):
@@ -103,4 +119,4 @@ class RoutineWatchdog:
                 ApiProblemError,
             ):
                 # A failed pass leaves every run as it was; the next pass retries, and the failure is audited.
-                local_audit.record("routine-watchdog", result="error", principal=_PRINCIPAL, detail="check-failed")
+                _audit("routine-watchdog", "check-failed")
