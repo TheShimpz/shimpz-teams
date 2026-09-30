@@ -40,18 +40,49 @@ def _container(**changes):
 
 
 class _PostgreSQLService:
-    """The Service authority as Team observes it through `_call`, including the provisioner's absence proof."""
+    """The Service authority as Team observes it through `_call`: provisioning fences and the absence proof.
+
+    `clock` is the one host clock both sides read. A delayed provision is captured unanswered and delivered later.
+    """
 
     def __init__(self, provisioner: str) -> None:
         self.provisioner = provisioner
+        self.clock = [1000.0]
         self.records: dict[str, list[str]] = {}
         self.pre_intent_failures = 0
         self.proof_transport_failures = 0
+        self.delay_next_provision = False
+        self.deliver_before_finalize = False
+        self.delayed: dict | None = None
+        self.delayed_outcome: object = None
         self.tenant_drops: list[str] = []
 
     @staticmethod
-    def _refused(path: str) -> postgresql_client.PostgreSQLServiceError:
-        return postgresql_client.PostgreSQLServiceError(f"postgresql-service {path} failed with status 403")
+    def _refused(path: str, status: int = 403) -> postgresql_client.PostgreSQLServiceError:
+        return postgresql_client.PostgreSQLServiceError(f"postgresql-service {path} failed with status {status}")
+
+    def sleep(self, seconds: float) -> None:
+        self.clock[0] += seconds
+
+    def deliver(self) -> None:
+        payload, self.delayed = self.delayed, None
+        try:
+            self.delayed_outcome = self._provision("/v1/teams/provision", payload)
+        except postgresql_client.PostgreSQLServiceError as exc:
+            self.delayed_outcome = exc
+
+    def _fenced(self, path: str, payload: dict) -> None:
+        if self.clock[0] <= payload["not_after"]:
+            raise self._refused(path, 409)
+
+    def _provision(self, path: str, payload: dict) -> dict:
+        if self.clock[0] > payload["not_after"]:
+            raise self._refused(path, 409)
+        record = self.records.get(payload["team_id"])
+        if record is not None and record[1] == "retired":
+            raise self._refused(path)
+        self.records[payload["team_id"]] = [payload["principal_token"], "active"]
+        return {"created": True}
 
     def __call__(self, path: str, payload: dict, bearer: str) -> dict:
         team_id = payload["team_id"]
@@ -63,19 +94,28 @@ class _PostgreSQLService:
             self.tenant_drops.append(team_id)
             return {"dropped": [f"proj_team_{team_id}"]}
         if path == "/v1/teams/provision":
+            if self.delay_next_provision:
+                self.delay_next_provision = False
+                self.delayed = payload
+                raise TimeoutError("timed out")
             if self.pre_intent_failures:
                 # The request failed before the Service recorded any intent or ran any DDL.
                 self.pre_intent_failures -= 1
-                raise postgresql_client.PostgreSQLServiceError(f"postgresql-service {path} failed with status 502")
-            self.records[team_id] = [payload["principal_token"], "active"]
-            return {"created": True}
+                raise self._refused(path, 502)
+            return self._provision(path, payload)
         if path == "/v1/teams/drop":
             if self.proof_transport_failures:
                 self.proof_transport_failures -= 1
                 raise OSError("connection reset")
+            self._fenced(path, payload)
             if record is not None:
                 raise self._refused(path)
             return {"dropped": []}
+        if self.deliver_before_finalize:
+            self.deliver_before_finalize = False
+            self.deliver()
+            record = self.records.get(team_id)
+        self._fenced(path, payload)
         if record is not None and record[1] != "retired":
             raise self._refused(path)
         self.records.pop(team_id, None)
@@ -217,15 +257,15 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
         self.assertIs(run(api_error, True), api_error)
         self.assertIn("rolled back", run(RuntimeError("failed"), True).message)
 
-    def test_pre_intent_provisioning_failure_rolls_back_retries_and_destroys(self) -> None:
+    def _database_lifecycle(self, stack: contextlib.ExitStack) -> _PostgreSQLService:
+        """Run real create, rollback, destroy, cleanup records, and the Team client against the Service authority."""
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
         provisioner = root / "provisioner"
         provisioner.write_text("b" * 64, encoding="utf-8")
         service = _PostgreSQLService("b" * 64)
-        container = _container()
-        state._docker.containers.create = mock.Mock(return_value=container)
+        state._docker.containers.create = mock.Mock(return_value=_container())
         succeed = mock.Mock(return_value=True)
         patches = (
             mock.patch.object(lifecycle.cleanup_state, "STATE_DIR", root / "cleanup"),
@@ -233,6 +273,8 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             mock.patch.object(postgresql_client, "PRINCIPAL_DIR", root / "principals"),
             mock.patch.object(postgresql_client, "PROVISIONER_TOKEN_FILE", provisioner),
             mock.patch.object(postgresql_client, "_call", side_effect=service),
+            mock.patch.object(postgresql_client.time, "time", side_effect=lambda: service.clock[0]),
+            mock.patch.object(postgresql_client.time, "sleep", side_effect=service.sleep),
             mock.patch.object(
                 lifecycle.inference_config,
                 "normalize",
@@ -263,9 +305,13 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
                 _teardown_volumes=succeed,
             ),
         )
+        for current in patches:
+            stack.enter_context(current)
+        return service
+
+    def test_pre_intent_provisioning_failure_rolls_back_retries_and_destroys(self) -> None:
         with contextlib.ExitStack() as stack:
-            for current in patches:
-                stack.enter_context(current)
+            service = self._database_lifecycle(stack)
             principal = postgresql_client._principal_path(TEAM_ID)
 
             # Provisioning fails before the Service records an intent, and the absence proof is first unreachable.
@@ -286,6 +332,8 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
             self.assertFalse(principal.exists())
             self.assertEqual((service.records, service.tenant_drops), ({}, []))
+            # An answered provision never delays cleanup.
+            self.assertEqual(service.clock[0], 1000.0)
 
             # A clean rollback leaves nothing behind, so create can succeed and a real destroy still uses the tenant.
             service.pre_intent_failures = 1
@@ -298,6 +346,25 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             self.assertTrue(cleanup.complete)
             self.assertEqual((service.records, service.tenant_drops), ({}, [TEAM_ID]))
             self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
+
+    def test_a_delayed_provision_never_lands_after_rollback_proves_absence(self) -> None:
+        for window in ("before finalization", "after finalization"):
+            with self.subTest(window=window), contextlib.ExitStack() as stack:
+                service = self._database_lifecycle(stack)
+                service.delay_next_provision = True
+                service.deliver_before_finalize = window == "before finalization"
+                with self.assertRaisesRegex(state.ApiError, "was rolled back"):
+                    lifecycle._create(TEAM_ID, {}, OWNER)
+                if service.delayed is not None:
+                    service.deliver()
+
+                # Rollback waited out the unanswered request's fence before proving absence, so it was refused.
+                self.assertGreater(service.clock[0], 1000.0 + postgresql_client.SERVICE_TIMEOUT_SECONDS)
+                self.assertIn("status 409", str(service.delayed_outcome))
+                self.assertEqual((service.records, service.tenant_drops), ({}, []))
+                self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
+                self.assertEqual(list(postgresql_client.PRINCIPAL_DIR.iterdir()), [])
+                self.assertTrue(lifecycle._create(TEAM_ID, {}, OWNER)["created"])
 
     def test_generation_state_deletion_contains_brain_and_journal_failures(self) -> None:
         self.assertEqual(

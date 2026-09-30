@@ -49,13 +49,14 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
             with self.assertRaises(postgresql.PostgreSQLServiceError):
                 postgresql._principal("team_1", create=True)
 
-    def test_principal_is_durably_committed_before_the_service_is_called(self) -> None:
+    def test_principal_and_fence_are_durably_committed_before_the_service_is_called(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             principal_dir = root / "principals"
             provisioner = root / "provisioner"
             provisioner.write_text("b" * 64, encoding="utf-8")
             principal = principal_dir / "team_1.token"
+            fence = principal_dir / "team_1.fence"
             real_fsync = os.fsync
             synced: list[str] = []
 
@@ -64,19 +65,88 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
                 synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
 
             def call(path: str, payload: dict, bearer: str) -> dict:
-                self.assertEqual(synced, ["file", "directory"])
+                self.assertEqual(synced, ["file", "directory"] * 2)
                 self.assertEqual(principal.read_text(encoding="ascii"), payload["principal_token"])
+                self.assertEqual(payload["not_after"], 1000 + postgresql.SERVICE_TIMEOUT_SECONDS)
+                self.assertEqual(fence.read_text(encoding="ascii"), str(payload["not_after"]))
                 return {"created": True}
 
             with (
                 mock.patch.object(postgresql, "PRINCIPAL_DIR", principal_dir),
                 mock.patch.object(postgresql, "PROVISIONER_TOKEN_FILE", provisioner),
+                mock.patch.object(postgresql.time, "time", return_value=1000.5),
                 mock.patch.object(postgresql.os, "fsync", side_effect=observe),
                 mock.patch.object(postgresql, "_call", side_effect=call) as service,
             ):
                 self.assertEqual(postgresql.provision_team("team_1"), {"created": True})
             service.assert_called_once()
             self.assertEqual(stat.S_IMODE(principal.stat().st_mode), 0o600)
+            self.assertEqual(fence.read_text(encoding="ascii"), "0")
+
+    def test_only_an_answered_provision_settles_its_fence(self) -> None:
+        refused = postgresql.PostgreSQLServiceError("postgresql-service /v1/teams/provision failed with status 502")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            principal_dir = root / "principals"
+            provisioner = root / "provisioner"
+            provisioner.write_text("b" * 64, encoding="utf-8")
+            now = [1000.0]
+            with (
+                mock.patch.object(postgresql, "PRINCIPAL_DIR", principal_dir),
+                mock.patch.object(postgresql, "PROVISIONER_TOKEN_FILE", provisioner),
+                mock.patch.object(postgresql.time, "time", side_effect=lambda: now[0]),
+            ):
+                with mock.patch.object(postgresql, "_call", side_effect=refused), self.assertRaises(type(refused)):
+                    postgresql.provision_team("team_1")
+                self.assertEqual(postgresql._fence("team_1"), 0)
+
+                # An unanswered request may still arrive, so its fence survives until a later answer and beyond.
+                with (
+                    mock.patch.object(postgresql, "_call", side_effect=OSError("timed out")),
+                    self.assertRaises(OSError),
+                ):
+                    postgresql.provision_team("team_1")
+                self.assertEqual(postgresql._fence("team_1"), 1030)
+                now[0] = 1010.0
+                with mock.patch.object(postgresql, "_call", side_effect=refused), self.assertRaises(type(refused)):
+                    postgresql.provision_team("team_1")
+                self.assertEqual(postgresql._fence("team_1"), 1030)
+                with mock.patch.object(postgresql, "_call", return_value={"created": True}) as call:
+                    postgresql.provision_team("team_1")
+                self.assertEqual(call.call_args.args[1]["not_after"], 1040)
+                self.assertEqual(postgresql._fence("team_1"), 1030)
+
+                postgresql._fence_path("team_1").write_bytes(b"soon")
+                with (
+                    mock.patch.object(postgresql, "_call") as call,
+                    self.assertRaisesRegex(postgresql.PostgreSQLServiceError, "fence is malformed"),
+                ):
+                    postgresql.provision_team("team_1")
+                call.assert_not_called()
+                postgresql._fence_path("team_1").unlink()
+                with (
+                    mock.patch.object(postgresql.private_state, "replace_durably", side_effect=OSError("full")),
+                    mock.patch.object(postgresql, "_call") as call,
+                    self.assertRaisesRegex(postgresql.PostgreSQLServiceError, "fence could not be persisted"),
+                ):
+                    postgresql.provision_team("team_1")
+                call.assert_not_called()
+
+    def test_the_absence_proof_and_finalization_wait_boundedly_for_the_fence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            principal_dir = Path(directory) / "principals"
+            principal_dir.mkdir()
+            with (
+                mock.patch.object(postgresql, "PRINCIPAL_DIR", principal_dir),
+                mock.patch.object(postgresql.time, "time", return_value=1000.0),
+                mock.patch.object(postgresql.time, "sleep") as sleep,
+            ):
+                for fence, delay in ((None, 0.0), (1030, 31.0), (999, 0.0), (9000, 31.0)):
+                    if fence is not None:
+                        postgresql._fence_path("team_1").write_text(str(fence), encoding="ascii")
+                    with self.subTest(fence=fence):
+                        self.assertEqual(postgresql._passed_fence("team_1"), fence or 0)
+                        sleep.assert_called_with(delay)
 
     def test_a_partial_principal_write_never_reaches_the_service(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -113,7 +183,7 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
             ):
                 with mock.patch.object(postgresql, "_call", return_value={"dropped": []}) as call:
                     self.assertEqual(postgresql.drop_team("team_1"), {"dropped": []})
-                call.assert_called_once_with("/v1/teams/drop", {"team_id": "team_1"}, "b" * 64)
+                call.assert_called_once_with("/v1/teams/drop", {"team_id": "team_1", "not_after": 0}, "b" * 64)
 
                 principal_dir.mkdir()
                 (principal_dir / "team_1.token").write_text("a" * 64, encoding="utf-8")
@@ -151,7 +221,9 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
                 self.assertEqual(postgresql.drop_team("team_1"), {"ok": True})
                 self.assertEqual(postgresql.finalize_team_drop("team_1"), {"ok": True})
             self.assertEqual(call.call_count, 3)
+            self.assertEqual(call.call_args.args[1], {"team_id": "team_1", "not_after": 0})
             self.assertFalse(principal.exists())
+            self.assertFalse((principal_dir / "team_1.fence").exists())
 
 
 if __name__ == "__main__":
