@@ -10,6 +10,8 @@ import secrets
 from pathlib import Path
 from urllib.parse import urlparse
 
+from storage import private_state
+
 POSTGRESQL_SERVICE_URL = os.environ.get("SHIMPZ_POSTGRESQL_SERVICE_URL", "http://postgresql-service:7072")
 PROVISIONER_TOKEN_FILE = Path(
     os.environ.get(
@@ -73,8 +75,12 @@ def _principal(team_id: str, *, create: bool) -> str:
     PRINCIPAL_DIR.mkdir(parents=True, exist_ok=True)
     PRINCIPAL_DIR.chmod(0o700)
     token = secrets.token_hex(32)
-    path.write_text(token, encoding="utf-8")
-    path.chmod(0o600)
+    # This is the Team's only cleartext copy of a bearer the Service may durably bind to owned resources, so it is
+    # committed whole (never partially) before the Service is called and every later cleanup can present it.
+    try:
+        private_state.replace_durably(path, token.encode("ascii"))
+    except OSError as exc:
+        raise PostgreSQLServiceError("Team database principal could not be persisted") from exc
     return token
 
 
