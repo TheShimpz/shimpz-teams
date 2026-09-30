@@ -107,10 +107,17 @@ class Claim:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class Lease:
-    """What a worker proves to drive a leased run: its lease token and the key it was claimed under."""
+    """What a worker proves to drive a leased run: its lease digest and the key it was claimed under.
 
-    token: str
+    Admin holds the token and signs its digest into each Routine assertion; Team only ever compares digests.
+    """
+
+    sha256: str
     key: str
+
+
+def lease_of(token: str, key: str) -> Lease:
+    return Lease(lease_sha256(token), key)
 
 
 def new_id() -> str:
@@ -150,8 +157,7 @@ def _admitted(value: Routine) -> Routine:
         raise RoutineStateError("routine-invalid") from exc
     if (
         http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is None
-        or not isinstance(value.quote, str)
-        or not 0 < len(value.quote) <= http_routine.MAX_ROUTINE_QUOTE_CHARS
+        or http_routine.canonical_quote(value.quote) is None
         or canonical is None
         or not assistants
         or len(assistants) > http_routine.MAX_NOTICE_ASSISTANTS
@@ -351,12 +357,12 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
     return state, Claim(leased, token)
 
 
-def require_lease(value: Run, token: str, key_fingerprint: str, now: int) -> None:
+def require_lease(value: Run, lease: Lease, now: int) -> None:
     """Only the live lease of a leased run, claimed under the current routine key, may drive it."""
     if (
         value.status != "leased"
-        or not secrets.compare_digest(value.lease_sha256, lease_sha256(token))
-        or value.lease_key != key_fingerprint
+        or not secrets.compare_digest(value.lease_sha256, lease.sha256)
+        or value.lease_key != lease.key
         or value.lease_expires_at <= now
         or value.active_seconds_left <= 0
     ):
@@ -373,7 +379,7 @@ def _leased(state: TeamRoutines, run_id: str) -> Run:
 def _live(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> Run:
     """A worker transition: only the live lease of that exact run may make it."""
     value = _leased(state, run_id)
-    require_lease(value, lease.token, lease.key, now)
+    require_lease(value, lease, now)
     return value
 
 

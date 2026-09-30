@@ -16,6 +16,12 @@ ASSERTION_CLOCK_SKEW_SECONDS = 5
 ASSERTION_MAX_BYTES = 4096
 MAX_JSON_BODY_BYTES = 128 * 1024
 JWT_HEADER = {"alg": "EdDSA", "kid": ASSERTION_KEY_ID, "typ": "JWT"}
+# A Routine run is started by a separate machine identity (ADR-0086), never under a human Supervisor assertion.
+ROUTINE_ASSERTION_HEADER = "X-Shimpz-Routine"
+ROUTINE_AUDIENCE = "team-local-routine"
+ROUTINE_KEY_ID = "local-routine-v1"
+ROUTINE_AUTHORITY = "routine"
+ROUTINE_JWT_HEADER = {"alg": "EdDSA", "kid": ROUTINE_KEY_ID, "typ": "JWT"}
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 _HEX_32 = re.compile(r"^[0-9a-f]{32}$")
@@ -178,8 +184,12 @@ def _target(value: dict[str, object]) -> tuple[str, str]:
     return method, path
 
 
-def canonical_claims(value: object) -> dict[str, object]:
-    """Return one closed canonical assertion claim set."""
+def canonical_claims(value: object, *, audience: str = ASSERTION_AUDIENCE) -> dict[str, object]:
+    """Return one closed canonical claim set for the Supervisor or, with its audience, the Routine identity.
+
+    A Routine assertion's authority is always ``routine`` and its ``authority_sha256`` is its run lease digest; it
+    never binds a human assurance or a decision credential.
+    """
     if not isinstance(value, dict):
         raise SupervisorAssertionError("invalid Supervisor assertion claims")
     required = {
@@ -197,7 +207,12 @@ def canonical_claims(value: object) -> dict[str, object]:
     }
     if not required <= set(value) or set(value) - required - {"model", "decision", "assurance"}:
         raise SupervisorAssertionError("invalid Supervisor assertion claims")
-    if type(value["v"]) is not int or value["v"] != 1 or value["aud"] != ASSERTION_AUDIENCE:
+    if (
+        audience not in {ASSERTION_AUDIENCE, ROUTINE_AUDIENCE}
+        or type(value["v"]) is not int
+        or value["v"] != 1
+        or value["aud"] != audience
+    ):
         raise SupervisorAssertionError("unsupported Supervisor assertion")
     subject, nonce = _identity(value)
     issued_at = _integer(value["iat"], label="assertion issued time")
@@ -207,7 +222,7 @@ def canonical_claims(value: object) -> dict[str, object]:
     method, path = _target(value)
     result: dict[str, object] = {
         "v": 1,
-        "aud": ASSERTION_AUDIENCE,
+        "aud": audience,
         "sub": subject,
         "authority": value["authority"],
         "authority_sha256": _digest(value["authority_sha256"], label="authority digest"),
@@ -218,8 +233,13 @@ def canonical_claims(value: object) -> dict[str, object]:
         "path": path,
         "body": _body(value["body"]),
     }
-    if result["authority"] not in AUTHORITY_KINDS:
+    routine = audience == ROUTINE_AUDIENCE
+    if (result["authority"] == ROUTINE_AUTHORITY) != routine or (
+        not routine and result["authority"] not in AUTHORITY_KINDS
+    ):
         raise SupervisorAssertionError("invalid Supervisor authority kind")
+    if routine and ("decision" in value or "assurance" in value):
+        raise SupervisorAssertionError("a Routine assertion binds no human assurance or decision")
     if "model" in value:
         result["model"] = _model(value["model"])
     if "decision" in value:
@@ -246,6 +266,6 @@ def canonical_json(value: object) -> bytes:
     return encoded
 
 
-def claims_json(value: object) -> bytes:
+def claims_json(value: object, *, audience: str = ASSERTION_AUDIENCE) -> bytes:
     """Validate and encode one canonical claim set."""
-    return canonical_json(canonical_claims(value))
+    return canonical_json(canonical_claims(value, audience=audience))

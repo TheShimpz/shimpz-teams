@@ -388,3 +388,96 @@ class LocalSupervisorAuthorityTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LocalRoutineAuthorityTests(unittest.TestCase):
+    """A Routine run is driven only by Admin's separate Routine identity, bound to one exact lease (ADR-0086)."""
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.routine_key = Ed25519PrivateKey.generate()
+        self.supervisor_key = Ed25519PrivateKey.generate()
+        directory = Path(self.temporary.name)
+        for path, key in (
+            (directory / "public.pem", self.supervisor_key),
+            (directory / "routine.pem", self.routine_key),
+        ):
+            path.write_bytes(key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo))
+            path.chmod(0o440)
+        for patch in (
+            mock.patch.object(authority, "PUBLIC_KEY_FILE", directory / "public.pem"),
+            mock.patch.object(authority, "ROUTINE_PUBLIC_KEY_FILE", directory / "routine.pem"),
+            mock.patch.object(authority.grp, "getgrnam", return_value=types.SimpleNamespace(gr_gid=os.getgid())),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.lease = hashlib.sha256(b"lease-token").hexdigest()
+        self.path = "/v1/teams/team_1/routines/runs/" + "f" * 32
+
+    def claims(self, **overrides: object) -> dict[str, object]:
+        values: dict[str, object] = {
+            "aud": contract.ROUTINE_AUDIENCE,
+            "authority": contract.ROUTINE_AUTHORITY,
+            "authority_sha256": self.lease,
+            "method": "POST",
+            "path": self.path,
+        }
+        return _claims(**{**values, **overrides})
+
+    def headers(self, claims: dict[str, object], key: Ed25519PrivateKey | None = None, *, header: str = "") -> Message:
+        jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
+        payload = _segment(contract.claims_json(claims, audience=claims["aud"]))
+        signature = _segment((key or self.routine_key).sign(f"{jwt}.{payload}".encode("ascii")))
+        headers = Message()
+        headers[header or contract.ROUTINE_ASSERTION_HEADER] = f"Bearer {jwt}.{payload}.{signature}"
+        return headers
+
+    def binding(self) -> authority.RequestBinding:
+        return _binding(method="POST", path=self.path, authority_kinds=frozenset({"session"}))
+
+    def test_a_routine_assertion_yields_its_lease_and_key_once(self) -> None:
+        guard = authority.ReplayGuard(capacity=2)
+        headers = self.headers(self.claims())
+        evidence = authority.verify_routine(headers, request=self.binding(), replay_guard=guard, now=NOW)
+        raw = self.routine_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        self.assertEqual(evidence.key_fingerprint, hashlib.sha256(raw).hexdigest())
+        self.assertEqual(evidence.key_fingerprint, authority.routine_key_fingerprint())
+        self.assertEqual(evidence.lease_sha256, self.lease)
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "replayed"):
+            authority.verify_routine(headers, request=self.binding(), replay_guard=guard, now=NOW)
+
+    def test_human_and_routine_identities_never_substitute_for_each_other(self) -> None:
+        guard = authority.ReplayGuard()
+        signed_by_supervisor = self.headers(self.claims(), self.supervisor_key)
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "signature"):
+            authority.verify_routine(signed_by_supervisor, request=self.binding(), replay_guard=guard, now=NOW)
+        supervisor_headers = Message()
+        supervisor_headers[contract.ASSERTION_HEADER] = f"Bearer {_assertion(self.supervisor_key, _claims())}"
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "required"):
+            authority.verify_routine(supervisor_headers, request=self.binding(), replay_guard=guard, now=NOW)
+        # A Routine assertion presented as a Supervisor assertion fails its header and audience.
+        routine_as_human = self.headers(self.claims(jti="d" * 32), header=contract.ASSERTION_HEADER)
+        with self.assertRaisesRegex(authority.SupervisorDeniedError, "header is invalid"):
+            authority.verify(routine_as_human, request=_binding(), replay_guard=guard, now=NOW)
+
+    def test_a_routine_assertion_is_bound_to_the_exact_request(self) -> None:
+        guard = authority.ReplayGuard()
+        for claims in (
+            self.claims(jti="1" * 32, path="/v1/teams/team_1/chat"),
+            self.claims(jti="2" * 32, iat=NOW - 60, exp=NOW - 50),
+        ):
+            with self.subTest(claims=claims), self.assertRaises(authority.SupervisorDeniedError):
+                authority.verify_routine(self.headers(claims), request=self.binding(), replay_guard=guard, now=NOW)
+        with self.assertRaises(contract.SupervisorAssertionError):
+            contract.canonical_claims(
+                self.claims(assurance={"kind": "auth:password", "challenge_id": "e" * 32}),
+                audience=contract.ROUTINE_AUDIENCE,
+            )
+        with self.assertRaisesRegex(contract.SupervisorAssertionError, "unsupported"):
+            contract.canonical_claims(self.claims(), audience="team-hosted")
+
+    def test_a_missing_routine_key_is_unavailable(self) -> None:
+        (Path(self.temporary.name) / "routine.pem").unlink()
+        with self.assertRaises(authority.SupervisorUnavailableError):
+            authority.routine_key_fingerprint()

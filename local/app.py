@@ -80,6 +80,7 @@ from local.labels import (
 )
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import store as local_routine_store
+from local.routine import turn as local_routine_turn
 from local.validation import brain_thread_id as _local_brain_thread_id
 from local.validation import (
     half_cpu_set,
@@ -240,6 +241,7 @@ class ChatTurnService:
         self.oauth_pkce = dependencies.oauth_pkce
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
+        self.routine_store = dependencies.routine_store
         self._lock = dependencies.lock_for
         self._raise_storage_problem = dependencies.raise_storage_problem
         self._active_chat_guard = threading.Lock()
@@ -325,6 +327,7 @@ class ChatTurnService:
     resume_chat_human = local_chat_human.resume_chat_human
     pending_chat_human = local_chat_human.pending_chat_human
     _expire_human_challenges = local_chat_human._expire_human_challenges
+    _chat_routines = local_routine_turn.chat_routines
 
     _invoke_chat_action = local_chat_execution._invoke_chat_action
     _chat_identity = staticmethod(local_chat_execution._chat_identity)
@@ -560,6 +563,7 @@ class LocalController:
                 chat_continuations=getattr(self, "chat_continuations", None),
                 lock_for=self._lock,
                 raise_storage_problem=self._raise_storage_problem,
+                routine_store=getattr(self, "routine_store", None),
             )
         )
         assistant_lifecycle.chat_turn_service = chat_turn_service

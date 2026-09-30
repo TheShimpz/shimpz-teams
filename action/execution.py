@@ -278,6 +278,21 @@ class ActionBatch:
         return abandoned
 
 
+class HeldActionBatch(ActionBatch):
+    """A Routine run's batch: an uncertain outcome is held for a human, never abandoned in-band (ADR-0086).
+
+    ``held`` is the fingerprint of the batch left uncertain, so the run can record exactly which batch a Supervisor must
+    later resolve.
+    """
+
+    held: str = ""
+
+    def abandon_uncertain(self) -> bool:
+        if self._journal is not None and self._batch is not None and self._executing_here:
+            self.held = self._batch.fingerprint
+        return False
+
+
 class RpcExchangeError(RuntimeError):
     """One stable failure kind translated into each Controller's public error shape."""
 

@@ -43,6 +43,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/account/authority/v1/vectors.json",
     "protocol/account/authority/v1/verify.py",
     "protocol/http/v1/payload.py",
+    "protocol/http/v1/routine.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
     "protocol/install/v1/contract-files.sha256",
@@ -397,7 +398,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
-        self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py"})
+        self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py", "protocol/http/v1/routine.py"})
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
             local_protocol_runtime_data,

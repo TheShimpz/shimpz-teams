@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -247,3 +249,39 @@ class ActionBatchTests(unittest.TestCase):
             self.assertFalse(batch.abandon_uncertain())
 
         journal_source.assert_called_once_with()
+
+
+class HeldActionBatchTests(unittest.TestCase):
+    """A Routine run's batch keeps an uncertain outcome for a human and names it; it never abandons it (ADR-0086)."""
+
+    def test_an_uncertain_batch_is_held_and_named_never_abandoned(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+
+        def failing(_request, _evidence):
+            raise RuntimeError("the Assistant failed mid-write")
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            batch = action_execution.HeldActionBatch(
+                journal,
+                "net:routine:" + "f" * 32,
+                "thread-1",
+                {"assistant": binding},
+                action_execution.ActionBatchStrategy(
+                    lambda item: (item.container_id, item.spec.image), failing, lambda _request: None
+                ),
+            )
+            self.assertFalse(batch.abandon_uncertain())
+            self.assertEqual(batch.held, "")
+            batch.prepare((request,))
+            with self.assertRaises(RuntimeError):
+                batch.invoke(request)
+            self.assertFalse(batch.abandon_uncertain())
+            self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
+            # The journal still holds the uncertain batch: its replay purge refuses to release it.
+            self.assertFalse(journal.purge_replayable("net:routine:" + "f" * 32))
+            with closing(sqlite3.connect(journal.path)) as connection:
+                rows = connection.execute("SELECT generation FROM batches").fetchall()
+            self.assertEqual(rows, [("net:routine:" + "f" * 32,)])

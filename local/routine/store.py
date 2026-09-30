@@ -146,8 +146,7 @@ def _decode_routine(value: object) -> record.Routine:
     _require(
         isinstance(value["routine_id"], str)
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
-        and isinstance(value["quote"], str)
-        and 0 < len(value["quote"]) <= http_routine.MAX_ROUTINE_QUOTE_CHARS
+        and http_routine.canonical_quote(value["quote"]) is not None
         and schedule is not None
         and http_routine.canonical_timezone(value["timezone"]) is not None
         and isinstance(assistants, list)

@@ -43,11 +43,11 @@ def busy_state() -> record.TeamRoutines:
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine()), routine("b" * 32))
     now = routine().next_run_at + 60
     state, first = record.claim(state, now, KEY)
-    lease = record.Lease(first.lease_token, KEY)
+    lease = record.lease_of(first.lease_token, KEY)
     state = record.bind_generation(state, first.run.run_id, lease, now, NETWORK)
     state = record.freeze(state, first.run.run_id, lease, now, "human", "dns", "replace-dns-record")
     state, second = record.claim(state, now, KEY)
-    lease = record.Lease(second.lease_token, KEY)
+    lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
     return record.hold_uncertain(state, second.run.run_id, lease, now, "d" * 64, {"actions": [["dns", "x"]]})
 

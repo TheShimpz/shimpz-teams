@@ -50,7 +50,10 @@ forgets is not learned again.
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
 hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in
 an IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads). `routine.daily_rate` is
-a schedule's average runs per day; a Team's Routines may sum to at most 24.
+a schedule's average runs per day; a Team's Routines may sum to at most 24. A Brain turn response carries `routine`:
+null, or the one change a chat turn proposed (`routine.canonical_routine_change`): `propose` with the user's quoted
+request, a schedule, and a timezone only when the user named one, or `cancel` with a Routine id. It is never a
+schedule or an authorization: Team turns it into a proposal a Local Supervisor must confirm.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
@@ -98,6 +101,12 @@ by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role
 characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
 Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
+
+A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
+Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routine-v1` and the audience
+`team-local-routine`; `supervisor.canonical_claims(value, audience=ROUTINE_AUDIENCE)` admits the same request, body,
+model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
+`authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
 
 An intent-route classification (never selection, chat, or any other request) may also carry one Supervisor-configured
 TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor assertion then binds its digest as

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import grp
+import hashlib
 import hmac
 import json
 import os
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_public_key
 
 from protocol.http.v1 import supervisor as contract
 
@@ -28,6 +29,8 @@ PUBLIC_KEY_FILE = Path(
         "/run/shimpz-local-supervisor/public.pem",
     )
 )
+# The Routine identity's public key sits beside the Supervisor's, in the same Admin-owned directory (ADR-0086).
+ROUTINE_PUBLIC_KEY_FILE = PUBLIC_KEY_FILE.with_name("routine.pem")
 PUBLIC_KEY_GROUP = "shimpzsupervisor-key"
 MAX_ASSERTION_BYTES = 8192
 MAX_REPLAY_ENTRIES = 16 * 1024
@@ -69,6 +72,16 @@ class RequestBinding:
     decision: dict[str, str] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class RoutineEvidence:
+    """Machine evidence that Admin's Routine identity drives one exact run under one lease."""
+
+    key_fingerprint: str
+    lease_sha256: str
+    assertion_id: str
+    expires_at: int
+
+
 class ReplayGuard:
     """Bounded one-use assertion guard; restart exposure is limited by the 15-second TTL."""
 
@@ -94,8 +107,8 @@ class ReplayGuard:
 _REPLAY_GUARD = ReplayGuard()
 
 
-def _one_assertion(headers: Message) -> str:
-    values = headers.get_all(contract.ASSERTION_HEADER, failobj=[])
+def _one_assertion(headers: Message, header: str = contract.ASSERTION_HEADER) -> str:
+    values = headers.get_all(header, failobj=[])
     if len(values) != 1 or not values[0].startswith("Bearer "):
         raise SupervisorDeniedError("Local Supervisor assertion is required")
     encoded = values[0].removeprefix("Bearer ")
@@ -144,11 +157,11 @@ def _parse_public_key(raw: bytes) -> Ed25519PublicKey:
     return key
 
 
-def _public_key() -> Ed25519PublicKey:
+def _public_key(path: Path | None = None) -> Ed25519PublicKey:
     descriptor = -1
     try:
         expected_gid = grp.getgrnam(PUBLIC_KEY_GROUP).gr_gid
-        descriptor = os.open(PUBLIC_KEY_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        descriptor = os.open(path or PUBLIC_KEY_FILE, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
         raw = _read_public_key(descriptor, expected_gid)
     except (KeyError, OSError) as exc:
         raise SupervisorUnavailableError("Local Supervisor public key is unavailable") from exc
@@ -240,16 +253,22 @@ def _json_segment(encoded: str) -> object:
     return value
 
 
-def _verified_claims(encoded: str, key: Ed25519PublicKey) -> dict[str, object]:
+def _verified_claims(
+    encoded: str,
+    key: Ed25519PublicKey,
+    *,
+    jwt_header: dict[str, str] = contract.JWT_HEADER,
+    audience: str = contract.ASSERTION_AUDIENCE,
+) -> dict[str, object]:
     parts = encoded.split(".")
     if len(parts) != 3 or any(not part for part in parts):
         raise SupervisorDeniedError("Local Supervisor assertion is malformed")
     header = _json_segment(parts[0])
     untrusted_claims = _json_segment(parts[1])
-    if header != contract.JWT_HEADER:
+    if header != jwt_header:
         raise SupervisorDeniedError("Local Supervisor assertion header is invalid")
     try:
-        claims = contract.canonical_claims(untrusted_claims)
+        claims = contract.canonical_claims(untrusted_claims, audience=audience)
     except contract.SupervisorAssertionError as exc:
         raise SupervisorDeniedError("Local Supervisor assertion claims are invalid") from exc
     signature = _decode_segment(parts[2])
@@ -268,9 +287,59 @@ def verify(
     now: int | None = None,
 ) -> Evidence:
     """Verify and atomically consume evidence for one exact request."""
-    encoded = _one_assertion(headers)
-    key = _public_key()
-    claims = _verified_claims(encoded, key)
+    claims = _verified_claims(_one_assertion(headers), _public_key())
+    assertion_id, expires_at = _bound(claims, request, replay_guard, now)
+    return Evidence(
+        supervisor_id=str(claims["sub"]),
+        authority_kind=str(claims["authority"]),
+        authority_digest=str(claims["authority_sha256"]),
+        assertion_id=assertion_id,
+        expires_at=expires_at,
+    )
+
+
+def routine_key_fingerprint() -> str:
+    """The SHA-256 of the current Routine public key; a lease records it, so a new key fences every older lease."""
+    key = _public_key(ROUTINE_PUBLIC_KEY_FILE)
+    return hashlib.sha256(key.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest()
+
+
+def verify_routine(
+    headers: Message,
+    *,
+    request: RequestBinding,
+    replay_guard: ReplayGuard | None = None,
+    now: int | None = None,
+) -> RoutineEvidence:
+    """Verify and consume a Routine assertion for one exact request; the caller then checks its run lease."""
+    key = _public_key(ROUTINE_PUBLIC_KEY_FILE)
+    claims = _verified_claims(
+        _one_assertion(headers, contract.ROUTINE_ASSERTION_HEADER),
+        key,
+        jwt_header=contract.ROUTINE_JWT_HEADER,
+        audience=contract.ROUTINE_AUDIENCE,
+    )
+    routine_request = RequestBinding(
+        request.method,
+        request.path,
+        request.body,
+        request.model,
+        None,
+        frozenset({contract.ROUTINE_AUTHORITY}),
+    )
+    assertion_id, expires_at = _bound(claims, routine_request, replay_guard, now)
+    return RoutineEvidence(
+        key_fingerprint=hashlib.sha256(key.public_bytes(Encoding.Raw, PublicFormat.Raw)).hexdigest(),
+        lease_sha256=str(claims["authority_sha256"]),
+        assertion_id=assertion_id,
+        expires_at=expires_at,
+    )
+
+
+def _bound(
+    claims: dict[str, object], request: RequestBinding, replay_guard: ReplayGuard | None, now: int | None
+) -> tuple[str, int]:
+    """Check the assertion's time and exact request binding, then consume its one-use nonce."""
     current = int(time.time()) if now is None else now
     issued_at = claims["iat"]
     expires_at = claims["exp"]
@@ -300,10 +369,4 @@ def verify(
     if not isinstance(assertion_id, str):
         raise SupervisorDeniedError("Local Supervisor assertion is invalid")
     guard.consume(assertion_id, expires_at, now=current)
-    return Evidence(
-        supervisor_id=str(claims["sub"]),
-        authority_kind=str(claims["authority"]),
-        authority_digest=str(claims["authority_sha256"]),
-        assertion_id=assertion_id,
-        expires_at=expires_at,
-    )
+    return assertion_id, expires_at

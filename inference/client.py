@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 from core import strict_json
 from inference import usage as brain_usage
 from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import routine as http_routine
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
@@ -97,6 +98,10 @@ class RuntimeContext:
     memories: tuple[dict[str, str], ...] | None = None
     # The learned skills usable in this turn (ADR-0085); None where learning is unavailable.
     skills: tuple[dict[str, object], ...] | None = None
+    # The Team's Routines as data (ADR-0086); None withholds the Brain's Routine tool.
+    routines: tuple[dict[str, object], ...] | None = None
+    # False in a Routine run, whose memory and skills the Brain may read but never change.
+    knowledge_writable: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +121,8 @@ class RuntimeTurn:
     clarification: dict[str, object] | None = None
     # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
     memory: tuple[dict[str, str], ...] = ()
+    # The one Routine change a completed turn proposed and the Brain's check confirmed (ADR-0086), or None.
+    routine: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +329,8 @@ class BrainRuntimeClient:
             },
             "memories": None if context.memories is None else [dict(entry) for entry in context.memories],
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
+            "routines": None if context.routines is None else [dict(item) for item in context.routines],
+            "knowledge_writable": context.knowledge_writable,
         }
 
     def _post(self, path: str, payload: Mapping[str, object]) -> object:
@@ -377,10 +386,20 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
-        if not isinstance(value, dict) or set(value) != {"status", "reply", "actions", "clarification", "memory"}:
+        if not isinstance(value, dict) or set(value) != {
+            "status",
+            "reply",
+            "actions",
+            "clarification",
+            "memory",
+            "routine",
+        }:
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         memory = http_payload.canonical_memory_changes(value["memory"])
         if memory is None or (memory and value["status"] != "completed"):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        routine = None if value["routine"] is None else http_routine.canonical_routine_change(value["routine"])
+        if (value["routine"] is not None and routine is None) or (routine and value["status"] != "completed"):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         clarification = value["clarification"]
         if clarification is not None:
@@ -442,7 +461,12 @@ class BrainRuntimeClient:
         if status == "action-required" and (reply or not actions):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return RuntimeTurn(
-            status=status, reply=reply, actions=tuple(actions), clarification=clarification, memory=tuple(memory)
+            status=status,
+            reply=reply,
+            actions=tuple(actions),
+            clarification=clarification,
+            memory=tuple(memory),
+            routine=routine,
         )
 
     @staticmethod

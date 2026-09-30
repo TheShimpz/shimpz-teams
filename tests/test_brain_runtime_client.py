@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import secrets
 import tempfile
@@ -22,9 +23,11 @@ class _Response:
         self.status = status
         if isinstance(payload, dict) and usage is not None and "usage" not in payload:
             payload = {**payload, "usage": usage}
-        # A turn response always carries its memory changes; a test that checks that field states it itself.
+        # A turn response always carries its memory and Routine changes; a test that checks one states it itself.
         if isinstance(payload, dict) and {"reply", "actions"} <= set(payload) and "memory" not in payload:
             payload = {**payload, "memory": []}
+        if isinstance(payload, dict) and {"reply", "actions"} <= set(payload) and "routine" not in payload:
+            payload = {**payload, "routine": None}
         self._raw = raw if raw is not None else json.dumps(payload).encode()
 
     def read(self, _maximum: int) -> bytes:
@@ -522,6 +525,45 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         )
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.start(context(self.secret), "Quais modelos?", conversation=())
+
+    def test_a_completed_turn_carries_at_most_one_closed_routine_change(self):
+        proposal = {
+            "op": "propose",
+            "quote": "Toda segunda às 9h, confira o DNS",
+            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
+            "timezone": None,
+            "routine_id": None,
+        }
+        client, connection = self.client(
+            _Response(
+                {"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": proposal}
+            )
+        )
+        routines = (
+            {
+                "routine_id": "a" * 32,
+                "quote": "x" * 8,
+                "schedule": {"kind": "daily", "time": "08:00"},
+                "timezone": "UTC",
+            },
+        )
+        chat = dataclasses.replace(context(self.secret), routines=routines)
+        self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, proposal)
+        sent = json.loads(connection.requests[0][2])
+        self.assertEqual((sent["routines"], sent["knowledge_writable"]), ([dict(routines[0])], True))
+        for routine, status in (({**proposal, "extra": 1}, "completed"), (proposal, "action-required")):
+            actions = (
+                []
+                if status == "completed"
+                else [{"interrupt_id": "i", "assistant_id": "a", "action": "b", "input": {}}]
+            )
+            client, _connection = self.client(
+                _Response(
+                    {"status": status, "clarification": None, "reply": "Ok.", "actions": actions, "routine": routine}
+                )
+            )
+            with self.subTest(status=status), self.assertRaises(brain_runtime_client.BrainRuntimeError):
+                client.start(context(self.secret), "Toda segunda", conversation=())
 
     def test_malformed_runtime_responses_fail_closed(self):
         invalid = (

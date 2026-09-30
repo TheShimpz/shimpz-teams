@@ -44,7 +44,7 @@ def two_runs() -> tuple[record.TeamRoutines, str]:
     """One run that bound its generation and one that has not started a segment yet."""
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine("a" * 32)), routine("b" * 32))
     state, bound = record.claim(state, NINE, KEY)
-    state = record.bind_generation(state, bound.run.run_id, record.Lease(bound.lease_token, KEY), NINE, NETWORK)
+    state = record.bind_generation(state, bound.run.run_id, record.lease_of(bound.lease_token, KEY), NINE, NETWORK)
     state, _fresh = record.claim(state, NINE, KEY)
     return state, bound.run.run_id
 

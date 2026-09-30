@@ -29,6 +29,7 @@ from local.chat import segment as local_chat_segment
 from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from routine import record as routine_record
 
 hosted_app = hosted_harness.app
 
@@ -99,6 +100,7 @@ def _local_controller(local_active, config, events: list[str], fail):
         metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
     )
     controller.inference_store = SimpleNamespace(load=lambda _team_id: config, load_knowledge=lambda _team_id: ([], []))
+    controller.routine_store = SimpleNamespace(load=lambda _team_id: routine_record.TeamRoutines())
     controller._wire_collaborators()
     controller.assistant_lifecycle._network = lambda _team_id: SimpleNamespace(id="a" * 64, name="team-network")
     controller.assistant_lifecycle._validate_network = lambda _network, _team_id, **_kwargs: "Team"

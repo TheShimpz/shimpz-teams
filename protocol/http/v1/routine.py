@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import re
+import unicodedata
 from fractions import Fraction
 
 MAX_ROUTINES = 8
@@ -52,6 +53,22 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
         return None
     valid = _whole(value["every"], 1, 24) if value["kind"] == "hourly" else _wall_clock(value)
     return dict(value) if valid else None
+
+
+def canonical_quote(value: object) -> str | None:
+    """The user's quoted request: NFC, one line, no control characters, trimmed, 1 to 500 characters."""
+    if (
+        not isinstance(value, str)
+        or not 0 < len(value) <= MAX_ROUTINE_QUOTE_CHARS
+        or unicodedata.normalize("NFC", value) != value
+        or value.strip() != value
+        or any(
+            unicodedata.category(character)[0] == "C" or unicodedata.category(character) in {"Zl", "Zp"}
+            for character in value
+        )
+    ):
+        return None
+    return value
 
 
 def canonical_timezone(value: object) -> str | None:
@@ -119,3 +136,24 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
     if not isinstance(outcome, str) or outcome not in OUTCOMES or not isinstance(detail, dict):
         return None
     return copy.deepcopy(detail) if _detail_valid(outcome, detail) else None
+
+
+def canonical_routine_change(value: object) -> dict[str, object] | None:
+    """The exact Routine change a Brain turn proposes, or None: propose with a schedule, or cancel a Routine by id."""
+    if not isinstance(value, dict) or set(value) != {"op", "quote", "schedule", "timezone", "routine_id"}:
+        return None
+    op, timezone, routine_id = value["op"], value["timezone"], value["routine_id"]
+    if canonical_quote(value["quote"]) is None:
+        return None
+    if op == "propose":
+        schedule = canonical_schedule(value["schedule"])
+        valid = schedule is not None and routine_id is None and (timezone is None or canonical_timezone(timezone))
+        return {**value, "schedule": schedule} if valid else None
+    valid = (
+        op == "cancel"
+        and value["schedule"] is None
+        and timezone is None
+        and isinstance(routine_id, str)
+        and ROUTINE_ID_RE.fullmatch(routine_id) is not None
+    )
+    return dict(value) if valid else None

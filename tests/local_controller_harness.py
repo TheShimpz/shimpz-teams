@@ -25,6 +25,7 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from local.routine import store as local_routine_store
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
@@ -82,6 +83,9 @@ class LocalContractCase(unittest.TestCase):
         controller.storage = SimpleNamespace(
             metadata=lambda _team_id, _files, _connection=None: [],
             metadata_connection=lambda _team_id, _files: nullcontext(None),
+        )
+        controller.routine_store = local_routine_store.RoutineStore(
+            Path(directory) / "routines" / "state", Path(directory) / "routines" / "key" / "aes256.key"
         )
         controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
         controller.inference_store.save(

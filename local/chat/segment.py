@@ -16,6 +16,20 @@ from local import inference as local_inference
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.validation import brain_thread_id as _brain_thread_id
+from local.validation import routine_thread_id as _routine_thread_id
+from routine import record as routine_record
+
+
+@dataclass(frozen=True, slots=True)
+class RoutineSegment:
+    """One Routine run: the journal generation it bound, and ``batches``, which receives the held batch it prepares.
+
+    Its Brain thread and generation are both derived from the run id in the Team's current network, never supplied.
+    """
+
+    run_id: str
+    generation: str
+    batches: list[action_execution.HeldActionBatch] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +48,9 @@ class SegmentRequest:
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
+    # A Routine run (ADR-0086) runs in its own Brain thread and journal generation, both in the Team's current network,
+    # and holds an uncertain batch for a human instead of abandoning it.
+    routine: RoutineSegment | None = None
 
 
 def _run_chat_segment(
@@ -95,9 +112,17 @@ def _run_chat_segment_with_metadata(
             metadata_connection,
         )
         identity = self._chat_identity(team_name, network_id, assistants, files, config)
+        routine = request.routine
+        generation, thread_id = network_id, _brain_thread_id(self.space_id, request.team_id, network_id)
+        if routine is not None:
+            generation = routine_record.generation_for(network_id, routine.run_id)
+            thread_id = _routine_thread_id(self.space_id, request.team_id, network_id, routine.run_id)
+            if generation != routine.generation:
+                # The Team network changed since the run bound its generation: nothing may run in another network.
+                self._raise_chat_problem("context-changed", None)
         if request.continuation is None:
             try:
-                self.action_state.purge_replayable(network_id)
+                self.action_state.purge_replayable(generation)
             except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
@@ -121,8 +146,9 @@ def _run_chat_segment_with_metadata(
             )
             for active in assistants
         )
+        routines = None if routine is not None else self._chat_routines(request.team_id)
         context = brain_runtime_client.RuntimeContext(
-            thread_id=_brain_thread_id(self.space_id, request.team_id, network_id),
+            thread_id=thread_id,
             team_name=team_name,
             assistants=runtime_assistants,
             provider=config.provider,
@@ -131,11 +157,13 @@ def _run_chat_segment_with_metadata(
             effort=config.effort,
             memories=tuple(memories),
             skills=chat_knowledge.turn_skills(skills, runtime_assistants),
+            routines=routines,
+            knowledge_writable=routine is None,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
-        batch = action_execution.ActionBatch(
+        batch = (action_execution.ActionBatch if routine is None else action_execution.HeldActionBatch)(
             self.action_state,
-            network_id,
+            generation,
             context.thread_id,
             bindings,
             action_execution.ActionBatchStrategy(
@@ -159,6 +187,8 @@ def _run_chat_segment_with_metadata(
                 ),
             ),
         )
+        if routine is not None:
+            routine.batches.append(batch)
         return chat_turn_engine.PreparedSegment(team_name, identity, context, files, batch)
 
     def private_inputs(

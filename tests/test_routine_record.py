@@ -54,7 +54,7 @@ def at(state: record.TeamRoutines, routine_id: str, next_run_at: int) -> record.
 
 def claimed(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
     state, claim = record.claim(at(added(routine()), "a" * 32, NINE), now, KEY)
-    return state, claim, record.Lease(claim.lease_token, KEY)
+    return state, claim, record.lease_of(claim.lease_token, KEY)
 
 
 def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Lease]:
@@ -112,6 +112,48 @@ class ContractTests(unittest.TestCase):
                 self.assertIsNone(http_routine.canonical_notice_detail(outcome, detail))
 
 
+class ChangeContractTests(unittest.TestCase):
+    def test_a_brain_routine_change_is_one_closed_propose_or_cancel(self):
+        propose = {
+            "op": "propose",
+            "quote": "Every Monday at 9, check the DNS",
+            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
+            "timezone": None,
+            "routine_id": None,
+        }
+        cancel = {
+            "op": "cancel",
+            "quote": "stop the daily summary",
+            "schedule": None,
+            "timezone": None,
+            "routine_id": "a" * 32,
+        }
+        for value in (propose, {**propose, "timezone": "Europe/Lisbon"}, cancel):
+            with self.subTest(value=value):
+                self.assertEqual(http_routine.canonical_routine_change(value), value)
+        for value in (
+            None,
+            {**propose, "extra": 1},
+            {**propose, "quote": 7},
+            {**propose, "quote": ""},
+            {**propose, "quote": " padded "},
+            {**propose, "quote": "x" * 501},
+            {**propose, "quote": "check\nthe DNS"},
+            {**propose, "quote": "check\u2028the DNS"},
+            {**propose, "quote": "Cafe\u0301 check"},
+            {**propose, "schedule": {"kind": "daily"}},
+            {**propose, "routine_id": "a" * 32},
+            {**propose, "timezone": "../etc"},
+            {**cancel, "schedule": propose["schedule"]},
+            {**cancel, "timezone": "UTC"},
+            {**cancel, "routine_id": ["a" * 32]},
+            {**cancel, "routine_id": "A" * 32},
+            {**cancel, "op": "pause"},
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(http_routine.canonical_routine_change(value))
+
+
 class AddTests(unittest.TestCase):
     def test_only_a_closed_routine_is_admitted_and_it_is_copied(self):
         schedule = dict(DAILY)
@@ -126,6 +168,7 @@ class AddTests(unittest.TestCase):
             dataclasses.replace(good, routine_id="A" * 32),
             dataclasses.replace(good, quote=""),
             dataclasses.replace(good, quote="x" * 501),
+            dataclasses.replace(good, quote="Every day\nat 9"),
             dataclasses.replace(good, schedule={"kind": "daily", "time": "25:00"}),
             dataclasses.replace(good, timezone="Mars/Olympus"),
             dataclasses.replace(good, assistants=()),
@@ -169,14 +212,14 @@ class ClaimTests(unittest.TestCase):
         # A second claim on the same state finds nothing: the Routine never overlaps, even when due again.
         self.assertIsNone(record.claim(state, epoch(2026, 10, 2, 9), KEY)[1])
         value = record.run(state, claim.run.run_id)
-        record.require_lease(value, claim.lease_token, KEY, NINE + 1)
+        record.require_lease(value, record.lease_of(claim.lease_token, KEY), NINE + 1)
         for token, key, now in (
             ("other", KEY, NINE + 1),
             (claim.lease_token, "f" * 64, NINE + 1),
             (claim.lease_token, KEY, NINE + record.LEASE_SECONDS),
         ):
             with self.subTest(key=key, now=now), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-                record.require_lease(value, token, key, now)
+                record.require_lease(value, record.lease_of(token, key), now)
         self.assertEqual(record.rekeyed(state, "f" * 64), (value,))
         self.assertEqual(record.rekeyed(state, KEY), ())
 
@@ -272,7 +315,7 @@ class RunLifecycleTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         expired = NINE + record.LEASE_SECONDS
-        forged = record.Lease("forged", KEY)
+        forged = record.lease_of("forged", KEY)
         attempts = (
             lambda value: record.spend(state, run_id, value, NINE + 1, 1),
             lambda value: record.freeze(state, run_id, value, NINE + 1, "human", "dns", "replace-dns-record"),
@@ -316,8 +359,8 @@ class RunLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-running"):
             record.freeze(state, run_id, lease, NINE, "human", "dns", "replace-dns-record")
         state, token = record.thaw(state, run_id, NINE + 50)
-        human = record.Lease(token, record.HUMAN_LEASE)
-        record.require_lease(record.run(state, run_id), token, record.HUMAN_LEASE, NINE + 51)
+        human = record.lease_of(token, record.HUMAN_LEASE)
+        record.require_lease(record.run(state, run_id), record.lease_of(token, record.HUMAN_LEASE), NINE + 51)
         self.assertEqual(record.rekeyed(state, "f" * 64), ())
         state = record.spend(state, run_id, human, NINE + 51, 10)
         self.assertEqual(record.run(state, run_id).active_seconds_left, 560)
@@ -424,7 +467,9 @@ class RunLifecycleTests(unittest.TestCase):
         spent = record.spend(state, claim.run.run_id, lease, NINE, record.ACTIVE_SECONDS)
         self.assertEqual([item.run_id for item in record.expired(spent, NINE + 10)], [claim.run.run_id])
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            record.require_lease(record.run(spent, claim.run.run_id), claim.lease_token, KEY, NINE + 10)
+            record.require_lease(
+                record.run(spent, claim.run.run_id), record.lease_of(claim.lease_token, KEY), NINE + 10
+            )
         self.assertEqual(len(record.expired(state, NINE + record.LEASE_SECONDS)), 1)
 
     def test_deletion_keeps_runs_until_they_end_and_keeps_notices(self):

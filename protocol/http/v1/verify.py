@@ -56,6 +56,22 @@ for case in supervisor_vectors.get("invalid", []):
     except supervisor.SupervisorAssertionError:
         continue
     fail("Team HTTP Local Supervisor negative vector differs")
+routine_vectors = vectors.get("local_routine", {})
+if not routine_vectors.get("valid") or not routine_vectors.get("invalid"):
+    fail("Team HTTP Local Routine vectors are missing")
+for case in routine_vectors["valid"]:
+    try:
+        admitted = supervisor.canonical_claims(case, audience=supervisor.ROUTINE_AUDIENCE)
+    except supervisor.SupervisorAssertionError:
+        admitted = None
+    if admitted != case:
+        fail("Team HTTP Local Routine positive vector differs")
+for case in routine_vectors["invalid"]:
+    try:
+        supervisor.canonical_claims(case, audience=supervisor.ROUTINE_AUDIENCE)
+    except supervisor.SupervisorAssertionError:
+        continue
+    fail("Team HTTP Local Routine negative vector differs")
 for case in vectors.get("frames", []):
     message = dict(case["message"])
     if "bytes_hex" in message:
@@ -207,5 +223,13 @@ if any(routine.canonical_timezone(value) != value for value in timezones["valid"
     fail("a valid routine timezone vector was not admitted exactly")
 if any(routine.canonical_timezone(value) is not None for value in timezones["invalid"]):
     fail("an invalid routine timezone vector was admitted")
+
+changes = vectors.get("routine_change", {})
+if not changes.get("valid") or not changes.get("invalid"):
+    fail("routine change vectors are missing")
+if any(routine.canonical_routine_change(value) != value for value in changes["valid"]):
+    fail("a valid routine change vector was not admitted exactly")
+if any(routine.canonical_routine_change(value) is not None for value in changes["invalid"]):
+    fail("an invalid routine change vector was admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")
