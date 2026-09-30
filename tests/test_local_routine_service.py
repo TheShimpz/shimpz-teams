@@ -27,6 +27,8 @@ from routine import record
 
 KEY = "e" * 64
 API_KEY = "sk-test-0123456789"
+# SHA-256 of API_KEY, written out so tests check the fingerprint the boundary binds instead of recomputing it.
+API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
 ASSISTANT = "shimpz-cloudflare"
 CHANGE = {
     "op": "propose",

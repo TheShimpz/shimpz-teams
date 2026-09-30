@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
 from test_local_routine_service import (
     API_KEY,
+    API_KEY_SHA256,
     ASSISTANT,
     CHANGE,
     RoutineServiceCase,
@@ -107,7 +108,7 @@ class RoutineHttpCase(RoutineServiceCase):
             method="POST",
             path=path,
             body={"kind": "json", "length": len(EMPTY), "sha256": hashlib.sha256(EMPTY).hexdigest()},
-            model={"provider": "openai", "key_sha256": hashlib.sha256(API_KEY.encode("ascii")).hexdigest()},
+            model={"provider": "openai", "key_sha256": API_KEY_SHA256},
         )
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
         payload = _segment(contract.claims_json(claims, audience=contract.ROUTINE_AUDIENCE))

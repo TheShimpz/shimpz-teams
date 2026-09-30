@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import unittest
 from email.message import Message
 from http import HTTPStatus
@@ -19,6 +18,9 @@ from local.http import server
 from local.http import stream as local_http_stream
 
 TEST_TOKEN = "t" * 32
+# SHA-256 of the fixture model key "a" * 32, written out so the test checks the fingerprint the boundary emits
+# instead of recomputing it from the key.
+MODEL_KEY_SHA256 = "3ba3f5f43b92602683c19aee62a20342b084dd5971ddd33808d81a328879a547"
 
 
 class LocalHttpEdgeHelpers:
@@ -189,15 +191,15 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.headers.add_header("X-Shimpz-Model-Api-Key", api_key)
         self.assertEqual(
             handler._model_binding("assistant-action-labels"),
-            {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
+            {"provider": "openai", "key_sha256": MODEL_KEY_SHA256},
         )
         self.assertEqual(
             handler._model_binding("chat-capability-plan"),
-            {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
+            {"provider": "openai", "key_sha256": MODEL_KEY_SHA256},
         )
         self.assertEqual(
             handler._model_binding("chat-intent-route"),
-            {"provider": "openai", "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest()},
+            {"provider": "openai", "key_sha256": MODEL_KEY_SHA256},
         )
         self.assertIsNone(handler._model_binding("assistant-list"))
 

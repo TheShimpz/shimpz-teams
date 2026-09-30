@@ -236,17 +236,6 @@ def _request_body(
     }
 
 
-def _request_model(headers: dict[str, str]) -> dict[str, str] | None:
-    provider = headers.get("X-Shimpz-Model-Provider")
-    api_key = headers.get("X-Shimpz-Model-Api-Key")
-    if provider is None or api_key is None:
-        return None
-    return {
-        "provider": provider,
-        "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
-    }
-
-
 def supervisor_header(
     flow: DockerFlow,
     method: str,
@@ -271,9 +260,6 @@ def supervisor_header(
         "path": path,
         "body": _request_body(encoded, headers),
     }
-    model = _request_model(headers)
-    if model is not None:
-        claims["model"] = model
     header = _segment(supervisor_contract.canonical_json(supervisor_contract.JWT_HEADER))
     payload = _segment(supervisor_contract.claims_json(claims))
     signing_input = f"{header}.{payload}".encode("ascii")
