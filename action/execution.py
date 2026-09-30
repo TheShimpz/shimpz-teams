@@ -286,10 +286,16 @@ class HeldActionBatch(ActionBatch):
     """
 
     held: str = ""
+    held_actions: tuple[tuple[str, str], ...] = ()
+
+    def prepare(self, requests: tuple[object, ...]) -> None:
+        super().prepare(requests)
+        self._names = {request.interrupt_id: (request.assistant_id, request.action) for request in requests}
 
     def abandon_uncertain(self) -> bool:
         if self._journal is not None and self._batch is not None and self._executing_here:
             self.held = self._batch.fingerprint
+            self.held_actions = tuple(sorted(self._names[interrupt] for interrupt in self._executing_here))
         return False
 
 

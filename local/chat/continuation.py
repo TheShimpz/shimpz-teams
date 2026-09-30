@@ -616,6 +616,11 @@ def decode(
     return _decoded(stored.kind, stored.payload, stored.bindings)
 
 
+def decode_parts(kind: str, payload: bytes, bindings: tuple[str, ...]) -> DecodedContinuation:
+    """Decode a continuation another store kept, such as a frozen Routine run's, with its release bindings."""
+    return _decoded(kind, payload, bindings)
+
+
 def _decoded(kind: str, payload: bytes, bindings: tuple[str, ...]) -> DecodedContinuation:
     body = _decode_payload(payload)
     if body["schema"] != SCHEMA_VERSION or body["kind"] != kind:

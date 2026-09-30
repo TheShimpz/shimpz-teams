@@ -50,6 +50,8 @@ class SegmentResult:
     outcome: chat_orchestrator.ChatOutcome | chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension
     integrations: tuple[object, ...]
     human: tuple[object, ...] = ()
+    # The exact contract digest of each Assistant the Brain saw in this segment, for binding a Routine proposal.
+    contracts: tuple[tuple[str, str], ...] = ()
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
         return self.integrations, self.human

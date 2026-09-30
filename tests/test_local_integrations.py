@@ -634,7 +634,14 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             )
 
             self.assertEqual(
-                response, {"team_id": "team_1", "team_name": "Team One", "reply": "Done", "clarification": None}
+                response,
+                {
+                    "team_id": "team_1",
+                    "team_name": "Team One",
+                    "reply": "Done",
+                    "clarification": None,
+                    "routine_proposal": None,
+                },
             )
             self.assertIsNone(controller.integration_challenges.current("team_1"))
             with self.assertRaises(local_app.ApiProblem) as replay:
@@ -648,7 +655,13 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
 
     def test_chat_integration_routes_are_exact(self) -> None:
         pending = {"team_id": "team_1", "status": "integrations-required"}
-        completed = {"team_id": "team_1", "team_name": "Team One", "reply": "Done", "clarification": None}
+        completed = {
+            "team_id": "team_1",
+            "team_name": "Team One",
+            "reply": "Done",
+            "clarification": None,
+            "routine_proposal": None,
+        }
         chat_turn_service = SimpleNamespace(
             pending_chat_integrations=lambda team_id: pending,
             resume_chat_integrations=lambda team_id, body, provider, api_key, progress: completed,

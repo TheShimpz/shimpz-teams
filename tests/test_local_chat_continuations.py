@@ -79,6 +79,8 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.kind, kind)
         self.assertEqual(decoded.requirements, requirements)
         self.assertEqual(decoded.pending, pending())
+        # A frozen Routine run keeps the same parts in its own store and decodes them identically.
+        self.assertEqual(local_chat_continuations.decode_parts(kind, payload, bindings), decoded)
 
     def test_rejects_an_invoked_action_whose_skill_structure_is_malformed(self) -> None:
         requirements = (

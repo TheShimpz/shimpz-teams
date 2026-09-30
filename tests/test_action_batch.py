@@ -280,6 +280,7 @@ class HeldActionBatchTests(unittest.TestCase):
                 batch.invoke(request)
             self.assertFalse(batch.abandon_uncertain())
             self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
+            self.assertEqual(batch.held_actions, (("assistant", "write"),))
             # The journal still holds the uncertain batch: its replay purge refuses to release it.
             self.assertFalse(journal.purge_replayable("net:routine:" + "f" * 32))
             with closing(sqlite3.connect(journal.path)) as connection:

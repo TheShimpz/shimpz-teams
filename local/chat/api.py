@@ -70,13 +70,23 @@ def _segment_response(
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        if not self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal)):
+        # A proposed Routine is only an offer: a Local Supervisor must confirm it before anything is scheduled. It is
+        # bound before the reply commits, and withdrawn when Stop wins the commit.
+        proposal = self._routine_proposal(response, terminal.routine)
+        try:
+            committed = self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
+        except BaseException:
+            self._withdraw_routine_proposal(team_id, proposal)
+            raise
+        if not committed:
+            self._withdraw_routine_proposal(team_id, proposal)
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
         return {
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply,
             "clarification": terminal.clarification,
+            "routine_proposal": proposal,
         }
 
     try:

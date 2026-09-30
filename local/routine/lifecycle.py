@@ -23,6 +23,7 @@ def delete_team_routines(self, team_id: str) -> None:
     """
     with self.routine_store.lock(team_id):
         _delete_team_routines(self, team_id)
+    self.routine_proposals.drop_team(team_id)
 
 
 def _delete_team_routines(self, team_id: str) -> None:
@@ -53,7 +54,7 @@ def delete_all_routines(self) -> None:
 
     The store is exclusive for the whole reset: writes in flight finish first and every later one is refused.
     """
-    with self.routine_store.exclusive():
+    with self.routine_store.exclusive(), self.routine_proposals.fenced():
         try:
             teams = self.routine_store.teams()
         except routine_store.RoutineStoreError as exc:

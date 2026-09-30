@@ -161,6 +161,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _cancelled_chat_tokens=set(),
             _active_action_containers={"team_1": ("token", container)},
             _brain_aborts={"token": (brain_abort := mock.Mock())},
+            _routine_holders={},
         )
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertTrue(result["accepted"])
@@ -173,6 +174,17 @@ class LocalLeafContractTests(unittest.TestCase):
         controller._active_action_containers = {"team_1": ("other-token", container)}
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertFalse(result["confirmed"])
+
+        # A Routine run holding the Team's slot has its own exact Stop: chat Stop never cancels or aborts it.
+        brain_abort.reset_mock()
+        controller._cancelled_chat_tokens.clear()
+        controller._active_action_containers = {"team_1": ("token", container)}
+        controller._routine_holders = {"team_1": "a" * 32}
+        result = chat_resume.stop_chat(controller, "team_1")
+        self.assertEqual(
+            (result["accepted"], result["confirmed"], controller._cancelled_chat_tokens), (False, False, set())
+        )
+        brain_abort.abort.assert_not_called()
 
         controller._active_chat_tokens = {}
         controller._active_action_containers = {}

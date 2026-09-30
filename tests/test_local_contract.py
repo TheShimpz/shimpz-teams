@@ -23,6 +23,7 @@ from local import healthcheck as local_healthcheck
 from local import token as local_token_store
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
+from local.chat import service as local_chat_service
 from local.http import server as local_http
 from local.validation import validate_model_credential_headers
 
@@ -313,12 +314,12 @@ class LocalContractTests(LocalContractCase):
             local_app.local_assistant_lifecycle,
             local_app.local_assistant_resources,
             local_app.local_assistant_rpc,
-            local_app.local_chat_api,
+            local_chat_service.local_chat_api,
             local_app.local_chat_execution,
-            local_app.local_chat_pause,
-            local_app.local_chat_private,
-            local_app.local_chat_resume,
-            local_app.local_chat_segment,
+            local_chat_service.local_chat_pause,
+            local_chat_service.local_chat_private,
+            local_chat_service.local_chat_resume,
+            local_chat_service.local_chat_segment,
             local_app.local_chat_state,
             local_app.local_egress,
             local_app.local_team_lifecycle,

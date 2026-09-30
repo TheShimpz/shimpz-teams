@@ -53,6 +53,18 @@ class SegmentRequest:
     routine: RoutineSegment | None = None
 
 
+def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
+    """The Assistant exactly as a Brain turn sees it; its contract digest pins skills and Routines."""
+    return brain_runtime_client.RuntimeAssistant(
+        id=active.spec.assistant_id,
+        genesis=genesis,
+        actions=tuple(
+            brain_runtime_client.RuntimeAction(id=action_id, summary=action.summary, input_schema=action.input_schema)
+            for action_id, action in sorted(active.spec.actions.items())
+        ),
+    )
+
+
 def _run_chat_segment(
     self,
     request: SegmentRequest,
@@ -69,6 +81,7 @@ def _run_chat_segment_with_metadata(
     bindings: dict[str, _ActiveAssistant] = {}
     identity: tuple[object, ...] = ()
     network_id = ""
+    contracts: tuple[tuple[str, str], ...] = ()
 
     def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
         active = _required_active_assistant(bindings, action_request.assistant_id)
@@ -103,7 +116,7 @@ def _run_chat_segment_with_metadata(
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, identity, network_id
+        nonlocal bindings, identity, network_id, contracts
         team_name, network_id, assistants, files, config = self._chat_setup(
             request.team_id,
             request.file_ids,
@@ -132,19 +145,10 @@ def _run_chat_segment_with_metadata(
         except inference_config.InferenceConfigError as exc:
             local_inference._raise_inference_problem(exc)
         runtime_assistants = tuple(
-            brain_runtime_client.RuntimeAssistant(
-                id=active.spec.assistant_id,
-                genesis=genesis_by_id[active.spec.assistant_id],
-                actions=tuple(
-                    brain_runtime_client.RuntimeAction(
-                        id=action_id,
-                        summary=action.summary,
-                        input_schema=action.input_schema,
-                    )
-                    for action_id, action in sorted(active.spec.actions.items())
-                ),
-            )
-            for active in assistants
+            runtime_assistant(active, genesis_by_id[active.spec.assistant_id]) for active in assistants
+        )
+        contracts = tuple(
+            sorted((assistant.id, brain_runtime_client.contract_digest(assistant)) for assistant in runtime_assistants)
         )
         routines = None if routine is not None else self._chat_routines(request.team_id)
         context = brain_runtime_client.RuntimeContext(
@@ -235,4 +239,5 @@ def _run_chat_segment_with_metadata(
         outcome,
         requirements.integrations,
         requirements.human,
+        contracts,
     )

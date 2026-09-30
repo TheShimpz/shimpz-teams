@@ -594,6 +594,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("action-purge", generation)))
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -683,6 +684,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -736,6 +738,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=fail_purge)
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -822,7 +825,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
 
         self.assertEqual(invoked, [("team_1", "shimpz-cloudflare", LOOKUP_INPUT)])
         self.assertEqual(
-            response, {"team_id": "team_1", "team_name": "Marketing", "reply": "Done", "clarification": None}
+            response,
+            {
+                "team_id": "team_1",
+                "team_name": "Marketing",
+                "reply": "Done",
+                "clarification": None,
+                "routine_proposal": None,
+            },
         )
 
     def test_chat_reuses_a_completed_action_after_resume_failure_then_delivers(self) -> None:

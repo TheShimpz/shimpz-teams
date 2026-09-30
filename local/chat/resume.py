@@ -15,7 +15,8 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
     action_stopped = False
     active_action = None
     with self._active_chat_guard:
-        token = self._active_chat_tokens.get(team_id)
+        # A Routine run holding the Team's slot has its own exact Stop; chat Stop never reaches it (ADR-0086).
+        token = None if team_id in self._routine_holders else self._active_chat_tokens.get(team_id)
         if token is not None:
             self._cancelled_chat_tokens.add(token)
         active = self._active_action_containers.get(team_id)
