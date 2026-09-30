@@ -160,6 +160,8 @@ class TamperTests(StoreCase):
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
+            "held actions on a live run": lambda value: value["runs"][frozen].update(held_actions=[["dns", "x"]]),
+            "held action shape": lambda value: value["runs"][uncertain].update(held_actions=[["dns"]]),
             "discard shape": lambda value: value["discards"][0].append("x"),
             "discard run": lambda value: value["discards"][0].__setitem__(0, "not-a-run"),
             "discard of another generation": lambda value: value["discards"][0].__setitem__(

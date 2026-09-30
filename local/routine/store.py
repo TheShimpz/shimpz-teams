@@ -71,6 +71,7 @@ _RUN_FIELDS = frozenset(
         "generation",
         "batch",
         "notice_version",
+        "held_actions",
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version"})
@@ -127,6 +128,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
     def run_value(item: record.Run) -> dict[str, object]:
         value = {name: getattr(item, name) for name in _RUN_FIELDS}
         value["batch"] = list(item.batch)
+        value["held_actions"] = [list(pair) for pair in item.held_actions]
         return value
 
     payload = {
@@ -200,6 +202,8 @@ def _decode_run(value: object) -> record.Run:
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and type(value["notice_version"]) is int
         and value["notice_version"] >= 0
+        and http_routine.canonical_notice_detail("uncertain", {"actions": value["held_actions"]}) is not None
+        and (value["status"] == "uncertain" or value["held_actions"] == [])
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     no_request = value["request_kind"] == "" and value["assistant_id"] == "" and value["action"] == ""
@@ -238,6 +242,7 @@ def _decode_run(value: object) -> record.Run:
         generation=value["generation"],
         batch=(batch[0], batch[1]),
         notice_version=value["notice_version"],
+        held_actions=tuple((pair[0], pair[1]) for pair in value["held_actions"]),
     )
 
 

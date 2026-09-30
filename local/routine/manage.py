@@ -52,6 +52,7 @@ def run_view(value: record.Run) -> dict[str, object]:
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
         "batch_fingerprint": value.batch[1] or None,
+        "actions": [list(pair) for pair in value.held_actions],
     }
 
 

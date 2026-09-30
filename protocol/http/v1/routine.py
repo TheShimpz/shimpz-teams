@@ -285,9 +285,9 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
 
 
 def canonical_run_view(value: object) -> dict[str, object] | None:
-    """One live run: a frozen run names its request, an uncertain one its exact batch, a leased one neither."""
+    """One live run: a frozen run names its request, an uncertain one its batch and the Actions it may have run."""
     fields = {"run_id", "routine_id", "status", "scheduled_at", "request_kind", "assistant_id", "action"}
-    if not isinstance(value, dict) or set(value) != fields | {"batch_fingerprint"}:
+    if not isinstance(value, dict) or set(value) != fields | {"batch_fingerprint", "actions"}:
         return None
     status = value["status"]
     request = (value["request_kind"], value["assistant_id"], value["action"])
@@ -306,6 +306,8 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
             if status == "uncertain"
             else isinstance(status, str) and status in RUN_STATUSES and value["batch_fingerprint"] is None
         )
+        and _actions(value["actions"])
+        and (status == "uncertain" or value["actions"] == [])
     )
     return copy.deepcopy(value) if valid else None
 

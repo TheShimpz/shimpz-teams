@@ -201,6 +201,9 @@ class FrozenFaultTests(RoutineServiceCase):
                 API_KEY,
             )
             self.assertEqual(resumed["status"], "uncertain")
+            # The Supervisor who resolves it sees the Actions whose effects are unknown.
+            (held,) = service.list_routines("team_1")["runs"]
+            self.assertEqual((held["status"], held["actions"]), ("uncertain", [[ASSISTANT, "list-zones"]]))
 
     def test_deleting_a_routine_stops_its_frozen_run_and_the_watchdog_keeps_a_frozen_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -80,6 +80,9 @@ class Run:
     batch: tuple[str, str] = ("", "")
     # A run has one notice, keyed by its id; each freeze and its end update it, so Admin replaces one transcript row.
     notice_version: int = 0
+    # The Assistant Actions an uncertain run's batch may have run, shown to the Supervisor who resolves it; empty when
+    # recovery after a restart cannot know them.
+    held_actions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,6 +496,7 @@ def _hold(state: TeamRoutines, value: Run, fingerprint: str, now: int, detail: d
         lease_key="",
         lease_expires_at=0,
         batch=(value.generation, fingerprint),
+        held_actions=tuple((assistant, action) for assistant, action in detail["actions"]),
     )
     return _replace_run(state, held)
 
