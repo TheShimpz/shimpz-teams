@@ -18,6 +18,10 @@ from local.http import server
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as contract
 
+# SHA-256 of the fixture model key "sk-test-0123456789", written out so the test checks the fingerprint
+# the boundary emits instead of recomputing it from the key.
+API_KEY_SHA256 = "0d3b560722915d2f931a4c4100a00ecbce063d121e577e6b93bbbe7c05f23ad6"
+
 
 class LocalSupervisorHttpTests(unittest.TestCase):
     @staticmethod
@@ -267,7 +271,7 @@ class LocalSupervisorHttpTests(unittest.TestCase):
             verify.call_args.kwargs["request"].model,
             {
                 "provider": "openai",
-                "key_sha256": hashlib.sha256(api_key.encode("ascii")).hexdigest(),
+                "key_sha256": API_KEY_SHA256,
             },
         )
         chat.assert_called_once()
