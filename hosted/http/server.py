@@ -509,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def _route_assistant_integration_complete(self) -> None:
-        result, owner = hosted_chat_api._complete_oauth_integration(self._read_body())
+        result, owner = hosted_chat_api._complete_integration_callback(self._read_body())
         self._audit_security(
             "assistant_integration_complete",
             result["team_id"],

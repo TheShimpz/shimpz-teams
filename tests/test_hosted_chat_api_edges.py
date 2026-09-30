@@ -210,7 +210,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            api._complete_oauth_integration(body)
+            api._complete_integration_callback(body)
 
         completion = SimpleNamespace(
             team_id="other",
@@ -227,7 +227,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             mock.patch.object(api, "_compensate_oauth_completion"),
             self.assertRaises(state.ApiError),
         ):
-            api._complete_oauth_integration(body)
+            api._complete_integration_callback(body)
 
         with (
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),

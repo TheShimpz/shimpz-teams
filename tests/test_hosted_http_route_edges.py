@@ -152,7 +152,7 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
             "assistant_id": "cloudflare",
             "provider": "cloudflare",
         }
-        with mock.patch.object(hosted_chat_api, "_complete_oauth_integration", return_value=(result, ACCOUNT_ID)):
+        with mock.patch.object(hosted_chat_api, "_complete_integration_callback", return_value=(result, ACCOUNT_ID)):
             handler._route_assistant_integration_complete()
         handler._send_json.assert_called_once_with(HTTPStatus.OK, result, no_store=True)
         handler._audit_security.assert_called_once()

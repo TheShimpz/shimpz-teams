@@ -232,7 +232,7 @@ def _completion_matches(
     )
 
 
-def _complete_oauth_integration(
+def _complete_integration_callback(
     body: object,
 ) -> tuple[dict[str, object], str]:
     if not isinstance(body, dict) or set(body) != {"state", "code", "session_binding"}:

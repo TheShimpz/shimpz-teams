@@ -417,7 +417,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 "browser-session-binding-value",
                 lease,
             )
-            completed, callback_owner = hosted_chat_api._complete_oauth_integration(
+            completed, callback_owner = hosted_chat_api._complete_integration_callback(
                 {
                     "state": "provider-state-value",
                     "code": "provider-code-value",
@@ -425,7 +425,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 },
             )
             with self.assertRaises(runtime_state.ApiError) as extra_field:
-                hosted_chat_api._complete_oauth_integration(
+                hosted_chat_api._complete_integration_callback(
                     {
                         "state": "provider-state-value",
                         "code": "provider-code-value",
@@ -514,7 +514,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                 mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
                 self.assertRaises(runtime_state.ApiError) as caught,
             ):
-                hosted_chat_api._complete_oauth_integration(body)
+                hosted_chat_api._complete_integration_callback(body)
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         complete.assert_not_called()
 
@@ -528,7 +528,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(runtime_state, "_integration_pkce", pkce),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_oauth_integration(
+            hosted_chat_api._complete_integration_callback(
                 {"state": "state", "code": "code", "session_binding": "browser-binding"}
             )
 
@@ -552,7 +552,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(hosted_resources, "_cleanup_record", return_value=object()),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_oauth_integration(
+            hosted_chat_api._complete_integration_callback(
                 {"state": "state", "code": "code", "session_binding": "browser-binding"}
             )
 
@@ -602,7 +602,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         ):
             thread = threading.Thread(
                 target=lambda: result.append(
-                    hosted_chat_api._complete_oauth_integration(
+                    hosted_chat_api._complete_integration_callback(
                         {"state": "state", "code": "code", "session_binding": "browser-binding"}
                     )
                 )
@@ -652,7 +652,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
             mock.patch.object(hosted_chat_api.audit, "log") as audit_log,
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_api._complete_oauth_integration(
+            hosted_chat_api._complete_integration_callback(
                 {"state": "state", "code": "code", "session_binding": "browser-binding"}
             )
 
