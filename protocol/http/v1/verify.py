@@ -240,6 +240,7 @@ admit_view = {
     "run": routine.canonical_run_view,
     "notice_batch": routine.canonical_notice_batch,
     "claim": routine.canonical_claim,
+    "claim_request": routine.canonical_claim_request,
 }
 if set(views) != set(admit_view) or any(
     not views[kind].get("valid") or not views[kind].get("invalid") for kind in views

@@ -63,7 +63,7 @@ class RunFaultTests(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run()
+        claim = service.claim_routine_run(("anthropic", "openai"))
         return controller, service, claim
 
     def test_an_unanswerable_authentication_ends_the_run_instead_of_freezing(self) -> None:
@@ -95,7 +95,7 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime(acting(), completed("Connected and listed.")))
             controller.assistant_integrations.delete_assistant("team_1", ASSISTANT)
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             frozen = record.run(self.state(service), claim["run_id"])
             self.assertEqual(frozen.request_kind, "integrations")
@@ -116,14 +116,14 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime(acting(), acting(second), completed()))
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": {"zones": []}}
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(service, "_commit_chat_terminal", return_value=False):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
             self.assertEqual(self.state(service).notices[-1].detail, {"actions": [[ASSISTANT, "list-zones"]]})
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime(completed()))
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(record, "finish", side_effect=record.RoutineStateError("lease-invalid")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "lease-expired")
@@ -134,7 +134,7 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime(acting(), acting(second), completed()))
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": {"zones": []}}
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             with (
                 mock.patch.object(
                     service.inference_store, "apply_knowledge", side_effect=inference_config.InferenceConfigError("x")
@@ -146,7 +146,7 @@ class RunFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime(completed()))
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             with (
                 mock.patch.object(record, "bind_generation", side_effect=record.RoutineStateError("lease-invalid")),
                 self.assertRaises(local_app.ApiProblem) as lost,
@@ -155,6 +155,15 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(lost.exception.code, "routine-lease-invalid")
             with mock.patch.object(record, "spend", side_effect=record.RoutineStateError("run-not-running")):
                 routine_run._spend(service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1)
+
+    def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            missing = inference_config.InferenceConfigMissingError("none")
+            with mock.patch.object(service.inference_store, "load", side_effect=missing):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertEqual(self.state(service).runs, ())
 
     def test_stopping_a_running_run_aborts_its_brain_request_and_fail_stops_its_action(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -185,7 +194,7 @@ class FrozenFaultTests(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run()
+        claim = service.claim_routine_run(("anthropic", "openai"))
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return controller, service, claim
 
@@ -253,7 +262,7 @@ class FrozenFaultTests(RoutineServiceCase):
                 )
             self.assertEqual(other.exception.code, "human-request-expired")
             self.routine(service)
-            leased = service.claim_routine_run()
+            leased = service.claim_routine_run(("anthropic", "openai"))
             with self.assertRaises(local_app.ApiProblem) as not_frozen:
                 service.open_routine_challenge("team_1", leased["run_id"])
             self.assertEqual(not_frozen.exception.code, "routine-run-not-frozen")
@@ -264,7 +273,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
             value = self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             deleting = service.delete_routine("team_1", value.routine_id)
             self.assertFalse(deleting["deleted"])
@@ -278,7 +287,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
             uncertain = self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             network = controller.assistant_lifecycle._network("team_1").id
             lease = record.lease_of(claim["lease_token"], KEY)
             service.routine_store.update(
@@ -305,7 +314,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             network = controller.assistant_lifecycle._network("team_1").id
             lease = record.lease_of(claim["lease_token"], KEY)
             now = int(time.time())
@@ -323,11 +332,11 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                     routine_manage.drain(service, "team_1")
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
                 self.assertEqual(len(self.state(service).discards), 1)
-                self.assertIsNone(service.claim_routine_run())
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
                 # The watchdog's pass fails the same way; its loop audits it and retries later.
                 with self.assertRaises(local_app.ApiProblem):
                     routine_watchdog.check(service)
-            self.assertIsNotNone(service.claim_routine_run())
+            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
             self.assertEqual(self.state(service).discards, ())
 
     def test_notices_and_stops_refuse_unknown_runs_and_stop_a_running_one(self) -> None:
@@ -337,7 +346,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                 service.stop_routine("team_1", "0" * 32)
             self.assertEqual(missing.exception.code, "routine-run-not-found")
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             self.assertIn("token", service._cancelled_chat_tokens)
@@ -353,7 +362,7 @@ class WatchdogFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            service.claim_routine_run()
+            service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(
                 local_authority, "routine_key_fingerprint", side_effect=local_authority.SupervisorUnavailableError
             ):

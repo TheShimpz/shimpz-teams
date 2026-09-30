@@ -528,6 +528,11 @@ def _replace(value, path, replaced):
 class RoutineViewContractTests(unittest.TestCase):
     """Admin admits every Routine response only in its closed view; the golden vectors pin each one."""
 
+    def test_claim_providers_are_exactly_the_team_model_providers(self):
+        from inference import config as inference_config
+
+        self.assertEqual(http_routine.MODEL_PROVIDERS, tuple(sorted(inference_config.PROVIDERS)))
+
     def test_every_view_admits_exactly_its_valid_vectors(self):
         views = json.loads((Path(__file__).resolve().parents[1] / "protocol/http/v1/vectors.json").read_text())[
             "routine_views"
@@ -539,6 +544,7 @@ class RoutineViewContractTests(unittest.TestCase):
             "run": http_routine.canonical_run_view,
             "notice_batch": http_routine.canonical_notice_batch,
             "claim": http_routine.canonical_claim,
+            "claim_request": http_routine.canonical_claim_request,
         }
         for kind, function in admit.items():
             for value in views[kind]["valid"]:

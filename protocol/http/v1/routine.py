@@ -184,6 +184,8 @@ MAX_NOTICE_BATCH = 1024
 # notice at its bound, a 16,000-character reply whose every character JSON-escapes to six bytes, is about 96.5 KB.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "uncertain"})
+# The model providers a Local Team can use; a claim names its Team's, so Admin sends that provider's key.
+MODEL_PROVIDERS = ("anthropic", "openai")
 TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -314,7 +316,7 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
 
 def canonical_notice(value: object) -> dict[str, object] | None:
     """One undelivered run or Routine outcome for Admin to write to its Team's transcript."""
-    fields = {"team_id", "notice_id", "version", "routine_id", "run_id", "outcome", "created_at"}
+    fields = {"team_id", "notice_id", "version", "routine_id", "quote", "run_id", "outcome", "created_at"}
     if not isinstance(value, dict) or set(value) != fields | {"detail"}:
         return None
     valid = (
@@ -323,6 +325,8 @@ def canonical_notice(value: object) -> dict[str, object] | None:
         and type(value["version"]) is int
         and value["version"] >= 1
         and _identity(value["routine_id"], ROUTINE_ID_RE)
+        and value["quote"] is not None
+        and canonical_quote(value["quote"]) == value["quote"]
         and _optional(value["run_id"], ROUTINE_ID_RE)
         and (value["run_id"] is None) == (value["outcome"] in ("skipped", "scope-changed"))
         # A run's one notice is keyed by its run id.
@@ -347,6 +351,18 @@ def canonical_notice_batch(value: object) -> dict[str, object] | None:
     return {"notices": admitted, "more": value["more"]} if len(keys) == len(admitted) else None
 
 
+def canonical_claim_request(value: object) -> dict[str, object] | None:
+    """Admin's claim: the model providers it holds a key for, sorted; only a Team using one of them is claimed."""
+    providers = value.get("providers") if isinstance(value, dict) and set(value) == {"providers"} else None
+    valid = (
+        isinstance(providers, list)
+        and 0 < len(providers) <= len(MODEL_PROVIDERS)
+        and all(item in MODEL_PROVIDERS for item in providers)
+        and providers == sorted(set(providers))
+    )
+    return {"providers": list(providers)} if valid else None
+
+
 def canonical_claim(value: object) -> dict[str, object] | None:
     """A claim's answer: no run, or one run with the lease token Admin's routine identity signs for."""
     if not isinstance(value, dict) or set(value) != {"run"}:
@@ -354,7 +370,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     run = value["run"]
     if run is None:
         return {"run": None}
-    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at"}
+    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "provider"}
     valid = (
         isinstance(run, dict)
         and set(run) == fields
@@ -364,5 +380,6 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and _identity(run["lease_token"], LEASE_TOKEN_RE)
         and type(run["lease_expires_at"]) is int
         and run["lease_expires_at"] > 0
+        and run["provider"] in MODEL_PROVIDERS
     )
     return copy.deepcopy(value) if valid else None

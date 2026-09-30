@@ -35,7 +35,7 @@ class FrozenCase(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run()
+        claim = service.claim_routine_run(("anthropic", "openai"))
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return service, claim
 
@@ -106,7 +106,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail, {"code": "team-context-changed", "actions": []})
@@ -116,7 +116,7 @@ class ExecutionBoundTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 0)
             routine_watchdog.check(service)
             self.assertIn("token", service._cancelled_chat_tokens)
@@ -131,7 +131,7 @@ class ExecutionBoundTests(RoutineServiceCase):
 class WatchdogRaceTests(RoutineServiceCase):
     def bound(self, controller, service):
         """A claimed run whose generation is bound, and a journal read during which its worker finishes."""
-        claim = service.claim_routine_run()
+        claim = service.claim_routine_run(("anthropic", "openai"))
         network = controller.assistant_lifecycle._network("team_1").id
         lease = record.lease_of(claim["lease_token"], KEY)
         now = int(time.time())
@@ -176,13 +176,13 @@ class StopBeforeRegistrationTests(FrozenCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             with self.assertRaises(local_app.ApiProblem) as late:
                 self.run_claim(service, claim)
             self.assertEqual(late.exception.code, "routine-lease-invalid")
             value = self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
             self.assertEqual(runtime.contexts, [])
             self.assertEqual(self.state(service).discards, ())
@@ -192,7 +192,7 @@ class StopBeforeRegistrationTests(FrozenCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             service._routine_halting.add(claim["run_id"])
             with self.assertRaises(local_app.ApiProblem) as fenced:
                 self.run_claim(service, claim)

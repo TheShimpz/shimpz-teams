@@ -74,7 +74,7 @@ _RUN_FIELDS = frozenset(
         "held_actions",
     }
 )
-_NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version"})
+_NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
 _STATE_FIELDS = frozenset(
     {"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts", "discards"}
 )
@@ -259,6 +259,7 @@ def _decode_notice(value: object) -> record.Notice:
         and (value["run_id"] == "" or _RUN_ID_RE.fullmatch(value["run_id"]) is not None)
         and type(value["version"]) is int
         and value["version"] >= 1
+        and http_routine.canonical_quote(value["quote"]) is not None
     )
     return record.Notice(
         value["notice_id"],
@@ -268,6 +269,7 @@ def _decode_notice(value: object) -> record.Notice:
         _instant(value["created_at"]),
         detail,
         value["version"],
+        value["quote"],
     )
 
 

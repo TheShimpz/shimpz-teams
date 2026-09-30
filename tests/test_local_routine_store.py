@@ -91,7 +91,9 @@ class RoundTripTests(StoreCase):
         worst = dataclasses.replace(
             busy_state(),
             notices=tuple(
-                record.Notice(f"{index:032x}", "a" * 32, "", "done", NINE, {"reply": "\U0001f600" * 16_000})
+                record.Notice(
+                    f"{index:032x}", "a" * 32, "", "done", NINE, {"reply": "\U0001f600" * 16_000}, 1, "\U0001f600" * 500
+                )
                 for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
             ),
         )
@@ -159,6 +161,7 @@ class TamperTests(StoreCase):
             "active time": lambda value: value["runs"][0].update(active_seconds_left=record.ACTIVE_SECONDS + 1),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
+            "notice quote": lambda value: value["notices"][0].update(quote=""),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
             "held actions on a live run": lambda value: value["runs"][frozen].update(held_actions=[["dns", "x"]]),
             "held action shape": lambda value: value["runs"][uncertain].update(held_actions=[["dns"]]),

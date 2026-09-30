@@ -39,6 +39,7 @@ from routine import record
 
 TOKEN = "t" * 43
 EMPTY = b"{}"
+CLAIM = b'{"providers":["anthropic","openai"]}'
 
 
 class RoutineHttpCase(RoutineServiceCase):
@@ -119,14 +120,26 @@ class SchedulerRouteTests(RoutineHttpCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
             self.routine(service)
-            status, _type, _raw = self.request("POST", "/v1/routines/claim", EMPTY, {"Authorization": "Bearer x"})
+            status, _type, _raw = self.request("POST", "/v1/routines/claim", CLAIM, {"Authorization": "Bearer x"})
             self.assertEqual(status, 401)
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            status, _type, raw = self.request("POST", "/v1/routines/claim", EMPTY)
+            for invalid in (
+                EMPTY,
+                b'{"providers":[]}',
+                b'{"providers":["openai","anthropic"]}',
+                b'{"providers":["other"]}',
+            ):
+                status, _type, raw = self.request("POST", "/v1/routines/claim", invalid)
+                self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
+            # A Team whose model provider Admin holds no key for is never claimed.
+            status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"providers":["anthropic"]}')
+            self.assertIsNone(json.loads(raw)["run"])
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = json.loads(raw)["run"]
+            self.assertEqual(claim["provider"], "openai")
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
-            status, _type, raw = self.request("POST", "/v1/routines/claim", EMPTY)
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             self.assertIsNone(json.loads(raw)["run"])
             status, _type, raw = self.request("GET", "/v1/routines/notices")
             self.assertEqual((status, json.loads(raw)["notices"]), (200, []))
@@ -144,7 +157,7 @@ class RunRouteTests(RoutineHttpCase):
             runtime = Runtime(completed("Listed."))
             _controller, service = self.serve(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
             status, _type, raw = self.request("POST", path, EMPTY, self.model())
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
@@ -194,7 +207,7 @@ class SessionRouteTests(RoutineHttpCase):
 
             controller.assistant_lifecycle.invoke = invoke
             value = self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
             with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
@@ -240,7 +253,7 @@ class SessionRouteTests(RoutineHttpCase):
 
             controller.assistant_lifecycle.invoke = invoke
             self.routine(service)
-            claim = service.claim_routine_run()
+            claim = service.claim_routine_run(("anthropic", "openai"))
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
             opened = service.open_routine_challenge("team_1", claim["run_id"])
@@ -268,7 +281,9 @@ class NoticeBacklogTests(RoutineHttpCase):
             value = self.routine(service)
             reply = "\x01" * http_routine.MAX_NOTICE_REPLY_CHARS
             notices = tuple(
-                record.Notice(f"{index:032x}", value.routine_id, "", "done", int(time.time()), {"reply": reply})
+                record.Notice(
+                    f"{index:032x}", value.routine_id, "", "done", int(time.time()), {"reply": reply}, 1, value.quote
+                )
                 for index in range(9)
             )
             service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, notices=notices), None))
@@ -311,7 +326,7 @@ class ProtocolViewTests(RoutineHttpCase):
             proposal = service.routine_proposals.create("team_1", dict(CHANGE), contracts)
             self.assertIsNotNone(http_routine.canonical_proposal(proposal.view(time.time())))
             self.routine(service)
-            _status, _type, raw = self.request("POST", "/v1/routines/claim", EMPTY)
+            _status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = body(raw)
             self.assertEqual(http_routine.canonical_claim(claim), claim)
             self.run_claim(service, claim["run"])

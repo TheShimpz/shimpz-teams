@@ -81,8 +81,21 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     return record.claim(state, now, key)
 
 
-def claim_routine_run(self) -> dict[str, object] | None:
-    """Lease one due run, choosing the least recently served Team first; None when nothing may start now."""
+def _provider(self, team_id: str, providers: tuple[str, ...]) -> str | None:
+    """The Team's configured model provider when Admin holds its key; otherwise the Team is not claimed."""
+    try:
+        provider = self.inference_store.load(team_id).provider
+    except inference_config.InferenceConfigError:
+        return None
+    return provider if provider in providers else None
+
+
+def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | None:
+    """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
+
+    Only a Team whose model provider is among ``providers``, the ones Admin holds a key for, is claimed, so no lease
+    is taken for a run that could not reach its model.
+    """
     try:
         key = local_authority.routine_key_fingerprint()
     except local_authority.SupervisorUnavailableError:
@@ -91,7 +104,8 @@ def claim_routine_run(self) -> dict[str, object] | None:
     teams = routine_state.call(self.routine_store.teams)
     states = {team_id: routine_state.load(self, team_id) for team_id in teams}
     for team_id in sorted(teams, key=lambda team: (states[team].served_at, team)):
-        if _chat_busy(self, team_id):
+        provider = _provider(self, team_id, providers)
+        if provider is None or _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
             try:
@@ -108,6 +122,7 @@ def claim_routine_run(self) -> dict[str, object] | None:
                 "routine_id": claim.run.routine_id,
                 "lease_token": claim.lease_token,
                 "lease_expires_at": claim.run.lease_expires_at,
+                "provider": provider,
             }
     return None
 

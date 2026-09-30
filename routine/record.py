@@ -95,6 +95,8 @@ class Notice:
     detail: dict[str, object]
     # Grows when a skipped notice is updated; Admin acknowledges the exact version it delivered.
     version: int = 1
+    # The Routine's quoted request, so the transcript names the work even after the Routine is deleted.
+    quote: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,7 +265,7 @@ def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
     detail = http_routine.canonical_notice_detail(notice.outcome, notice.detail)
     if detail is None:
         raise RoutineStateError("notice-invalid")
-    notice = dataclasses.replace(notice, detail=detail)
+    notice = dataclasses.replace(notice, detail=detail, quote=routine(state, notice.routine_id).quote)
     if type(notice.version) is not int or notice.version < 1:
         raise RoutineStateError("notice-invalid")
     kept = tuple(item for item in state.notices if item.notice_id != notice.notice_id)

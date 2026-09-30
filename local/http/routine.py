@@ -18,6 +18,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 
 MAX_BODY_BYTES = 16 * 1024
 MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
@@ -55,8 +56,10 @@ def _run_id(route: strict_http.ControllerRouteMatch) -> str:
 def _machine(handler, operation: str) -> dict[str, object]:
     service = handler.server.controller.chat_turn_service
     if operation == "routine-claim":
-        _empty(handler, operation)
-        return {"run": service.claim_routine_run()}
+        claim = http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
+        if claim is None:
+            raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
+        return {"run": service.claim_routine_run(tuple(claim["providers"]))}
     if operation == "routine-notices":
         return service.routine_notices()
     return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
