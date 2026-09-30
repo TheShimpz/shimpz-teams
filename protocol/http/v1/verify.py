@@ -232,4 +232,23 @@ if any(routine.canonical_routine_change(value) != value for value in changes["va
 if any(routine.canonical_routine_change(value) is not None for value in changes["invalid"]):
     fail("an invalid routine change vector was admitted")
 
+views = vectors.get("routine_views", {})
+admit_view = {
+    "proposal": routine.canonical_proposal,
+    "preview": routine.canonical_preview,
+    "routine": routine.canonical_routine_view,
+    "run": routine.canonical_run_view,
+    "notice_batch": routine.canonical_notice_batch,
+    "claim": routine.canonical_claim,
+}
+if set(views) != set(admit_view) or any(
+    not views[kind].get("valid") or not views[kind].get("invalid") for kind in views
+):
+    fail("routine view vectors are missing")
+for kind, admit in admit_view.items():
+    if any(admit(value) != value for value in views[kind]["valid"]):
+        fail(f"a valid routine {kind} vector was not admitted exactly")
+    if any(admit(value) is not None for value in views[kind]["invalid"]):
+        fail(f"an invalid routine {kind} vector was admitted")
+
 print("Team HTTP protocol integrity and golden vectors are valid")

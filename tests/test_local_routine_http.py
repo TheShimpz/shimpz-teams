@@ -17,11 +17,21 @@ from unittest import mock
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
-from test_local_routine_service import API_KEY, RoutineServiceCase, Runtime, acting, approval, completed
+from test_local_routine_service import (
+    API_KEY,
+    ASSISTANT,
+    CHANGE,
+    RoutineServiceCase,
+    Runtime,
+    acting,
+    approval,
+    completed,
+)
 
 from action import human as action_human
 from local import authority as local_authority
 from local.http import server
+from local.routine import turn as routine_turn
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
@@ -281,3 +291,43 @@ class NoticeBacklogTests(RoutineHttpCase):
                 delivered += len(deliveries)
                 more = batch["more"]
             self.assertEqual((delivered, self.state(service).notices), (9, ()))
+
+
+class ProtocolViewTests(RoutineHttpCase):
+    def test_every_routine_response_is_in_its_canonical_protocol_view(self) -> None:
+        def body(raw: bytes) -> dict[str, object]:
+            value = json.loads(raw)
+            value.pop("trace_id")
+            return value
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service = self.serve(directory, Runtime(acting()))
+
+            def invoke(*_args):
+                raise action_human.HumanRequestSuspensionError(approval())
+
+            controller.assistant_lifecycle.invoke = invoke
+            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
+            proposal = service.routine_proposals.create("team_1", dict(CHANGE), contracts)
+            self.assertIsNotNone(http_routine.canonical_proposal(proposal.view(time.time())))
+            self.routine(service)
+            _status, _type, raw = self.request("POST", "/v1/routines/claim", EMPTY)
+            claim = body(raw)
+            self.assertEqual(http_routine.canonical_claim(claim), claim)
+            self.run_claim(service, claim["run"])
+            _status, _type, raw = self.request("GET", "/v1/routines/notices")
+            notices = body(raw)
+            self.assertEqual(http_routine.canonical_notice_batch(notices), notices)
+            self.assertEqual(notices["notices"][0]["outcome"], "frozen")
+            with mock.patch.object(local_authority, "verify", return_value=self.session):
+                preview_path = f"/v1/teams/team_1/routines/proposals/{proposal.proposal_id}/preview"
+                _status, _type, raw = self.request("POST", preview_path, b'{"timezone":"America/Sao_Paulo"}')
+                preview = body(raw)
+                self.assertEqual(http_routine.canonical_preview(preview), preview)
+                _status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
+                listed = body(raw)
+            self.assertEqual(set(listed), {"team_id", "routines", "runs"})
+            for item in listed["routines"]:
+                self.assertEqual(http_routine.canonical_routine_view(item), item)
+            (run,) = listed["runs"]
+            self.assertEqual((http_routine.canonical_run_view(run), run["status"]), (run, "frozen"))

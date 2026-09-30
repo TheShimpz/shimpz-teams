@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import json
 import unittest
+from pathlib import Path
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
@@ -501,3 +503,66 @@ class RunLifecycleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_JSON_TYPES = (None, True, 0, 1.5, "", "x", [], [[]], {}, {"k": []})
+
+
+def _field_mutations(value, path=()):
+    """Every nested field path of a JSON value, paired with each JSON type it could be replaced by."""
+    children = value.items() if isinstance(value, dict) else enumerate(value) if isinstance(value, list) else ()
+    for key, child in children:
+        for replaced in _JSON_TYPES:
+            yield (*path, key), replaced
+        yield from _field_mutations(child, (*path, key))
+
+
+def _replace(value, path, replaced):
+    if not path:
+        return replaced
+    copied = dict(value) if isinstance(value, dict) else list(value)
+    copied[path[0]] = _replace(value[path[0]], path[1:], replaced)
+    return copied
+
+
+class RoutineViewContractTests(unittest.TestCase):
+    """Admin admits every Routine response only in its closed view; the golden vectors pin each one."""
+
+    def test_every_view_admits_exactly_its_valid_vectors(self):
+        views = json.loads((Path(__file__).resolve().parents[1] / "protocol/http/v1/vectors.json").read_text())[
+            "routine_views"
+        ]
+        admit = {
+            "proposal": http_routine.canonical_proposal,
+            "preview": http_routine.canonical_preview,
+            "routine": http_routine.canonical_routine_view,
+            "run": http_routine.canonical_run_view,
+            "notice_batch": http_routine.canonical_notice_batch,
+            "claim": http_routine.canonical_claim,
+        }
+        for kind, function in admit.items():
+            for value in views[kind]["valid"]:
+                with self.subTest(kind=kind, value=value):
+                    self.assertEqual(function(value), value)
+            for value in views[kind]["invalid"]:
+                with self.subTest(kind=kind, value=value):
+                    self.assertIsNone(function(value))
+        for function in admit.values():
+            self.assertIsNone(function(["not", "a", "view"]))
+        # Any field of any valid view replaced by any other JSON type is refused cleanly, never raised on.
+        for kind, function in admit.items():
+            for value in views[kind]["valid"]:
+                for path, replaced in _field_mutations(value):
+                    with self.subTest(kind=kind, path=path, replaced=replaced):
+                        admitted = function(_replace(value, path, replaced))
+                        self.assertIn(admitted, (None, _replace(value, path, replaced)))
+        proposal = views["preview"]["valid"][0]
+        self.assertIsNone(http_routine.canonical_preview({**proposal, "expires_in": "soon"}))
+        self.assertIsNone(http_routine.canonical_notice_batch({"notices": "none", "more": False}))
+        self.assertIsNone(http_routine.canonical_notice_batch({"notices": ["x"], "more": False}))
+        # Two notices at their bound exceed a batch's encoded bound; one alone fits.
+        largest = dict(views["notice_batch"]["valid"][0]["notices"][0], detail={"reply": "\x01" * 16_000})
+        second = dict(largest, notice_id="9" * 32, run_id="9" * 32)
+        self.assertIsNotNone(http_routine.canonical_notice_batch({"notices": [largest], "more": True}))
+        self.assertIsNone(http_routine.canonical_notice_batch({"notices": [largest, second], "more": False}))
+        self.assertIsNone(http_routine.canonical_claim({"run": ["x"]}))

@@ -1,8 +1,10 @@
-"""Canonical Team Routine wire forms (ADR-0086): schedules, timezones, and their closed bounds."""
+"""Canonical Team Routine wire forms (ADR-0086): schedules, timezones, bounds, and the views Admin admits."""
 
 from __future__ import annotations
 
 import copy
+import datetime
+import json
 import re
 import unicodedata
 from fractions import Fraction
@@ -121,7 +123,7 @@ def _scope_changed(detail: dict[str, object]) -> bool:
 def _frozen(detail: dict[str, object]) -> bool:
     """The one request a frozen run waits for: its kind and the Assistant Action that asked."""
     return (
-        detail["request_kind"] in {"human", "integrations"}
+        detail["request_kind"] in ("human", "integrations")
         and _identity(detail["assistant_id"], ASSISTANT_ID_RE)
         and _identity(detail["action"], ACTION_ID_RE)
     )
@@ -172,3 +174,193 @@ def canonical_routine_change(value: object) -> dict[str, object] | None:
         and ROUTINE_ID_RE.fullmatch(routine_id) is not None
     )
     return dict(value) if valid else None
+
+
+# Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
+PROPOSAL_SECONDS = 900
+MAX_PREVIEW_RUNS = 3
+MAX_NOTICE_BATCH = 1024
+# The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. A
+# notice at its bound, a 16,000-character reply whose every character JSON-escapes to six bytes, is about 96.5 KB.
+MAX_NOTICE_BATCH_BYTES = 112 * 1024
+RUN_STATUSES = frozenset({"leased", "frozen", "uncertain"})
+TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
+LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
+_INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
+_RATE_RE = re.compile(r"(?:0|[1-9][0-9]*)(?:/[1-9][0-9]*)?\Z")
+_PROPOSAL_FIELDS = frozenset({"proposal_id", "op", "quote", "schedule", "timezone", "routine_id", "assistant_ids"})
+_PREVIEW_FIELDS = frozenset({"timezone", "next_runs", "daily_runs", "max_daily_runs", "fits"})
+
+
+def _instant(value: object) -> bool:
+    """A real UTC instant in whole seconds, written ``YYYY-MM-DDTHH:MM:SSZ``."""
+    if not isinstance(value, str) or _INSTANT_RE.fullmatch(value) is None:
+        return False
+    try:
+        datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def encoded_bytes(value: object) -> int:
+    """The UTF-8 size of a value in the Local API's JSON encoding."""
+    return len(json.dumps(value, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8"))
+
+
+def _assistant_ids(value: object, *, minimum: int) -> bool:
+    return (
+        isinstance(value, list)
+        and minimum <= len(value) <= MAX_NOTICE_ASSISTANTS
+        and all(_identity(item, ASSISTANT_ID_RE) for item in value)
+        and value == sorted(set(value))
+    )
+
+
+def _optional(value: object, pattern: re.Pattern[str]) -> bool:
+    return value is None or _identity(value, pattern)
+
+
+def canonical_proposal(value: object) -> dict[str, object] | None:
+    """A chat turn's one-use Routine proposal as the confirmation card shows it, or None."""
+    if not isinstance(value, dict) or set(value) != _PROPOSAL_FIELDS | {"expires_in"}:
+        return None
+    change = canonical_routine_change(
+        {field: value[field] for field in ("op", "quote", "schedule", "timezone", "routine_id")}
+    )
+    expires_in = value["expires_in"]
+    valid = (
+        change is not None
+        and _identity(value["proposal_id"], ROUTINE_ID_RE)
+        and _assistant_ids(value["assistant_ids"], minimum=1 if value["op"] == "propose" else 0)
+        and type(expires_in) is int
+        and 0 <= expires_in <= PROPOSAL_SECONDS
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_preview(value: object) -> dict[str, object] | None:
+    """A proposal with the facts its card shows: the timezone, the next runs, and the Team's daily run budget."""
+    if not isinstance(value, dict) or set(value) != _PROPOSAL_FIELDS | {"expires_in"} | _PREVIEW_FIELDS:
+        return None
+    if canonical_proposal({field: value[field] for field in _PROPOSAL_FIELDS | {"expires_in"}}) is None:
+        return None
+    runs, rate, fits = value["next_runs"], value["daily_runs"], value["fits"]
+    if value["op"] == "cancel":
+        facts = (value["timezone"], runs, rate, value["max_daily_runs"], fits)
+        return copy.deepcopy(value) if facts == (None, [], None, None, True) else None
+    valid = (
+        canonical_timezone(value["timezone"]) is not None
+        and isinstance(runs, list)
+        and 0 < len(runs) <= MAX_PREVIEW_RUNS
+        and all(_instant(item) for item in runs)
+        and runs == sorted(set(runs))
+        and isinstance(rate, str)
+        and _RATE_RE.fullmatch(rate) is not None
+        and value["max_daily_runs"] == MAX_DAILY_RUNS
+        and type(fits) is bool
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_routine_view(value: object) -> dict[str, object] | None:
+    """One confirmed Routine as a Supervisor sees it."""
+    fields = {"routine_id", "quote", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
+    if not isinstance(value, dict) or set(value) != fields | {"deleting"}:
+        return None
+    valid = (
+        _identity(value["routine_id"], ROUTINE_ID_RE)
+        and value["quote"] is not None
+        and canonical_quote(value["quote"]) == value["quote"]
+        and value["schedule"] is not None
+        and canonical_schedule(value["schedule"]) == value["schedule"]
+        and canonical_timezone(value["timezone"]) is not None
+        and _assistant_ids(value["assistant_ids"], minimum=1)
+        and _instant(value["next_run_at"])
+        and type(value["needs_reconfirm"]) is bool
+        and type(value["deleting"]) is bool
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_run_view(value: object) -> dict[str, object] | None:
+    """One live run: a frozen run names its request, an uncertain one its exact batch, a leased one neither."""
+    fields = {"run_id", "routine_id", "status", "scheduled_at", "request_kind", "assistant_id", "action"}
+    if not isinstance(value, dict) or set(value) != fields | {"batch_fingerprint"}:
+        return None
+    status = value["status"]
+    request = (value["request_kind"], value["assistant_id"], value["action"])
+    frozen = (
+        request[0] in ("human", "integrations")
+        and _identity(request[1], ASSISTANT_ID_RE)
+        and _identity(request[2], ACTION_ID_RE)
+    )
+    valid = (
+        _identity(value["run_id"], ROUTINE_ID_RE)
+        and _identity(value["routine_id"], ROUTINE_ID_RE)
+        and _instant(value["scheduled_at"])
+        and (frozen if status == "frozen" else request == (None, None, None))
+        and (
+            _identity(value["batch_fingerprint"], _HEX64_RE)
+            if status == "uncertain"
+            else isinstance(status, str) and status in RUN_STATUSES and value["batch_fingerprint"] is None
+        )
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_notice(value: object) -> dict[str, object] | None:
+    """One undelivered run or Routine outcome for Admin to write to its Team's transcript."""
+    fields = {"team_id", "notice_id", "version", "routine_id", "run_id", "outcome", "created_at"}
+    if not isinstance(value, dict) or set(value) != fields | {"detail"}:
+        return None
+    valid = (
+        _identity(value["team_id"], TEAM_ID_RE)
+        and _identity(value["notice_id"], ROUTINE_ID_RE)
+        and type(value["version"]) is int
+        and value["version"] >= 1
+        and _identity(value["routine_id"], ROUTINE_ID_RE)
+        and _optional(value["run_id"], ROUTINE_ID_RE)
+        and (value["run_id"] is None) == (value["outcome"] in ("skipped", "scope-changed"))
+        # A run's one notice is keyed by its run id.
+        and value["run_id"] in (None, value["notice_id"])
+        and _instant(value["created_at"])
+        and canonical_notice_detail(value["outcome"], value["detail"]) is not None
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_notice_batch(value: object) -> dict[str, object] | None:
+    """A bounded batch of notices; while ``more`` is true Admin acknowledges it and asks again."""
+    if not isinstance(value, dict) or set(value) != {"notices", "more"} or type(value["more"]) is not bool:
+        return None
+    notices = value["notices"]
+    if not isinstance(notices, list) or len(notices) > MAX_NOTICE_BATCH or (value["more"] and not notices):
+        return None
+    admitted = [canonical_notice(item) for item in notices]
+    if None in admitted or encoded_bytes(admitted) > MAX_NOTICE_BATCH_BYTES:
+        return None
+    keys = {(item["team_id"], item["notice_id"]) for item in admitted}
+    return {"notices": admitted, "more": value["more"]} if len(keys) == len(admitted) else None
+
+
+def canonical_claim(value: object) -> dict[str, object] | None:
+    """A claim's answer: no run, or one run with the lease token Admin's routine identity signs for."""
+    if not isinstance(value, dict) or set(value) != {"run"}:
+        return None
+    run = value["run"]
+    if run is None:
+        return {"run": None}
+    fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at"}
+    valid = (
+        isinstance(run, dict)
+        and set(run) == fields
+        and _identity(run["team_id"], TEAM_ID_RE)
+        and _identity(run["run_id"], ROUTINE_ID_RE)
+        and _identity(run["routine_id"], ROUTINE_ID_RE)
+        and _identity(run["lease_token"], LEASE_TOKEN_RE)
+        and type(run["lease_expires_at"]) is int
+        and run["lease_expires_at"] > 0
+    )
+    return copy.deepcopy(value) if valid else None

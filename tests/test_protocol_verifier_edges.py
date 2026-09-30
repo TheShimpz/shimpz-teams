@@ -432,6 +432,22 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
+    def test_rejects_missing_or_drifted_routine_view_vectors(self) -> None:
+        def missing_views(value: dict[str, object]) -> None:
+            value["routine_views"].pop("claim")
+
+        def rejected_view(value: dict[str, object]) -> None:
+            value["routine_views"]["claim"]["valid"] = [{"run": None, "extra": 1}]
+
+        def accepted_view(value: dict[str, object]) -> None:
+            value["routine_views"]["claim"]["invalid"] = [{"run": None}]
+
+        for mutate in (missing_views, rejected_view, accepted_view):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_a_positive_supervisor_vector_that_is_not_canonical(self) -> None:
         from protocol.http.v1 import supervisor
 
