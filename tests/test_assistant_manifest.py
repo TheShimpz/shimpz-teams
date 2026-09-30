@@ -540,6 +540,26 @@ class AssistantManifestTests(unittest.TestCase):
         parsed = assistant_manifest.parse_machine_contract(json.dumps(local).encode(), reviewed.integrations)
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": "#/$defs/page"})
 
+    def test_machine_schema_reads_references_only_at_schema_nodes(self) -> None:
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        remote = {"$ref": "https://example.test/schema.json"}
+        data = json.loads(json.dumps(reviewed.machine_contract))
+        schema = data["actions"][0]["input_schema"]
+        # A property may be named "$ref", and instance data may carry a "$ref" key: neither is a reference.
+        schema["properties"]["$ref"] = {"type": "string"}
+        schema["properties"]["mode"] = {"const": remote, "enum": [remote], "default": remote, "examples": [remote]}
+        parsed = assistant_manifest.parse_machine_contract(json.dumps(data).encode(), reviewed.integrations)
+        self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["$ref"], {"type": "string"})
+        self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["mode"]["const"], remote)
+
+        nested = json.loads(json.dumps(reviewed.machine_contract))
+        nested["actions"][0]["input_schema"]["properties"]["pages"] = {
+            "type": "array",
+            "items": {"anyOf": [{"type": "integer"}, {"not": {"contentSchema": remote}}]},
+        }
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "external reference"):
+            assistant_manifest.parse_machine_contract(json.dumps(nested).encode(), reviewed.integrations)
+
     def test_action_schema_validators_never_retrieve_a_uri(self) -> None:
         schema = {
             "type": "object",

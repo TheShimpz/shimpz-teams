@@ -390,19 +390,48 @@ def _plain_json(value: object) -> bool:
     return value is None or type(value) in (str, int, float, bool)
 
 
-_REFERENCE_KEYWORDS = frozenset({"$ref", "$dynamicRef"})
+_REFERENCE_KEYWORDS = ("$ref", "$dynamicRef")
+# The Draft 2020-12 positions that hold subschemas; every other value, such as a property name or a const, enum,
+# default, or examples value, is data and never a reference.
+_APPLICATOR_KEYWORDS = frozenset(
+    {
+        "additionalProperties",
+        "contains",
+        "contentSchema",
+        "else",
+        "if",
+        "items",
+        "not",
+        "propertyNames",
+        "then",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+    }
+)
+_APPLICATOR_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
+_APPLICATOR_MAP_KEYWORDS = frozenset({"$defs", "definitions", "dependentSchemas", "patternProperties", "properties"})
 
 
-def _reject_external_references(node: object, *, kind: str) -> None:
+def _applied_subschemas(node: Mapping[str, Any]) -> Iterator[object]:
+    # The metaschema check already proved each applicator value has its Draft 2020-12 shape.
+    for keyword in _APPLICATOR_KEYWORDS & node.keys():
+        yield node[keyword]
+    for keyword in _APPLICATOR_LIST_KEYWORDS & node.keys():
+        yield from node[keyword]
+    for keyword in _APPLICATOR_MAP_KEYWORDS & node.keys():
+        yield from node[keyword].values()
+
+
+def _reject_external_references(schema: Mapping[str, Any], *, kind: str) -> None:
     # A reviewed package is immutable: every reference must resolve inside this schema, never a URI or file.
-    if isinstance(node, dict):
-        for key, child in node.items():
-            if key in _REFERENCE_KEYWORDS and not (isinstance(child, str) and child.startswith("#")):
-                raise ManifestError(f"Assistant Action {kind} schema must not use an external reference")
-            _reject_external_references(child, kind=kind)
-    elif isinstance(node, list):
-        for child in node:
-            _reject_external_references(child, kind=kind)
+    pending: list[object] = [schema]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, Mapping):
+            for keyword in _REFERENCE_KEYWORDS:
+                if keyword in node and not (isinstance(node[keyword], str) and node[keyword].startswith("#")):
+                    raise ManifestError(f"Assistant Action {kind} schema must not use an external reference")
+            pending.extend(_applied_subschemas(node))
 
 
 def action_schema_validator(schema: dict[str, Any]) -> Draft202012Validator:
