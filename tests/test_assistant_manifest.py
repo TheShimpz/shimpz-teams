@@ -520,6 +520,39 @@ class AssistantManifestTests(unittest.TestCase):
             {"type": "boolean", "enum": [True, False]},
         )
 
+    def test_machine_schema_admits_only_local_references(self) -> None:
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        for reference in ("https://example.test/schema.json", "file:///etc/passwd", "other.json#/a"):
+            for keyword in ("$ref", "$dynamicRef"):
+                external = json.loads(json.dumps(reviewed.machine_contract))
+                schema = external["actions"][0]["input_schema"]
+                schema["$defs"] = {"remote": {keyword: reference}}
+                with (
+                    self.subTest(reference=reference, keyword=keyword),
+                    self.assertRaisesRegex(assistant_manifest.ManifestError, "external reference"),
+                ):
+                    assistant_manifest.parse_machine_contract(json.dumps(external).encode(), reviewed.integrations)
+
+        local = json.loads(json.dumps(reviewed.machine_contract))
+        schema = local["actions"][0]["input_schema"]
+        schema["$defs"] = {"page": {"type": "integer"}}
+        schema["properties"]["page"] = {"$ref": "#/$defs/page"}
+        parsed = assistant_manifest.parse_machine_contract(json.dumps(local).encode(), reviewed.integrations)
+        self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": "#/$defs/page"})
+
+    def test_action_schema_validators_never_retrieve_a_uri(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {"page": {"$ref": "https://example.test/schema.json"}},
+            "additionalProperties": False,
+        }
+        with (
+            mock.patch("urllib.request.urlopen", side_effect=AssertionError("retrieved a URI")) as urlopen,
+            self.assertRaises(ValueError),
+        ):
+            assistant_manifest.validate_schema_payload(assistant_manifest.action_schema_validator(schema), {"page": 1})
+        urlopen.assert_not_called()
+
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()

@@ -10,7 +10,6 @@ from typing import NoReturn
 
 import docker
 import docker.errors
-from jsonschema import Draft202012Validator
 
 from action import execution as action_execution
 from action import human as action_human
@@ -786,7 +785,7 @@ def _validate_action_payload(
         raise ValueError("the Action has no declared contract")
     schema = action.output_schema if output else action.input_schema
     return assistant_manifest.validate_schema_payload(
-        Draft202012Validator(schema),
+        assistant_manifest.action_schema_validator(schema),
         payload,
     )
 

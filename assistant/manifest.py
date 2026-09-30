@@ -18,6 +18,8 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 from core import strict_json
 from integrations import providers as integration_providers
@@ -388,6 +390,26 @@ def _plain_json(value: object) -> bool:
     return value is None or type(value) in (str, int, float, bool)
 
 
+_REFERENCE_KEYWORDS = frozenset({"$ref", "$dynamicRef"})
+
+
+def _reject_external_references(node: object, *, kind: str) -> None:
+    # A reviewed package is immutable: every reference must resolve inside this schema, never a URI or file.
+    if isinstance(node, dict):
+        for key, child in node.items():
+            if key in _REFERENCE_KEYWORDS and not (isinstance(child, str) and child.startswith("#")):
+                raise ManifestError(f"Assistant Action {kind} schema must not use an external reference")
+            _reject_external_references(child, kind=kind)
+    elif isinstance(node, list):
+        for child in node:
+            _reject_external_references(child, kind=kind)
+
+
+def action_schema_validator(schema: dict[str, Any]) -> Draft202012Validator:
+    """Build a validator for a reviewed Action schema that resolves references only inside that schema."""
+    return Draft202012Validator(schema, registry=Registry())
+
+
 @lru_cache(maxsize=256)
 def _check_machine_schema_json(encoded: bytes) -> None:
     # The cached verdict applies to this exact JSON, never to a mutable caller object.
@@ -410,6 +432,7 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
         raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
     if len(encoded) > 128 * 1024:
         raise ManifestError(f"Assistant Action {kind} schema is too large")
+    _reject_external_references(value, kind=kind)
     _reject_open_or_boolean_subschema(value, kind=kind)
     return value
 
@@ -512,7 +535,7 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
         raise ValueError("Action payload must be an object")
     try:
         validator.validate(payload)
-    except ValidationError as exc:
+    except (ValidationError, Unresolvable) as exc:
         raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload
 
@@ -569,8 +592,8 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
             actions={action["id"]: action for action in machine_contract["actions"]},
             action_validators={
                 action["id"]: {
-                    "input": Draft202012Validator(action["input_schema"]),
-                    "output": Draft202012Validator(action["output_schema"]),
+                    "input": action_schema_validator(action["input_schema"]),
+                    "output": action_schema_validator(action["output_schema"]),
                 }
                 for action in machine_contract["actions"]
             },

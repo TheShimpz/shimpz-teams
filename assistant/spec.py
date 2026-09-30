@@ -7,8 +7,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from jsonschema import Draft202012Validator
-
 from assistant import manifest as assistant_manifest
 
 ALL_ZERO_SHA256 = "0" * 64
@@ -85,7 +83,7 @@ def validate_action_payload(
     else:
         raise ValueError("unknown Action payload direction")
     return assistant_manifest.validate_schema_payload(
-        Draft202012Validator(dict(schema)),
+        assistant_manifest.action_schema_validator(dict(schema)),
         payload,
     )
 
