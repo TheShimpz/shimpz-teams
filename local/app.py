@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import docker
-from docker.errors import APIError, DockerException
+from docker.errors import DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
@@ -42,6 +42,7 @@ from local import audit as local_audit
 from local import inference as local_inference
 from local import labels as local_labels
 from local import lifecycle as local_team_lifecycle
+from local import names as local_names
 from local import token as local_token_store
 from local.assistant import api as local_assistant_api
 from local.assistant import egress as local_egress
@@ -66,10 +67,6 @@ from local.install.registry import AssistantRegistry
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
-from local.labels import (
-    TEAM_LABEL,
-    TEAM_NAME_LABEL,
-)
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
 from local.routine import store as local_routine_store
@@ -79,7 +76,6 @@ from local.validation import (
     half_cpu_set,
     validate_space_id,
     validate_team_id,
-    validate_team_name,
 )
 from storage import files as team_storage
 
@@ -247,6 +243,7 @@ class LocalControllerDependencies:
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
     routine_store: local_routine_store.RoutineStore | None = None
+    team_names: local_names.TeamNameStore | None = None
 
 
 class LocalController:
@@ -279,6 +276,9 @@ class LocalController:
     reset_space = local_team_lifecycle.reset_space
     _delete_team_routines = local_routine_lifecycle.delete_team_routines
     _delete_all_routines = local_routine_lifecycle.delete_all_routines
+    list_teams = local_names.list_teams
+    create_team = local_names.create_team
+    rename_team = local_names.rename_team
 
     def __init__(
         self,
@@ -294,6 +294,7 @@ class LocalController:
         self.registry = registry
         self.storage = storage
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
+        self.team_names = dependencies.team_names or local_names.TeamNameStore(INFERENCE_ROOT)
         self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
         self.routine_proposals = local_routine_proposal.ProposalBook()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
@@ -339,6 +340,8 @@ class LocalController:
         self.assistant_residues = dependencies.assistant_residues
         self.assistant_icons = dependencies.assistant_icons
         self._locks = tuple(threading.RLock() for _ in range(64))
+        # The Space-wide Team namespace (ADR-0088): always taken before any Team lock.
+        self._names_lock = threading.RLock()
         daemon_info = self._require_default_seccomp()
         self.cpuset_cpus = half_cpu_set(daemon_info.get("NCPU"))
         try:
@@ -376,6 +379,7 @@ class LocalController:
                 registry=getattr(self, "registry", None),
                 storage=getattr(self, "storage", None),
                 inference_store=getattr(self, "inference_store", None),
+                team_names=getattr(self, "team_names", None),
                 brain_runtime=getattr(self, "brain_runtime", None),
                 action_state=getattr(self, "action_state", None),
                 assistant_integrations=getattr(self, "assistant_integrations", None),
@@ -410,76 +414,6 @@ class LocalController:
     def _lock(self, team_id: str) -> threading.RLock:
         slot = hashlib.sha256(team_id.encode("ascii")).digest()[0] % len(self._locks)
         return self._locks[slot]
-
-    def list_teams(self) -> dict[str, list[dict[str, str]]]:
-        teams: list[dict[str, str]] = []
-        networks = self.assistant_lifecycle._managed_team_networks()
-        for network in networks:
-            labels = network.attrs.get("Labels") or {}
-            team_id = labels.get(TEAM_LABEL)
-            if not isinstance(team_id, str):
-                raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
-            validate_team_id(team_id)
-            team_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-            teams.append({"team_id": team_id, "team_name": team_name, "status": "running"})
-        teams.sort(key=lambda item: item["team_id"])
-        return {"teams": teams}
-
-    def create_team(self, team_id: str, team_name: str) -> dict[str, object]:
-        team_id = validate_team_id(team_id)
-        team_name = validate_team_name(team_name)
-        with self._lock(team_id):
-            existing = self.assistant_lifecycle._network(team_id, required=False)
-            if existing is not None:
-                existing_name = self.assistant_lifecycle._validate_network(existing, team_id, refresh=False)
-                if existing_name != team_name:
-                    raise ApiProblem(
-                        HTTPStatus.CONFLICT,
-                        "Team id already belongs to a different name",
-                        code="team-name-conflict",
-                    )
-                return {"team_id": team_id, "team_name": team_name, "status": "running", "created": False}
-            try:
-                # A Team identity starts empty even after a daemon crash removed its network
-                # before the previous lifecycle could clean the dedicated storage volume.
-                self.storage.destroy(team_id)
-            except team_storage.StorageError as exc:
-                self._raise_storage_problem(exc)
-            try:
-                self.inference_store.delete(team_id)
-            except inference_config.InferenceConfigError as exc:
-                self._raise_inference_problem(exc)
-            try:
-                labels = self.assistant_lifecycle._base_labels(team_id, "team")
-                labels[TEAM_NAME_LABEL] = team_name
-                network = self.client.networks.create(
-                    self.assistant_lifecycle._network_name(team_id),
-                    driver="bridge",
-                    internal=True,
-                    attachable=False,
-                    check_duplicate=True,
-                    labels=labels,
-                )
-            except APIError as exc:
-                # A concurrent idempotent creator is safe only when the resulting
-                # resource proves the exact ownership/profile labels.
-                network = self.assistant_lifecycle._network(team_id, required=False)
-                if network is None:
-                    raise ApiProblem(
-                        HTTPStatus.SERVICE_UNAVAILABLE,
-                        "Docker could not create the Team",
-                        code="docker-create-failed",
-                    ) from exc
-                existing_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-                if existing_name != team_name:
-                    raise ApiProblem(
-                        HTTPStatus.CONFLICT,
-                        "Team id already belongs to a different name",
-                        code="team-name-conflict",
-                    ) from exc
-                return {"team_id": team_id, "team_name": team_name, "status": "running", "created": False}
-            self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-            return {"team_id": team_id, "team_name": team_name, "status": "running", "created": True}
 
     @staticmethod
     def _raise_storage_problem(exc: team_storage.StorageError) -> NoReturn:

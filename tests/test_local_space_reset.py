@@ -12,6 +12,7 @@ from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase,
 
 from action import challenges as action_challenges
 from local import app as local_app
+from local import labels as local_labels
 from routine import record as routine_record
 
 LOCAL_TEAM_RESIDUES = [
@@ -26,6 +27,7 @@ LOCAL_TEAM_RESIDUES = [
     "routines",
     "runtime_state",
     "stored_inputs",
+    "team_names",
     "team_networks",
     "team_storage",
 ]
@@ -38,10 +40,12 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
         controller._locks = (threading.RLock(),)
+        controller._names_lock = threading.RLock()
+        controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
         controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace()})
         network = SimpleNamespace(
             id="a" * 64,
-            attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}},
+            attrs={"Labels": {local_labels.TEAM_LABEL: "team_1"}},
             remove=lambda: events.append("network-remove"),
         )
         controller.client = SimpleNamespace(
@@ -88,6 +92,8 @@ class LocalSpaceResetTests(LocalContractCase):
         self.assertEqual(controller.registry.identities(), set())
         self.assertLess(events.index("delete-integrations"), events.index("network-remove"))
         self.assertLess(events.index("delete-stored-inputs"), events.index("network-remove"))
+        # Display names go only after the networks, so a failed removal keeps a surviving Team's name (ADR-0088).
+        self.assertLess(events.index("network-remove"), events.index("delete-names"))
 
     def test_reset_queues_removed_assistant_images_before_the_final_sweep(self) -> None:
         events: list[object] = []
@@ -95,6 +101,8 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
         controller._locks = (threading.RLock(),)
+        controller._names_lock = threading.RLock()
+        controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
         spec = SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             image=CURRENT_ASSISTANT_IMAGE,

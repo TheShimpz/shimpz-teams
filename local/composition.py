@@ -30,6 +30,7 @@ class ChatTurnDependencies:
     registry: object | None = None
     storage: object | None = None
     inference_store: object | None = None
+    team_names: object | None = None
     brain_runtime: object | None = None
     action_state: object | None = None
     assistant_integrations: object | None = None

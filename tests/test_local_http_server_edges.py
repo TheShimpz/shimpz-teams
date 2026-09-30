@@ -80,10 +80,11 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         body_operations = {
             route.operation
             for route in strict_http.CONTROLLER_ROUTES
-            if strict_http.LOCAL_CONTROLLER in route.profiles and route.method in {"POST", "PUT"}
+            if strict_http.LOCAL_CONTROLLER in route.profiles and route.method in {"POST", "PUT", "PATCH"}
         }
         body_operations.remove("file-upload")
-        body_operations.add("assistant-integration-cancel")
+        # A Local deletion carries the Team name it confirms (ADR-0088).
+        body_operations.update(("assistant-integration-cancel", "team-destroy"))
 
         self.assertEqual(set(server._JSON_BODY_LIMITS), body_operations)
 
@@ -153,9 +154,9 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler = self.handler()
         handler._body = mock.Mock(return_value={})
         with self.assertRaises(ApiProblemError):
-            handler._team_create_body()
+            handler._team_name_body()
         handler._body.return_value = {"team_name": "Team"}
-        self.assertEqual(handler._team_create_body(), "Team")
+        self.assertEqual(handler._team_name_body(), "Team")
 
         for body in ({}, {"assistant_id": 1, "source_digest": "sha256:" + "a" * 64}):
             handler._body.return_value = body
@@ -240,6 +241,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             configure_inference=mock.Mock(return_value={"configured": True}),
             create_team=mock.Mock(return_value={"created": True}),
             destroy_team=mock.Mock(return_value={"deleted": True}),
+            rename_team=mock.Mock(return_value={"team_id": "team_1", "team_name": "Team"}),
             list_assistants=mock.Mock(return_value={"assistants": []}),
             install_publication=mock.Mock(return_value={"installed": True}),
             install_local_snapshot=mock.Mock(return_value={"assistant": "assistant", "installed": True}),
@@ -406,14 +408,23 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "PATCH"
         self.assertIsNone(handler._local_assistant_route(["v1", "local-assistants"]))
 
+
+    def test_team_routes_create_confirm_deletion_and_rename_by_team_name(self) -> None:
+        handler = self.handler(controller=self.controller())
+        handler._team_name_body = mock.Mock(return_value="Team")
         create = ["v1", "teams", "team_1", "create"]
         handler.command = "PATCH"
         self.assertIsNone(handler._team_route(create))
         handler.command = "POST"
-        handler._team_create_body = mock.Mock(return_value="Team")
         self.assertEqual(handler._team_route(create)[2], "team-create")
         handler.command = "DELETE"
         self.assertEqual(handler._team_route(["v1", "teams", "team_1"])[2], "team-destroy")
+        handler.server.controller.destroy_team.assert_called_with("team_1", "Team")
+        handler.command = "PATCH"
+        self.assertEqual(handler._team_route(["v1", "teams", "team_1"])[2], "team-rename")
+        handler.server.controller.rename_team.assert_called_with("team_1", "Team")
+        handler.command = "PUT"
+        self.assertIsNone(handler._team_route(["v1", "teams", "team_1"]))
         self.assertIsNone(handler._team_route(["other"]))
 
     def test_generic_route_dispatches_all_assistant_operations(self) -> None:

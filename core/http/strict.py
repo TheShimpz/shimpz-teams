@@ -343,7 +343,7 @@ class ControllerRouteMatch:
         }
         if self.operation in fixed:
             return "fixed"
-        if self.operation in {"team-create", "team-destroy"}:
+        if self.operation in {"team-create", "team-destroy", "team-rename"}:
             return "team"
         if self.operation.startswith("local-assistant-"):
             return "local-assistant"
@@ -376,6 +376,7 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/oauth/cloudflare/callback", "assistant-integration-complete"),
     _controller_route("POST", "/v1/teams/:team_id/create", "team-create"),
     _controller_route("DELETE", "/v1/teams/:team_id", "team-destroy"),
+    _controller_route("PATCH", "/v1/teams/:team_id", "team-rename", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/files", "file-list"),
     _controller_route("POST", "/v1/teams/:team_id/files", "file-upload"),
     _controller_route("DELETE", "/v1/teams/:team_id/files/:file_id", "file-delete"),

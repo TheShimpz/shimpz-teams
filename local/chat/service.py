@@ -35,6 +35,7 @@ class ChatTurnService:
         self.registry = dependencies.registry
         self.storage = dependencies.storage
         self.inference_store = dependencies.inference_store
+        self.team_names = dependencies.team_names
         self.brain_runtime = dependencies.brain_runtime
         self.action_state = dependencies.action_state
         self.assistant_integrations = dependencies.assistant_integrations

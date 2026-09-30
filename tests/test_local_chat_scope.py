@@ -18,6 +18,7 @@ from local_controller_harness import LocalContractCase
 from action import human as action_human
 from inference import client as brain_runtime_client
 from local import app as local_app
+from local import labels as local_labels
 from local.chat.types import ActiveAssistant
 from local.validation import MAX_CHAT_ASSISTANTS
 
@@ -90,7 +91,7 @@ class LocalChatScopeTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, object())
             labels = controller.assistant_lifecycle._base_labels("team_1", "team")
-            labels[local_app.TEAM_NAME_LABEL] = "Marketing"
+            labels[local_labels.TEAM_NAME_LABEL] = "Marketing"
             network = SimpleNamespace(
                 id="a" * 64,
                 name=controller.assistant_lifecycle._network_name("team_1"),
@@ -203,6 +204,27 @@ class LocalChatScopeTests(LocalContractCase):
             f"local:local-space:team_1:{'a' * 64}:default",
         )
         self.assertEqual(response["team_name"], "Marketing")
+
+    def test_a_renamed_team_reaches_brain_and_the_terminal_by_its_current_name(self) -> None:
+        class Runtime:
+            context = None
+
+            def start(self, context, _message, *, conversation=()):
+                self.context = context
+                return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
+
+        runtime = Runtime()
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, runtime)
+            # The creation label stays "Marketing"; the display name is the incarnation's record (ADR-0088).
+            controller.team_names.save("team_1", "a" * 64, "Growth")
+            response = controller.chat_turn_service.chat(
+                "team_1",
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": []},
+                "openai",
+                "sk-test-0123456789",
+            )
+        self.assertEqual((runtime.context.team_name, response["team_name"]), ("Growth", "Growth"))
 
     def test_chat_empty_scope_is_brain_only_and_scans_installed_workloads_once(self) -> None:
         class Runtime:

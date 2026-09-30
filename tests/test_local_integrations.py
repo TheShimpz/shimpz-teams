@@ -515,6 +515,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller.space_id = "local-space"
             controller.brain_runtime = Runtime()
             controller.action_state = SimpleNamespace(purge_replayable=lambda _generation: False)
+            controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
             )
@@ -585,6 +586,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.registry = registry
             controller._locks = tuple(threading.RLock() for _ in range(64))
+            controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)
             controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
             controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
             controller.oauth_pkce = SimpleNamespace(cancel_team=lambda _team: 0)

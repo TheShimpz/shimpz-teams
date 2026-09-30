@@ -34,7 +34,7 @@ WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
-    local/inference.py local/labels.py local/lifecycle.py local/token.py local/validation.py ./local/
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/token.py local/validation.py ./local/
 COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/

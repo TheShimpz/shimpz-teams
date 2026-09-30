@@ -11,6 +11,7 @@ from local_controller_harness import LocalContractCase, TestAssistantRegistry
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
+from local import labels as local_labels
 from local import lifecycle as local_lifecycle
 from storage import files as team_storage
 
@@ -162,17 +163,20 @@ class LocalLifecycleEdgeTests(LocalContractCase):
 
     def test_destroy_requires_lock_and_complete_teardown_proof(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
+        # An already-absent network has no current name to confirm; its owned cleanup still runs.
+        controller.assistant_lifecycle._network = lambda _team_id, *, required=True: None
         chat_lock = mock.Mock()
         chat_lock.acquire.return_value = False
         controller.chat_turn_service._chat_lock = lambda _team_id: chat_lock
         with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.destroy_team("team_1")
+            controller.destroy_team("team_1", "Team One")
         self.assertEqual(caught.exception.code, "chat-active")
         chat_lock.release.assert_not_called()
 
         controller, _container, _events = self._lifecycle_controller()
         network = types.SimpleNamespace(id="a" * 64, name="team-network")
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
+        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
         controller._team_assistant_containers = lambda _team_id: []
         controller._validate_destroy_containers = mock.Mock()
         controller._delete_team_conversation = mock.Mock()
@@ -190,7 +194,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             ),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            controller.destroy_team("team_1")
+            controller.destroy_team("team_1", "Team One")
         self.assertEqual(caught.exception.code, "teardown-incomplete")
 
     def test_reset_inventory_rejects_invalid_owned_resources(self) -> None:
@@ -210,7 +214,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             local_lifecycle._validate_reset_container(subject, invalid_container)
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        network = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: 7}})
+        network = types.SimpleNamespace(attrs={"Labels": {local_labels.TEAM_LABEL: 7}})
         subject.registry = TestAssistantRegistry({})
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_lifecycle._reset_assistant_identities(subject, [], [network])
@@ -223,7 +227,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             attrs={
                 "Config": {
                     "Labels": {
-                        local_app.TEAM_LABEL: "team_1",
+                        local_labels.TEAM_LABEL: "team_1",
                         local_app.ASSISTANT_LABEL: "assistant",
                     }
                 }
@@ -231,7 +235,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             remove=lambda *, force: events.append(("remove", force)),
         )
         network = types.SimpleNamespace(
-            attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}},
+            attrs={"Labels": {local_labels.TEAM_LABEL: "team_1"}},
             remove=lambda: events.append("network-remove"),
         )
         subject = types.SimpleNamespace(
@@ -252,6 +256,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             registry=TestAssistantRegistry({"assistant": types.SimpleNamespace(provenance="local")}),
             storage=types.SimpleNamespace(destroy_all=lambda: True),
             inference_store=types.SimpleNamespace(delete_all=lambda: events.append("inference-delete")),
+            team_names=types.SimpleNamespace(delete_all=lambda: events.append("names-delete")),
             _clear_team_runtime_state=lambda _team_id: events.append("runtime-clear"),
         )
 

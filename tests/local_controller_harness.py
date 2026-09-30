@@ -21,6 +21,7 @@ from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
 from local import app as local_app
+from local import names as local_names
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
@@ -126,6 +127,8 @@ class LocalContractCase(unittest.TestCase):
             ),
         )
         controller._locks = tuple(threading.RLock() for _ in range(64))
+        controller._names_lock = threading.RLock()
+        controller.team_names = local_names.TeamNameStore(Path(directory) / "inference")
         controller._wire_collaborators()
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
@@ -153,6 +156,8 @@ class LocalContractCase(unittest.TestCase):
         controller._locks = tuple(threading.RLock() for _ in range(64))
         state_directory = tempfile.TemporaryDirectory()
         self.addCleanup(state_directory.cleanup)
+        controller._names_lock = threading.RLock()
+        controller.team_names = local_names.TeamNameStore(Path(state_directory.name) / "inference")
         controller.assistant_integrations = integration_store.OAuthIntegrationStore(
             Path(state_directory.name) / "assistant-integrations" / "state" / "integrations.json",
             Path(state_directory.name) / "assistant-integrations" / "key" / "aes256.key",

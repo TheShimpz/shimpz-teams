@@ -80,13 +80,28 @@ def _team_id(value: object) -> str:
     return team_id
 
 
+def write_private_json(root: Path, target: Path, value: dict[str, object]) -> None:
+    """Atomically replace one owner-only JSON record inside a private directory."""
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    root.chmod(0o700)
+    temporary = root / f".{target.name}.{secrets.token_hex(8)}.tmp"
+    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            # The mode is final before the swap, so a failure can never leave a readable replaced file.
+            os.fchmod(stream.fileno(), 0o600)
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 class InferenceConfigStore:
     def __init__(self, root: Path = ROOT) -> None:
         self.root = root
-
-    def _prepare(self) -> None:
-        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.root.chmod(0o700)
 
     def _path(self, team_id: str) -> Path:
         digest = hashlib.sha256(team_id.encode()).hexdigest()
@@ -146,20 +161,7 @@ class InferenceConfigStore:
         return memory, skills
 
     def _write(self, target: Path, value: dict[str, object]) -> None:
-        self._prepare()
-        temporary = self.root / f".{target.name}.{secrets.token_hex(8)}.tmp"
-        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            with os.fdopen(descriptor, "wb") as stream:
-                # The mode is final before the swap, so a failure can never leave a readable replaced file.
-                os.fchmod(stream.fileno(), 0o600)
-                stream.write(payload)
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(target)
-        finally:
-            temporary.unlink(missing_ok=True)
+        write_private_json(self.root, target, value)
 
     def load(self, team_id: object) -> InferenceConfig:
         team_id = _team_id(team_id)

@@ -63,6 +63,7 @@ class LocalTeamDestroyTests(LocalContractCase):
             return [container]
 
         controller._lock = lambda _team_id: LifecycleLock()
+        controller._names_lock = threading.RLock()
         controller.registry = TestAssistantRegistry(
             {
                 "shimpz-cloudflare": SimpleNamespace(
@@ -97,16 +98,24 @@ class LocalTeamDestroyTests(LocalContractCase):
             events.append("network-read") or network
         )
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
+        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
+        controller.team_names = SimpleNamespace(
+            load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
+        )
         controller.assistant_lifecycle._validate_container_profile = lambda *_args: events.append("container-validated")
         controller.assistant_lifecycle._queue_residue = lambda image_id: events.append(("residue-add", image_id))
         controller.assistant_lifecycle.sweep_residues = lambda: events.append("residue-sweep")
 
-        result = controller.destroy_team("team_1")
+        result = controller.destroy_team("team_1", "Team One")
 
         expected_thread = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(
             events,
             [
+                # The name is confirmed under the Team lock before any side effect (ADR-0088).
+                "lifecycle-lock",
+                "network-read",
+                "lifecycle-release",
                 "action-stopped",
                 ("chat-lock", 30),
                 "lifecycle-lock",
@@ -122,6 +131,7 @@ class LocalTeamDestroyTests(LocalContractCase):
                 "storage-destroy",
                 "inference-delete",
                 "network-remove",
+                "names-delete",
                 ("integrations-delete", "team_1"),
                 ("stored-inputs-delete", "team_1"),
                 "lifecycle-release",
@@ -157,6 +167,7 @@ class LocalTeamDestroyTests(LocalContractCase):
             remove=lambda *, force: events.append("container-remove"),
         )
         controller._lock = lambda _team_id: threading.RLock()
+        controller._names_lock = threading.RLock()
         controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
 
@@ -183,10 +194,14 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
+        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
+        controller.team_names = SimpleNamespace(
+            load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
+        )
         controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.destroy_team("team_1")
+            controller.destroy_team("team_1", "Team One")
 
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertEqual(caught.exception.message, "Team conversation state could not be deleted")
@@ -211,6 +226,7 @@ class LocalTeamDestroyTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
         controller._lock = lambda _team_id: threading.RLock()
+        controller._names_lock = threading.RLock()
         controller.registry = TestAssistantRegistry({"shimpz-cloudflare": SimpleNamespace(allowed_hosts=())})
         controller.client = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
         controller.brain_runtime = SimpleNamespace(
@@ -238,10 +254,14 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
         controller.assistant_lifecycle._assistant_filters = lambda _team_id: {}
+        controller.assistant_lifecycle._validate_network = lambda *_args, **_kwargs: "Team One"
+        controller.team_names = SimpleNamespace(
+            load=lambda _team_id, _network_id: None, delete=lambda _team_id: events.append("names-delete")
+        )
         controller.assistant_lifecycle._validate_container_profile = lambda *_args: None
 
         with self.assertRaises(local_app.ApiProblem) as caught:
-            controller.destroy_team("team_1")
+            controller.destroy_team("team_1", "Team One")
 
         expected_thread = local_app._brain_thread_id("local-space", "team_1", "a" * 64)
         self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)

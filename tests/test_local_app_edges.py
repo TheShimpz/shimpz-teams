@@ -128,8 +128,13 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller._locks = tuple(threading.RLock() for _ in range(64))
+        controller._names_lock = threading.RLock()
+        controller.team_names = types.SimpleNamespace(
+            load=mock.Mock(return_value=None), save=mock.Mock(), delete=mock.Mock()
+        )
         controller.assistant_lifecycle = types.SimpleNamespace(
             _network=mock.Mock(return_value=None),
+            _managed_team_networks=mock.Mock(return_value=[]),
             _validate_network=mock.Mock(return_value="Team"),
             _base_labels=lambda _team_id, _kind: {},
             _network_name=lambda team_id: f"network-{team_id}",
@@ -176,7 +181,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             controller.list_teams()
         self.assertEqual(caught.exception.code, "docker-unavailable")
 
-        network = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: 7}})
+        network = types.SimpleNamespace(attrs={"Labels": {local_labels.TEAM_LABEL: 7}})
         controller.client.networks.list.side_effect = None
         controller.client.networks.list.return_value = [network]
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -193,9 +198,10 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         networks = []
         for team_id in ("team_2", "team_1"):
             labels = lifecycle._base_labels(team_id, "team")
-            labels[local_app.TEAM_NAME_LABEL] = f"Team {team_id[-1]}"
+            labels[local_labels.TEAM_NAME_LABEL] = f"Team {team_id[-1]}"
             networks.append(
                 types.SimpleNamespace(
+                    id=team_id * 8,
                     attrs={
                         "Labels": labels,
                         "Name": lifecycle._network_name(team_id),
@@ -226,23 +232,25 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             ("Driver", "overlay"),
             ("Name", "foreign"),
             (local_labels.SPACE_LABEL, "foreign"),
-            (local_app.TEAM_NAME_LABEL, ""),
+            (local_labels.TEAM_NAME_LABEL, ""),
         ):
             with self.subTest(field=field):
                 attrs = dict(networks[0].attrs)
                 attrs["Labels"] = dict(attrs["Labels"])
-                if field in (local_labels.SPACE_LABEL, local_app.TEAM_NAME_LABEL):
+                if field in (local_labels.SPACE_LABEL, local_labels.TEAM_NAME_LABEL):
                     attrs["Labels"][field] = invalid
                 else:
                     attrs[field] = invalid
-                controller.client.networks.list.return_value = [types.SimpleNamespace(attrs=attrs, reload=mock.Mock())]
+                controller.client.networks.list.return_value = [
+                    types.SimpleNamespace(id="f" * 64, attrs=attrs, reload=mock.Mock())
+                ]
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     controller.list_teams()
                 self.assertEqual(caught.exception.code, "ownership-conflict")
 
     def test_team_creation_covers_existing_cleanup_concurrency_and_success(self) -> None:
         controller = self.controller()
-        existing = object()
+        existing = types.SimpleNamespace(id="e" * 64)
         controller.assistant_lifecycle._network.return_value = existing
         controller.assistant_lifecycle._validate_network.return_value = "Other"
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -271,7 +279,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             controller.create_team("team_1", "Team")
         self.assertEqual(caught.exception.code, "docker-create-failed")
 
-        concurrent = object()
+        concurrent = types.SimpleNamespace(id="c" * 64)
         controller.assistant_lifecycle._network.side_effect = (None, concurrent)
         controller.assistant_lifecycle._validate_network.return_value = "Other"
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -303,8 +311,9 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
                 lifecycle.space_id = controller.space_id
                 controller.assistant_lifecycle = lifecycle
                 labels = lifecycle._base_labels("team_1", "team")
-                labels[local_app.TEAM_NAME_LABEL] = "Team"
+                labels[local_labels.TEAM_NAME_LABEL] = "Team"
                 network = types.SimpleNamespace(
+                    id="a" * 64,
                     attrs={
                         "Labels": labels,
                         "Name": lifecycle._network_name("team_1"),

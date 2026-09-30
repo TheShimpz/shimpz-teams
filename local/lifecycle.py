@@ -10,6 +10,7 @@ from docker.errors import DockerException
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from local import names as local_names
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import (
@@ -41,6 +42,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "routines",
         "runtime_state",
         "team_networks",
+        "team_names",
         "team_storage",
     }
 )
@@ -176,8 +178,23 @@ def _clear_team_runtime_state(self, team_id: str) -> None:
             self.chat_turn_service._cancelled_chat_tokens.discard(token)
 
 
-def destroy_team(self, team_id: str) -> dict[str, object]:
+def destroy_team(self, team_id: str, expected_name: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
+    expected_name = local_names.canonical_name(expected_name)
+    # The namespace lock keeps the confirmed name current for the whole teardown; chat never takes it (ADR-0088).
+    with self._names_lock:
+        with self._lock(team_id):
+            network = self.assistant_lifecycle._network(team_id, required=False)
+            if network is not None and local_names.display_name(self, team_id, network) != expected_name:
+                raise ApiProblem(
+                    HTTPStatus.CONFLICT,
+                    "Team name confirmation does not match",
+                    code="team-name-mismatch",
+                )
+        return _destroy_confirmed_team(self, team_id)
+
+
+def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
     self.chat_turn_service.human_challenges.cancel_team(team_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
     residue_absent = {"chat_continuations"}
@@ -205,6 +222,9 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             residue_absent.update(("inference_configuration", "team_storage"))
             destroyed = self._remove_team_network(network)
             residue_absent.add("team_networks")
+            # Only once the network is gone: a failed removal must keep the surviving Team's current name.
+            self.team_names.delete(team_id)
+            residue_absent.add("team_names")
             self._delete_team_private_state(team_id)
             residue_absent.update(("integration_credentials", "stored_inputs"))
             self._clear_team_runtime_state(team_id)
@@ -331,6 +351,8 @@ def _remove_space_resources(
     for network in networks:
         network.remove()
     absent.add("team_networks")
+    self.team_names.delete_all()
+    absent.add("team_names")
     team_ids = {team_id for team_id, _assistant_id in owned_assistants}
     team_ids.update(network.attrs["Labels"][TEAM_LABEL] for network in networks)
     for team_id in team_ids:
@@ -344,6 +366,7 @@ def reset_space(self) -> dict[str, object]:
     self.chat_turn_service._clear_chat_continuations()
     self.chat_turn_service.human_challenges.cancel_all()
     with ExitStack() as locks:
+        locks.enter_context(self._names_lock)
         for lock in self._locks:
             locks.enter_context(lock)
         try:

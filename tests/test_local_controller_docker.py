@@ -530,6 +530,18 @@ class DockerFlowTests(
             teams["teams"],
             [{"team_id": "demo_team", "team_name": "Demo Team", "status": "running"}],
         )
+        # A rename changes only the display name (ADR-0088): the id stays, the old name no longer creates this id.
+        renamed_status, renamed = self._api(
+            flow.port, flow.token, "PATCH", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
+        )
+        self.assertEqual(renamed_status, 200, renamed)
+        self.assertEqual((renamed["team_id"], renamed["team_name"]), ("demo_team", "Demo Renamed"))
+        _, teams = self._api(flow.port, flow.token, "GET", "/v1/teams")
+        self.assertEqual(teams["teams"][0]["team_name"], "Demo Renamed")
+        conflict_status, conflict = self._api(
+            flow.port, flow.token, "POST", "/v1/teams/demo_team/create", {"team_name": "Demo Team"}
+        )
+        self.assertEqual((conflict_status, conflict["code"]), (409, "team-name-conflict"))
 
         file_status, uploaded = self._api(
             flow.port,
@@ -604,7 +616,7 @@ class DockerFlowTests(
         self.assertTrue(recreated["created"])
         _, orphan_files = self._api(flow.port, flow.token, "GET", "/v1/teams/orphan_team/files")
         self.assertEqual(orphan_files["files"], [])
-        self._api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team")
+        self._api(flow.port, flow.token, "DELETE", "/v1/teams/orphan_team", {"team_name": "Orphan Team"})
 
     def _exercise_teardown(self, flow: DockerFlow) -> None:
         proxy_metadata = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0]
@@ -660,7 +672,13 @@ class DockerFlowTests(
             f"/v1/teams/demo_team/files/{flow.file_id}",
         )
         self.assertTrue(deleted_file["deleted"])
-        destroy_status, destroyed = self._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team")
+        mismatch_status, mismatch = self._api(
+            flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Team"}
+        )
+        self.assertEqual((mismatch_status, mismatch["code"]), (409, "team-name-mismatch"))
+        destroy_status, destroyed = self._api(
+            flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
+        )
         self.assertEqual(destroy_status, 200, destroyed)
         self.assertTrue(destroyed["destroyed"])
         self.assertTrue(destroyed["storage_removed"])
@@ -678,6 +696,7 @@ class DockerFlowTests(
                 "routines",
                 "runtime_state",
                 "stored_inputs",
+                "team_names",
                 "team_networks",
                 "team_storage",
             ],
@@ -693,7 +712,9 @@ class DockerFlowTests(
             ).returncode,
             0,
         )
-        _, destroyed_again = self._api(flow.port, flow.token, "DELETE", "/v1/teams/demo_team")
+        _, destroyed_again = self._api(
+            flow.port, flow.token, "DELETE", "/v1/teams/demo_team", {"team_name": "Demo Renamed"}
+        )
         self.assertFalse(destroyed_again["destroyed"])
 
     def _exercise_reset(self, flow: DockerFlow) -> None:
@@ -755,6 +776,7 @@ class DockerFlowTests(
                 "routines",
                 "runtime_state",
                 "stored_inputs",
+                "team_names",
                 "team_networks",
                 "team_storage",
             ],

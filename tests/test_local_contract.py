@@ -20,6 +20,7 @@ from inference import config as inference_config
 from local import app as local_app
 from local import audit as local_audit
 from local import healthcheck as local_healthcheck
+from local import names as local_names
 from local import token as local_token_store
 from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
@@ -138,10 +139,12 @@ class LocalContractTests(LocalContractCase):
             self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
 
     def test_team_name_matches_the_admin_contract(self) -> None:
-        self.assertEqual(local_app.validate_team_name("My Team"), "My Team")
-        for invalid in ("", " padded", "padded ", "x\n", "x" * 81, None):
+        self.assertEqual(local_names.canonical_name("My Team"), "My Team")
+        self.assertEqual(local_names.canonical_name("\u00c9quipe"), "\u00c9quipe")
+        # A decomposed name is refused, so a Local display name always compares exactly (ADR-0088).
+        for invalid in ("", " padded", "padded ", "x\n", "x" * 81, None, "E\u0301quipe"):
             with self.subTest(invalid=invalid), self.assertRaises(local_app.ApiProblem):
-                local_app.validate_team_name(invalid)
+                local_names.canonical_name(invalid)
 
     def test_container_limits_and_stateless_recovery_are_intentionally_narrow(self) -> None:
         self.assertEqual(assistant_lifecycle.ASSISTANT_NANO_CPUS, 250_000_000)

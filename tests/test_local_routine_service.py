@@ -353,6 +353,21 @@ class FreezeTests(RoutineServiceCase):
         self.assertEqual(resumed["status"], "done")
         self.assertEqual((state.runs, state.notices[-1].detail), ((), {"reply": "Approved and listed."}))
 
+    def test_a_rename_never_ends_a_frozen_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, claim, _frozen = self.paused(directory, completed("Approved and listed."))
+            # Only the display name changes; the run's Team context keeps the immutable creation label.
+            controller.team_names.save("team_1", "a" * 64, "Growth")
+            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            resumed = service.resume_routine_human(
+                "team_1",
+                claim["run_id"],
+                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
+                "openai",
+                API_KEY,
+            )
+        self.assertEqual(resumed["status"], "done")
+
     def test_a_denied_or_stopped_frozen_run_ends_and_an_expired_challenge_leaves_it_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)

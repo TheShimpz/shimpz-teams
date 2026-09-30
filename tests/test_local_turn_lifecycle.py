@@ -41,6 +41,7 @@ LOCAL_TEAM_RESIDUES = [
     "routines",
     "runtime_state",
     "stored_inputs",
+    "team_names",
     "team_networks",
     "team_storage",
 ]

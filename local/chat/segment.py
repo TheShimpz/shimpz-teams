@@ -124,7 +124,10 @@ def _run_chat_segment_with_metadata(
             request.assistant_ids,
             metadata_connection,
         )
+        # Identity keeps the immutable creation name, so a rename never changes it; the Brain and the terminal get
+        # the current display name of this exact network incarnation (ADR-0088).
         identity = self._chat_identity(team_name, network_id, assistants, files, config)
+        display_name = self.team_names.load(request.team_id, network_id) or team_name
         routine = request.routine
         generation, thread_id = network_id, _brain_thread_id(self.space_id, request.team_id, network_id)
         if routine is not None:
@@ -153,7 +156,7 @@ def _run_chat_segment_with_metadata(
         routines = None if routine is not None else self._chat_routines(request.team_id)
         context = brain_runtime_client.RuntimeContext(
             thread_id=thread_id,
-            team_name=team_name,
+            team_name=display_name,
             assistants=runtime_assistants,
             provider=config.provider,
             model=config.model,
@@ -193,7 +196,7 @@ def _run_chat_segment_with_metadata(
         )
         if routine is not None:
             routine.batches.append(batch)
-        return chat_turn_engine.PreparedSegment(team_name, identity, context, files, batch)
+        return chat_turn_engine.PreparedSegment(display_name, identity, context, files, batch)
 
     def private_inputs(
         requests: tuple[object, ...],

@@ -31,7 +31,6 @@ from local.validation import (
     validate_decision_credential_header,
     validate_model_credential_headers,
     validate_team_id,
-    validate_team_name,
 )
 from protocol.http.v1 import supervisor as supervisor_contract
 
@@ -68,6 +67,8 @@ _JSON_BODY_LIMITS = {
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
+    "team-destroy": MAX_BODY_BYTES,
+    "team-rename": MAX_BODY_BYTES,
     **local_http_routine.BODY_LIMITS,
 }
 
@@ -207,15 +208,16 @@ class Handler(BaseHTTPRequestHandler):
             "sha256": supervisor_contract.EMPTY_SHA256,
         }
 
-    def _team_create_body(self) -> str:
+    def _team_name_body(self) -> object:
+        """Team create, rename, and delete each carry exactly one Team name; Team validates it."""
         body = self._body()
         if set(body) != {"team_name"}:
             raise ApiProblem(
                 HTTPStatus.UNPROCESSABLE_ENTITY,
-                "Team creation requires only team_name",
+                "the request requires only team_name",
                 code="invalid-body",
             )
-        return validate_team_name(body["team_name"])
+        return body["team_name"]
 
     def _install_body(self) -> tuple[str, str]:
         body = self._body()
@@ -656,17 +658,25 @@ class Handler(BaseHTTPRequestHandler):
             if self.command == "POST":
                 return (
                     HTTPStatus.OK,
-                    self.server.controller.create_team(team_id, self._team_create_body()),
+                    self.server.controller.create_team(team_id, self._team_name_body()),
                     "team-create",
                     team_id,
                     None,
                 )
-        if len(parts) == 3 and parts[:2] == ["v1", "teams"] and self.command == "DELETE":
+        if len(parts) == 3 and parts[:2] == ["v1", "teams"] and self.command in {"DELETE", "PATCH"}:
             team_id = validate_team_id(parts[2])
+            if self.command == "DELETE":
+                return (
+                    HTTPStatus.OK,
+                    self.server.controller.destroy_team(team_id, self._team_name_body()),
+                    "team-destroy",
+                    team_id,
+                    None,
+                )
             return (
                 HTTPStatus.OK,
-                self.server.controller.destroy_team(team_id),
-                "team-destroy",
+                self.server.controller.rename_team(team_id, self._team_name_body()),
+                "team-rename",
                 team_id,
                 None,
             )

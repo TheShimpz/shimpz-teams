@@ -59,6 +59,7 @@ class LocalLeafContractTests(unittest.TestCase):
             ),
             _chat_identity=lambda *_args: ("identity",),
             inference_store=types.SimpleNamespace(load_knowledge=lambda _team_id: ([], [])),
+            team_names=types.SimpleNamespace(load=lambda _team_id, _network_id: None),
             _chat_routines=lambda _team_id: (),
             _active_assistant_genesis=lambda _active: "genesis",
             space_id="local",

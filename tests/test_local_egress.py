@@ -194,8 +194,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
             local_labels.PROFILE_LABEL: local_egress.PROFILE,
             local_labels.SPACE_LABEL: self.controller.space_id,
             local_labels.KIND_LABEL: "team",
-            local_app.TEAM_LABEL: team_id,
-            local_app.TEAM_NAME_LABEL: "Team 1",
+            local_labels.TEAM_LABEL: team_id,
+            local_labels.TEAM_NAME_LABEL: "Team 1",
         }
         assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
         self.controller.client.containers.installed = [assistant]
@@ -226,8 +226,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
             local_labels.PROFILE_LABEL: local_egress.PROFILE,
             local_labels.SPACE_LABEL: self.controller.space_id,
             local_labels.KIND_LABEL: "team",
-            local_app.TEAM_LABEL: team_id,
-            local_app.TEAM_NAME_LABEL: "Team 1",
+            local_labels.TEAM_LABEL: team_id,
+            local_labels.TEAM_NAME_LABEL: "Team 1",
         }
         assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
         self.controller.client.containers.installed = [assistant]
@@ -250,8 +250,8 @@ class LocalAssistantEgressTests(unittest.TestCase):
             local_labels.PROFILE_LABEL: local_egress.PROFILE,
             local_labels.SPACE_LABEL: self.controller.space_id,
             local_labels.KIND_LABEL: "team",
-            local_app.TEAM_LABEL: team_id,
-            local_app.TEAM_NAME_LABEL: "Team 1",
+            local_labels.TEAM_LABEL: team_id,
+            local_labels.TEAM_NAME_LABEL: "Team 1",
         }
         assistant = types.SimpleNamespace(labels={local_app.ASSISTANT_LABEL: self.spec.assistant_id})
         self.controller.client.containers.installed = [assistant]
@@ -552,14 +552,14 @@ class LocalAssistantEgressTests(unittest.TestCase):
     def test_reconciliation_release_and_activation_cover_no_egress_paths(self) -> None:
         lifecycle = self.controller.assistant_lifecycle
         network = types.SimpleNamespace(
-            attrs={"Labels": {local_app.TEAM_LABEL: "INVALID"}},
+            attrs={"Labels": {local_labels.TEAM_LABEL: "INVALID"}},
         )
         lifecycle._managed_team_networks = mock.Mock(return_value=[network])
         with self.assertRaises(local_app.ApiProblem) as caught:
             lifecycle._reconcile_egress_proxy_attachments()
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
-        valid_network = types.SimpleNamespace(attrs={"Labels": {local_app.TEAM_LABEL: "team_1"}})
+        valid_network = types.SimpleNamespace(attrs={"Labels": {local_labels.TEAM_LABEL: "team_1"}})
         lifecycle._managed_team_networks.return_value = [valid_network, valid_network]
         lifecycle._validate_network = mock.Mock()
         lifecycle._team_requires_egress_proxy = mock.Mock(return_value=False)
@@ -603,7 +603,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "ownership-conflict")
 
         labels = lifecycle._base_labels("team_1", "team")
-        labels[local_app.TEAM_NAME_LABEL] = ""
+        labels[local_labels.TEAM_NAME_LABEL] = ""
         invalid_name = types.SimpleNamespace(
             reload=mock.Mock(),
             attrs={
