@@ -78,6 +78,8 @@ from local.labels import (
     TEAM_LABEL,
     TEAM_NAME_LABEL,
 )
+from local.routine import lifecycle as local_routine_lifecycle
+from local.routine import store as local_routine_store
 from local.validation import brain_thread_id as _local_brain_thread_id
 from local.validation import (
     half_cpu_set,
@@ -419,6 +421,7 @@ class LocalControllerDependencies:
     assistant_updates: assistant_update.AssistantUpdateStore | None = None
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
+    routine_store: local_routine_store.RoutineStore | None = None
 
 
 class LocalController:
@@ -449,6 +452,8 @@ class LocalController:
     _reset_assistant_identities = local_team_lifecycle._reset_assistant_identities
     _remove_space_resources = local_team_lifecycle._remove_space_resources
     reset_space = local_team_lifecycle.reset_space
+    _delete_team_routines = local_routine_lifecycle.delete_team_routines
+    _delete_all_routines = local_routine_lifecycle.delete_all_routines
 
     def __init__(
         self,
@@ -464,6 +469,7 @@ class LocalController:
         self.registry = registry
         self.storage = storage
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
+        self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
         self.action_state = (
             dependencies.action_state

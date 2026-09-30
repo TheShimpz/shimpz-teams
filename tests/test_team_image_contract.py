@@ -21,6 +21,7 @@ PRODUCTION_PACKAGES = {
     "integrations",
     "local",
     "action",
+    "routine",
     "storage",
 }
 # Package data has no import graph; these per-image maps are its reviewed necessity authority.
@@ -60,6 +61,7 @@ HOSTED_PROTOCOL_DATA = {
 LOCAL_PROTOCOL_DATA = {
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
+    "protocol/http/v1/routine.py",
     "protocol/http/v1/supervisor.py",
     *(path for path in HOSTED_PROTOCOL_DATA if path.startswith("protocol/install/")),
 }

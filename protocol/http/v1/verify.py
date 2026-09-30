@@ -13,6 +13,8 @@ import progress
 import supervisor
 import websocket
 
+import routine
+
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
@@ -188,5 +190,22 @@ if any(payload.canonical_action_label(value) != value for value in action_label_
     fail("Team HTTP Action-label label positive vector differs")
 if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):
     fail("Team HTTP Action-label label negative vector differs")
+
+schedules = vectors.get("routine_schedule", {})
+if not schedules.get("valid") or not schedules.get("invalid") or not schedules.get("daily_rate"):
+    fail("routine schedule vectors are missing")
+if any(routine.canonical_schedule(value) != value for value in schedules["valid"]):
+    fail("a valid routine schedule vector was not admitted exactly")
+if any(routine.canonical_schedule(value) is not None for value in schedules["invalid"]):
+    fail("an invalid routine schedule vector was admitted")
+if any(str(routine.daily_rate(case["schedule"])) != case["rate"] for case in schedules["daily_rate"]):
+    fail("a routine daily rate vector differs")
+timezones = vectors.get("routine_timezone", {})
+if not timezones.get("valid") or not timezones.get("invalid"):
+    fail("routine timezone vectors are missing")
+if any(routine.canonical_timezone(value) != value for value in timezones["valid"]):
+    fail("a valid routine timezone vector was not admitted exactly")
+if any(routine.canonical_timezone(value) is not None for value in timezones["invalid"]):
+    fail("an invalid routine timezone vector was admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")

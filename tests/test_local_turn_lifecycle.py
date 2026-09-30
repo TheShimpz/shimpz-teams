@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import sys
 import tempfile
@@ -21,6 +22,7 @@ from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
+from routine import record as routine_record
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -38,6 +40,7 @@ LOCAL_TEAM_RESIDUES = [
     "inference_configuration",
     "integration_credentials",
     "publication_bindings",
+    "routines",
     "runtime_state",
     "stored_inputs",
     "team_networks",
@@ -591,6 +594,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("action-purge", generation)))
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_store = SimpleNamespace(
+            load=lambda _team_id: routine_record.TeamRoutines(),
+            delete=lambda _team_id: events.append("routines-delete"),
+            teams=lambda: (),
+            delete_all=lambda: events.append("routines-delete-all"),
+            lock=lambda _team_id: contextlib.nullcontext(),
+            exclusive=contextlib.nullcontext,
+        )
         controller._wire_collaborators()
         controller.chat_turn_service._active_chat_tokens = {"team_1": "turn-token"}
         controller.chat_turn_service._active_action_containers = {"team_1": ("turn-token", object())}
@@ -618,6 +629,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "container-validated",
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
+                "routines-delete",
                 ("container-remove", True),
                 ("residue-add", "sha256:" + "a" * 64),
                 "residue-sweep",
@@ -671,6 +683,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_store = SimpleNamespace(
+            load=lambda _team_id: routine_record.TeamRoutines(),
+            delete=lambda _team_id: events.append("routines-delete"),
+            teams=lambda: (),
+            delete_all=lambda: events.append("routines-delete-all"),
+            lock=lambda _team_id: contextlib.nullcontext(),
+            exclusive=contextlib.nullcontext,
+        )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
@@ -716,6 +736,14 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=fail_purge)
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
+        controller.routine_store = SimpleNamespace(
+            load=lambda _team_id: routine_record.TeamRoutines(),
+            delete=lambda _team_id: events.append("routines-delete"),
+            teams=lambda: (),
+            delete_all=lambda: events.append("routines-delete-all"),
+            lock=lambda _team_id: contextlib.nullcontext(),
+            exclusive=contextlib.nullcontext,
+        )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network

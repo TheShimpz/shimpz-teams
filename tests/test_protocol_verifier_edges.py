@@ -54,6 +54,7 @@ def _execute(
             "human_request_validator",
             "payload",
             "progress",
+            "routine",
             "schema_validator",
             "supervisor",
             "websocket",
@@ -371,6 +372,43 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value["memory_apply"][0]["result"] = []
 
         for mutate in (missing, accepted_invalid, rejected_valid, drifted_apply):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
+    def test_rejects_missing_or_drifted_routine_vectors(self) -> None:
+        def missing_schedules(value: dict[str, object]) -> None:
+            value["routine_schedule"]["daily_rate"] = []
+
+        def rejected_schedule(value: dict[str, object]) -> None:
+            value["routine_schedule"]["valid"] = [{"kind": "daily", "time": "25:00"}]
+
+        def accepted_schedule(value: dict[str, object]) -> None:
+            value["routine_schedule"]["invalid"] = [{"kind": "daily", "time": "09:00"}]
+
+        def drifted_rate(value: dict[str, object]) -> None:
+            value["routine_schedule"]["daily_rate"][0]["rate"] = "5"
+
+        def missing_timezones(value: dict[str, object]) -> None:
+            value["routine_timezone"]["valid"] = []
+
+        def rejected_timezone(value: dict[str, object]) -> None:
+            value["routine_timezone"]["valid"] = ["../UTC"]
+
+        def accepted_timezone(value: dict[str, object]) -> None:
+            value["routine_timezone"]["invalid"] = ["UTC"]
+
+        mutations = (
+            missing_schedules,
+            rejected_schedule,
+            accepted_schedule,
+            drifted_rate,
+            missing_timezones,
+            rejected_timezone,
+            accepted_timezone,
+        )
+        for mutate in mutations:
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)

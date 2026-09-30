@@ -47,6 +47,11 @@ of every Assistant it names, and a `procedure-` content key derived from both. N
 skill), then its new skill, which becomes the newest while the oldest give way beyond the bound; a skill the same turn
 forgets is not learned again.
 
+A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
+hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in
+an IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads). `routine.daily_rate` is
+a schedule's average runs per day; a Team's Routines may sum to at most 24.
+
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.

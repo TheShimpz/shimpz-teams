@@ -57,6 +57,8 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/c
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py \
     local/chat/state.py local/chat/types.py ./local/chat/
+COPY local/routine/__init__.py local/routine/lifecycle.py local/routine/store.py ./local/routine/
+COPY routine/__init__.py routine/record.py routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/server.py \
     ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/update.py \
@@ -72,7 +74,8 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     protocol/install/v1/team-list-response.schema.json protocol/install/v1/vectors.json \
     protocol/install/v1/verify.py \
     ./protocol/install/v1/
-COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/supervisor.py ./protocol/http/v1/
+COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/routine.py \
+    protocol/http/v1/supervisor.py ./protocol/http/v1/
 COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
     action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/

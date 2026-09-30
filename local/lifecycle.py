@@ -38,6 +38,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "stored_inputs",
         "action_checkpoints",
         "publication_bindings",
+        "routines",
         "runtime_state",
         "team_networks",
         "team_storage",
@@ -196,6 +197,8 @@ def destroy_team(self, team_id: str) -> dict[str, object]:
             self._validate_destroy_containers(containers, team_id, network)
             self._delete_team_conversation(team_id, network)
             residue_absent.update(("brain_checkpoints", "action_checkpoints"))
+            self._delete_team_routines(team_id)
+            residue_absent.add("routines")
             removed = self._remove_team_assistants(team_id, containers)
             residue_absent.update(("assistant_containers", "egress_policies", "publication_bindings"))
             storage_removed = self._delete_team_persistence(team_id)
@@ -302,6 +305,8 @@ def _remove_space_resources(
         team_id = network.attrs["Labels"][TEAM_LABEL]
         self._delete_team_conversation(team_id, network)
     absent.update(("brain_checkpoints", "action_checkpoints"))
+    self._delete_all_routines()
+    absent.add("routines")
     for container in containers:
         labels = container.attrs["Config"]["Labels"]
         spec = self.registry.get(labels[TEAM_LABEL], labels[ASSISTANT_LABEL])

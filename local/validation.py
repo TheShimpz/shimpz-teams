@@ -176,6 +176,17 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
     return f"local:{space_id}:{team_id}:{network_id}:default"
 
 
+def routine_thread_id(space_id: str, team_id: str, network_id: str, run_id: str) -> str:
+    """One Routine run's own Brain thread, beside the Team's conversation in the same network generation."""
+    if not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None:
+        raise ApiProblemError(
+            HTTPStatus.CONFLICT,
+            "Team identity failed its persisted contract",
+            code="ownership-conflict",
+        )
+    return brain_thread_id(space_id, team_id, network_id).removesuffix(":default") + f":routine-{run_id}"
+
+
 def half_cpu_set(processors: int) -> str:
     if isinstance(processors, bool) or not isinstance(processors, int) or processors < 1:
         raise RuntimeError("the Docker daemon reported an invalid CPU count")

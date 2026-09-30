@@ -493,5 +493,14 @@
   "knowledge_apply": [
     {"memory": [{"topic": "language", "preference": "responda em português"}], "skills": [{"key": "procedure-75050ee47610", "contracts": {"shimpz-cloudflare": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "steps": [{"assistant_id": "shimpz-cloudflare", "action": "list-zones", "inputs": []}, {"assistant_id": "shimpz-cloudflare", "action": "ensure-dns-record", "inputs": ["content", "name", "type", "zone_id"]}]}], "changes": [{"op": "forget", "topic": "procedure-75050ee47610", "preference": ""}], "skill": {"key": "procedure-d24ce54908e3", "contracts": {"shimpz-exa": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "steps": [{"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "read-pages", "inputs": ["urls"]}]}, "result": {"memory": [{"topic": "language", "preference": "responda em português"}], "skills": [{"key": "procedure-d24ce54908e3", "contracts": {"shimpz-exa": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "steps": [{"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "read-pages", "inputs": ["urls"]}]}]}},
     {"memory": [], "skills": [], "changes": [{"op": "forget", "topic": "procedure-d24ce54908e3", "preference": ""}], "skill": {"key": "procedure-d24ce54908e3", "contracts": {"shimpz-exa": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, "steps": [{"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "search-web", "inputs": ["query"]}, {"assistant_id": "shimpz-exa", "action": "read-pages", "inputs": ["urls"]}]}, "result": {"memory": [], "skills": []}}
-  ]
+  ],
+  "routine_schedule": {
+    "valid": [{"kind": "hourly", "every": 1}, {"kind": "hourly", "every": 24}, {"kind": "daily", "time": "00:00"}, {"kind": "weekly", "weekday": 6, "time": "23:59"}, {"kind": "monthly", "day": 28, "time": "09:05"}],
+    "invalid": [null, [], {"kind": ["daily"], "time": "09:00"}, {"kind": "yearly", "time": "09:00"}, {"kind": "hourly", "every": 0}, {"kind": "hourly", "every": 25}, {"kind": "hourly", "every": true}, {"kind": "hourly", "every": 2.0}, {"kind": "daily", "time": "24:00"}, {"kind": "daily", "time": "9:00"}, {"kind": "daily", "time": "09:00", "every": 1}, {"kind": "weekly", "weekday": 7, "time": "09:00"}, {"kind": "monthly", "day": 29, "time": "09:00"}],
+    "daily_rate": [{"schedule": {"kind": "hourly", "every": 6}, "rate": "4"}, {"schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"}, "rate": "1/7"}, {"schedule": {"kind": "monthly", "day": 1, "time": "09:00"}, "rate": "1/28"}]
+  },
+  "routine_timezone": {
+    "valid": ["UTC", "America/Sao_Paulo", "America/Argentina/Buenos_Aires", "Etc/GMT+3"],
+    "invalid": ["", "/etc/localtime", "../UTC", "America//Sao_Paulo", 3, "a/b/c/d"]
+  }
 }

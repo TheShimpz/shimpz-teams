@@ -176,6 +176,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
         controller._team_assistant_containers = lambda _team_id: []
         controller._validate_destroy_containers = mock.Mock()
         controller._delete_team_conversation = mock.Mock()
+        controller._delete_team_routines = mock.Mock()
         controller._remove_team_assistants = mock.Mock(return_value=0)
         controller._delete_team_persistence = mock.Mock(return_value=False)
         controller._remove_team_network = mock.Mock(return_value=True)
@@ -239,6 +240,7 @@ class LocalLifecycleEdgeTests(LocalContractCase):
                 _delete_all_stored_input_state=lambda: events.append("stored-input-delete"),
             ),
             _delete_team_conversation=lambda *_args: events.append("conversation-delete"),
+            _delete_all_routines=lambda: events.append("routines-delete"),
             assistant_lifecycle=types.SimpleNamespace(
                 _retired_image_id=lambda _container: "sha256:" + "a" * 64,
                 _blocked_action_workloads=set(),
