@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import re
 import struct
-import tarfile
 import zlib
 from dataclasses import dataclass
 
@@ -19,6 +17,7 @@ _MAX_RECORDS = _MAX_PACKAGE_BYTES // _BLOCK_BYTES
 _REQUIRED_FILES = frozenset({"icon.png", "pyproject.toml", "shimpz.toml"})
 _PORTABLE_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _ACTION_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9._-]*\.py$")
+_SIZE_FIELD_RE = re.compile(rb"[0-7]{11}\0")
 
 
 class SourcePackageError(RuntimeError):
@@ -62,46 +61,40 @@ def admit(raw: bytes) -> SourcePackage:
 
 
 def _read_records(raw: bytes) -> tuple[_Record, ...]:
-    try:
-        with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
-            members = archive.getmembers()
-            _validate_members(members, len(raw))
-            return tuple(_read_record(archive, member) for member in members)
-    except SourcePackageError:
-        raise
-    except (tarfile.TarError, OSError, EOFError, KeyError) as exc:
-        raise SourcePackageError("the Local Assistant source package archive is invalid") from exc
-
-
-def _validate_members(members: list[tarfile.TarInfo], package_bytes: int) -> None:
-    """Refuse extension encodings and unbounded declared sizes before any member contents are read."""
-    if (
-        not members
-        or len(members) > _MAX_RECORDS
-        or any(not _is_plain_member(member) for member in members)
-        or sum(member.size for member in members) > package_bytes
-    ):
+    """Walk the canonical ustar headers directly; no extension-aware parser ever sees the bytes."""
+    records: list[_Record] = []
+    offset = 0
+    end = len(raw) - 2 * _BLOCK_BYTES
+    while offset < end:
+        header = raw[offset : offset + _BLOCK_BYTES]
+        typeflag = header[156:157]
+        size = _header_size(header[124:136])
+        data = offset + _BLOCK_BYTES
+        if (
+            len(records) >= _MAX_RECORDS
+            or header[257:265] != b"ustar\x0000"
+            or typeflag not in {b"0", b"5"}
+            or size > (0 if typeflag == b"5" else _MAX_FILE_BYTES)
+            or data + size > end
+        ):
+            raise SourcePackageError("the Local Assistant source package has invalid entries")
+        records.append(_Record(_header_path(header), typeflag == b"5", raw[data : data + size]))
+        offset = data + size + (-size) % _BLOCK_BYTES
+    if not records:
         raise SourcePackageError("the Local Assistant source package has invalid entries")
+    return tuple(records)
 
 
-def _is_plain_member(member: tarfile.TarInfo) -> bool:
-    if member.sparse is not None or member.pax_headers:
-        return False
-    if member.type == tarfile.DIRTYPE:
-        return member.size == 0
-    return member.type == tarfile.REGTYPE and 0 <= member.size <= _MAX_FILE_BYTES
-
-
-def _read_record(archive: tarfile.TarFile, member: tarfile.TarInfo) -> _Record:
-    if member.isdir():
-        return _Record(member.name, True, b"")
-    stream = archive.extractfile(member)
-    if stream is None:
+def _header_size(field: bytes) -> int:
+    if _SIZE_FIELD_RE.fullmatch(field) is None:
         raise SourcePackageError("the Local Assistant source package has invalid entries")
-    contents = stream.read(_MAX_FILE_BYTES + 1)
-    if len(contents) != member.size:
-        raise SourcePackageError("the Local Assistant source package has invalid entries")
-    return _Record(member.name, False, contents)
+    return int(field[:11], 8)
+
+
+def _header_path(header: bytes) -> str:
+    name = header[:100].split(b"\0", 1)[0].decode("latin-1")
+    prefix = header[345:500].split(b"\0", 1)[0].decode("latin-1")
+    return f"{prefix}/{name}" if prefix else name
 
 
 def _validate_records(records: tuple[_Record, ...]) -> dict[str, bytes]:
