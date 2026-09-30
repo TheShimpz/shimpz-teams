@@ -16,6 +16,7 @@ from local.errors import ApiProblemError
 from local.http import audit as http_audit
 from local.http import inference as http_inference
 from local.http import server
+from local.http import stream as local_http_stream
 
 TEST_TOKEN = "t" * 32
 
@@ -514,51 +515,46 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
     def evidence() -> authority.Evidence:
         return authority.Evidence("a" * 32, "session", "b" * 64, "c" * 32, 2_200_000_000)
 
-    def test_stream_submit_failure_and_non_stream_guard(self) -> None:
+    def test_stream_terminal_records_success_and_failure(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
         handler._chat_submit = mock.Mock(return_value=(HTTPStatus.OK, {"reply": "ok"}, "op", "team_1", None))
-        handler._write_stream_record = mock.Mock()
         request_audit = SimpleNamespace(record=mock.Mock(return_value="d" * 32))
-        route = self.route("chat-human-submit", team_id="team_1")
-        handler._write_chat_stream(["v1", "teams", "team_1", "chat", "human"], route, request_audit)
-        self.assertEqual(handler._write_stream_record.call_args_list[-1].args[0]["type"], "terminal")
+        with mock.patch.object(local_http_stream, "_write_record") as write:
+            route = self.route("chat-human-submit", team_id="team_1")
+            handler._stream_chat_route(["v1", "teams", "team_1", "chat", "human"], route, request_audit)
+            self.assertEqual(write.call_args_list[-1].args[1]["type"], "terminal")
+            handler._chat_start = mock.Mock(side_effect=ApiProblemError(HTTPStatus.BAD_REQUEST, "bad", code="bad"))
+            handler._stream_chat_route(
+                ["v1", "teams", "team_1", "chat"], self.route("chat", team_id="team_1"), request_audit
+            )
+            self.assertEqual(write.call_args.args[1]["body"]["code"], "bad")
 
-        handler._write_stream_record.reset_mock()
-        route = self.route("unexpected", team_id="team_1")
-        handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)
-        terminal = handler._write_stream_record.call_args.args[0]
-        self.assertEqual(terminal["status"], HTTPStatus.INTERNAL_SERVER_ERROR)
+            def unexpected(_progress):
+                raise RuntimeError("private detail")
 
-        handler._chat_start = mock.Mock(side_effect=ApiProblemError(HTTPStatus.BAD_REQUEST, "bad", code="bad"))
-        route = self.route("chat", team_id="team_1")
-        handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)
-        terminal = handler._write_stream_record.call_args.args[0]
-        self.assertEqual(terminal["body"]["code"], "bad")
+            local_http_stream.respond(handler, "chat", "team_1", request_audit, unexpected)
+            terminal = write.call_args.args[1]
+            self.assertEqual((terminal["status"], terminal["body"].get("code")), (500, None))
 
     def test_stream_write_failures_are_contained(self) -> None:
         handler = self.handler(controller=SimpleNamespace())
         request_audit = SimpleNamespace(record=mock.Mock(return_value="d" * 32))
-        route = self.route("chat", team_id="team_1")
 
-        def chat(_team_id, progress):
+        def chat(progress):
             with progress.span("model"):
                 pass
-            return HTTPStatus.OK, {"reply": "ok"}, "chat", "team_1", None
+            return HTTPStatus.OK, {"reply": "ok"}
 
-        handler._chat_start = mock.Mock(side_effect=chat)
-        handler._write_stream_record = mock.Mock(side_effect=OSError("closed"))
-        handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)
-        self.assertEqual(handler._write_stream_record.call_count, 1)
-
-        handler._chat_start = mock.Mock(return_value=(HTTPStatus.OK, {"reply": "ok"}, "chat", "team_1", None))
-        handler._write_stream_record.reset_mock(side_effect=True)
-        handler._write_stream_record.side_effect = OSError("terminal closed")
-        handler._write_chat_stream(["v1", "teams", "team_1", "chat"], route, request_audit)
-        handler._write_stream_record.assert_called_once()
-
-        handler._write_chat_stream = mock.Mock(side_effect=RuntimeError("failed"))
-        handler.close_connection = False
-        handler._stream_chat_route([], route, request_audit)
+        with mock.patch.object(local_http_stream, "_write_record", side_effect=OSError("closed")) as write:
+            local_http_stream.respond(handler, "chat", "team_1", request_audit, chat)
+            self.assertEqual(write.call_count, 1)
+            write.reset_mock(side_effect=True)
+            write.side_effect = OSError("terminal closed")
+            local_http_stream.respond(handler, "chat", "team_1", request_audit, lambda _progress: (HTTPStatus.OK, {}))
+            write.assert_called_once()
+        with mock.patch.object(local_http_stream, "_write", side_effect=RuntimeError("failed")):
+            handler.close_connection = False
+            local_http_stream.respond(handler, "chat", "team_1", request_audit, chat)
         self.assertTrue(handler.close_connection)
 
     def test_authority_unavailable_icon_and_rejected_assertion_paths(self) -> None:

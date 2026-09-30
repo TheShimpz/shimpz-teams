@@ -20,6 +20,12 @@ class RequestAudit:
         self.principal_class = "machine"
         self.credential_state = "machine_bearer_present"
 
+    def routine(self) -> None:
+        """Admin's routine identity, proven by a routine assertion for one leased run."""
+        self.principal_id = "admin-routine"
+        self.principal_class = "machine"
+        self.credential_state = "assertion_present"
+
     def human(self, evidence: local_authority.Evidence) -> None:
         self.principal_id = evidence.supervisor_id
         self.principal_class = "human"

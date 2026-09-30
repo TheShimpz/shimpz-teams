@@ -7,6 +7,7 @@ uncertain run is a separate, informed Supervisor resolution of that run's exact 
 from __future__ import annotations
 
 import datetime
+import json
 from http import HTTPStatus
 
 from local import audit as local_audit
@@ -19,6 +20,9 @@ from local.validation import validate_team_id
 from routine import record
 
 MAX_DELIVERIES = 256
+# Under the Local API's 128 KiB response cap with room for its envelope. A notice at its bound, a 16,000-character reply
+# whose every character JSON-escapes to six bytes, is about 96.5 KB, so one always fits.
+MAX_BATCH_BYTES = 112 * 1024
 
 
 def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
@@ -40,14 +44,26 @@ def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
     }
 
 
+def _size(item: dict[str, object]) -> int:
+    return len(json.dumps(item, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")) + 1
+
+
 def routine_notices(self) -> dict[str, object]:
-    """Every Team's undelivered notices, for Admin to write to each Team's transcript."""
-    notices = [
-        _notice(team_id, notice)
-        for team_id in routine_state.call(self.routine_store.teams)
-        for notice in routine_state.load(self, team_id).notices
-    ]
-    return {"notices": notices}
+    """A bounded batch of every Team's undelivered notices, for Admin to write to each Team's transcript.
+
+    A batch stays under MAX_BATCH_BYTES of encoded JSON and always holds at least one notice, which fits even at its
+    bound, so Admin drains any backlog by acknowledging each batch and asking again while ``more`` is true.
+    """
+    notices: list[dict[str, object]] = []
+    size = 0
+    for team_id in routine_state.call(self.routine_store.teams):
+        for notice in routine_state.load(self, team_id).notices:
+            item = _notice(team_id, notice)
+            if notices and size + _size(item) > MAX_BATCH_BYTES:
+                return {"notices": notices, "more": True}
+            notices.append(item)
+            size += _size(item)
+    return {"notices": notices, "more": False}
 
 
 def _deliveries(body: object) -> dict[str, frozenset[tuple[str, int]]]:

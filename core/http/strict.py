@@ -348,6 +348,7 @@ class ControllerRouteMatch:
         if self.operation.startswith("local-assistant-"):
             return "local-assistant"
         for prefix, group in (
+            ("routine-", "routine"),
             ("file-", "file"),
             ("inference-", "inference"),
             ("chat-", "chat"),
@@ -427,6 +428,42 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/stop", "team-stop", _HOSTED_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/teams/:team_id/start", "team-start", _HOSTED_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/teams/:team_id/restart", "team-restart", _HOSTED_CONTROLLER_ONLY),
+    # Team Routines (ADR-0086): Admin's scheduler claims and delivers under the Team bearer, its routine identity runs
+    # one leased run, and a Supervisor session manages Routines and answers or ends their runs.
+    _controller_route("POST", "/v1/routines/claim", "routine-claim", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/v1/routines/notices", "routine-notices", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("POST", "/v1/routines/notices/ack", "routine-notice-ack", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("GET", "/v1/teams/:team_id/routines", "routine-list", _LOCAL_CONTROLLER_ONLY),
+    _controller_route("POST", "/v1/teams/:team_id/routines", "routine-confirm", _LOCAL_CONTROLLER_ONLY),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/proposals/:proposal_id/preview",
+        "routine-preview",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete", _LOCAL_CONTROLLER_ONLY),
+    _controller_route(
+        "POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run", _LOCAL_CONTROLLER_ONLY
+    ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/runs/:run_id/challenge",
+        "routine-challenge-open",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST", "/v1/teams/:team_id/routines/runs/:run_id/human", "routine-human-submit", _LOCAL_CONTROLLER_ONLY
+    ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/runs/:run_id/integrations",
+        "routine-integration-submit",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST", "/v1/teams/:team_id/routines/runs/:run_id/resolve", "routine-resolve", _LOCAL_CONTROLLER_ONLY
+    ),
+    _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/activity", "activity", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),

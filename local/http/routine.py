@@ -1,0 +1,172 @@
+"""Local Team Routine routes (ADR-0086).
+
+Admin's scheduler claims runs and delivers notices under the Team bearer; its routine identity runs one leased run
+under a routine assertion; a Supervisor session manages Routines and answers, resolves, or stops their runs.
+"""
+
+from __future__ import annotations
+
+import re
+from http import HTTPStatus
+
+from action import human as action_human
+from chat import progress as chat_progress
+from core.http import strict as strict_http
+from local import audit as local_audit
+from local import authority as local_authority
+from local.errors import ApiProblemError as ApiProblem
+from local.http import stream as local_http_stream
+from local.http.audit import RequestAudit
+from local.validation import validate_team_id
+
+MAX_BODY_BYTES = 16 * 1024
+MAX_HUMAN_RESPONSE_BODY_BYTES = 128 * 1024
+MACHINE_OPERATIONS = frozenset({"routine-claim", "routine-notices", "routine-notice-ack"})
+RUN_OPERATION = "routine-run"
+STREAMED_OPERATIONS = frozenset({"routine-human-submit", "routine-integration-submit"})
+MODEL_BOUND_OPERATIONS = frozenset({RUN_OPERATION, *STREAMED_OPERATIONS})
+BODY_LIMITS = {
+    "routine-claim": MAX_BODY_BYTES,
+    "routine-notice-ack": 64 * 1024,
+    "routine-confirm": MAX_BODY_BYTES,
+    "routine-preview": MAX_BODY_BYTES,
+    RUN_OPERATION: MAX_BODY_BYTES,
+    "routine-challenge-open": MAX_BODY_BYTES,
+    "routine-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
+    "routine-integration-submit": MAX_BODY_BYTES,
+    "routine-resolve": MAX_BODY_BYTES,
+    "routine-stop": MAX_BODY_BYTES,
+}
+_RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
+
+
+def _empty(handler, operation: str) -> None:
+    if handler._body(max_bytes=BODY_LIMITS[operation]) != {}:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
+
+
+def _run_id(route: strict_http.ControllerRouteMatch) -> str:
+    run_id = route.params["run_id"]
+    if _RUN_ID_RE.fullmatch(run_id) is None:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", code="routine-run-not-found")
+    return run_id
+
+
+def _machine(handler, operation: str) -> dict[str, object]:
+    service = handler.server.controller.chat_turn_service
+    if operation == "routine-claim":
+        _empty(handler, operation)
+        return {"run": service.claim_routine_run()}
+    if operation == "routine-notices":
+        return service.routine_notices()
+    return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
+
+
+def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """A Supervisor's decision on one run: resolve its uncertain batch, open its challenge, or stop it."""
+    service = handler.server.controller.chat_turn_service
+    run_id = _run_id(route)
+    body = handler._body(max_bytes=BODY_LIMITS[route.operation])
+    if route.operation == "routine-resolve":
+        return service.resolve_routine_run(team_id, run_id, body)
+    if body != {}:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
+    if route.operation == "routine-challenge-open":
+        return service.open_routine_challenge(team_id, run_id)
+    return service.stop_routine(team_id, run_id)
+
+
+def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """A Supervisor's management of the Team's Routines; run decisions go to ``_run``."""
+    service = handler.server.controller.chat_turn_service
+    operations = {
+        "routine-list": lambda: service.list_routines(team_id),
+        "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
+        "routine-confirm": lambda: service.confirm_routine(team_id, handler._body(max_bytes=MAX_BODY_BYTES)),
+        "routine-preview": lambda: service.preview_routine(
+            team_id, route.params["proposal_id"], handler._body(max_bytes=MAX_BODY_BYTES)
+        ),
+    }
+    operation = operations.get(route.operation)
+    return operation() if operation is not None else _run(handler, route, team_id)
+
+
+def route(
+    handler, route: strict_http.ControllerRouteMatch
+) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
+    """Every non-streamed Routine route, already authorized by its own authority."""
+    if route.operation in MACHINE_OPERATIONS:
+        return HTTPStatus.OK, _machine(handler, route.operation), route.operation, None, None
+    team_id = validate_team_id(route.params["team_id"])
+    return HTTPStatus.OK, _session(handler, route, team_id), route.operation, team_id, None
+
+
+def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+    """A Supervisor's answer or Integration resume of a frozen run, streamed like the chat turn it continues."""
+    team_id = validate_team_id(route.params["team_id"])
+    service = handler.server.controller.chat_turn_service
+
+    def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
+        run_id = _run_id(route)
+        provider, api_key = handler._model_credential_headers()
+        if route.operation == "routine-human-submit":
+            body = handler._body(max_bytes=BODY_LIMITS[route.operation])
+            return HTTPStatus.OK, service.resume_routine_human(team_id, run_id, body, provider, api_key, reporter)
+        _empty(handler, route.operation)
+        return HTTPStatus.OK, service.resume_routine_integrations(team_id, run_id, provider, api_key, reporter)
+
+    local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)
+
+
+def expected_assurance(handler, params: dict[str, str]) -> dict[str, str] | None:
+    """The assurance an approval of a frozen run's authentication request must carry, as in chat."""
+    body = handler._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES)
+    if set(body) != {"challenge_id", "decision", "value"} or body["decision"] != "submit" or body["value"] is not True:
+        return None
+    team_id = validate_team_id(params.get("team_id"))
+    challenge = handler.server.controller.chat_turn_service.current_routine_challenge(team_id)
+    if (
+        challenge is None
+        or challenge.id != body["challenge_id"]
+        or challenge.requirement.request.kind not in action_human.AUTH_KINDS
+    ):
+        return None
+    return {"kind": challenge.requirement.request.kind, "challenge_id": challenge.id}
+
+
+def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+    """One segment of a leased run under Admin's routine identity; its lease is checked by the run itself."""
+    body = handler._capture_body(route.operation)
+    try:
+        evidence = local_authority.verify_routine(
+            handler.headers,
+            request=local_authority.RequestBinding(
+                method=handler.command,
+                path="/" + "/".join(parts),
+                body=body,
+                model=handler._model_binding(route.operation),
+                assurance=None,
+                authority_kinds=frozenset(),
+            ),
+        )
+    except local_authority.SupervisorDeniedError as exc:
+        request_audit.record("routine-authority", result="denied", detail="invalid-routine")
+        raise ApiProblem(HTTPStatus.FORBIDDEN, "Routine authority is required", code="invalid-routine") from exc
+    except local_authority.SupervisorUnavailableError as exc:
+        request_audit.record("routine-authority", result="error", detail="routine-unavailable")
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Routine authority is unavailable", code="routine-unavailable"
+        ) from exc
+    request_audit.routine()
+    request_audit.record("routine-authority", result="ok")
+    _empty(handler, route.operation)
+    team_id = validate_team_id(route.params["team_id"])
+    run_id = _run_id(route)
+    service = handler.server.controller.chat_turn_service
+
+    def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
+        provider, api_key = handler._model_credential_headers()
+        return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, provider, api_key, reporter)
+
+    with local_audit.bind_request_principal(request_audit.principal()):
+        local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)

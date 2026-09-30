@@ -85,6 +85,9 @@ MODEL_BOUND_OPERATIONS = frozenset(
         "chat-intent-route",
         "chat-human-submit",
         "chat-integration-submit",
+        "routine-run",
+        "routine-human-submit",
+        "routine-integration-submit",
     }
 )
 

@@ -12,7 +12,6 @@ from docker.errors import DockerException
 from action import human as action_human
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
-from core.http import stdlib
 from core.http import strict as strict_http
 from inference import usage as brain_usage
 from integrations import broker as integration_broker
@@ -22,6 +21,8 @@ from local import authority as local_authority
 from local.errors import ApiProblemError as ApiProblem
 from local.http import dispatch as local
 from local.http import inference as local_http_inference
+from local.http import routine as local_http_routine
+from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
@@ -32,7 +33,6 @@ from local.validation import (
     validate_team_id,
     validate_team_name,
 )
-from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import supervisor as supervisor_contract
 
 MAX_BODY_BYTES = 16 * 1024
@@ -46,7 +46,10 @@ MAX_FILE_BODY_BYTES = MAX_UPLOAD_BYTES
 MAX_PATH_BYTES = 512
 REQUEST_TIMEOUT_SECONDS = 10
 _FILE_UPLOAD_SLOTS = threading.BoundedSemaphore(1)
-_MACHINE_ONLY_OPERATIONS = frozenset({"health", "activity", "space-bootstrap-reset", "assistant-integration-complete"})
+_MACHINE_ONLY_OPERATIONS = frozenset(
+    {"health", "activity", "space-bootstrap-reset", "assistant-integration-complete"}
+    | local_http_routine.MACHINE_OPERATIONS
+)
 _READ_METHODS = frozenset({"GET", "HEAD"})
 _JSON_BODY_LIMITS = {
     "assistant-action-labels": MAX_BODY_BYTES,
@@ -65,6 +68,7 @@ _JSON_BODY_LIMITS = {
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
+    **local_http_routine.BODY_LIMITS,
 }
 
 
@@ -529,95 +533,22 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return self._chat_decision(team_id, segment) or self._chat_submit(team_id, segment)
 
-    def _write_stream_record(self, record: dict[str, object]) -> None:
-        encoded = progress_contract.encode_record(record)
-        self.wfile.write(f"{len(encoded):X}\r\n".encode("ascii"))
-        self.wfile.write(encoded)
-        self.wfile.write(b"\r\n")
-        self.wfile.flush()
-
     def _stream_chat_route(
         self,
         parts: list[str],
         route: strict_http.ControllerRouteMatch,
         request_audit: RequestAudit,
     ) -> None:
-        """Contain stream failures after the first response byte and never re-enter HTTP dispatch."""
-        completed = False
-        with contextlib.suppress(Exception):
-            self._write_chat_stream(parts, route, request_audit)
-            completed = True
-        if not completed:
-            self.close_connection = True
-
-    def _write_chat_stream(
-        self,
-        parts: list[str],
-        route: strict_http.ControllerRouteMatch,
-        request_audit: RequestAudit,
-    ) -> None:
-        """Push advisory progress followed by one authoritative terminal record."""
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/x-ndjson")
-        self.send_header("Transfer-Encoding", "chunked")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        writable = True
-
-        def emit_progress(event: dict[str, object]) -> None:
-            nonlocal writable
-            if not writable:
-                return
-            try:
-                self._write_stream_record({"type": "progress", **event})
-            except OSError, progress_contract.ProgressContractError:
-                writable = False
-
-        reporter = chat_progress.Reporter(emit_progress)
-        operation = route.operation
         team_id = validate_team_id(route.params["team_id"])
-        terminal: dict[str, object] = {}
 
-        def execute() -> None:
-            if operation == "chat":
+        def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
+            if route.operation == "chat":
                 status, payload, *_audit = self._chat_start(team_id, reporter)
-            elif operation in {"chat-human-submit", "chat-integration-submit"}:
-                status, payload, *_audit = self._chat_submit(team_id, parts[4], reporter)
             else:
-                raise AssertionError("non-streaming route reached chat stream")
-            trace_id = request_audit.record(operation, result="ok", team_id=team_id)
-            payload["trace_id"] = trace_id
-            terminal.update(type="terminal", status=int(status), body=payload)
+                status, payload, *_audit = self._chat_submit(team_id, parts[4], reporter)
+            return status, payload
 
-        def emit_failure(failure: stdlib.HttpFailure) -> None:
-            trace_id = request_audit.record(
-                operation,
-                result=failure.result,
-                team_id=team_id,
-                detail=failure.audit_reason,
-            )
-            payload = {"error": failure.public_message, "trace_id": trace_id}
-            if failure.public_code is not None:
-                payload["code"] = failure.public_code
-            terminal.update(type="terminal", status=int(failure.status), body=payload)
-
-        stdlib.dispatch(
-            execute,
-            classify=lambda exc: local.classify_failure(exc, ApiProblem, DockerException),
-            emit=emit_failure,
-            unexpected_message="internal error",
-        )
-        if writable:
-            try:
-                self._write_stream_record(terminal)
-            except OSError, progress_contract.ProgressContractError:
-                writable = False
-        if writable:
-            with contextlib.suppress(OSError):
-                self.wfile.write(b"0\r\n\r\n")
-                self.wfile.flush()
+        local_http_stream.respond(self, route.operation, team_id, request_audit, execute)
 
     def _assistant_integration_route(
         self,
@@ -757,6 +688,7 @@ class Handler(BaseHTTPRequestHandler):
             "assistant-stored-input": self._assistant_stored_input_route,
             "local-assistant": self._local_assistant_route,
             "team": self._team_route,
+            "routine": lambda _parts: local_http_routine.route(self, route),
         }.get(route.group)
         if grouped_resolver is not None:
             result = grouped_resolver(parts)
@@ -823,6 +755,9 @@ class Handler(BaseHTTPRequestHandler):
             request_audit.record("machine-authority", result="ok")
             with local_audit.bind_request_principal(request_audit.principal()):
                 return self._route(parts, route)
+        if route.operation == local_http_routine.RUN_OPERATION:
+            local_http_routine.run(self, parts, route, request_audit)
+            return None
 
         assertion_state = local_authority.credential_state(self.headers)
         request_audit.absent(assertion_state)
@@ -865,48 +800,65 @@ class Handler(BaseHTTPRequestHandler):
         request_audit.human(evidence)
         request_audit.record("human-authority", result="ok")
         with local_audit.bind_request_principal(request_audit.principal()):
-            if route.operation in {"chat", "chat-human-submit", "chat-integration-submit"}:
-                self._stream_chat_route(parts, route, request_audit)
-                return None
-            if route.operation == "assistant-icon":
-                team_id = validate_team_id(route.params["team_id"])
-                assistant_id = route.params["assistant_id"]
-                contents = self.server.controller.assistant_icon(team_id, assistant_id)
-                request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
-                self._send_icon(contents)
-                return None
-            if route.operation == "local-assistant-icon":
-                image_id = f"sha256:{route.params['image_hash']}"
-                try:
-                    contents = self.server.controller.local_snapshot_icon(image_id)
-                except ApiProblem as exc:
-                    if exc.code != "local-assistant-preview-busy":
-                        raise
-                    trace_id = request_audit.record(
-                        "local-assistant-icon",
-                        result="error",
-                        detail=exc.code,
-                    )
-                    self._send(
-                        exc.status,
-                        {
-                            "error": exc.message,
-                            "code": exc.code,
-                            "retry_after_ms": 250,
-                            "trace_id": trace_id,
-                        },
-                    )
-                    return None
-                request_audit.record("local-assistant-icon", result="ok")
-                self._send_icon(contents)
-                return None
-            return self._route(parts, route)
+            return self._session_route(parts, route, request_audit)
+
+    def _session_route(
+        self,
+        parts: list[str],
+        route: strict_http.ControllerRouteMatch,
+        request_audit: RequestAudit,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        """Dispatch a request a Supervisor session authorized; streamed and binary responses are sent here."""
+        if route.operation in {"chat", "chat-human-submit", "chat-integration-submit"}:
+            self._stream_chat_route(parts, route, request_audit)
+            return None
+        if route.operation in local_http_routine.STREAMED_OPERATIONS:
+            local_http_routine.stream(self, route, request_audit)
+            return None
+        if route.operation == "assistant-icon":
+            team_id = validate_team_id(route.params["team_id"])
+            assistant_id = route.params["assistant_id"]
+            contents = self.server.controller.assistant_icon(team_id, assistant_id)
+            request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
+            self._send_icon(contents)
+            return None
+        if route.operation == "local-assistant-icon":
+            self._local_assistant_icon(route, request_audit)
+            return None
+        return self._route(parts, route)
+
+    def _local_assistant_icon(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        image_id = f"sha256:{route.params['image_hash']}"
+        try:
+            contents = self.server.controller.local_snapshot_icon(image_id)
+        except ApiProblem as exc:
+            if exc.code != "local-assistant-preview-busy":
+                raise
+            trace_id = request_audit.record(
+                "local-assistant-icon",
+                result="error",
+                detail=exc.code,
+            )
+            self._send(
+                exc.status,
+                {
+                    "error": exc.message,
+                    "code": exc.code,
+                    "retry_after_ms": 250,
+                    "trace_id": trace_id,
+                },
+            )
+            return
+        request_audit.record("local-assistant-icon", result="ok")
+        self._send_icon(contents)
 
     def _expected_human_assurance(
         self,
         operation: str,
         params: dict[str, str],
     ) -> dict[str, str] | None:
+        if operation == "routine-human-submit":
+            return local_http_routine.expected_assurance(self, params)
         if operation != "chat-human-submit":
             return None
         body = self._body(max_bytes=MAX_HUMAN_RESPONSE_BODY_BYTES)
