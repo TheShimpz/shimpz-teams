@@ -29,7 +29,7 @@ _HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _PATH = re.compile(r"^/[a-z0-9_/-]+$")
 _PROVIDER = re.compile(r"^[a-z][a-z0-9-]{0,31}$")
 _MEDIA_TYPE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$")
-_METHODS = frozenset({"DELETE", "GET", "POST", "PUT"})
+_METHODS = frozenset({"DELETE", "GET", "PATCH", "POST", "PUT"})
 ASSURANCE_KINDS = frozenset(
     {
         "auth:password",

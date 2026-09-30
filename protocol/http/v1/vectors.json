@@ -6,6 +6,7 @@
   },
   "local_supervisor": {
     "valid": [
+      {"v": 1, "aud": "team-local", "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "authority": "session", "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "jti": "cccccccccccccccccccccccccccccccc", "iat": 2200000000, "exp": 2200000015, "method": "PATCH", "path": "/v1/teams/team_1", "body": {"kind": "json", "length": 24, "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},
       {
         "v": 1,
         "aud": "team-local",
@@ -54,6 +55,7 @@
       }
     ],
     "invalid": [
+      {"v": 1, "aud": "team-local", "sub": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "authority": "session", "authority_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "jti": "cccccccccccccccccccccccccccccccc", "iat": 2200000000, "exp": 2200000015, "method": "TRACE", "path": "/v1/teams/team_1", "body": {"kind": "json", "length": 24, "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}},
       {
         "v": 1,
         "aud": "team-local",
@@ -346,6 +348,7 @@
     }
   ],
   "identifiers": {
+    "local_team_name": {"valid": ["Marketing", "Growth Marketing", "\u00c9quipe"], "invalid": ["", " Marketing", "E\u0301quipe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Tab\tName"]},
     "team": {
       "valid": ["a", "team_01"],
       "invalid": ["", "Team", "team-name", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]

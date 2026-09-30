@@ -178,6 +178,13 @@ The next Action that needs the slot requests it just in time through the existin
 surface. A submitted password is memory-only until the exact Action returns a valid terminal result;
 Team then encrypts it for later invocations. Store has no public browser surface for these endpoints.
 
+A Local Team has a display name distinct from its immutable id (ADR-0088). `PATCH /v1/teams/:team_id` with
+exactly `{"team_name"}` renames it under a Supervisor session and returns exactly `{"team_id", "team_name"}`; a
+Local `DELETE /v1/teams/:team_id` carries exactly `{"team_name"}`, the current name, which Team confirms before any
+side effect. `payload.canonical_local_team_name` admits a Local display name: the shared 1 to 80 trimmed characters
+without controls, already NFC. Supervisor assertions admit `PATCH` alongside `DELETE`, `GET`, `POST`, and `PUT`.
+Hosted Team names are unchanged by this contract.
+
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
 `contract-files.sha256`, and remain byte-identical to this directory.

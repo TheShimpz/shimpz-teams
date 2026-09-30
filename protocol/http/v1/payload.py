@@ -381,6 +381,12 @@ def canonical_team_name(value: object) -> str | None:
     return value
 
 
+def canonical_local_team_name(value: object) -> str | None:
+    """A Local Team display name (ADR-0088): the shared bounds, already NFC so names compare exactly."""
+    name = canonical_team_name(value)
+    return name if name is not None and unicodedata.normalize("NFC", name) == name else None
+
+
 def canonical_file_id(value: object) -> str | None:
     return value if isinstance(value, str) and FILE_ID_RE.fullmatch(value) is not None else None
 

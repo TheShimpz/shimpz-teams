@@ -150,6 +150,7 @@ validators = {
     "action": payload.canonical_action_id,
     "source_digest": payload.canonical_source_digest,
     "assurance_handle": payload.canonical_assurance_handle,
+    "local_team_name": payload.canonical_local_team_name,
 }
 for kind, validator in validators.items():
     cases = identifiers.get(kind, {})
