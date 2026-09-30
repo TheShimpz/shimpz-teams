@@ -16,6 +16,7 @@ from action import challenges as action_challenges
 from action import human as action_human
 from chat import progress as chat_progress
 from core import strict_json
+from inference import config as inference_config
 from local.chat import continuation as local_chat_continuations
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
@@ -23,6 +24,7 @@ from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
+from local.routine import turn as routine_turn
 from local.validation import validate_team_id
 from routine import record
 
@@ -84,11 +86,32 @@ def _end_changed(self, team_id: str, value: record.Run, outcome: str, code: str)
     routine_manage.settle(self, team_id, value.routine_id)
 
 
+def _proven_changed(self, team_id: str, pending: local_chat_continuations.PendingLocalChat) -> bool:
+    """Whether a Team whose context could not be set up provably changed since the run froze.
+
+    Only an Assistant the Team no longer runs, or a model configuration that is gone or names another provider, is
+    proof; a Team whose Assistants or configuration cannot be read now proves nothing.
+    """
+    try:
+        current = routine_turn.current_contracts(self, team_id, pending.assistant_ids)
+        provider = self.inference_store.load(team_id).provider
+    except inference_config.InferenceConfigMissingError:
+        return True
+    except routine_turn.ContractsUnavailableError, inference_config.InferenceConfigError:
+        return False
+    return set(current) != set(pending.assistant_ids) or provider != pending.provider
+
+
 def _current_context(self, team_id: str, value: record.Run, pending: local_chat_continuations.PendingLocalChat) -> None:
-    """The Team must still be exactly as the run left it; otherwise the run ends and nothing replays."""
+    """The Team must still be exactly as the run left it; otherwise the run ends and nothing replays.
+
+    When that cannot be read now, the run stays frozen and the person may retry.
+    """
     try:
         current = self._chat_setup(team_id, [], pending.provider, pending.assistant_ids)
-    except ApiProblem:
+    except ApiProblem as exc:
+        if not _proven_changed(self, team_id, pending):
+            raise routine_turn.context_unavailable() from exc
         current = None
     if current is None or self._chat_identity(*current) != pending.identity:
         _end_changed(self, team_id, value, "failed", "team-context-changed")

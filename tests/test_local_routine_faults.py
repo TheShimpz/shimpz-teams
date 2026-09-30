@@ -237,14 +237,66 @@ class FrozenFaultTests(RoutineServiceCase):
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
+            # The Team no longer runs the run's Assistant: that is proof, so the run ends.
             with (
-                mock.patch.object(
-                    service, "_chat_setup", side_effect=local_app.ApiProblem(409, "gone", code="assistant-unavailable")
-                ),
+                mock.patch.object(service, "_active_chat_assistants", return_value=()),
                 self.assertRaises(local_app.ApiProblem) as changed,
             ):
                 service.open_routine_challenge("team_1", claim["run_id"])
             self.assertEqual(changed.exception.code, "team-context-changed")
+            self.assertEqual(self.state(service).runs, ())
+
+    def test_a_team_that_cannot_be_read_keeps_the_frozen_run_for_a_retry(self) -> None:
+        down = local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.frozen(directory)
+            run_id = claim["run_id"]
+            unreadable = (
+                mock.patch.object(service, "_active_chat_assistants", side_effect=down),
+                mock.patch.object(
+                    service.inference_store, "load", side_effect=inference_config.InferenceConfigError("unavailable")
+                ),
+                # Setup failed although everything reads as unchanged: still no proof.
+                mock.patch.object(service, "_chat_setup", side_effect=down),
+            )
+            for patch in unreadable:
+                with self.subTest(patch=patch), patch, self.assertRaises(local_app.ApiProblem) as unavailable:
+                    service.open_routine_challenge("team_1", run_id)
+                self.assertEqual(
+                    (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
+                )
+            opened = service.open_routine_challenge("team_1", run_id)
+            with (
+                unreadable[0],
+                self.assertRaises(local_app.ApiProblem) as replay,
+            ):
+                service.resume_routine_human(
+                    "team_1",
+                    run_id,
+                    {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
+                    "openai",
+                    API_KEY,
+                )
+            self.assertEqual(replay.exception.code, "team-context-unavailable")
+            (held,) = self.state(service).runs
+            self.assertEqual((held.run_id, held.status), (run_id, "frozen"))
+            self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
+            self.assertEqual(service.open_routine_challenge("team_1", run_id)["run_id"], run_id)
+
+    def test_a_removed_or_changed_model_configuration_ends_the_frozen_run(self) -> None:
+        for load in (
+            mock.Mock(side_effect=inference_config.InferenceConfigMissingError("unset")),
+            mock.Mock(return_value=SimpleNamespace(provider="anthropic")),
+        ):
+            with self.subTest(load=load), tempfile.TemporaryDirectory() as directory:
+                _controller, service, claim = self.frozen(directory)
+                with (
+                    mock.patch.object(service.inference_store, "load", load),
+                    self.assertRaises(local_app.ApiProblem) as changed,
+                ):
+                    service.open_routine_challenge("team_1", claim["run_id"])
+                self.assertEqual(changed.exception.code, "team-context-changed")
+                self.assertEqual(self.state(service).runs, ())
 
     def test_an_answer_must_match_its_own_run_and_only_a_frozen_run_takes_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

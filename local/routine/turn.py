@@ -59,6 +59,13 @@ class ContractsUnavailableError(Exception):
     """The Team's current Assistants could not be read, so nothing about a Routine's scope is proven either way."""
 
 
+def context_unavailable() -> ApiProblem:
+    """The retryable problem for a Routine step whose Team could not be read; nothing it held was changed."""
+    return ApiProblem(
+        HTTPStatus.SERVICE_UNAVAILABLE, "Team capabilities could not be checked; retry", code="team-context-unavailable"
+    )
+
+
 def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str]:
     """Each named Assistant's current contract digest, exactly as a Brain turn sees it.
 

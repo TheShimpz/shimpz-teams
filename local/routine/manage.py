@@ -91,9 +91,7 @@ def _require_proposed_contracts(self, team_id: str, proposal: proposal_book.Prop
     try:
         current = routine_turn.current_contracts(self, team_id, proposal.assistant_ids)
     except routine_turn.ContractsUnavailableError as exc:
-        raise _problem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Team capabilities could not be checked; retry", "team-context-unavailable"
-        ) from exc
+        raise routine_turn.context_unavailable() from exc
     if current != dict(proposal.contracts):
         raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
 
