@@ -628,6 +628,26 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest.validate_schema_payload(assistant_manifest.action_schema_validator(schema), {"page": 1})
         urlopen.assert_not_called()
 
+    def test_action_payload_is_refused_when_schema_references_recurse_without_end(self) -> None:
+        for schema in (
+            {
+                "type": "object",
+                "$defs": {"a": {"$ref": "#/$defs/a"}},
+                "properties": {"x": {"$ref": "#/$defs/a"}},
+                "additionalProperties": False,
+            },
+            {"type": "object", "$ref": "#", "additionalProperties": False},
+        ):
+            admitted = assistant_manifest._machine_schema(schema, kind="input")
+            with (
+                self.subTest(schema=schema),
+                self.assertRaisesRegex(ValueError, "does not match its reviewed schema") as raised,
+            ):
+                assistant_manifest.validate_schema_payload(
+                    assistant_manifest.action_schema_validator(admitted), {"x": 1}
+                )
+            self.assertIsInstance(raised.exception.__cause__, RecursionError)
+
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()

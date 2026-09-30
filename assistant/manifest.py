@@ -580,7 +580,7 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
         raise ValueError("Action payload must be an object")
     try:
         validator.validate(payload)
-    except (ValidationError, Unresolvable) as exc:
+    except (ValidationError, Unresolvable, RecursionError) as exc:
         raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload
 
