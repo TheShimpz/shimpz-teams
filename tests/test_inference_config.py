@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -61,6 +63,30 @@ class InferenceConfigTests(unittest.TestCase):
         self.store.delete("team_1")
         with self.assertRaises(inference_config.InferenceConfigError):
             self.store.load("team_1")
+
+    def test_saved_records_commit_their_directory_entry(self):
+        real_fsync = os.fsync
+        synced: list[str] = []
+
+        def observe(descriptor: int) -> None:
+            real_fsync(descriptor)
+            synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
+
+        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+            self.store.save("team_1", inference_config.normalize())
+        self.assertEqual(synced, ["file", "directory"])
+
+        def fail_directory(descriptor: int) -> None:
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise OSError("directory sync")
+            real_fsync(descriptor)
+
+        with (
+            mock.patch.object(inference_config.os, "fsync", side_effect=fail_directory),
+            self.assertRaisesRegex(OSError, "directory sync"),
+        ):
+            self.store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
+        self.assertEqual(list(self.root.glob(".*.tmp")), [])
 
     def test_unknown_cross_provider_and_unsafe_models_fail_closed(self):
         with self.assertRaises(inference_config.InferenceConfigError):

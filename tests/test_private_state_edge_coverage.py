@@ -117,6 +117,33 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "invalid"):
             self.state.key(invalid, "key")
 
+    def test_replace_durably_fixes_mode_then_commits_the_directory_entry(self) -> None:
+        path = self.root / "record"
+        path.write_bytes(b"old")
+        real_fsync = os.fsync
+        synced: list[tuple[bool, bytes]] = []
+
+        def observe(descriptor: int) -> None:
+            real_fsync(descriptor)
+            synced.append((stat.S_ISDIR(os.fstat(descriptor).st_mode), path.read_bytes()))
+
+        with mock.patch.object(private_state.os, "fsync", side_effect=observe):
+            private_state.replace_durably(path, b"new", mode=0o640, group=os.getgid())
+        self.assertEqual(synced, [(False, b"old"), (True, b"new")])
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o640)
+
+        def fail_directory(descriptor: int) -> None:
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise OSError("directory sync")
+            real_fsync(descriptor)
+
+        with (
+            mock.patch.object(private_state.os, "fsync", side_effect=fail_directory),
+            self.assertRaisesRegex(OSError, "directory sync"),
+        ):
+            private_state.replace_durably(path, b"next")
+        self.assertEqual([entry.name for entry in self.root.iterdir()], ["record"])
+
     def test_record_shapes_has_records_prune_and_delete_edges(self) -> None:
         state = private_state.empty_state()
         self.assertEqual(self.state.records(state, "team", "assistant", create=False), {})

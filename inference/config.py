@@ -6,12 +6,12 @@ import hashlib
 import json
 import os
 import re
-import secrets
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TypedDict
 
 from protocol.http.v1 import payload as http_payload
+from storage import private_state
 
 ROOT = Path(os.environ.get("SHIMPZ_TEAM_INFERENCE_DIR", "/var/lib/team/inference"))
 SCHEMA = 2
@@ -81,22 +81,11 @@ def _team_id(value: object) -> str:
 
 
 def write_private_json(root: Path, target: Path, value: dict[str, object]) -> None:
-    """Atomically replace one owner-only JSON record inside a private directory."""
+    """Atomically and durably replace one owner-only JSON record inside a private directory."""
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
     root.chmod(0o700)
-    temporary = root / f".{target.name}.{secrets.token_hex(8)}.tmp"
     payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(descriptor, "wb") as stream:
-            # The mode is final before the swap, so a failure can never leave a readable replaced file.
-            os.fchmod(stream.fileno(), 0o600)
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-        temporary.replace(target)
-    finally:
-        temporary.unlink(missing_ok=True)
+    private_state.replace_durably(target, payload)
 
 
 class InferenceConfigStore:

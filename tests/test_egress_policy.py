@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from egress import policy as egress_policy
+from storage import private_state
 
 
 class SharedEgressPolicyTests(unittest.TestCase):
@@ -46,10 +47,35 @@ class SharedEgressPolicyTests(unittest.TestCase):
 
         self.assertEqual(decisions, [egress_policy.EgressPolicyDriftError] * 2)
 
+    def test_token_and_policy_writes_commit_their_directory_entry(self) -> None:
+        real_fsync = os.fsync
+        synced: list[str] = []
+
+        def observe(descriptor: int) -> None:
+            real_fsync(descriptor)
+            synced.append("directory" if stat.S_ISDIR(os.fstat(descriptor).st_mode) else "file")
+
+        with mock.patch.object(os, "fsync", side_effect=observe):
+            token = self.store.token("identity", create=True)
+            assert token is not None
+            self.store.write(token, ("example.com",))
+        self.assertEqual(synced, ["file", "directory"] * 2)
+
+        def fail_directory(descriptor: int) -> None:
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+                raise OSError("directory sync")
+            real_fsync(descriptor)
+
+        with mock.patch.object(os, "fsync", side_effect=fail_directory):
+            with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
+                self.store.token("another-identity", create=True)
+            with self.assertRaises(egress_policy.EgressPolicyUnavailableError):
+                self.store.write(token, ("example.com",))
+
     def test_atomic_and_exact_file_io_fail_closed(self) -> None:
         target = self.root / "target"
         with mock.patch.object(os, "write", return_value=0), self.assertRaises(OSError):
-            egress_policy._atomic_write(target, b"content", mode=0o600)
+            private_state.replace_durably(target, b"content")
         self.assertFalse(target.exists())
         self.assertEqual(list(self.root.glob(".*.tmp")), [])
 
@@ -148,7 +174,7 @@ class SharedEgressPolicyTests(unittest.TestCase):
         ):
             self.store.token("identity", create=False)
         with (
-            mock.patch.object(egress_policy, "_atomic_write", side_effect=OSError("denied")),
+            mock.patch.object(private_state, "replace_durably", side_effect=OSError("denied")),
             self.assertRaises(egress_policy.EgressPolicyUnavailableError),
         ):
             self.store.token("identity", create=True)
@@ -170,19 +196,19 @@ class SharedEgressPolicyTests(unittest.TestCase):
         assert token is not None
         hosts = ("example.com",)
         with (
-            mock.patch.object(egress_policy, "_atomic_write", side_effect=OSError("denied")),
+            mock.patch.object(private_state, "replace_durably", side_effect=OSError("denied")),
             self.assertRaises(egress_policy.EgressPolicyUnavailableError),
         ):
             self.store.write(token, hosts)
 
-        atomic_write = egress_policy._atomic_write
+        replace_durably = private_state.replace_durably
 
         def write_with_wrong_mode(path: Path, content: bytes, *, mode: int, group: int | None = None) -> None:
-            atomic_write(path, content, mode=mode, group=group)
+            replace_durably(path, content, mode=mode, group=group)
             path.chmod(0o600)
 
         with (
-            mock.patch.object(egress_policy, "_atomic_write", side_effect=write_with_wrong_mode),
+            mock.patch.object(private_state, "replace_durably", side_effect=write_with_wrong_mode),
             self.assertRaisesRegex(egress_policy.EgressPolicyDriftError, "metadata drifted"),
         ):
             self.store.write(token, hosts)

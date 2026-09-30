@@ -41,6 +41,44 @@ def empty_state() -> dict[str, object]:
     return {"schema": 1, "teams": {}, "last_generation": 0}
 
 
+def replace_durably(path: Path, payload: bytes, *, mode: int = 0o600, group: int | None = None) -> None:
+    """Atomically and durably replace ``path`` with ``payload``; any failure raises ``OSError``.
+
+    A unique, exclusively created temporary receives its final group and mode before any byte, is fsynced, replaces
+    ``path``, and the parent directory is fsynced. A crash therefore leaves the complete prior file or the complete
+    new one, never a partial write, and a returned replacement survives power loss.
+    """
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    descriptor = -1
+    try:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, mode)
+        if group is not None:
+            os.fchown(descriptor, -1, group)
+        os.fchmod(descriptor, mode)
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written < 1:
+                raise OSError("short durable write")
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        temporary.replace(path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        # After a successful replace the temporary is gone; after a failure (for example a read-only volume) its
+        # cleanup must not replace the original persistence error.
+        with suppress(OSError):
+            temporary.unlink()
+
+
 @dataclass(frozen=True, slots=True)
 class PrivateState:
     error_class: type[RuntimeError]
@@ -127,38 +165,10 @@ class PrivateState:
 
     def atomic_write(self, path: Path, payload: bytes, label: str) -> None:
         self._require_private_parent(path.parent, label)
-        temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-        descriptor = -1
         try:
-            descriptor = os.open(
-                temporary,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-            )
-            view = memoryview(payload)
-            while view:
-                written = os.write(descriptor, view)
-                if written < 1:
-                    raise OSError("short private write")
-                view = view[written:]
-            os.fsync(descriptor)
-            os.close(descriptor)
-            descriptor = -1
-            temporary.replace(path)
-            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            replace_durably(path, payload)
         except OSError as exc:
             raise self.error_class(f"{label} could not be persisted") from exc
-        finally:
-            if descriptor >= 0:
-                os.close(descriptor)
-            # After a successful replace the temporary is gone; after a failure (for example a read-only volume)
-            # its cleanup must not replace the fail-closed persistence error with a raw OSError.
-            with suppress(OSError):
-                temporary.unlink()
 
     def key(self, path: Path, label: str, *, allow_create: bool = False) -> bytes:
         payload = self.read_private_file(path, 32, label)

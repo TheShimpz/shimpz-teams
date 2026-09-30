@@ -9,11 +9,11 @@ import os
 import re
 import secrets
 import stat
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 from assistant import manifest as assistant_manifest
+from storage import private_state
 
 MAX_POLICY_BYTES = 16 * 1024
 TOKEN_FILE_BYTES = 33
@@ -43,30 +43,6 @@ def environment_map(raw: object) -> dict[str, str] | None:
             return None
         environment[key] = value
     return environment
-
-
-def _atomic_write(path: Path, content: bytes, *, mode: int, group: int | None = None) -> None:
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
-    descriptor = -1
-    try:
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
-        if group is not None:
-            os.fchown(descriptor, -1, group)
-        view = memoryview(content)
-        while view:
-            written = os.write(descriptor, view)
-            if written < 1:
-                raise OSError("short policy write")
-            view = view[written:]
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = -1
-        temporary.replace(path)
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-        with suppress(FileNotFoundError):
-            temporary.unlink()
 
 
 def _read_exact_private_file(
@@ -180,7 +156,7 @@ class EgressPolicyStore:
             return self._read_token(path)
         token = secrets.token_hex(16)
         try:
-            _atomic_write(path, f"{token}\n".encode("ascii"), mode=0o600)
+            private_state.replace_durably(path, f"{token}\n".encode("ascii"))
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress token could not be saved") from exc
         return self._read_token(path)
@@ -212,7 +188,7 @@ class EgressPolicyStore:
         _canonical, encoded = self._canonical_hosts(hosts)
         policy_path = self._require_root() / f"{token}.json"
         try:
-            _atomic_write(policy_path, encoded, mode=0o640, group=self.policy_gid)
+            private_state.replace_durably(policy_path, encoded, mode=0o640, group=self.policy_gid)
             metadata = policy_path.stat(follow_symlinks=False)
         except OSError as exc:
             raise EgressPolicyUnavailableError("egress policy could not be saved") from exc
