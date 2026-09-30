@@ -390,7 +390,11 @@ def _plain_json(value: object) -> bool:
     return value is None or type(value) in (str, int, float, bool)
 
 
-_REFERENCE_KEYWORDS = ("$ref", "$dynamicRef")
+_DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
+# A reference may name only the root or one direct definition. Both are walked schema positions, so a reference never
+# executes a const, enum, default, or examples value as a schema. A percent escape is refused because the resolver
+# decodes it before it splits the pointer.
+_LOCAL_REFERENCE = re.compile(r"#(?:/(?:\$defs|definitions)/[^/%]+)?")
 # The Draft 2020-12 positions that hold subschemas; every other value, such as a property name or a const, enum,
 # default, or examples value, is data and never a reference.
 _APPLICATOR_KEYWORDS = frozenset(
@@ -422,15 +426,27 @@ def _applied_subschemas(node: Mapping[str, Any]) -> Iterator[object]:
         yield from node[keyword].values()
 
 
-def _reject_external_references(schema: Mapping[str, Any], *, kind: str) -> None:
-    # A reviewed package is immutable: every reference must resolve inside this schema, never a URI or file.
+def _schema_node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None:
+    reference = node.get("$ref", "#")
+    if "$dynamicRef" in node or not (isinstance(reference, str) and _LOCAL_REFERENCE.fullmatch(reference)):
+        return "must reference only its root or a named definition"
+    # Another dialect would apply keywords this walk never reads, and a nested base URI could rebind a reference.
+    if node.get("$schema", _DRAFT_2020_12) != _DRAFT_2020_12:
+        return "must use only the Draft 2020-12 dialect"
+    if nested and "$id" in node:
+        return "must not declare a nested identifier"
+    return None
+
+
+def _reject_unwalked_references(schema: Mapping[str, Any], *, kind: str) -> None:
+    # A reviewed package is immutable: every reference must land on a schema position this walk has checked.
     pending: list[object] = [schema]
     while pending:
         node = pending.pop()
         if isinstance(node, Mapping):
-            for keyword in _REFERENCE_KEYWORDS:
-                if keyword in node and not (isinstance(node[keyword], str) and node[keyword].startswith("#")):
-                    raise ManifestError(f"Assistant Action {kind} schema must not use an external reference")
+            problem = _schema_node_problem(node, nested=node is not schema)
+            if problem is not None:
+                raise ManifestError(f"Assistant Action {kind} schema {problem}")
             pending.extend(_applied_subschemas(node))
 
 
@@ -461,7 +477,7 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
         raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
     if len(encoded) > 128 * 1024:
         raise ManifestError(f"Assistant Action {kind} schema is too large")
-    _reject_external_references(value, kind=kind)
+    _reject_unwalked_references(value, kind=kind)
     _reject_open_or_boolean_subschema(value, kind=kind)
     return value
 

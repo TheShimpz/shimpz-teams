@@ -520,25 +520,80 @@ class AssistantManifestTests(unittest.TestCase):
             {"type": "boolean", "enum": [True, False]},
         )
 
-    def test_machine_schema_admits_only_local_references(self) -> None:
+    def test_machine_schema_admits_only_root_or_named_definition_references(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
-        for reference in ("https://example.test/schema.json", "file:///etc/passwd", "other.json#/a"):
-            for keyword in ("$ref", "$dynamicRef"):
+        refused = (
+            "https://example.test/schema.json",
+            "file:///etc/passwd",
+            "other.json#/a",
+            "#/default",
+            "#/properties/page",
+            "#/$defs/page/default",
+            "#/$defs/page%2Fdefault",
+            "#/%24defs/page",
+            "#/$defs/",
+            "#page",
+        )
+        for keyword, references in (("$ref", refused), ("$dynamicRef", ("#", "#/$defs/page", *refused))):
+            for reference in references:
                 external = json.loads(json.dumps(reviewed.machine_contract))
                 schema = external["actions"][0]["input_schema"]
-                schema["$defs"] = {"remote": {keyword: reference}}
+                schema["$defs"] = {"page": {"type": "integer", "default": {"type": "string"}}}
+                schema["default"] = {"$ref": "https://example.test/schema.json"}
+                schema["properties"]["page"] = {keyword: reference}
                 with (
-                    self.subTest(reference=reference, keyword=keyword),
-                    self.assertRaisesRegex(assistant_manifest.ManifestError, "external reference"),
+                    self.subTest(keyword=keyword, reference=reference),
+                    self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"),
                 ):
                     assistant_manifest.parse_machine_contract(json.dumps(external).encode(), reviewed.integrations)
 
-        local = json.loads(json.dumps(reviewed.machine_contract))
-        schema = local["actions"][0]["input_schema"]
-        schema["$defs"] = {"page": {"type": "integer"}}
-        schema["properties"]["page"] = {"$ref": "#/$defs/page"}
-        parsed = assistant_manifest.parse_machine_contract(json.dumps(local).encode(), reviewed.integrations)
-        self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": "#/$defs/page"})
+        for definitions, reference in (
+            ("$defs", "#/$defs/page"),
+            ("definitions", "#/definitions/page"),
+            ("$defs", "#/$defs/a~1b~0c"),
+            ("$defs", "#"),
+        ):
+            local = json.loads(json.dumps(reviewed.machine_contract))
+            schema = local["actions"][0]["input_schema"]
+            schema[definitions] = {"page": {"type": "integer"}, "a/b~c": {"type": "integer"}}
+            schema["properties"]["page"] = {"$ref": reference}
+            with self.subTest(reference=reference):
+                parsed = assistant_manifest.parse_machine_contract(json.dumps(local).encode(), reviewed.integrations)
+                self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": reference})
+
+    def test_machine_schema_refuses_a_dialect_switch_or_a_nested_identifier(self) -> None:
+        reviewed = _reviewed_catalog()["shimpz-cloudflare"]
+        draft_07 = "http://json-schema.org/draft-07/schema#"
+        remote = {"$ref": "https://example.test/schema.json"}
+        for place in ("root", "nested"):
+            switched = json.loads(json.dumps(reviewed.machine_contract))
+            schema = switched["actions"][0]["input_schema"]
+            node = {"type": "object", "additionalProperties": False, "dependencies": {"page": remote}}
+            if place == "root":
+                schema.update({"$schema": draft_07, "dependencies": {"page": remote}})
+                schema["properties"]["page"] = {"$ref": "#"}
+            else:
+                schema["properties"]["page"] = {"$schema": draft_07, **node}
+            with (
+                self.subTest(place=place),
+                self.assertRaisesRegex(assistant_manifest.ManifestError, "Draft 2020-12 dialect"),
+            ):
+                assistant_manifest.parse_machine_contract(json.dumps(switched).encode(), reviewed.integrations)
+
+        rebound = json.loads(json.dumps(reviewed.machine_contract))
+        rebound["actions"][0]["input_schema"]["properties"]["page"] = {
+            "$id": "https://json-schema.org/draft/2020-12/meta/validation",
+            "$ref": "#/$defs/simpleTypes",
+        }
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "nested identifier"):
+            assistant_manifest.parse_machine_contract(json.dumps(rebound).encode(), reviewed.integrations)
+
+        current = json.loads(json.dumps(reviewed.machine_contract))
+        schema = current["actions"][0]["input_schema"]
+        schema.update({"$schema": assistant_manifest._DRAFT_2020_12, "$id": "https://example.test/action.json"})
+        schema["properties"]["page"] = {"$schema": assistant_manifest._DRAFT_2020_12, "type": "integer"}
+        parsed = assistant_manifest.parse_machine_contract(json.dumps(current).encode(), reviewed.integrations)
+        self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
     def test_machine_schema_reads_references_only_at_schema_nodes(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -557,7 +612,7 @@ class AssistantManifestTests(unittest.TestCase):
             "type": "array",
             "items": {"anyOf": [{"type": "integer"}, {"not": {"contentSchema": remote}}]},
         }
-        with self.assertRaisesRegex(assistant_manifest.ManifestError, "external reference"):
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"):
             assistant_manifest.parse_machine_contract(json.dumps(nested).encode(), reviewed.integrations)
 
     def test_action_schema_validators_never_retrieve_a_uri(self) -> None:
