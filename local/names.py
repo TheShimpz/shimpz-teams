@@ -8,7 +8,6 @@ exists. Names are unique per Space ignoring case, under one Space-wide namespace
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import stat
@@ -18,6 +17,7 @@ from pathlib import Path
 
 from docker.errors import APIError
 
+from core import strict_json
 from inference import config as inference_config
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import TEAM_LABEL, TEAM_NAME_LABEL
@@ -84,13 +84,14 @@ class TeamNameStore:
                 raise _unavailable()
             with os.fdopen(descriptor, "rb") as stream:
                 raw = stream.read(MAX_RECORD_BYTES + 1)
-            value = json.loads(raw)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            value = strict_json.loads(raw)
+        except (OSError, ValueError) as exc:
             raise _unavailable() from exc
         if (
             len(raw) > MAX_RECORD_BYTES
             or not isinstance(value, dict)
             or set(value) != _RECORD_KEYS
+            or type(value["schema"]) is not int
             or value["schema"] != SCHEMA
             or value["team_id"] != team_id
             or value["network_id"] != network_id

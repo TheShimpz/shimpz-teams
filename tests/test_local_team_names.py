@@ -51,6 +51,12 @@ class TeamNameStoreTests(unittest.TestCase):
             json.dumps({**base, "team_id": "team_2"}).encode(),
             json.dumps({**base, "team_name": "Équipe"}).encode(),
             json.dumps({**base, "team_name": "x" * 5000}).encode(),
+            json.dumps({**base, "team_name": "Growth\u200b"}).encode(),
+            json.dumps({**base, "schema": True}).encode(),
+            json.dumps({**base, "schema": 1.0}).encode(),
+            b'{"schema":1,"schema":1,"team_id":"team_1","network_id":"'
+            + NETWORK_A.encode()
+            + b'","team_name":"Growth"}',
         ):
             with self.subTest(raw=raw[:40]):
                 self.root.mkdir(exist_ok=True)

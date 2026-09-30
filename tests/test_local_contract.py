@@ -142,7 +142,9 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(local_names.canonical_name("My Team"), "My Team")
         self.assertEqual(local_names.canonical_name("\u00c9quipe"), "\u00c9quipe")
         # A decomposed name is refused, so a Local display name always compares exactly (ADR-0088).
-        for invalid in ("", " padded", "padded ", "x\n", "x" * 81, None, "E\u0301quipe"):
+        invalid_names = ("", " padded", "padded ", "x\n", "x" * 81, None)
+        invalid_names += ("E\u0301quipe", "Growth\u200b", "Growth\ud800")
+        for invalid in invalid_names:
             with self.subTest(invalid=invalid), self.assertRaises(local_app.ApiProblem):
                 local_names.canonical_name(invalid)
 
