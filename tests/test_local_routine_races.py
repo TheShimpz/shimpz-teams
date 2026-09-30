@@ -10,6 +10,7 @@ from unittest import mock
 from test_local_routine_service import (
     API_KEY,
     ASSISTANT,
+    CHANGE,
     KEY,
     RoutineServiceCase,
     Runtime,
@@ -71,6 +72,29 @@ class LockOrderTests(RoutineServiceCase):
             self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
             self.assertEqual(observed, [True])
             self.assertFalse(held_elsewhere(service._lock("team_1")))
+
+    def test_a_confirmation_holds_the_team_lifecycle_lock_from_validation_to_creation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
+            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
+            lifecycle = service._lock("team_1")
+            validated: list[bool] = []
+            current = routine_turn.current_contracts
+
+            def validating(*args):
+                result = current(*args)
+                validated.append(held_elsewhere(lifecycle))
+                return result
+
+            observed = self.observe_routine_updates(service)
+            with mock.patch.object(routine_turn, "current_contracts", side_effect=validating):
+                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
+            # Held once the contract check returns and still held when the Routine is written: a teardown cannot
+            # remove the Team between them and have its Routine state recreated.
+            self.assertEqual((validated, observed), ([True], [True]))
+            self.assertEqual(len(self.state(service).routines), 1)
+            self.assertFalse(held_elsewhere(lifecycle))
 
 
 class FrozenCase(RoutineServiceCase):

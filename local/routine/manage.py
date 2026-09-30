@@ -127,9 +127,6 @@ def confirm_routine(self, team_id: str, body: object) -> dict[str, object]:
     if proposal.change["op"] == "cancel":
         return delete_routine(self, team_id, proposal.change["routine_id"])
     timezone = _timezone(proposal, body["timezone"])
-    # Unattended runs must use exactly the Assistant contracts the user saw proposed.
-    if routine_turn.current_contracts(self, team_id, proposal.assistant_ids) != dict(proposal.contracts):
-        raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
     candidate = _candidate(proposal, timezone, int(time.time()))
 
     def add(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
@@ -138,7 +135,13 @@ def confirm_routine(self, team_id: str, body: object) -> dict[str, object]:
         except record.RoutineStateError as exc:
             return state, str(exc)
 
-    refused = routine_state.update(self, team_id, add)
+    # Held from the contract check to the write, before the Routine lock as teardown takes them, so a Team removed
+    # meanwhile can never have its Routine state recreated.
+    with self._lock(team_id):
+        # Unattended runs must use exactly the Assistant contracts the user saw proposed.
+        if routine_turn.current_contracts(self, team_id, proposal.assistant_ids) != dict(proposal.contracts):
+            raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
+        refused = routine_state.update(self, team_id, add)
     if refused:
         raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine", refused)
     return {"team_id": team_id, "routine": routine_view(candidate)}
