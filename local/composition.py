@@ -43,3 +43,4 @@ class ChatTurnDependencies:
     raise_storage_problem: object | None = None
     routine_store: object | None = None
     routine_proposals: object | None = None
+    routine_human_challenges: object | None = None

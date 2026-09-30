@@ -628,6 +628,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
         with mock.patch.dict(local_app.os.environ, {}, clear=True):
             self.assertEqual(local_app.main(), 1)
 
+        watchdog = types.SimpleNamespace(start=mock.Mock(), close=mock.Mock())
         client = types.SimpleNamespace(close=mock.Mock())
         previous_sigterm = signal.getsignal(signal.SIGTERM)
         self.addCleanup(signal.signal, signal.SIGTERM, previous_sigterm)
@@ -662,8 +663,11 @@ class LocalAppMainEdgeTests(unittest.TestCase):
                 "LocalController",
                 return_value=types.SimpleNamespace(
                     local_snapshot_inventory=types.SimpleNamespace(warm=mock.Mock()),
+                    chat_turn_service=object(),
                 ),
             ),
+            mock.patch.object(local_app.local_routine_watchdog, "check"),
+            mock.patch.object(local_app.local_routine_watchdog, "RoutineWatchdog", return_value=watchdog),
             mock.patch.object(local_app, "BoundedServer", return_value=server),
             mock.patch.object(
                 local_app.local_automatic_updates,
@@ -676,6 +680,7 @@ class LocalAppMainEdgeTests(unittest.TestCase):
             self.assertEqual(local_app.main(), 0)
         self.assertIs(updater_class.call_args.kwargs["activity"], mock.sentinel.activity)
         updater.close.assert_called_once_with()
+        watchdog.close.assert_called_once_with()
         server.server_close.assert_called_once_with()
         client.close.assert_called_once_with()
 

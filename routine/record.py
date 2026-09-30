@@ -33,7 +33,10 @@ _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
-_RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed"}
+_RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
+# Ended runs whose Brain thread, journal generation, and continuation Team has yet to remove. Claims stop while any
+# wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
+MAX_DISCARDS = 2 * MAX_ROUTINES
 
 
 class RoutineStateError(ValueError):
@@ -75,6 +78,8 @@ class Run:
     # The run's own Action journal generation, bound at its first segment, and the batch an uncertain run holds.
     generation: str = ""
     batch: tuple[str, str] = ("", "")
+    # A run has one notice, keyed by its id; each freeze and its end update it, so Admin replaces one transcript row.
+    notice_version: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +102,8 @@ class TeamRoutines:
     served_at: int = 0
     starts_day: str = ""
     starts: int = 0
+    # (run_id, generation) of ended runs whose Brain thread, journal generation, and continuation are still held.
+    discards: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +226,25 @@ def _replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
 
 
 def _without_run(state: TeamRoutines, run_id: str) -> TeamRoutines:
-    return dataclasses.replace(state, runs=tuple(item for item in state.runs if item.run_id != run_id))
+    """Remove an ended run and, in the same write, queue the removal of everything it held."""
+    value = run(state, run_id)
+    return dataclasses.replace(
+        state,
+        runs=tuple(item for item in state.runs if item.run_id != run_id),
+        discards=(*state.discards, (run_id, value.generation)),
+    )
+
+
+def discarded(state: TeamRoutines, run_id: str) -> TeamRoutines:
+    """Team removed an ended run's thread, journal generation, and continuation."""
+    return dataclasses.replace(state, discards=tuple(item for item in state.discards if item[0] != run_id))
+
+
+def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
+    """Publish the next version of the run's one notice; returns the state and the run carrying that version."""
+    version = value.notice_version + 1
+    state = _notice(state, Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version))
+    return state, dataclasses.replace(value, notice_version=version)
 
 
 def undelivered(state: TeamRoutines) -> int:
@@ -306,7 +331,11 @@ def starts_today(state: TeamRoutines, now: int) -> int:
 
 def claimable(state: TeamRoutines, now: int) -> Routine | None:
     """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
-    if undelivered(state) >= MAX_UNDELIVERED_NOTICES or starts_today(state, now) >= MAX_DAILY_STARTS:
+    if (
+        undelivered(state) >= MAX_UNDELIVERED_NOTICES
+        or starts_today(state, now) >= MAX_DAILY_STARTS
+        or len(state.discards) >= MAX_ROUTINES
+    ):
         return None
     busy = {item.routine_id for item in state.runs}
     due = [
@@ -416,6 +445,8 @@ def freeze(
         raise RoutineStateError("freeze-invalid")
     if sum(item.status == "frozen" for item in state.runs) >= MAX_FROZEN_RUNS:
         raise RoutineStateError("frozen-limit")
+    detail = {"request_kind": request_kind, "assistant_id": assistant_id, "action": action}
+    state, value = _run_notice(state, value, "frozen", now, detail)
     frozen = dataclasses.replace(
         value,
         status="frozen",
@@ -430,9 +461,12 @@ def freeze(
 
 
 def thaw(state: TeamRoutines, run_id: str, now: int) -> tuple[TeamRoutines, str]:
-    """A human resumes a frozen run; it runs under a fresh internal lease that no machine assertion knows."""
+    """A human resumes a frozen run; it runs under a fresh internal lease that no machine assertion knows.
+
+    A Routine being deleted never resumes a run, so its deletion ends each frozen run it saw without racing a replay.
+    """
     value = run(state, run_id)
-    if value.status != "frozen":
+    if value.status != "frozen" or routine(state, value.routine_id).deleting:
         raise RoutineStateError("run-not-frozen")
     token = secrets.token_urlsafe(32)
     resumed = dataclasses.replace(
@@ -451,7 +485,7 @@ def thaw(state: TeamRoutines, run_id: str, now: int) -> tuple[TeamRoutines, str]
 def _hold(state: TeamRoutines, value: Run, fingerprint: str, now: int, detail: dict[str, object]) -> TeamRoutines:
     if not value.generation or _FINGERPRINT_RE.fullmatch(fingerprint) is None:
         raise RoutineStateError("batch-invalid")
-    state = _notice(state, Notice(new_id(), value.routine_id, value.run_id, "uncertain", now, detail))
+    state, value = _run_notice(state, value, "uncertain", now, detail)
     held = dataclasses.replace(
         value,
         status="uncertain",
@@ -470,7 +504,7 @@ def finish(
     value = _live(state, run_id, lease, now)
     if outcome not in _RUN_OUTCOMES - {"uncertain"}:
         raise RoutineStateError("invalid-outcome")
-    state = _notice(state, Notice(new_id(), value.routine_id, run_id, outcome, now, detail))
+    state, _value = _run_notice(state, value, outcome, now, detail)
     return _without_run(state, run_id)
 
 
@@ -488,13 +522,18 @@ def end(
     outcome: str,
     detail: dict[str, object],
     fingerprint: str = "",
+    *,
+    status: str = "",
 ) -> TeamRoutines:
     """Team itself ends a run without its lease: a human Stop or answer, an expired lease or deadline, or recovery.
 
     A leased run ends stopped or failed, or is held uncertain when ``fingerprint`` names a batch that may have acted in
-    its generation; a frozen run ends denied, stopped, or failed.
+    its generation; a frozen run ends denied, stopped, or failed. With ``status``, the run must still be in it, so an
+    ending decided on an earlier read never lands on a run that changed since.
     """
     value = run(state, run_id)
+    if status and value.status != status:
+        raise RoutineStateError("run-changed")
     if value.status == "leased" and fingerprint:
         if outcome != "uncertain":
             raise RoutineStateError("invalid-outcome")
@@ -502,7 +541,7 @@ def end(
     allowed = {"leased": frozenset({"stopped", "failed"}), "frozen": _FROZEN_OUTCOMES}.get(value.status, frozenset())
     if outcome not in allowed:
         raise RoutineStateError("invalid-outcome")
-    state = _notice(state, Notice(new_id(), value.routine_id, run_id, outcome, now, detail))
+    state, _value = _run_notice(state, value, outcome, now, detail)
     return _without_run(state, run_id)
 
 
@@ -538,9 +577,14 @@ def rekeyed(state: TeamRoutines, key_fingerprint: str) -> tuple[Run, ...]:
 
 
 def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tuple[Run, ...]]:
-    """Mark a Routine as deleting, so it is never claimed again; its runs are returned for the caller to end."""
+    """Mark a Routine as deleting, so it is never claimed or resumed again; its runs are returned for the caller to end.
+
+    An uncertain run refuses the deletion: only a Supervisor's informed resolution of its exact batch releases it.
+    """
     value = routine(state, routine_id)
     runs = tuple(item for item in state.runs if item.routine_id == routine_id)
+    if any(item.status == "uncertain" for item in runs):
+        raise RoutineStateError("routine-run-uncertain")
     return _replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 

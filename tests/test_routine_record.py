@@ -85,7 +85,9 @@ class ContractTests(unittest.TestCase):
             "denied": {"actions": []},
             "stopped": {"actions": [["dns", "list-zones"]]},
             "uncertain": {"actions": [["dns", "replace-dns-record"]]},
+            "frozen": {"request_kind": "human", "assistant_id": "dns", "action": "replace-dns-record"},
         }
+        self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
             with self.subTest(outcome=outcome):
                 self.assertEqual(http_routine.canonical_notice_detail(outcome, detail), detail)
@@ -102,8 +104,11 @@ class ContractTests(unittest.TestCase):
             ("failed", {"code": "x", "actions": [["dns"]]}),
             ("stopped", {"actions": [["dns", {"input": 1}]]}),
             ("stopped", {"actions": "dns"}),
-            ("uncertain", {"actions": []}),
             ("interrupted", {"actions": []}),
+            ("frozen", {"request_kind": "email", "assistant_id": "dns", "action": "x"}),
+            ("frozen", {"request_kind": "human", "assistant_id": "Bad", "action": "x"}),
+            ("frozen", {"request_kind": "human", "assistant_id": "dns", "action": ["x"]}),
+            ("frozen", {"request_kind": "human", "assistant_id": "dns"}),
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
         )

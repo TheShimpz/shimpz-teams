@@ -16,6 +16,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase, TestAssistantRegistry
 
+from action import challenges as action_challenges
 from action import execution as action_execution
 from action import human as action_human
 from assistant import spec as assistant_spec
@@ -595,6 +596,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
+        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -685,6 +687,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
+        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -739,6 +742,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
+        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),

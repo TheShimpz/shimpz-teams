@@ -20,6 +20,10 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import human as local_routine_human
+from local.routine import manage as local_routine_manage
+from local.routine import notices as local_routine_notices
+from local.routine import run as local_routine_run
 from local.routine import turn as local_routine_turn
 
 
@@ -42,6 +46,8 @@ class ChatTurnService:
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
         self.routine_proposals = dependencies.routine_proposals
+        # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
+        self.routine_human_challenges = dependencies.routine_human_challenges or action_challenges.HumanChallengeStore()
         self._lock = dependencies.lock_for
         self._raise_storage_problem = dependencies.raise_storage_problem
         self._active_chat_guard = threading.Lock()
@@ -52,6 +58,10 @@ class ChatTurnService:
         self._brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
         # The Routine whose run segment holds the Team's execution slot, so a chat message is told why it waits.
         self._routine_holders: dict[str, str] = {}
+        # Each running Routine run's Team, execution-slot token, and active-time deadline, for its exact Stop.
+        self._routine_runs: dict[str, object] = {}
+        # Leased runs a Stop is ending before any worker registered them; a worker registering meanwhile is refused.
+        self._routine_halting: set[str] = set()
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -141,6 +151,22 @@ class ChatTurnService:
     _chat_routines = local_routine_turn.chat_routines
     _routine_proposal = local_routine_turn.routine_proposal
     _withdraw_routine_proposal = local_routine_turn.withdraw_routine_proposal
+    claim_routine_run = local_routine_run.claim_routine_run
+    run_routine = local_routine_run.run_routine
+    _stop_routine_run = local_routine_run.halt_routine_run
+    preview_routine = local_routine_manage.preview_routine
+    confirm_routine = local_routine_manage.confirm_routine
+    list_routines = local_routine_manage.list_routines
+    delete_routine = local_routine_manage.delete_routine
+    open_routine_challenge = local_routine_human.open_routine_challenge
+    resume_routine_human = local_routine_human.resume_routine_human
+    resume_routine_integrations = local_routine_human.resume_routine_integrations
+    current_routine_challenge = local_routine_human.current_routine_challenge
+    _cancel_routine_challenge = local_routine_human.cancel_routine_challenge
+    routine_notices = local_routine_notices.routine_notices
+    acknowledge_routine_notices = local_routine_notices.acknowledge_notices
+    resolve_routine_run = local_routine_notices.resolve_routine_run
+    stop_routine = local_routine_notices.stop_routine
 
     _invoke_chat_action = local_chat_execution._invoke_chat_action
     _chat_identity = staticmethod(local_chat_execution._chat_identity)

@@ -14,7 +14,9 @@ MAX_NOTICE_REPLY_CHARS = 16_000
 MAX_NOTICE_QUESTION_CHARS = 240
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
-OUTCOMES = frozenset({"done", "failed", "denied", "uncertain", "stopped", "skipped", "scope-changed", "needs-input"})
+OUTCOMES = frozenset(
+    {"done", "failed", "denied", "uncertain", "stopped", "skipped", "scope-changed", "needs-input", "frozen"}
+)
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -103,39 +105,52 @@ def _actions(value: object) -> bool:
     )
 
 
-def _detail_valid(outcome: str, detail: dict[str, object]) -> bool:
-    fields = set(detail)
-    if outcome == "done":
-        return fields == {"reply"} and _text(detail["reply"], MAX_NOTICE_REPLY_CHARS)
-    if outcome == "needs-input":
-        return fields == {"question"} and _text(detail["question"], MAX_NOTICE_QUESTION_CHARS)
-    if outcome == "skipped":
-        return fields == {"missed"} and type(detail["missed"]) is int and detail["missed"] >= 1
-    if outcome == "scope-changed":
-        assistants = detail.get("assistants")
-        return (
-            fields == {"assistants"}
-            and isinstance(assistants, list)
-            and 0 < len(assistants) <= MAX_NOTICE_ASSISTANTS
-            and all(isinstance(item, str) and ASSISTANT_ID_RE.fullmatch(item) is not None for item in assistants)
-        )
-    if outcome == "failed":
-        code = detail.get("code")
-        return (
-            fields == {"code", "actions"}
-            and isinstance(code, str)
-            and ERROR_CODE_RE.fullmatch(code) is not None
-            and _actions(detail["actions"])
-        )
-    # denied, stopped, and uncertain name the Actions that completed or whose effects are unknown.
-    return fields == {"actions"} and _actions(detail["actions"]) and (outcome != "uncertain" or bool(detail["actions"]))
+def _identity(value: object, pattern: re.Pattern[str]) -> bool:
+    return isinstance(value, str) and pattern.fullmatch(value) is not None
+
+
+def _scope_changed(detail: dict[str, object]) -> bool:
+    assistants = detail["assistants"]
+    return (
+        isinstance(assistants, list)
+        and 0 < len(assistants) <= MAX_NOTICE_ASSISTANTS
+        and all(_identity(item, ASSISTANT_ID_RE) for item in assistants)
+    )
+
+
+def _frozen(detail: dict[str, object]) -> bool:
+    """The one request a frozen run waits for: its kind and the Assistant Action that asked."""
+    return (
+        detail["request_kind"] in {"human", "integrations"}
+        and _identity(detail["assistant_id"], ASSISTANT_ID_RE)
+        and _identity(detail["action"], ACTION_ID_RE)
+    )
+
+
+# Each outcome's exact detail fields and their check. denied, stopped, and uncertain name the Actions that completed or
+# whose effects are unknown; after a restart an uncertain run may not know them, and its notice then says only that.
+_DETAILS = {
+    "done": ({"reply"}, lambda detail: _text(detail["reply"], MAX_NOTICE_REPLY_CHARS)),
+    "needs-input": ({"question"}, lambda detail: _text(detail["question"], MAX_NOTICE_QUESTION_CHARS)),
+    "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
+    "scope-changed": ({"assistants"}, _scope_changed),
+    "frozen": ({"request_kind", "assistant_id", "action"}, _frozen),
+    "failed": (
+        {"code", "actions"},
+        lambda detail: _identity(detail["code"], ERROR_CODE_RE) and _actions(detail["actions"]),
+    ),
+    "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
+    "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
+    "uncertain": ({"actions"}, lambda detail: _actions(detail["actions"])),
+}
 
 
 def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object] | None:
     """The exact closed detail for a run outcome, or None; never an Action's raw input or result."""
     if not isinstance(outcome, str) or outcome not in OUTCOMES or not isinstance(detail, dict):
         return None
-    return copy.deepcopy(detail) if _detail_valid(outcome, detail) else None
+    fields, valid = _DETAILS[outcome]
+    return copy.deepcopy(detail) if set(detail) == fields and valid(detail) else None
 
 
 def canonical_routine_change(value: object) -> dict[str, object] | None:

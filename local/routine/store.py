@@ -70,10 +70,13 @@ _RUN_FIELDS = frozenset(
         "action",
         "generation",
         "batch",
+        "notice_version",
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version"})
-_STATE_FIELDS = frozenset({"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts"})
+_STATE_FIELDS = frozenset(
+    {"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts", "discards"}
+)
 
 
 class RoutineStoreError(RuntimeError):
@@ -135,6 +138,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "served_at": state.served_at,
         "starts_day": state.starts_day,
         "starts": state.starts,
+        "discards": [list(item) for item in state.discards],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
@@ -188,12 +192,14 @@ def _decode_run(value: object) -> record.Run:
     _require(
         _RUN_ID_RE.fullmatch(run_id) is not None
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
-        and (value["generation"] == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}", value["generation"]))
+        and _generation_of(run_id, value["generation"])
         and isinstance(batch, list)
         and len(batch) == 2
         and all(isinstance(part, str) for part in batch)
         and type(value["active_seconds_left"]) is int
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
+        and type(value["notice_version"]) is int
+        and value["notice_version"] >= 0
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     no_request = value["request_kind"] == "" and value["assistant_id"] == "" and value["action"] == ""
@@ -231,6 +237,7 @@ def _decode_run(value: object) -> record.Run:
         action=value["action"],
         generation=value["generation"],
         batch=(batch[0], batch[1]),
+        notice_version=value["notice_version"],
     )
 
 
@@ -259,6 +266,23 @@ def _decode_notice(value: object) -> record.Notice:
     )
 
 
+def _generation_of(run_id: str, generation: object) -> bool:
+    return isinstance(generation, str) and (
+        generation == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}", generation) is not None
+    )
+
+
+def _decode_discard(value: object) -> tuple[str, str]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and _RUN_ID_RE.fullmatch(value[0]) is not None
+        and _generation_of(value[0], value[1])
+    )
+    return value[0], value[1]
+
+
 def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
     try:
         value = strict_json.loads(payload)
@@ -279,6 +303,8 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and _DAY_RE.fullmatch(value["starts_day"]) is not None
         and type(value["starts"]) is int
         and 0 <= value["starts"] <= record.MAX_DAILY_STARTS
+        and isinstance(value["discards"], list)
+        and len(value["discards"]) <= record.MAX_DISCARDS
     )
     state = record.TeamRoutines(
         routines=tuple(_decode_routine(item) for item in value["routines"]),
@@ -287,12 +313,14 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         served_at=_instant(value["served_at"]),
         starts_day=value["starts_day"],
         starts=value["starts"],
+        discards=tuple(_decode_discard(item) for item in value["discards"]),
     )
     identifiers = [item.routine_id for item in state.routines]
     _require(
         len(set(identifiers)) == len(identifiers)
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
+        and len({item[0] for item in state.discards}) == len(state.discards)
         and all(item.routine_id in identifiers for item in state.runs)
     )
     return state

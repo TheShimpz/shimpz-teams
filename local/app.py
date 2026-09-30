@@ -73,6 +73,7 @@ from local.labels import (
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
 from local.routine import store as local_routine_store
+from local.routine import watchdog as local_routine_watchdog
 from local.validation import brain_thread_id as _local_brain_thread_id
 from local.validation import (
     half_cpu_set,
@@ -307,6 +308,7 @@ class LocalController:
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
         self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
+        self.routine_human_challenges = action_challenges.HumanChallengeStore()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -380,6 +382,7 @@ class LocalController:
                 assistant_stored_inputs=getattr(self, "assistant_stored_inputs", None),
                 integration_challenges=getattr(self, "integration_challenges", None),
                 human_challenges=getattr(self, "human_challenges", None),
+                routine_human_challenges=getattr(self, "routine_human_challenges", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
                 chat_continuations=getattr(self, "chat_continuations", None),
@@ -751,14 +754,19 @@ def main() -> int:
         result="ok",
         principal=local_audit.AuditPrincipal("team-local", "machine"),
     )
+    # Nothing runs a Routine segment after a restart: recover every leased run before serving (ADR-0086).
+    local_routine_watchdog.check(controller.chat_turn_service, startup=True)
+    watchdog = local_routine_watchdog.RoutineWatchdog(controller.chat_turn_service)
     # Docker stops PID 1 with SIGTERM, which is otherwise ignored; route it into the same graceful shutdown.
     signal.signal(signal.SIGTERM, _terminate)
     try:
         updater.start()
+        watchdog.start()
         server.serve_forever(poll_interval=0.2)
     except KeyboardInterrupt:
         pass
     finally:
+        watchdog.close()
         updater.close()
         server.server_close()
         client.close()

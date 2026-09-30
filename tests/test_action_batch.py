@@ -286,3 +286,25 @@ class HeldActionBatchTests(unittest.TestCase):
             with closing(sqlite3.connect(journal.path)) as connection:
                 rows = connection.execute("SELECT generation FROM batches").fetchall()
             self.assertEqual(rows, [("net:routine:" + "f" * 32,)])
+
+
+class UncertainFingerprintTests(unittest.TestCase):
+    def test_only_a_batch_with_an_executing_operation_is_uncertain(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            first = action_journal.Operation("action-1", "b" * 64)
+            second = action_journal.Operation("action-2", "c" * 64)
+            batch = journal.prepare_batch("generation", "thread", (first, second))
+            self.assertIsNone(journal.uncertain_fingerprint("generation"))
+            self.assertIsNone(journal.uncertain_fingerprint("absent"))
+            journal.begin(batch, first)
+            journal.complete(batch, first, {"ok": True})
+            self.assertIsNone(journal.uncertain_fingerprint("generation"))
+            journal.begin(batch, second)
+            self.assertEqual(journal.uncertain_fingerprint("generation"), batch.fingerprint)
+            with (
+                mock.patch.object(journal, "_connection", mock.Mock(execute=mock.Mock(side_effect=sqlite3.Error))),
+                self.assertRaises(action_journal.ActionJournalError),
+            ):
+                journal.uncertain_fingerprint("generation")

@@ -10,6 +10,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
 
+from action import challenges as action_challenges
 from local import app as local_app
 from routine import record as routine_record
 
@@ -50,6 +51,7 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
         controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
+        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -107,6 +109,7 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
         controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
+        controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),

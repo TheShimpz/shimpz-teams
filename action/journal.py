@@ -692,6 +692,22 @@ class ActionJournal:
                 self._rollback()
                 raise ActionJournalError("Action generation could not be purged") from exc
 
+    def uncertain_fingerprint(self, generation: str) -> str | None:
+        """The fingerprint of a generation's batch when one of its operations may have acted, else None."""
+        safe_generation = _safe_id(generation, "generation")
+        with self._guard:
+            self._ensure_open()
+            try:
+                row = self._connection.execute(
+                    """SELECT b.fingerprint FROM batches AS b
+                       JOIN operations AS o ON o.generation = b.generation
+                       WHERE b.generation = ? AND o.state = 'executing' LIMIT 1""",
+                    (safe_generation,),
+                ).fetchone()
+            except sqlite3.Error as exc:
+                raise ActionJournalError("Action journal state could not be read") from exc
+        return None if row is None else str(row[0])
+
     def purge_replayable(self, generation: str) -> bool:
         """Abandon stale paused work only when no operation has an uncertain outcome."""
         safe_generation = _safe_id(generation, "generation")

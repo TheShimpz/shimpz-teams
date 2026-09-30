@@ -208,7 +208,8 @@ class LocalContractTests(LocalContractCase):
                     or SimpleNamespace(
                         local_snapshot_inventory=SimpleNamespace(
                             warm=lambda: events.append("snapshots-warm"),
-                        )
+                        ),
+                        chat_turn_service=mock.sentinel.chat,
                     )
                 ),
             ),
@@ -223,6 +224,18 @@ class LocalContractTests(LocalContractCase):
                 side_effect=lambda *_args, **_options: events.append("updates") or updater,
             ),
             mock.patch.object(local_app.local_audit, "record", side_effect=lambda *_args, **_kwargs: "trace"),
+            mock.patch.object(
+                local_app.local_routine_watchdog,
+                "check",
+                side_effect=lambda service, *, startup: events.append(("routines-recover", service, startup)),
+            ),
+            mock.patch.object(
+                local_app.local_routine_watchdog,
+                "RoutineWatchdog",
+                return_value=SimpleNamespace(
+                    start=lambda: events.append("routines-start"), close=lambda: events.append("routines-close")
+                ),
+            ),
         ):
             result = local_app.main()
 
@@ -239,8 +252,11 @@ class LocalContractTests(LocalContractCase):
                 "server",
                 "snapshots-warm",
                 "updates",
+                ("routines-recover", mock.sentinel.chat, True),
                 "updates-start",
+                "routines-start",
                 "serve",
+                "routines-close",
                 "updates-close",
                 "server-close",
                 "client-close",

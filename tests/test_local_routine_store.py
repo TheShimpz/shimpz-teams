@@ -39,8 +39,9 @@ def routine(routine_id: str = "a" * 32) -> record.Routine:
 
 
 def busy_state() -> record.TeamRoutines:
-    """Every kind of run and notice, as a real Team accumulates them."""
+    """Every kind of run, notice, and queued removal, as a real Team accumulates them."""
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine()), routine("b" * 32))
+    state = record.add_routine(state, routine("e" * 32))
     now = routine().next_run_at + 60
     state, first = record.claim(state, now, KEY)
     lease = record.lease_of(first.lease_token, KEY)
@@ -49,7 +50,11 @@ def busy_state() -> record.TeamRoutines:
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
-    return record.hold_uncertain(state, second.run.run_id, lease, now, "d" * 64, {"actions": [["dns", "x"]]})
+    state = record.hold_uncertain(state, second.run.run_id, lease, now, "d" * 64, {"actions": [["dns", "x"]]})
+    state, third = record.claim(state, now, KEY)
+    lease = record.lease_of(third.lease_token, KEY)
+    state = record.bind_generation(state, third.run.run_id, lease, now, NETWORK)
+    return record.end(state, third.run.run_id, now, "stopped", {"actions": []})
 
 
 class StoreCase(unittest.TestCase):
@@ -154,6 +159,16 @@ class TamperTests(StoreCase):
             "active time": lambda value: value["runs"][0].update(active_seconds_left=record.ACTIVE_SECONDS + 1),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
+            "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
+            "discard shape": lambda value: value["discards"][0].append("x"),
+            "discard run": lambda value: value["discards"][0].__setitem__(0, "not-a-run"),
+            "discard of another generation": lambda value: value["discards"][0].__setitem__(
+                1, NETWORK + ":routine:" + "0" * 32
+            ),
+            "duplicate discard": lambda value: value["discards"].append(list(value["discards"][0])),
+            "too many discards": lambda value: value.update(
+                discards=[[f"{index:032x}", ""] for index in range(record.MAX_DISCARDS + 1)]
+            ),
             "starts day": lambda value: value.update(starts_day="yesterday"),
             "starts": lambda value: value.update(starts=record.MAX_DAILY_STARTS + 1),
         }

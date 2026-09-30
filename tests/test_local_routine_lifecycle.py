@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from action import challenges as action_challenges
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local.errors import ApiProblemError
@@ -69,6 +70,7 @@ class RoutineLifecycleTests(unittest.TestCase):
             brain_runtime=SimpleNamespace(delete_thread=lambda thread_id: self.events.append(("thread", thread_id))),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_proposals=routine_proposal.ProposalBook(),
+            routine_human_challenges=action_challenges.HumanChallengeStore(),
         )
 
     def test_a_teams_routine_threads_generations_and_state_are_deleted(self):
