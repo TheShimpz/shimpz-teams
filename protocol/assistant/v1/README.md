@@ -46,9 +46,23 @@ Draft 2020-12 schema checked without retrieving anything, and its compact ASCII-
 128 KiB. At every subschema position, `$ref` names only `#` or one direct `#/$defs/<name>` or `#/definitions/<name>`
 without `/` or `%`, `$dynamicRef` is absent, `$schema` is exactly the Draft 2020-12 URI, and `$id` appears only at the
 root. Property names and `const`, `enum`, `default`, and `examples` values are data, never references. Developers
-refuses a build artifact that Team would refuse; for regular expressions and nesting depth it admits only a
-conservative subset of what Team's Python validator accepts. `action-schema-vectors.json` freezes admitted and
-refused schemas; each case holds in either Action schema position.
+refuses a build artifact that Team would refuse, and publication is stricter than Team in exactly two ways:
+
+- Subschemas nest at most 32 levels below the root schema.
+- Each `pattern` value and `patternProperties` name nests its syntax tree at most 32 levels deep and uses only this
+  subset of Python `re`: literals, escaped punctuation, `\a`, `\f`, `\n`, `\r`, `\t`, `\v`, `\xHH`, `\uHHHH`, and
+  `\UHHHHHHHH`; `.`, `^`, `$`, `\A`, `\b`, `\B`, `\d`, `\D`, `\s`, `\S`, `\w`, and `\W`; optionally negated bracketed
+  classes of literals, ranges, and those Perl classes, with an unescaped `-` only first or last; alternation; greedy
+  or lazy `*`, `+`, `?`, `{m}`, `{m,}`, and `{m,n}` below 4294967295 applied to a literal, `.`, class, or group;
+  `(...)`, `(?P<name>...)` with an ASCII identifier name, `(?:...)`, and scoped `i`, `m`, or `s` flags that may be
+  negated; and global `i`, `m`, `s`, or `x` flags only as one group at the very start. In `x` mode, whitespace and `#`
+  comments may separate items but not appear inside a class, a hexadecimal escape, a counted repetition or its lazy
+  suffix, or between `(` and `?`, and a comment contains no backslash. Everything else, including lookaround,
+  backreferences, octal and braced escapes, `\z`, Unicode property classes, nested and POSIX classes, class set
+  operations, possessive or nested repetition, and `(?<name>...)`, is refused.
+
+`action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
+position.
 
 ## Invocation
 

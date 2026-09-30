@@ -220,6 +220,25 @@
       }
     },
     {
+      "name": "Pydantic verbose-mode pattern",
+      "valid": true,
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "pattern": "(?x)^[a-z]+$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "Input",
+        "type": "object"
+      }
+    },
+    {
       "name": "non-object root",
       "valid": false,
       "schema": {
@@ -443,6 +462,20 @@
         "patternProperties": {
           "\\p{L}": {
             "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "verbose-mode pattern with a spaced lazy suffix",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "(?x)a{2} ?"
           }
         }
       }

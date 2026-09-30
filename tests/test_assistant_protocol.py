@@ -19,10 +19,10 @@ PROTOCOL = VECTORS.parent
 CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "fecd24df722ec412cfaadaa38ffbec6c4554795c",
+    "commit": "2504af0d76380ba21991a8187dd238b182a0751c",
     "path": "protocol/assistant/v1",
-    "tree": "a29b1e354cdfac98e7bf478b66683fdd0acb8461",
-    "contract_files_sha256": "140566d860e966c9ffc668a7b6babe24405c316e4b7c8c3247a3ecf43873c342",
+    "tree": "562a6bc02097fa4a95d195f6612259e24257892f",
+    "contract_files_sha256": "1525e66ae3c89685e98b0a5b9e08c814b445a750c7378e1a1f0b2e5c92fe123d",
 }
 
 
