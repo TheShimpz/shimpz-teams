@@ -84,24 +84,33 @@ def _principal(team_id: str, *, create: bool) -> str:
     return token
 
 
+def _provisioner() -> str:
+    return PROVISIONER_TOKEN_FILE.read_text(encoding="utf-8").strip()
+
+
 def provision_team(team_id: str) -> dict:
     principal = _principal(team_id, create=True)
-    provisioner = PROVISIONER_TOKEN_FILE.read_text(encoding="utf-8").strip()
     return _call(
         "/v1/teams/provision",
         {"team_id": team_id, "principal_token": principal},
-        provisioner,
+        _provisioner(),
     )
 
 
 def drop_team(team_id: str) -> dict:
     # The tenant endpoint retires (rather than deletes) its hashed principal, making an ambiguous
     # response safely retryable until Team runtime/volume cleanup is durably complete.
-    return _call(
-        "/v1/teams/drop",
-        {"team_id": team_id},
-        _principal(team_id, create=False),
-    )
+    try:
+        return _call(
+            "/v1/teams/drop",
+            {"team_id": team_id},
+            _principal(team_id, create=False),
+        )
+    except PostgreSQLServiceError:
+        # Provisioning may have failed before the Service recorded this principal, so no principal can authorize a
+        # drop. The provisioner's drop never drops: it succeeds only when the Service proves, without DDL, that it
+        # holds no record, database, or role for this Team; anything the Service still owns keeps this failing.
+        return _call("/v1/teams/drop", {"team_id": team_id}, _provisioner())
 
 
 def finalize_team_drop(team_id: str) -> dict:
@@ -109,7 +118,7 @@ def finalize_team_drop(team_id: str) -> dict:
     result = _call(
         "/v1/teams/finalize",
         {"team_id": team_id},
-        PROVISIONER_TOKEN_FILE.read_text(encoding="utf-8").strip(),
+        _provisioner(),
     )
     _principal_path(team_id).unlink(missing_ok=True)
     return result

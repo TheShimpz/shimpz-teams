@@ -100,6 +100,39 @@ class PostgreSQLServiceClientEdgeTests(unittest.TestCase):
             with mock.patch.object(postgresql, "PRINCIPAL_DIR", principal_dir):
                 self.assertEqual(len(postgresql._principal("team_1", create=True)), 64)
 
+    def test_drop_falls_back_only_to_the_provisioner_absence_proof(self) -> None:
+        refused = postgresql.PostgreSQLServiceError("postgresql-service /v1/teams/drop failed with status 403")
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            principal_dir = root / "principals"
+            provisioner = root / "provisioner"
+            provisioner.write_text("b" * 64, encoding="utf-8")
+            with (
+                mock.patch.object(postgresql, "PRINCIPAL_DIR", principal_dir),
+                mock.patch.object(postgresql, "PROVISIONER_TOKEN_FILE", provisioner),
+            ):
+                with mock.patch.object(postgresql, "_call", return_value={"dropped": []}) as call:
+                    self.assertEqual(postgresql.drop_team("team_1"), {"dropped": []})
+                call.assert_called_once_with("/v1/teams/drop", {"team_id": "team_1"}, "b" * 64)
+
+                principal_dir.mkdir()
+                (principal_dir / "team_1.token").write_text("a" * 64, encoding="utf-8")
+                with mock.patch.object(postgresql, "_call", side_effect=[refused, {"dropped": []}]) as call:
+                    self.assertEqual(postgresql.drop_team("team_1"), {"dropped": []})
+                self.assertEqual([entry.args[2] for entry in call.call_args_list], ["a" * 64, "b" * 64])
+
+                with (
+                    mock.patch.object(postgresql, "_call", side_effect=[refused, refused]),
+                    self.assertRaises(postgresql.PostgreSQLServiceError),
+                ):
+                    postgresql.drop_team("team_1")
+                with (
+                    mock.patch.object(postgresql, "_call", side_effect=OSError("reset")) as call,
+                    self.assertRaises(OSError),
+                ):
+                    postgresql.drop_team("team_1")
+                call.assert_called_once()
+
     def test_public_operations_use_the_correct_authority_and_finalize_local_state(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

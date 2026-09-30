@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
@@ -12,6 +13,8 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+
+from hosted.team import postgresql as postgresql_client
 
 lifecycle = harness.hosted_lifecycle
 resources = harness.hosted_resources
@@ -34,6 +37,49 @@ def _container(**changes):
     }
     values.update(changes)
     return SimpleNamespace(**values)
+
+
+class _PostgreSQLService:
+    """The Service authority as Team observes it through `_call`, including the provisioner's absence proof."""
+
+    def __init__(self, provisioner: str) -> None:
+        self.provisioner = provisioner
+        self.records: dict[str, list[str]] = {}
+        self.pre_intent_failures = 0
+        self.proof_transport_failures = 0
+        self.tenant_drops: list[str] = []
+
+    @staticmethod
+    def _refused(path: str) -> postgresql_client.PostgreSQLServiceError:
+        return postgresql_client.PostgreSQLServiceError(f"postgresql-service {path} failed with status 403")
+
+    def __call__(self, path: str, payload: dict, bearer: str) -> dict:
+        team_id = payload["team_id"]
+        record = self.records.get(team_id)
+        if bearer != self.provisioner:
+            if path != "/v1/teams/drop" or record is None or record[0] != bearer:
+                raise self._refused(path)
+            record[1] = "retired"
+            self.tenant_drops.append(team_id)
+            return {"dropped": [f"proj_team_{team_id}"]}
+        if path == "/v1/teams/provision":
+            if self.pre_intent_failures:
+                # The request failed before the Service recorded any intent or ran any DDL.
+                self.pre_intent_failures -= 1
+                raise postgresql_client.PostgreSQLServiceError(f"postgresql-service {path} failed with status 502")
+            self.records[team_id] = [payload["principal_token"], "active"]
+            return {"created": True}
+        if path == "/v1/teams/drop":
+            if self.proof_transport_failures:
+                self.proof_transport_failures -= 1
+                raise OSError("connection reset")
+            if record is not None:
+                raise self._refused(path)
+            return {"dropped": []}
+        if record is not None and record[1] != "retired":
+            raise self._refused(path)
+        self.records.pop(team_id, None)
+        return {"finalized": True}
 
 
 def _lease(**changes):
@@ -170,6 +216,88 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
         api_error = state.ApiError(409, "contract")
         self.assertIs(run(api_error, True), api_error)
         self.assertIn("rolled back", run(RuntimeError("failed"), True).message)
+
+    def test_pre_intent_provisioning_failure_rolls_back_retries_and_destroys(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        provisioner = root / "provisioner"
+        provisioner.write_text("b" * 64, encoding="utf-8")
+        service = _PostgreSQLService("b" * 64)
+        container = _container()
+        state._docker.containers.create = mock.Mock(return_value=container)
+        succeed = mock.Mock(return_value=True)
+        patches = (
+            mock.patch.object(lifecycle.cleanup_state, "STATE_DIR", root / "cleanup"),
+            mock.patch.object(lifecycle, "postgresql_service_client", postgresql_client),
+            mock.patch.object(postgresql_client, "PRINCIPAL_DIR", root / "principals"),
+            mock.patch.object(postgresql_client, "PROVISIONER_TOKEN_FILE", provisioner),
+            mock.patch.object(postgresql_client, "_call", side_effect=service),
+            mock.patch.object(
+                lifecycle.inference_config,
+                "normalize",
+                return_value=SimpleNamespace(provider="openai", model="model", effort="low"),
+            ),
+            mock.patch.object(resources, "_get_container", return_value=None),
+            mock.patch.object(resources, "_reserve_capacity", return_value=contextlib.nullcontext()),
+            mock.patch.object(resources, "_require_team_runtime"),
+            mock.patch.object(resources, "_ensure_team_network"),
+            mock.patch.object(resources, "_wire_network_deps"),
+            mock.patch.object(resources, "_require_network_policy"),
+            mock.patch.object(lifecycle.container_spec, "build_team_kwargs", return_value={"name": "team"}),
+            mock.patch.object(resources, "_start_team_with_isolation"),
+            mock.patch.object(state._inference_store, "save"),
+            mock.patch.object(state, "_clear_team_id_runtime_state"),
+            mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_replayable_human"),
+            mock.patch.object(lifecycle, "_owned_teardown_runtime", return_value=(True, None)),
+            mock.patch.multiple(
+                lifecycle,
+                _stop_teardown_runtime=succeed,
+                _teardown_assistants=succeed,
+                _teardown_storage=succeed,
+                _teardown_inference=succeed,
+                _teardown_assistant_integrations=succeed,
+                _teardown_assistant_stored_inputs=succeed,
+                _teardown_network_planes=succeed,
+                _remove_teardown_runtime=succeed,
+                _teardown_volumes=succeed,
+            ),
+        )
+        with contextlib.ExitStack() as stack:
+            for current in patches:
+                stack.enter_context(current)
+            principal = postgresql_client._principal_path(TEAM_ID)
+
+            # Provisioning fails before the Service records an intent, and the absence proof is first unreachable.
+            service.pre_intent_failures = 1
+            service.proof_transport_failures = 1
+            with self.assertRaisesRegex(state.ApiError, "rollback is incomplete"):
+                lifecycle._create(TEAM_ID, {}, OWNER)
+            record = lifecycle.cleanup_state.load(TEAM_ID)
+            self.assertIsNotNone(record)
+            self.assertTrue(principal.exists())
+            with self.assertRaisesRegex(state.ApiError, "incomplete teardown") as conflict:
+                lifecycle._create(TEAM_ID, {}, OWNER)
+            self.assertEqual(conflict.exception.status, HTTPStatus.CONFLICT)
+
+            # The retried destroy clears the cleanup record only through the Service's absence proof.
+            destroyed = lifecycle._destroy(TEAM_ID, _lease(container_id="", cleanup_nonce=record.nonce))
+            self.assertTrue(destroyed["destroyed"])
+            self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
+            self.assertFalse(principal.exists())
+            self.assertEqual((service.records, service.tenant_drops), ({}, []))
+
+            # A clean rollback leaves nothing behind, so create can succeed and a real destroy still uses the tenant.
+            service.pre_intent_failures = 1
+            with self.assertRaisesRegex(state.ApiError, "was rolled back"):
+                lifecycle._create(TEAM_ID, {}, OWNER)
+            self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
+            self.assertTrue(lifecycle._create(TEAM_ID, {}, OWNER)["created"])
+            self.assertEqual(service.records[TEAM_ID], [principal.read_text(encoding="ascii"), "active"])
+            cleanup = lifecycle._teardown(TEAM_ID, owner=OWNER, runtime_id=RUNTIME_ID)
+            self.assertTrue(cleanup.complete)
+            self.assertEqual((service.records, service.tenant_drops), ({}, [TEAM_ID]))
+            self.assertIsNone(lifecycle.cleanup_state.load(TEAM_ID))
 
     def test_generation_state_deletion_contains_brain_and_journal_failures(self) -> None:
         self.assertEqual(
