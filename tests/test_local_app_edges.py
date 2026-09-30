@@ -41,6 +41,23 @@ class LocalChatServiceEdgeTests(unittest.TestCase):
             service._active_action_containers["team_1"] = (token, object())
         self.assertNotIn("team_1", service._active_action_containers)
 
+    def test_chat_locks_are_released_with_their_last_holder_but_shared_while_held(self) -> None:
+        service = local_app.ChatTurnService(local_app.ChatTurnDependencies())
+        for index in range(1000):
+            self.assertFalse(service._chat_lock(f"absent_{index}").locked())
+        self.assertEqual(len(service._chat_locks), 0)
+
+        held = service._chat_lock("team_1")
+        self.assertTrue(held.acquire(blocking=False))
+        try:
+            # A waiter must contend on the very lock the holder has, not a fresh one.
+            self.assertIs(service._chat_lock("team_1"), held)
+            self.assertTrue(service._chat_lock("team_1").locked())
+        finally:
+            held.release()
+        del held
+        self.assertEqual(len(service._chat_locks), 0)
+
     def test_allowed_host_admission_delegates_to_assistant_lifecycle(self) -> None:
         service = local_app.ChatTurnService(local_app.ChatTurnDependencies())
         service.assistant_lifecycle = types.SimpleNamespace(

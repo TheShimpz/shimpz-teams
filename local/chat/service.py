@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import secrets
 import threading
+import weakref
 from contextlib import contextmanager
 from http import HTTPStatus
 
@@ -52,7 +53,9 @@ class ChatTurnService:
         self._lock = dependencies.lock_for
         self._raise_storage_problem = dependencies.raise_storage_problem
         self._active_chat_guard = threading.Lock()
-        self._chat_locks: dict[str, threading.Lock] = {}
+        # Held weakly, as in Hosted: a lock lives only while a holder or waiter references it, so looking up any
+        # Team id never grows this map, and everyone contending on a Team shares the same lock.
+        self._chat_locks: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()
         self._active_chat_tokens: dict[str, str] = {}
         self._active_action_containers: dict[str, tuple[str, object]] = {}
         self._cancelled_chat_tokens: set[str] = set()
@@ -66,7 +69,11 @@ class ChatTurnService:
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
-            return self._chat_locks.setdefault(team_id, threading.Lock())
+            lock = self._chat_locks.get(team_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._chat_locks[team_id] = lock
+            return lock
 
     def _chat_cancelled(self, token: str) -> bool:
         with self._active_chat_guard:
