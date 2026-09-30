@@ -174,6 +174,22 @@ class ConfirmationTests(RoutineServiceCase):
                 service.confirm_routine("team_1", {"proposal_id": full.proposal_id, "timezone": "UTC"})
             self.assertEqual(over.exception.code, "routine-rate-limit")
 
+    def test_confirmation_is_retryable_while_the_team_cannot_be_read(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
+            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
+            down = local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
+            with (
+                mock.patch.object(service, "_active_chat_assistants", side_effect=down),
+                self.assertRaises(local_app.ApiProblem) as unavailable,
+            ):
+                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
+            self.assertEqual(
+                (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
+            )
+            self.assertEqual(self.state(service).routines, ())
+
     def test_a_confirmed_cancellation_deletes_the_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
@@ -238,6 +254,38 @@ class RunTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
             with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            state = self.state(service)
+        self.assertTrue(record.routine(state, value.routine_id).needs_reconfirm)
+        self.assertEqual(
+            [(item.outcome, item.detail) for item in state.notices], [("scope-changed", {"assistants": [ASSISTANT]})]
+        )
+
+    def test_unreadable_contracts_never_mark_the_routine_changed(self) -> None:
+        down = local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            value = self.routine(service)
+            with mock.patch.object(service, "_active_chat_assistants", side_effect=down):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            state = self.state(service)
+            self.assertEqual((record.routine(state, value.routine_id).needs_reconfirm, state.notices), (False, ()))
+            # The claim reads the contracts; the second read, in the run's slot, fails.
+            claim = service.claim_routine_run(("anthropic", "openai"))
+            with mock.patch.object(service, "_active_chat_assistants", side_effect=down):
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+            state = self.state(service)
+        self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
+        self.assertEqual(
+            [(item.outcome, item.detail) for item in state.notices],
+            [("failed", {"code": "team-context-unavailable", "actions": []})],
+        )
+
+    def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            value = self.routine(service)
+            with mock.patch.object(service, "_active_chat_assistants", return_value=()):
                 self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
             state = self.state(service)
         self.assertTrue(record.routine(state, value.routine_id).needs_reconfirm)

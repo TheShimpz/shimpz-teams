@@ -217,6 +217,7 @@ class ChatTurnService:
 
     _chat_file_metadata = local_chat_state._chat_file_metadata
     _chat_setup = local_chat_state._chat_setup
+    _team_assistants = local_chat_state._team_assistants
 
     def _active_assistant_genesis(self, active):
         return self.assistant_lifecycle._active_assistant_genesis(active)

@@ -6,7 +6,6 @@ import time
 from http import HTTPStatus
 
 from inference import client as brain_runtime_client
-from inference import config as inference_config
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import proposal as proposal_book
@@ -56,16 +55,25 @@ def withdraw_routine_proposal(self, team_id: str, proposal: dict[str, object] | 
         self.routine_proposals.drop(team_id, proposal["proposal_id"])
 
 
-def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str] | None:
-    """Each Assistant's current contract digest, exactly as a Brain turn sees it; None when one is unavailable."""
+class ContractsUnavailableError(Exception):
+    """The Team's current Assistants could not be read, so nothing about a Routine's scope is proven either way."""
+
+
+def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str]:
+    """Each named Assistant's current contract digest, exactly as a Brain turn sees it.
+
+    An Assistant the Team no longer runs has no entry, which proves the scope changed. When the Team or an Assistant's
+    contract cannot be read, ContractsUnavailableError is raised instead, so a transient failure never reads as a
+    changed scope.
+    """
     try:
-        config = self.inference_store.load(team_id)
-        _name, _network, assistants, _files, _config = self._chat_setup(team_id, [], config.provider, assistant_ids)
-    except ApiProblem, inference_config.InferenceConfigError:
-        return None
-    return {
-        active.spec.assistant_id: brain_runtime_client.contract_digest(
-            local_chat_segment.runtime_assistant(active, self._active_assistant_genesis(active))
-        )
-        for active in assistants
-    }
+        _name, _network, active_by_id = self._team_assistants(team_id)
+        return {
+            assistant_id: brain_runtime_client.contract_digest(
+                local_chat_segment.runtime_assistant(active, self._active_assistant_genesis(active))
+            )
+            for assistant_id in assistant_ids
+            if (active := active_by_id.get(assistant_id)) is not None
+        }
+    except ApiProblem as exc:
+        raise ContractsUnavailableError from exc

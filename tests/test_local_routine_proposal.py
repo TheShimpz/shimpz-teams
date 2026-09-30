@@ -107,10 +107,8 @@ class ChatProposalTests(LocalContractCase):
         self.assertIsNone(routine_turn.routine_proposal(SimpleNamespace(), SimpleNamespace(), None))
 
     def test_a_proposal_binds_the_turns_exact_contracts_under_the_team_lock(self) -> None:
-        from inference import config as inference_config
-
-        def unconfigured(_team_id):
-            raise inference_config.InferenceConfigError("unavailable")
+        def docker_down(_team_id, _network):
+            raise local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, SimpleNamespace())
@@ -159,8 +157,11 @@ class ChatProposalTests(LocalContractCase):
                 routine_turn.routine_proposal(service, changed, CHANGE)
             self.assertEqual(moved.exception.code, "team-context-changed")
             self.assertRegex(routine_turn.current_contracts(service, "team_1", ids)["shimpz-cloudflare"], r"\Asha256:")
-            service.inference_store = SimpleNamespace(load=unconfigured)
-            self.assertIsNone(routine_turn.current_contracts(service, "team_1", ids))
+            # An Assistant the Team does not run is proven absent; a Team that cannot be read proves nothing.
+            self.assertEqual(routine_turn.current_contracts(service, "team_1", ("shimpz-absent",)), {})
+            service._active_chat_assistants = docker_down
+            with self.assertRaises(routine_turn.ContractsUnavailableError):
+                routine_turn.current_contracts(service, "team_1", ids)
 
     def test_a_message_while_a_routine_runs_is_told_why_it_waits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

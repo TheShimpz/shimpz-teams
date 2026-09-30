@@ -86,6 +86,18 @@ def _candidate(proposal: proposal_book.Proposal, timezone: str, now: int) -> rec
     return dataclasses.replace(value, next_run_at=record.next_after(value, now))
 
 
+def _require_proposed_contracts(self, team_id: str, proposal: proposal_book.Proposal) -> None:
+    """Unattended runs must use exactly the Assistant contracts the user saw proposed; an unread Team is retryable."""
+    try:
+        current = routine_turn.current_contracts(self, team_id, proposal.assistant_ids)
+    except routine_turn.ContractsUnavailableError as exc:
+        raise _problem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Team capabilities could not be checked; retry", "team-context-unavailable"
+        ) from exc
+    if current != dict(proposal.contracts):
+        raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
+
+
 def _body(body: object, fields: set[str]) -> dict[str, object]:
     if not isinstance(body, dict) or set(body) != fields:
         raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine request body is invalid", "invalid-body")
@@ -138,9 +150,7 @@ def confirm_routine(self, team_id: str, body: object) -> dict[str, object]:
     # Held from the contract check to the write, before the Routine lock as teardown takes them, so a Team removed
     # meanwhile can never have its Routine state recreated.
     with self._lock(team_id):
-        # Unattended runs must use exactly the Assistant contracts the user saw proposed.
-        if routine_turn.current_contracts(self, team_id, proposal.assistant_ids) != dict(proposal.contracts):
-            raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; ask again", "team-context-changed")
+        _require_proposed_contracts(self, team_id, proposal)
         refused = routine_state.update(self, team_id, add)
     if refused:
         raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine", refused)

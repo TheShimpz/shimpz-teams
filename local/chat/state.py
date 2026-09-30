@@ -50,6 +50,21 @@ def _chat_file_metadata(
         self._raise_storage_problem(exc)
 
 
+def _team_assistants(self, team_id: str, *, scan: bool = True) -> tuple[str, str, dict[str, _ActiveAssistant]]:
+    """The Team's name, network id, and running Assistants by id, read under its lifecycle lock.
+
+    An Assistant absent from the result is proven not running for the Team; a Team that cannot be read raises.
+    """
+    with self._lock(team_id):
+        network = self.assistant_lifecycle._network(team_id)
+        team_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
+        network_id = getattr(network, "id", None)
+        if not isinstance(network_id, str) or not network_id:
+            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
+        active_assistants = self._active_chat_assistants(team_id, network.name) if scan else ()
+    return team_name, network_id, {active.spec.assistant_id: active for active in active_assistants}
+
+
 def _chat_setup(
     self,
     team_id: str,
@@ -67,15 +82,9 @@ def _chat_setup(
     inference_config.InferenceConfig,
 ]:
     with self._lock(team_id):
-        network = self.assistant_lifecycle._network(team_id)
-        team_name = self.assistant_lifecycle._validate_network(network, team_id, refresh=False)
-        network_id = getattr(network, "id", None)
-        if not isinstance(network_id, str) or not network_id:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
-        active_assistants = (
-            self._active_chat_assistants(team_id, network.name) if scan_empty_scope or assistant_ids else ()
+        team_name, network_id, active_by_id = _team_assistants(
+            self, team_id, scan=bool(scan_empty_scope or assistant_ids)
         )
-        active_by_id = {active.spec.assistant_id: active for active in active_assistants}
         try:
             assistants = tuple(active_by_id[assistant_id] for assistant_id in assistant_ids)
         except KeyError:

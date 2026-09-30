@@ -74,7 +74,11 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     if due is None:
         return state, None
     pinned = dict(due.assistants)
-    current = routine_turn.current_contracts(self, team_id, tuple(pinned)) or {}
+    try:
+        current = routine_turn.current_contracts(self, team_id, tuple(pinned))
+    except routine_turn.ContractsUnavailableError:
+        # Nothing is proven: the Routine stays due, unchanged, and the next claim checks it again.
+        return state, None
     if current != pinned:
         changed = sorted(assistant for assistant, digest in pinned.items() if current.get(assistant) != digest)
         return record.mark_scope_changed(state, due.routine_id, now, changed), None
@@ -296,6 +300,15 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
     return record.generation_for(network_id, run_id)
 
 
+def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
+    """Why a leased run may not start under its pinned contracts, or None when they are exactly current."""
+    try:
+        current = routine_turn.current_contracts(self, team_id, tuple(pinned))
+    except routine_turn.ContractsUnavailableError:
+        return "team-context-unavailable"
+    return None if current == pinned else "team-context-changed"
+
+
 def run_routine(
     self,
     team_id: str,
@@ -315,8 +328,9 @@ def run_routine(
         registered(self, team_id, run_id, token, value.active_seconds_left),
     ):
         # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody confirmed.
-        if routine_turn.current_contracts(self, team_id, tuple(pinned)) != pinned:
-            outcome = _end(self, team_id, run_id, "failed", {"code": "team-context-changed", "actions": []})
+        refused = _context_refusal(self, team_id, pinned)
+        if refused is not None:
+            outcome = _end(self, team_id, run_id, "failed", {"code": refused, "actions": []})
         else:
             generation = _bind(self, team_id, run_id, lease)
             request = SegmentRequest(
