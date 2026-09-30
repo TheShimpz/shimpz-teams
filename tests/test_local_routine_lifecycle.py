@@ -94,6 +94,33 @@ class RoutineLifecycleTests(unittest.TestCase):
         # An absent Team is already clean.
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
 
+    def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
+        # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.
+        state, run_id = two_runs()
+        state = record.end(state, run_id, NINE, "failed", {"code": "lease-expired", "actions": []})
+        generation = f"{NETWORK}:routine:{run_id}"
+        self.assertEqual(state.discards, ((run_id, generation),))
+        put(self.subject.routine_store, "team_1", state)
+
+        def unavailable(_generation):
+            raise action_journal.ActionJournalError("down")
+
+        journal = self.subject.action_state
+        self.subject.action_state = SimpleNamespace(purge=unavailable)
+        with self.assertRaises(ApiProblemError) as caught:
+            routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        self.assertEqual(caught.exception.code, "action-state-unavailable")
+        self.assertEqual(self.subject.routine_store.load("team_1").discards, state.discards)
+
+        self.subject.action_state = journal
+        self.events.clear()
+        routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        self.assertEqual(
+            self.events,
+            [("thread", routine_thread_id("local-space", "team_1", NETWORK, run_id)), ("purge", generation)],
+        )
+        self.assertEqual(self.subject.routine_store.teams(), ())
+
     def test_a_space_reset_deletes_every_teams_routines_and_the_keyring(self):
         # A proposal of a Team without any Routine state yet is dropped too.
         orphan = self.subject.routine_proposals.create("team_9", PROPOSED, {"dns": "sha256:" + "c" * 64})
