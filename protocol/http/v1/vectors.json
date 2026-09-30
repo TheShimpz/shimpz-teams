@@ -348,7 +348,7 @@
     }
   ],
   "identifiers": {
-    "local_team_name": {"valid": ["Marketing", "Growth Marketing", "\u00c9quipe"], "invalid": ["", " Marketing", "E\u0301quipe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Tab\tName"]},
+    "local_team_name": {"valid": ["Marketing", "Growth Marketing", "\u00c9quipe"], "invalid": ["", " Marketing", "E\u0301quipe", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Tab\tName", "Growth\u200b", "Team\u2028Name"]},
     "team": {
       "valid": ["a", "team_01"],
       "invalid": ["", "Team", "team-name", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]

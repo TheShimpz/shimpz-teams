@@ -382,9 +382,22 @@ def canonical_team_name(value: object) -> str | None:
 
 
 def canonical_local_team_name(value: object) -> str | None:
-    """A Local Team display name (ADR-0088): the shared bounds, already NFC so names compare exactly."""
+    """A Local Team display name (ADR-0088): the shared bounds, already NFC so names compare exactly, and public text.
+
+    Public text is what every consumer stores and shows: no control, format, surrogate, private, unassigned, or line
+    and paragraph separator character.
+    """
     name = canonical_team_name(value)
-    return name if name is not None and unicodedata.normalize("NFC", name) == name else None
+    if (
+        name is None
+        or unicodedata.normalize("NFC", name) != name
+        or any(
+            unicodedata.category(character).startswith("C") or unicodedata.category(character) in {"Zl", "Zp"}
+            for character in name
+        )
+    ):
+        return None
+    return name
 
 
 def canonical_file_id(value: object) -> str | None:
