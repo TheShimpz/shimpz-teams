@@ -1,0 +1,670 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "closed empty object",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "closed nested objects with required fields",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "address": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "city": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "city"
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "nullable closed object",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "meta": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "name": "root dialect and identifier",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "https://schemas.example.com/action.json"
+      }
+    },
+    {
+      "name": "nested Draft 2020-12 dialect",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "property named $ref is data",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "$ref": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "const with a remote reference is data",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "const": {
+              "$ref": "https://example.com/schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "default with a remote reference is data",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "object",
+            "additionalProperties": false,
+            "default": {
+              "$ref": "https://example.com/schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to the root",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "self": {
+            "$ref": "#"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to a $defs definition",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/a"
+          }
+        },
+        "$defs": {
+          "a": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to a definitions definition",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/definitions/a"
+          }
+        },
+        "definitions": {
+          "a": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to an escaped definition name",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/a~1b"
+          }
+        },
+        "$defs": {
+          "a/b": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "Python-compatible pattern",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          }
+        }
+      }
+    },
+    {
+      "name": "Python-compatible pattern property",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "patternProperties": {
+          "^x-[a-z]+$": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "non-object root",
+      "valid": false,
+      "schema": {
+        "type": "string"
+      }
+    },
+    {
+      "name": "root type list",
+      "valid": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "root without type",
+      "valid": false,
+      "schema": {
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "open root object",
+      "valid": false,
+      "schema": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "root with open additional properties",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    {
+      "name": "open nested object",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "open nullable nested object",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "open implicit object",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "properties": {}
+          }
+        }
+      }
+    },
+    {
+      "name": "open object in $defs",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "a": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    {
+      "name": "open object in array items",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "boolean property subschema",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": true
+        }
+      }
+    },
+    {
+      "name": "boolean false subschema",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": false
+        }
+      }
+    },
+    {
+      "name": "boolean items subschema",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "array",
+            "items": true
+          }
+        }
+      }
+    },
+    {
+      "name": "schema-typed additional properties",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "unknown type",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "strin"
+          }
+        }
+      }
+    },
+    {
+      "name": "negative bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": -1
+      }
+    },
+    {
+      "name": "non-array required",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": "a"
+      }
+    },
+    {
+      "name": "unbalanced pattern",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "("
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern with a Unicode property class",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "\\p{L}"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern property with a Unicode property class",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "patternProperties": {
+          "\\p{L}": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to a default value",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/default"
+          }
+        },
+        "default": {}
+      }
+    },
+    {
+      "name": "reference to a property position",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/properties/x"
+          },
+          "x": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference through a nested definition path",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/a/b"
+          }
+        },
+        "$defs": {
+          "a": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "percent-encoded definition reference",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/a%2Fb"
+          }
+        },
+        "$defs": {
+          "a/b": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "remote reference",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "https://example.com/schema.json"
+          }
+        }
+      }
+    },
+    {
+      "name": "relative document reference",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "other.json#"
+          }
+        }
+      }
+    },
+    {
+      "name": "anchor reference",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$ref": "#name"
+          }
+        },
+        "$defs": {
+          "n": {
+            "$anchor": "name",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "remote reference inside a definition",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "a": {
+            "$ref": "https://example.com/schema.json"
+          }
+        }
+      }
+    },
+    {
+      "name": "remote reference under not",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "not": {
+              "$ref": "https://example.com/schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "remote reference in array items",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "array",
+            "items": {
+              "$ref": "https://example.com/schema.json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "dynamic reference",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$dynamicRef": "#meta"
+          }
+        }
+      }
+    },
+    {
+      "name": "draft-07 root dialect",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      }
+    },
+    {
+      "name": "draft-07 nested dialect",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested identifier",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "$id": "https://example.com/a.json",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested identifier in a definition",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "a": {
+            "$id": "a.json",
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}

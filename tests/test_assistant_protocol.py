@@ -7,16 +7,22 @@ import json
 import unittest
 from pathlib import Path
 
-from assistant.manifest import ManifestError, parse_manifest_contract, parse_manifest_genesis
+from assistant.manifest import (
+    ManifestError,
+    canonical_machine_contract,
+    parse_manifest_contract,
+    parse_manifest_genesis,
+)
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "manifest-vectors.json"
 PROTOCOL = VECTORS.parent
+CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "d396219270f6c9894a15b0a56f2c7477369e50b9",
+    "commit": "fecd24df722ec412cfaadaa38ffbec6c4554795c",
     "path": "protocol/assistant/v1",
-    "tree": "e57a7b92b4d0f2b02a5a67f1e78f492b11f824db",
-    "contract_files_sha256": "0bd1866df79c28dc1d0853e1b682be601d54aab7988ec639847f19587c4b792a",
+    "tree": "a29b1e354cdfac98e7bf478b66683fdd0acb8461",
+    "contract_files_sha256": "140566d860e966c9ffc668a7b6babe24405c316e4b7c8c3247a3ecf43873c342",
 }
 
 
@@ -43,6 +49,28 @@ class AssistantProtocolTests(unittest.TestCase):
             else:
                 valid = True
             self.assertEqual(valid, case["valid"], case["name"])
+
+    def test_matches_every_published_action_schema_vector_in_both_positions(self) -> None:
+        vectors = json.loads((PROTOCOL / "action-schema-vectors.json").read_bytes())
+        self.assertEqual(vectors["version"], 1)
+        for case in vectors["cases"]:
+            for position in ("input_schema", "output_schema"):
+                action = {
+                    "id": "run",
+                    "input_schema": CLOSED_OBJECT,
+                    "output_schema": CLOSED_OBJECT,
+                    "integrations": [],
+                    "stored_inputs": [],
+                    "human_requests": [],
+                }
+                action[position] = case["schema"]
+                try:
+                    canonical_machine_contract({"version": 1, "actions": [action]}, ())
+                except ManifestError:
+                    valid = False
+                else:
+                    valid = True
+                self.assertEqual(valid, case["valid"], f"{case['name']} as {position}")
 
 
 if __name__ == "__main__":

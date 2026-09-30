@@ -25,6 +25,31 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
+def verify_verdict_vectors(filename: str, label: str, subject: str, kind: type) -> None:
+    vectors = json.loads((HERE / filename).read_bytes())
+    cases = vectors.get("cases") if isinstance(vectors, dict) else None
+    if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
+        fail(f"Assistant {label} vectors have an invalid root")
+    names: set[str] = set()
+    outcomes: set[bool] = set()
+    for case in cases:
+        if (
+            not isinstance(case, dict)
+            or set(case) != {subject, "name", "valid"}
+            or not isinstance(case["name"], str)
+            or not case["name"]
+            or case["name"] in names
+            or not isinstance(case["valid"], bool)
+            or not isinstance(case[subject], kind)
+            or not case[subject]
+        ):
+            fail(f"Assistant {label} vector case is invalid")
+        names.add(case["name"])
+        outcomes.add(case["valid"])
+    if outcomes != {False, True}:
+        fail(f"Assistant {label} vectors require positive and negative cases")
+
+
 rows: dict[str, str] = {}
 for line in MANIFEST.read_text(encoding="ascii").splitlines():
     match = ROW.fullmatch(line)
@@ -72,28 +97,9 @@ result_types = {
 if result_types != {"result", "request", "stored_input_rejected"}:
     fail("Assistant Stored Input result contract is invalid")
 
-vectors = json.loads((HERE / "manifest-vectors.json").read_bytes())
-cases = vectors.get("cases") if isinstance(vectors, dict) else None
-if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
-    fail("Assistant manifest vectors have an invalid root")
-names: set[str] = set()
-outcomes: set[bool] = set()
-for case in cases:
-    if (
-        not isinstance(case, dict)
-        or set(case) != {"manifest", "name", "valid"}
-        or not isinstance(case["name"], str)
-        or not case["name"]
-        or case["name"] in names
-        or not isinstance(case["valid"], bool)
-        or not isinstance(case["manifest"], str)
-        or not case["manifest"]
-    ):
-        fail("Assistant manifest vector case is invalid")
-    names.add(case["name"])
-    outcomes.add(case["valid"])
-if outcomes != {False, True}:
-    fail("Assistant manifest vectors require positive and negative cases")
+
+verify_verdict_vectors("manifest-vectors.json", "manifest", "manifest", str)
+verify_verdict_vectors("action-schema-vectors.json", "Action schema", "schema", dict)
 
 human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())

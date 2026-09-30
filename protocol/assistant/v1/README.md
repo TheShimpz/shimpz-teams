@@ -40,6 +40,16 @@ that Action ids are unique, paths match ids, Integrations are declared and used,
 unique, every used Stored Input is declared, every nested object schema is closed, and the canonical contract is at
 most 512 KiB.
 
+Each Action `input_schema` and `output_schema` must describe a closed object (`"type": "object"` with
+`"additionalProperties": false` at every object position) and must not use a boolean subschema. It must be a valid
+Draft 2020-12 schema checked without retrieving anything, and its compact ASCII-escaped JSON encoding is at most
+128 KiB. At every subschema position, `$ref` names only `#` or one direct `#/$defs/<name>` or `#/definitions/<name>`
+without `/` or `%`, `$dynamicRef` is absent, `$schema` is exactly the Draft 2020-12 URI, and `$id` appears only at the
+root. Property names and `const`, `enum`, `default`, and `examples` values are data, never references. Developers
+refuses a build artifact that Team would refuse; for regular expressions and nesting depth it admits only a
+conservative subset of what Team's Python validator accepts. `action-schema-vectors.json` freezes admitted and
+refused schemas; each case holds in either Action schema position.
+
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,

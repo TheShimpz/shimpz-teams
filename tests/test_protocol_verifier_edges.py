@@ -219,6 +219,11 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "human-request-vectors.json",
                 lambda value: value.update({"version": 2}),
             ),
+            lambda root: _rewrite_json(
+                root,
+                "action-schema-vectors.json",
+                lambda value: value["cases"][0].update({"schema": "closed"}),
+            ),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
