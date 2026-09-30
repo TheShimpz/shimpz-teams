@@ -36,7 +36,9 @@ def timestamp() -> str:
 
 
 def empty_state() -> dict[str, object]:
-    return {"schema": 1, "teams": {}}
+    # last_generation is store-wide and survives every deletion, so a replaced secret never reuses the generation a
+    # prepared Action batch bound before its predecessor was removed.
+    return {"schema": 1, "teams": {}, "last_generation": 0}
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +197,17 @@ class PrivateState:
         elif not isinstance(records, dict):
             raise self.error_class(self.malformed_state)
         return records
+
+    def last_generation(self, state: Mapping[str, object]) -> int:
+        last = state.get("last_generation")
+        if type(last) is not int or last < 0:
+            raise self.error_class(self.malformed_state)
+        return last
+
+    def advance_generation(self, state: dict[str, object]) -> int:
+        generation = self.last_generation(state) + 1
+        state["last_generation"] = generation
+        return generation
 
     def has_records(self, state: Mapping[str, object]) -> bool:
         teams = self._teams(state)

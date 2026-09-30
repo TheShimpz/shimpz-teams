@@ -298,11 +298,12 @@ def _validate_record(value: object) -> dict[str, object]:
 
 
 def _validate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != {"schema", "teams"} or value.get("schema") != 1:
+    if not isinstance(value, dict) or set(value) != {"schema", "teams", "last_generation"} or value.get("schema") != 1:
         raise OAuthIntegrationStoreError("OAuth integration state has an unsupported shape")
     teams = value.get("teams")
     if not isinstance(teams, dict):
         raise OAuthIntegrationStoreError("OAuth integration state is malformed")
+    last_generation = _PRIVATE_STATE.last_generation(value)
     total = 0
     for raw_team, raw_assistants in teams.items():
         try:
@@ -323,7 +324,8 @@ def _validate_state(value: object) -> dict[str, object]:
                     _component_id(raw_integration, "integration id")
                 except OAuthIntegrationValidationError as exc:
                     raise OAuthIntegrationStoreError("OAuth integration state is malformed") from exc
-                _validate_record(raw_record)
+                if _record_metadata(_validate_record(raw_record))[4] > last_generation:
+                    raise OAuthIntegrationStoreError("OAuth integration state is malformed")
                 total += 1
                 if total > MAX_TOTAL_RECORDS:
                     raise OAuthIntegrationStoreError("OAuth integration state exceeds its record limit")
@@ -606,8 +608,7 @@ class OAuthIntegrationStore:
             records = _PRIVATE_STATE.records(state, team, assistant, create=True)
             if integration not in records and len(records) >= MAX_INTEGRATIONS_PER_ASSISTANT:
                 raise OAuthIntegrationStoreError("OAuth integration capacity reached")
-            previous = records.get(integration)
-            generation = int(previous.get("generation", 0)) + 1 if isinstance(previous, dict) else 1
+            generation = _PRIVATE_STATE.advance_generation(state)
             records[integration] = self._sealed_record(
                 team,
                 assistant,
@@ -950,5 +951,6 @@ class OAuthIntegrationStore:
             state = self._read_state_for_update()
             if not _PRIVATE_STATE.has_records(state):
                 return False
-            self._write_state(private_state.empty_state())
+            state["teams"] = {}
+            self._write_state(state)
             return True

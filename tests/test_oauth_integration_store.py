@@ -573,6 +573,34 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
             self.assertFalse(store.delete_assistant("team_2", "second-assistant"))
             self.assertFalse(store.delete_all())
 
+    def test_generations_never_repeat_after_disconnect_or_bulk_deletion(self) -> None:
+        # A prepared Action batch binds a generation; a reconnection after any deletion must never reuse it.
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            reference = ("team_1", "shimpz-cloudflare", "cloudflare")
+
+            def connect() -> int:
+                return store.put(*reference, "cloudflare", SCOPES, tokens(), ACCOUNT).generation
+
+            issued = [connect()]
+            self.assertTrue(store.revoke_then_delete(*reference, lambda *_tokens: None))
+            issued.append(connect())
+            self.assertTrue(store.retain_declared("team_1", "shimpz-cloudflare", ()))
+            issued.append(connect())
+            self.assertTrue(store.delete_assistant("team_1", "shimpz-cloudflare"))
+            issued.append(connect())
+            self.assertTrue(store.delete_team("team_1"))
+            issued.append(connect())
+            self.assertTrue(store.delete_all())
+            issued.append(connect())
+            self.assertEqual(issued, [1, 2, 3, 4, 5, 6])
+
+            state = json.loads(store.state_path.read_bytes())
+            state["last_generation"] = 5
+            store.state_path.write_text(json.dumps(state), encoding="utf-8")
+            with self.assertRaisesRegex(integration_store.OAuthIntegrationStoreError, "malformed"):
+                self._store(Path(directory)).metadata("team_1", "shimpz-cloudflare", DECLARATIONS)
+
     def test_revocation_transaction_keeps_authenticated_custody_until_callback_succeeds(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
@@ -677,12 +705,15 @@ class OAuthIntegrationStoreTests(unittest.TestCase):
 
         invalid_states = (
             {},
-            {"schema": 1, "teams": []},
-            {"schema": 1, "teams": {"../team": {}}},
-            {"schema": 1, "teams": {"team_1": []}},
-            {"schema": 1, "teams": {"team_1": {"Bad": {}}}},
-            {"schema": 1, "teams": {"team_1": {"assistant": []}}},
-            {"schema": 1, "teams": {"team_1": {"assistant": {"Bad": {}}}}},
+            {"schema": 1, "teams": {}},
+            {"schema": 1, "teams": {}, "last_generation": -1},
+            {"schema": 1, "teams": {}, "last_generation": False},
+            {"schema": 1, "teams": [], "last_generation": 0},
+            {"schema": 1, "teams": {"../team": {}}, "last_generation": 0},
+            {"schema": 1, "teams": {"team_1": []}, "last_generation": 0},
+            {"schema": 1, "teams": {"team_1": {"Bad": {}}}, "last_generation": 0},
+            {"schema": 1, "teams": {"team_1": {"assistant": []}}, "last_generation": 0},
+            {"schema": 1, "teams": {"team_1": {"assistant": {"Bad": {}}}}, "last_generation": 0},
         )
         for state in invalid_states:
             with self.subTest(state=state), self.assertRaises(integration_store.OAuthIntegrationStoreError):

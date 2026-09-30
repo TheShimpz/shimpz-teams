@@ -161,7 +161,8 @@ class OAuthIntegrationServiceTests(unittest.TestCase):
             ("team_1", "z-assistant", "cloudflare"),
         )
         self.assertEqual(completed.provider, "cloudflare")
-        self.assertEqual(completed.generation, 1)
+        # Generations are store-wide: the pre-connected a-assistant grant consumed generation 1.
+        self.assertEqual(completed.generation, 2)
         for private in (CODE, ACCESS, REFRESH, CLIENT_ID, CLIENT_CREDENTIAL, query["state"][0], "verifier"):
             self.assertNotIn(private, repr(completed))
         metadata = self.store.metadata("team_1", "z-assistant", {"cloudflare": DECLARATION})[0]

@@ -102,6 +102,25 @@ class StoredInputStoreTests(unittest.TestCase):
             refreshed = first.resolve("team_1", "whatsapp", "whatsapp-token", "password")
             self.assertEqual((refreshed.value, refreshed.generation, refreshed.origin), (replacement, 2, "b" * 64))
 
+    def test_generations_never_repeat_after_individual_or_bulk_deletion(self) -> None:
+        # A prepared Action batch binds a generation; a replacement after any deletion must never reuse it.
+        with tempfile.TemporaryDirectory() as directory:
+            store = self._store(Path(directory))
+            seal = ("team_1", "whatsapp", "whatsapp-token", "password")
+            issued = [store.seal(*seal, TOKEN, ORIGIN)]
+            self.assertTrue(store.delete("team_1", "whatsapp", "whatsapp-token"))
+            issued.append(store.seal(*seal, "replacement-after-delete-123", ORIGIN))
+            self.assertTrue(store.retain_declared("team_1", "whatsapp", ()))
+            issued.append(store.seal(*seal, "replacement-after-retain-123", ORIGIN))
+            self.assertTrue(store.delete_assistant("team_1", "whatsapp"))
+            issued.append(store.seal(*seal, "replacement-after-assistant-1", ORIGIN))
+            self.assertTrue(store.delete_team("team_1"))
+            issued.append(store.seal(*seal, "replacement-after-team-12345", ORIGIN))
+            self.assertTrue(store.delete_all())
+            issued.append(store.seal(*seal, "replacement-after-reset-12345", ORIGIN))
+            self.assertEqual(issued, [1, 2, 3, 4, 5, 6])
+            self.assertEqual(self._store(Path(directory)).resolve(*seal).generation, 6)
+
     def test_aad_prevents_cross_team_assistant_or_identifier_substitution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = self._store(Path(directory))
@@ -248,8 +267,12 @@ class StoredInputStoreTests(unittest.TestCase):
         malformed_states = (
             None,
             {},
-            {"schema": 2, "teams": {}},
-            {"schema": 1, "teams": []},
+            {"schema": 1, "teams": {}},
+            {"schema": 2, "teams": {}, "last_generation": 0},
+            {"schema": 1, "teams": [], "last_generation": 0},
+            {"schema": 1, "teams": {}, "last_generation": -1},
+            {"schema": 1, "teams": {}, "last_generation": True},
+            {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}, "last_generation": 0},
         )
         for state in malformed_states:
             with self.subTest(state=state), self.assertRaises(stored_input.StoredInputStoreError):
@@ -264,13 +287,13 @@ class StoredInputStoreTests(unittest.TestCase):
         )
         for team, assistants in malformed_assistants:
             with self.subTest(team=team, assistants=assistants), self.assertRaises(stored_input.StoredInputStoreError):
-                stored_input._validate_assistants(team, assistants)
+                stored_input._validate_assistants(team, assistants, 1)
 
         with (
             mock.patch.object(stored_input, "MAX_STORED_INPUTS_PER_ASSISTANT", 0),
             self.assertRaises(stored_input.StoredInputStoreError),
         ):
-            stored_input._validate_assistants("team_1", {"whatsapp": {"token": valid_record}})
+            stored_input._validate_assistants("team_1", {"whatsapp": {"token": valid_record}}, 1)
         with (
             mock.patch.object(stored_input, "MAX_TOTAL_RECORDS", 0),
             self.assertRaisesRegex(
@@ -278,7 +301,9 @@ class StoredInputStoreTests(unittest.TestCase):
                 "record limit",
             ),
         ):
-            stored_input._validate_state({"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}})
+            stored_input._validate_state(
+                {"schema": 1, "teams": {"team_1": {"whatsapp": {"token": valid_record}}}, "last_generation": 1}
+            )
 
     def test_storage_operational_limits_and_cache_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

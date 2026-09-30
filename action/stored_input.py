@@ -157,20 +157,21 @@ def _validate_record(value: object) -> dict[str, object]:
 
 
 def _validate_state(value: object) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != {"schema", "teams"} or value.get("schema") != 1:
+    if not isinstance(value, dict) or set(value) != {"schema", "teams", "last_generation"} or value.get("schema") != 1:
         raise StoredInputStoreError("Stored Input state has an unsupported shape")
     teams = value.get("teams")
     if not isinstance(teams, dict):
         raise StoredInputStoreError("Stored Input state is malformed")
+    last_generation = _PRIVATE_STATE.last_generation(value)
     total = 0
     for raw_team, raw_assistants in teams.items():
-        total += _validate_assistants(raw_team, raw_assistants)
+        total += _validate_assistants(raw_team, raw_assistants, last_generation)
         if total > MAX_TOTAL_RECORDS:
             raise StoredInputStoreError("Stored Input state exceeds its record limit")
     return value
 
 
-def _validate_assistants(raw_team: object, raw_assistants: object) -> int:
+def _validate_assistants(raw_team: object, raw_assistants: object, last_generation: int) -> int:
     try:
         _team_id(raw_team)
     except StoredInputValidationError as exc:
@@ -190,7 +191,8 @@ def _validate_assistants(raw_team: object, raw_assistants: object) -> int:
                 _component_id(raw_stored_input, "Stored Input id")
             except StoredInputValidationError as exc:
                 raise StoredInputStoreError("Stored Input state is malformed") from exc
-            _validate_record(raw_record)
+            if _record_metadata(_validate_record(raw_record))[1] > last_generation:
+                raise StoredInputStoreError("Stored Input state is malformed")
             count += 1
     return count
 
@@ -379,8 +381,7 @@ class StoredInputStore:
             records = _PRIVATE_STATE.records(state, team, assistant, create=True)
             if stored_input not in records and len(records) >= MAX_STORED_INPUTS_PER_ASSISTANT:
                 raise StoredInputStoreError("Stored Input capacity reached")
-            previous = records.get(stored_input)
-            generation = int(previous.get("generation", 0)) + 1 if isinstance(previous, dict) else 1
+            generation = _PRIVATE_STATE.advance_generation(state)
             records[stored_input] = self._sealed_record(
                 (team, assistant, stored_input),
                 canonical_kind,
@@ -544,5 +545,6 @@ class StoredInputStore:
             state = self._read_state_for_update()
             if not _PRIVATE_STATE.has_records(state):
                 return False
-            self._write_state(private_state.empty_state())
+            state["teams"] = {}
+            self._write_state(state)
             return True
