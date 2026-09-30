@@ -408,7 +408,6 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler.command = "PATCH"
         self.assertIsNone(handler._local_assistant_route(["v1", "local-assistants"]))
 
-
     def test_team_routes_create_confirm_deletion_and_rename_by_team_name(self) -> None:
         handler = self.handler(controller=self.controller())
         handler._team_name_body = mock.Mock(return_value="Team")
