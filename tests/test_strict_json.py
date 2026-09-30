@@ -17,6 +17,8 @@ class StrictJsonTests(unittest.TestCase):
             "NaN",
             '{"a": Infinity}',
             '{"a": -Infinity}',
+            '{"a": 1e999}',
+            '{"a": -1e999}',
             '{"a": 1, "a": 2}',
         ):
             with self.subTest(payload=payload), self.assertRaises(ValueError):
@@ -24,3 +26,4 @@ class StrictJsonTests(unittest.TestCase):
 
     def test_accepts_finite_unique_object(self):
         self.assertEqual(strict_json.loads('{"a": 1}'), {"a": 1})
+        self.assertEqual(strict_json.loads('{"a": 1.5e3}'), {"a": 1500.0})
