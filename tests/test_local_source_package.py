@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import tarfile
+import tracemalloc
 import types
 import unittest
 from pathlib import Path
@@ -41,6 +43,22 @@ def _packages() -> list[tuple[dict[str, object], bytes, list[object]]]:
         raw = authority.build_archive(authority.canonical_records(entries, contract), contract)
         packages.append((case, raw, entries))
     return packages
+
+
+def _gnu_sparse_header(name: str, declared: int) -> bytes:
+    """Return one old-GNU sparse header whose single hole declares ``declared`` bytes with no stored data."""
+    header = bytearray(source_package._BLOCK_BYTES)
+    header[0 : len(name)] = name.encode("ascii")
+    header[100:108] = source_package._octal(0o644, 8)
+    header[124:136] = source_package._octal(0, 12)
+    header[156:157] = tarfile.GNUTYPE_SPARSE
+    header[257:265] = b"ustar  \0"
+    header[386:398] = source_package._octal(declared, 12)
+    header[398:410] = source_package._octal(0, 12)
+    header[483:495] = source_package._octal(declared, 12)
+    header[148:156] = b"        "
+    header[148:156] = f"{sum(header):06o}\0 ".encode("ascii")
+    return bytes(header)
 
 
 class LocalSourcePackageTests(unittest.TestCase):
@@ -118,19 +136,69 @@ class LocalSourcePackageTests(unittest.TestCase):
         with self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"):
             source_package._read_record(archive, regular)
 
-        for member in (tarfile.TarInfo("large"), tarfile.TarInfo("link")):
-            if member.name == "large":
-                member.size = source_package._MAX_FILE_BYTES + 1
-            else:
-                member.type = tarfile.SYMTYPE
+    def test_member_encodings_and_declared_sizes_fail_closed_before_reading(self) -> None:
+        def member(name: str, kind: bytes = tarfile.REGTYPE, size: int = 0) -> tarfile.TarInfo:
+            info = tarfile.TarInfo(name)
+            info.type = kind
+            info.size = size
+            return info
+
+        sparse = member("lib/sparse.py", size=1)
+        sparse.sparse = [(0, 1)]
+        extended = member("lib/extended.py")
+        extended.pax_headers = {"comment": "x"}
+        refused = (
+            member("lib/large.py", size=source_package._MAX_FILE_BYTES + 1),
+            member("lib/link.py", tarfile.SYMTYPE),
+            member("lib/old.py", tarfile.AREGTYPE),
+            member("lib/contiguous.py", tarfile.CONTTYPE),
+            member("lib/gnu.py", tarfile.GNUTYPE_SPARSE),
+            member("lib", tarfile.DIRTYPE, 1),
+            sparse,
+            extended,
+        )
+        for info in refused:
             with (
-                self.subTest(member=member.name),
-                self.assertRaisesRegex(
-                    source_package.SourcePackageError,
-                    "invalid entries",
-                ),
+                self.subTest(member=info.name),
+                self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"),
             ):
-                source_package._read_record(archive, member)
+                source_package._validate_members([info], 4096)
+
+        admitted = [member("lib", tarfile.DIRTYPE), member("lib/a.py", size=600), member("lib/b.py", size=600)]
+        source_package._validate_members(admitted, 1200)
+        with self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"):
+            source_package._validate_members(admitted, 1199)
+        with (
+            mock.patch.object(source_package, "_MAX_RECORDS", 2),
+            self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"),
+        ):
+            source_package._validate_members(admitted, 1200)
+
+    def test_sparse_archives_are_refused_before_any_expansion(self) -> None:
+        declared = source_package._MAX_FILE_BYTES
+        gnu = b"".join(_gnu_sparse_header(f"lib/f{index:02}.py", declared) for index in range(18))
+        pax = io.BytesIO()
+        with tarfile.open(fileobj=pax, mode="w", format=tarfile.PAX_FORMAT) as archive:
+            info = tarfile.TarInfo("lib/pax.py")
+            info.pax_headers = {"GNU.sparse.size": str(declared), "GNU.sparse.map": f"{declared},0"}
+            archive.addfile(info, io.BytesIO())
+        for name, raw in (("gnu", gnu + bytes(2 * source_package._BLOCK_BYTES)), ("pax", pax.getvalue())):
+            with self.subTest(encoding=name):
+                with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+                    self.assertTrue(all(member.sparse is not None for member in archive.getmembers()))
+                    self.assertEqual({member.size for member in archive.getmembers()}, {declared})
+                tracemalloc.start()
+                try:
+                    with (
+                        mock.patch.object(tarfile.TarFile, "extractfile", autospec=True) as extract,
+                        self.assertRaisesRegex(source_package.SourcePackageError, "invalid entries"),
+                    ):
+                        source_package.admit(raw)
+                    _current, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+                extract.assert_not_called()
+                self.assertLess(peak, declared)
 
     def test_source_record_inventory_fail_closed(self) -> None:
         _case, raw, _entries = _packages()[0]

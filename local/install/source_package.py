@@ -65,8 +65,7 @@ def _read_records(raw: bytes) -> tuple[_Record, ...]:
     try:
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
             members = archive.getmembers()
-            if not members or len(members) > _MAX_RECORDS:
-                raise SourcePackageError("the Local Assistant source package has invalid entries")
+            _validate_members(members, len(raw))
             return tuple(_read_record(archive, member) for member in members)
     except SourcePackageError:
         raise
@@ -74,19 +73,35 @@ def _read_records(raw: bytes) -> tuple[_Record, ...]:
         raise SourcePackageError("the Local Assistant source package archive is invalid") from exc
 
 
+def _validate_members(members: list[tarfile.TarInfo], package_bytes: int) -> None:
+    """Refuse extension encodings and unbounded declared sizes before any member contents are read."""
+    if (
+        not members
+        or len(members) > _MAX_RECORDS
+        or any(not _is_plain_member(member) for member in members)
+        or sum(member.size for member in members) > package_bytes
+    ):
+        raise SourcePackageError("the Local Assistant source package has invalid entries")
+
+
+def _is_plain_member(member: tarfile.TarInfo) -> bool:
+    if member.sparse is not None or member.pax_headers:
+        return False
+    if member.type == tarfile.DIRTYPE:
+        return member.size == 0
+    return member.type == tarfile.REGTYPE and 0 <= member.size <= _MAX_FILE_BYTES
+
+
 def _read_record(archive: tarfile.TarFile, member: tarfile.TarInfo) -> _Record:
     if member.isdir():
-        contents = b""
-    elif member.isreg() and 0 <= member.size <= _MAX_FILE_BYTES:
-        stream = archive.extractfile(member)
-        if stream is None:
-            raise SourcePackageError("the Local Assistant source package has invalid entries")
-        contents = stream.read(_MAX_FILE_BYTES + 1)
-        if len(contents) != member.size:
-            raise SourcePackageError("the Local Assistant source package has invalid entries")
-    else:
+        return _Record(member.name, True, b"")
+    stream = archive.extractfile(member)
+    if stream is None:
         raise SourcePackageError("the Local Assistant source package has invalid entries")
-    return _Record(member.name, member.isdir(), contents)
+    contents = stream.read(_MAX_FILE_BYTES + 1)
+    if len(contents) != member.size:
+        raise SourcePackageError("the Local Assistant source package has invalid entries")
+    return _Record(member.name, False, contents)
 
 
 def _validate_records(records: tuple[_Record, ...]) -> dict[str, bytes]:
