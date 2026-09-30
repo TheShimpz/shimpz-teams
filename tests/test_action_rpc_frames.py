@@ -284,8 +284,10 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.assertEqual(
             action_execution.project_rpc_result({"type": "result", "result": large}, {}, lambda value: value), large
         )
+        # An exponent overflow never reaches projection: the strict decoder refuses it as a malformed exchange.
+        with self.assertRaisesRegex(action_execution.RpcExchangeError, "invalid-result"):
+            action_execution.decode_rpc_response(b'{"type":"result","result":{"n":1E400}}')
         frames = (
-            b'{"type":"result","result":{"n":1E400}}',
             b'{"type":"result","result":{"items":[' + b",".join([b"0"] * 5000) + b"]}}",
             b'{"type":"result","result":{"text":"' + b"x" * action_journal.MAX_RESULT_BYTES + b'"}}',
         )
