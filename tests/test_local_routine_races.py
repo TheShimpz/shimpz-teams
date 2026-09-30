@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 from unittest import mock
 
@@ -24,6 +25,52 @@ from local.routine import run as routine_run
 from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
 from routine import record
+
+
+def held_elsewhere(lock) -> bool:
+    """Whether a thread other than a fresh probe holds ``lock``: the probe's non-blocking acquire fails exactly then."""
+    acquired: list[bool] = []
+
+    def probe() -> None:
+        if lock.acquire(blocking=False):
+            lock.release()
+            acquired.append(True)
+
+    thread = threading.Thread(target=probe)
+    thread.start()
+    thread.join()
+    return not acquired
+
+
+class LockOrderTests(RoutineServiceCase):
+    """Teardown takes the Team lifecycle lock and then the Routine lock; every Routine writer must do the same."""
+
+    def observe_routine_updates(self, service) -> list[bool]:
+        """Record, on entry to each Routine update callback, whether the Team lifecycle lock is already held."""
+        lifecycle = service._lock("team_1")
+        observed: list[bool] = []
+        update = service.routine_store.update
+
+        def ordered(team_id, change):
+            def observed_change(state):
+                observed.append(held_elsewhere(lifecycle))
+                return change(state)
+
+            return update(team_id, observed_change)
+
+        patch = mock.patch.object(service.routine_store, "update", side_effect=ordered)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return observed
+
+    def test_a_claim_takes_the_team_lifecycle_lock_before_the_routine_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            observed = self.observe_routine_updates(service)
+            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertEqual(observed, [True])
+            self.assertFalse(held_elsewhere(service._lock("team_1")))
 
 
 class FrozenCase(RoutineServiceCase):

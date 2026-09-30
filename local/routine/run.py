@@ -113,7 +113,10 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
             except ApiProblem:
                 # Nothing more starts for this Team until what its ended runs hold is removed.
                 continue
-        claim = routine_state.update(self, team_id, lambda state, team=team_id: _claim(self, team, state, now, key))
+        # Teardown holds the Team lifecycle lock while it takes the Routine lock; the contract check inside the claim
+        # needs the lifecycle lock too, so it is taken first here, in the same order, never inside the Routine lock.
+        with self._lock(team_id):
+            claim = routine_state.update(self, team_id, lambda state, team=team_id: _claim(self, team, state, now, key))
         if claim is not None:
             local_audit.record_request("routine-claim", result="ok", team_id=team_id, detail=claim.run.run_id)
             return {
