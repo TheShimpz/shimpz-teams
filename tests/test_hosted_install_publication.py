@@ -45,11 +45,11 @@ class HostedInstallPublicationTests(unittest.TestCase):
         with self.assertRaises(bindings.DynamicAssistantError):
             publication._build_assistant_spec("assistant", {})
         with self.assertRaises(bindings.DynamicAssistantError):
-            publication._cached_assistant_spec("digest", b"not-json")
+            publication._cached_assistant_spec(b"not-json")
 
         resolution["assistant_id"] = 7
         with self.assertRaises(bindings.DynamicAssistantError):
-            publication._cached_assistant_spec("digest", json.dumps(resolution).encode())
+            publication._cached_assistant_spec(json.dumps(resolution).encode())
 
     def test_spec_retains_the_reviewed_assistant_name(self) -> None:
         with mock.patch.object(

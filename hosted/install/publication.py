@@ -11,6 +11,10 @@ from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from install import bindings, icons
 
+# The spec depends only on the canonical resolution, so Teams installing the same release share one entry. The bound
+# covers the distinct releases a Space runs at once; a retired release is evicted as the least recently used.
+_SPEC_CACHE_ENTRIES = 256
+
 
 def retain_icon(client, store: icons.AssistantIconStore, resolution: dict[str, Any]) -> None:
     """Fetch and retain the exact canonical icon declared by resolution."""
@@ -108,8 +112,8 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
     )
 
 
-@lru_cache(maxsize=4096)
-def _cached_assistant_spec(binding_digest: str, encoded_resolution: bytes) -> assistant_registry.AssistantSpec:
+@lru_cache(maxsize=_SPEC_CACHE_ENTRIES)
+def _cached_assistant_spec(encoded_resolution: bytes) -> assistant_registry.AssistantSpec:
     try:
         resolution = json.loads(encoded_resolution)
         assistant_id = resolution["assistant_id"]
@@ -121,12 +125,12 @@ def _cached_assistant_spec(binding_digest: str, encoded_resolution: bytes) -> as
 
 
 def assistant_spec(binding: bindings.DynamicAssistantBinding) -> assistant_registry.AssistantSpec:
+    """The binding's Assistant contract; its Team-bound digest is verified on every call, never cached."""
     expected = bindings.binding_from_resolution(binding.team_id, binding.resolution)
     if expected.binding_digest != binding.binding_digest:
         raise bindings.DynamicAssistantError("the dynamic Assistant registry binding digest is invalid")
     return deepcopy(
         _cached_assistant_spec(
-            binding.binding_digest,
             json.dumps(
                 binding.resolution,
                 allow_nan=False,

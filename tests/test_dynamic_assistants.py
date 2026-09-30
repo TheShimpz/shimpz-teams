@@ -241,6 +241,28 @@ class DynamicAssistantStoreTests(unittest.TestCase):
         first.contract.actions.pop("hello")
         self.assertIn("hello", assistant_spec(binding).contract.actions)
 
+    def test_teams_on_the_same_release_share_one_spec_while_each_binding_is_verified(self) -> None:
+        bindings = [self.store.put(f"team_{index}", runtime_resolution()) for index in range(1, 33)]
+        verify = publication.bindings.binding_from_resolution
+
+        with mock.patch.object(publication.bindings, "binding_from_resolution", wraps=verify) as verified:
+            specs = [assistant_spec(binding) for binding in bindings]
+
+        self.assertEqual(verified.call_count, 32)
+        self.assertEqual({call.args[0] for call in verified.call_args_list}, {f"team_{i}" for i in range(1, 33)})
+        info = publication._cached_assistant_spec.cache_info()
+        self.assertEqual((info.misses, info.hits, info.currsize), (1, 31, 1))
+        self.assertEqual(info.maxsize, publication._SPEC_CACHE_ENTRIES)
+        self.assertTrue(all(spec == specs[0] and spec is not specs[0] for spec in specs[1:]))
+        forged = DynamicAssistantBinding(
+            team_id="team_2",
+            binding_digest=bindings[0].binding_digest,
+            provenance="published",
+            document=bindings[0].document,
+        )
+        with self.assertRaisesRegex(DynamicAssistantError, "binding digest is invalid"):
+            assistant_spec(forged)
+
     def test_registry_readers_share_the_file_lock(self) -> None:
         expected = self.store.put("team_1", runtime_resolution())
         original_read = self.store._read
