@@ -44,7 +44,7 @@ class Subject:
             _validate_network=mock.Mock(return_value="Marketing"),
         )
         self.inference_store = SimpleNamespace(
-            load=mock.Mock(return_value=inference_config.InferenceConfig("openai", "gpt-6-sol")),
+            load=mock.Mock(return_value=inference_config.InferenceConfig("openai", "gpt-6.1-sol")),
         )
         self.brain_runtime = SimpleNamespace(
             capability_plan=mock.Mock(
@@ -89,7 +89,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         )
         request = subject.brain_runtime.capability_plan.call_args.kwargs
         self.assertEqual(request["provider"], "openai")
-        self.assertEqual(request["model"], "gpt-6-sol")
+        self.assertEqual(request["model"], "gpt-6.1-sol")
         self.assertEqual(request["api_key"], "private-model-key")
         self.assertEqual(
             tuple(item.id for item in request["candidates"]),
@@ -144,8 +144,8 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         self.assertNotIn("private-model-key", unavailable.exception.message)
 
         subject = Subject()
-        before = capabilities.CapabilityPlanSnapshot("network-generation-1", "openai", "gpt-6-sol")
-        after = capabilities.CapabilityPlanSnapshot("network-generation-2", "openai", "gpt-6-sol")
+        before = capabilities.CapabilityPlanSnapshot("network-generation-1", "openai", "gpt-6.1-sol")
+        after = capabilities.CapabilityPlanSnapshot("network-generation-2", "openai", "gpt-6.1-sol")
         subject._capability_plan_snapshot = mock.Mock(side_effect=(before, after))
         with self.assertRaises(ApiProblemError) as drift:
             capabilities.capability_plan(subject, "team_1", plan_body(), "openai", "private-model-key")
@@ -203,7 +203,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         request = subject.brain_runtime.intent_route.call_args.kwargs
         self.assertEqual(
             request["credentials"],
-            brain_runtime_client.RouteCredentials("openai", "gpt-6-sol", "private-model-key"),
+            brain_runtime_client.RouteCredentials("openai", "gpt-6.1-sol", "private-model-key"),
         )
         self.assertEqual(request["expected_intent"], "assistant-uninstall")
         self.assertEqual(request["candidates"][0].summary, "")
@@ -394,8 +394,8 @@ class LocalCapabilityPlanTests(unittest.TestCase):
 
     def test_intent_route_rejects_team_drift_after_the_provider_decision(self) -> None:
         subject = Subject()
-        before = capabilities.CapabilityPlanSnapshot("network-generation-1", "openai", "gpt-6-sol")
-        after = capabilities.CapabilityPlanSnapshot("network-generation-2", "openai", "gpt-6-sol")
+        before = capabilities.CapabilityPlanSnapshot("network-generation-1", "openai", "gpt-6.1-sol")
+        after = capabilities.CapabilityPlanSnapshot("network-generation-2", "openai", "gpt-6.1-sol")
         subject._capability_plan_snapshot = mock.Mock(side_effect=(before, after))
 
         with self.assertRaises(ApiProblemError) as drift:

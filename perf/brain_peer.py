@@ -88,7 +88,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
                 and body["team_name"] == "Demo Team"
                 and valid_assistants
                 and body["message"] == CHAT_PROMPT
-                and provider == {"provider": "openai", "model": "gpt-6-sol", "api_key": self.dummy_key}
+                and provider == {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.dummy_key}
                 and self.headers.get("Authorization", "").startswith("Bearer ")
             )
         return (
@@ -102,7 +102,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
                 "conversation",
                 "language_exemplar",
             }
-            and provider == {"provider": "openai", "model": "gpt-6-sol", "api_key": self.dummy_key}
+            and provider == {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.dummy_key}
             and body["objective"] == OBJECTIVE
             and body["expected_intent"] is None
             and body["candidates"] == []

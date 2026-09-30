@@ -68,7 +68,7 @@ class InferenceConfigTests(unittest.TestCase):
         for provider, model in (
             ("openai", "gpt-999"),
             ("openai", "claude-sonnet-5-5"),
-            ("anthropic", "gpt-6-sol"),
+            ("anthropic", "gpt-6.1-sol"),
             ("openai", "../../model"),
         ):
             with self.subTest(provider=provider, model=model), self.assertRaises(inference_config.InferenceConfigError):
@@ -123,7 +123,7 @@ class InferenceConfigTests(unittest.TestCase):
                     "schema": inference_config.SCHEMA + 1,
                     "team_id": "team_1",
                     "provider": "openai",
-                    "model": "gpt-6-sol",
+                    "model": "gpt-6.1-sol",
                 }
             ).encode(),
             json.dumps(
@@ -131,7 +131,7 @@ class InferenceConfigTests(unittest.TestCase):
                     "schema": inference_config.SCHEMA,
                     "team_id": "team_2",
                     "provider": "openai",
-                    "model": "gpt-6-sol",
+                    "model": "gpt-6.1-sol",
                 }
             ).encode(),
         ):
@@ -159,8 +159,8 @@ class InferenceConfigTests(unittest.TestCase):
         self.store.save("team_1", inference_config.normalize())
         path = next(self.root.iterdir())
         for payload in (
-            {"schema": 1, "team_id": "team_1", "provider": "openai", "model": "gpt-6-sol"},
-            {"schema": 2, "team_id": "team_1", "provider": "openai", "model": "gpt-6-sol", "effort": None},
+            {"schema": 1, "team_id": "team_1", "provider": "openai", "model": "gpt-6.1-sol"},
+            {"schema": 2, "team_id": "team_1", "provider": "openai", "model": "gpt-6.1-sol", "effort": None},
         ):
             with self.subTest(payload=payload):
                 path.write_text(json.dumps(payload), encoding="utf-8")

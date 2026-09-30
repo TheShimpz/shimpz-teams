@@ -263,7 +263,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
 
         labels = client.action_labels(
             provider="openai",
-            model="gpt-6-sol",
+            model="gpt-6.1-sol",
             api_key=self.secret,
             language_exemplar="Quero listar minhas zonas DNS",
             action_ids=("list-zones", "get-zone"),
@@ -282,7 +282,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         self.assertEqual(
             json.loads(raw_body),
             {
-                "provider": {"provider": "openai", "model": "gpt-6-sol", "api_key": self.secret},
+                "provider": {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.secret},
                 "language_exemplar": "Quero listar minhas zonas DNS",
                 "actions": ["list-zones", "get-zone"],
             },
@@ -300,7 +300,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
 
         plan = client.capability_plan(
             provider="openai",
-            model="gpt-6-sol",
+            model="gpt-6.1-sol",
             api_key=self.secret,
             objective="Configure example.com and send the result by WhatsApp.",
             candidates=capability_candidates(),
@@ -345,7 +345,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 client, _connection = self.client(_Response(payload))
                 client.capability_plan(
                     provider="openai",
-                    model="gpt-6-sol",
+                    model="gpt-6.1-sol",
                     api_key=self.secret,
                     objective="Configure DNS.",
                     candidates=capability_candidates(),
@@ -384,7 +384,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 with self.assertRaises(brain_runtime_client.BrainRuntimeError):
                     client.capability_plan(
                         provider="openai",
-                        model="gpt-6-sol",
+                        model="gpt-6.1-sol",
                         api_key=self.secret,
                         objective="Configure DNS.",
                         candidates=candidates,
@@ -395,7 +395,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.capability_plan(
                 provider="invalid",
-                model="gpt-6-sol",
+                model="gpt-6.1-sol",
                 api_key=self.secret,
                 objective="Configure DNS.",
                 candidates=capability_candidates(),
@@ -435,7 +435,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 client, _connection = self.client(_Response(payload))
                 client.action_labels(
                     provider="openai",
-                    model="gpt-6-sol",
+                    model="gpt-6.1-sol",
                     api_key=self.secret,
                     language_exemplar="Liste minhas zonas",
                     action_ids=("list-zones", "get-zone"),
@@ -451,7 +451,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.action_labels(
                 provider="openai",
-                model="gpt-6-sol",
+                model="gpt-6.1-sol",
                 api_key=self.secret,
                 language_exemplar="Liste minhas zonas",
                 action_ids=("list-zones", "get-zone"),
@@ -473,7 +473,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 client, connection = self.client(_Response(valid))
                 request = {
                     "provider": "openai",
-                    "model": "gpt-6-sol",
+                    "model": "gpt-6.1-sol",
                     "api_key": self.secret,
                     "language_exemplar": "Liste minhas zonas",
                     "action_ids": ("list-zones", "get-zone"),
