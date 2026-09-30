@@ -131,27 +131,32 @@ def preview_routine(self, team_id: str, proposal_id: str, body: object) -> dict[
     }
 
 
+def _add(state: record.TeamRoutines, candidate: record.Routine) -> tuple[record.TeamRoutines, str]:
+    try:
+        return record.add_routine(state, candidate), ""
+    except record.RoutineStateError as exc:
+        return state, str(exc)
+
+
 def confirm_routine(self, team_id: str, body: object) -> dict[str, object]:
     """A Local Supervisor's confirmation: the only way a Routine is created or a cancellation is carried out."""
     team_id = validate_team_id(team_id)
     body = _body(body, {"proposal_id", "timezone"})
-    proposal = _proposal(self, team_id, body["proposal_id"], take=True)
+    proposal = _proposal(self, team_id, body["proposal_id"], take=False)
     if proposal.change["op"] == "cancel":
+        _proposal(self, team_id, proposal.proposal_id, take=True)
         return delete_routine(self, team_id, proposal.change["routine_id"])
+    # Every recoverable check only peeks, so a wrong timezone or a Team that cannot be read now leaves the proposal
+    # for a retry.
     timezone = _timezone(proposal, body["timezone"])
-    candidate = _candidate(proposal, timezone, int(time.time()))
-
-    def add(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
-        try:
-            return record.add_routine(state, candidate), ""
-        except record.RoutineStateError as exc:
-            return state, str(exc)
-
     # Held from the contract check to the write, before the Routine lock as teardown takes them, so a Team removed
     # meanwhile can never have its Routine state recreated.
     with self._lock(team_id):
         _require_proposed_contracts(self, team_id, proposal)
-        refused = routine_state.update(self, team_id, add)
+        # Spent only now, before the write: of two concurrent confirmations, the one that takes it first creates it.
+        _proposal(self, team_id, proposal.proposal_id, take=True)
+        candidate = _candidate(proposal, timezone, int(time.time()))
+        refused = routine_state.update(self, team_id, lambda state: _add(state, candidate))
     if refused:
         raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine", refused)
     return {"team_id": team_id, "routine": routine_view(candidate)}

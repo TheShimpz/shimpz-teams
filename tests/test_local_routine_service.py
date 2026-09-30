@@ -189,6 +189,37 @@ class ConfirmationTests(RoutineServiceCase):
                 (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
             )
             self.assertEqual(self.state(service).routines, ())
+            # Neither a transient read failure nor a wrong timezone spends the one-use proposal.
+            with self.assertRaises(local_app.ApiProblem) as invalid:
+                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "Mars/X"})
+            self.assertEqual(invalid.exception.code, "invalid-timezone")
+            confirmed = service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
+            self.assertEqual(
+                [item.routine_id for item in self.state(service).routines], [confirmed["routine"]["routine_id"]]
+            )
+            with self.assertRaises(local_app.ApiProblem) as spent:
+                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
+            self.assertEqual(spent.exception.code, "routine-proposal-unavailable")
+
+    def test_of_two_validated_confirmations_only_the_one_that_takes_the_proposal_creates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
+            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
+            current = routine_turn.current_contracts
+
+            def taken_meanwhile(*args):
+                result = current(*args)
+                service.routine_proposals.take("team_1", proposal.proposal_id)
+                return result
+
+            with (
+                mock.patch.object(routine_turn, "current_contracts", side_effect=taken_meanwhile),
+                self.assertRaises(local_app.ApiProblem) as lost,
+            ):
+                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
+            self.assertEqual(lost.exception.code, "routine-proposal-unavailable")
+            self.assertEqual(self.state(service).routines, ())
 
     def test_a_confirmed_cancellation_deletes_the_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
