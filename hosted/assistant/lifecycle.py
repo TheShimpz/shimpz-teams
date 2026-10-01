@@ -73,6 +73,7 @@ def _require_assistant_allowed_hosts(
             declared.integrations,
             declared.stored_inputs,
             spec.contract.machine_contract,
+            summary=spec.summary,
         )
     except assistant_manifest.ManifestError as exc:
         raise runtime_state.ApiError(

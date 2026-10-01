@@ -34,7 +34,10 @@ LOCAL_PACKAGE_DATA = {
     "install": set(),
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
+# The Developers Assistant protocol reference validators Team imports at run time (ADR-0091).
+ASSISTANT_PROTOCOL_RUNTIME = {"protocol/assistant/v1/message_catalog_validator.py"}
 HOSTED_PROTOCOL_DATA = {
+    *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/account/authority/upstream.json",
     "protocol/account/authority/v1/README.md",
     "protocol/account/authority/v1/contract-files.sha256",
@@ -60,6 +63,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/install/v1/verify.py",
 }
 LOCAL_PROTOCOL_DATA = {
+    *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/routine.py",
@@ -208,6 +212,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "/opt/venv",
             "./protocol/account/authority/",
             "./protocol/account/authority/v1/",
+            "./protocol/assistant/v1/",
             "./protocol/http/v1/",
             "./protocol/install/",
             "./protocol/install/v1/",
@@ -398,11 +403,14 @@ class StaticTeamImageContractTests(unittest.TestCase):
             if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
-        self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py", "protocol/http/v1/routine.py"})
+        self.assertEqual(
+            protocol_runtime_data,
+            {"protocol/http/v1/payload.py", "protocol/http/v1/routine.py", *ASSISTANT_PROTOCOL_RUNTIME},
+        )
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
             local_protocol_runtime_data,
-            {path for path in LOCAL_PROTOCOL_DATA if path.startswith("protocol/http/")},
+            {path for path in LOCAL_PROTOCOL_DATA if path.startswith(("protocol/http/", "protocol/assistant/"))},
         )
         self.assertEqual(
             protocol_install_data | protocol_authority_data | protocol_runtime_data,

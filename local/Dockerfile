@@ -80,6 +80,7 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     ./protocol/install/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/routine.py \
     protocol/http/v1/supervisor.py ./protocol/http/v1/
+COPY protocol/assistant/v1/message_catalog_validator.py ./protocol/assistant/v1/
 COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
     action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/

@@ -23,6 +23,7 @@ from referencing.exceptions import Unresolvable
 from assistant import action_schema
 from core import strict_json
 from integrations import providers as integration_providers
+from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
@@ -354,12 +355,19 @@ def canonical_machine_contract(
     value: object,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
 ) -> dict[str, Any]:
-    """Validate and canonicalize an untrusted SDK-generated Action contract."""
-    if not isinstance(value, dict) or set(value) != {"version", "actions"} or value["version"] != 1:
+    """Validate and canonicalize an untrusted SDK-generated Action contract and its English message catalog.
+
+    The published summary must be one catalog message (ADR-0091), so the caller supplies the summary it admitted.
+    """
+    if not isinstance(value, dict) or set(value) != {"version", "actions", "messages"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
     if not action_schema.json_nodes_within(value, MAX_CONTRACT_NODES):
         raise ManifestError("Assistant machine contract is too large")
+    if catalog_validator.catalog_error(value["messages"], summary) is not None:
+        raise ManifestError("Assistant machine contract message catalog is invalid")
     raw_actions = value["actions"]
     if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 128:
         raise ManifestError("Assistant machine contract Actions are invalid")
@@ -428,19 +436,26 @@ def canonical_machine_contract(
         )
     if used_integrations != declared_ids:
         raise ManifestError("Assistant machine contract must use every declared integration")
-    return {"version": 1, "actions": sorted(actions, key=lambda action: action["id"])}
+    return {
+        "version": 1,
+        "actions": sorted(actions, key=lambda action: action["id"]),
+        "messages": json.loads(catalog_validator.canonical_json(value["messages"])),
+    }
 
 
 def parse_machine_contract(
     raw: bytes,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
 ) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
     return canonical_machine_contract(
         _strict_json(raw, maximum=MAX_CONTRACT_BYTES, kind="machine contract"),
         declared_integrations,
         declared_stored_inputs,
+        summary=summary,
     )
 
 
@@ -496,7 +511,9 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
         if not isinstance(raw_stored_inputs, dict):
             raise ManifestError("Assistant reviewed catalog Stored Inputs are invalid")
         stored_inputs = canonical_stored_input_declarations(raw_stored_inputs)
-        machine_contract = canonical_machine_contract(metadata["contract"], integrations, stored_inputs)
+        machine_contract = canonical_machine_contract(
+            metadata["contract"], integrations, stored_inputs, summary=summary
+        )
         reviewed[assistant_id] = ReviewedAssistant(
             assistant_id=assistant_id,
             name=name,
@@ -762,6 +779,8 @@ def read_container_machine_contract(
     container,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
     raw = read_container_file(
@@ -770,7 +789,7 @@ def read_container_machine_contract(
         name="shimpz.contract.json",
         maximum=MAX_CONTRACT_BYTES,
     )
-    return parse_machine_contract(raw, declared_integrations, declared_stored_inputs)
+    return parse_machine_contract(raw, declared_integrations, declared_stored_inputs, summary=summary)
 
 
 class ManifestContractCache:
@@ -830,6 +849,8 @@ class MachineContractCache:
         declared_integrations: tuple[IntegrationDeclaration, ...],
         declared_stored_inputs: tuple[StoredInputDeclaration, ...],
         reviewed: object,
+        *,
+        summary: str,
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
         container_id = getattr(container, "id", None)
@@ -847,6 +868,7 @@ class MachineContractCache:
                     container,
                     declared_integrations,
                     declared_stored_inputs,
+                    summary=summary,
                 )
                 self._entries[container_id] = declared
                 while len(self._entries) > self._max_entries:

@@ -159,6 +159,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             document["machine_contract"],
             declarations,
             stored_input_declarations,
+            summary=document["summary"],
         )
         if machine_contract != document["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")

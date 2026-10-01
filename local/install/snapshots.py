@@ -212,7 +212,7 @@ def validate_record(record: dict[str, Any]) -> None:
             stored_input_declarations={declaration.id: declaration.metadata() for declaration in stored_inputs},
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
-            record["machine_contract"], declarations, stored_inputs
+            record["machine_contract"], declarations, stored_inputs, summary=identity.summary
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the local Assistant record is invalid") from exc
@@ -422,6 +422,7 @@ def _record(
         raw_contract,
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
+        summary=identity.summary,
     )
     if candidate.actions != tuple(
         action["id"] for action in machine_contract["actions"]

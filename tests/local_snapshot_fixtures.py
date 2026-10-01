@@ -11,12 +11,15 @@ from unittest import mock
 
 from assistant import manifest as assistant_manifest
 from local.install import snapshots, source_package
+from tests import catalog_fixtures
 from tests.test_assistant_manifest import manifest
 from tests.test_local_source_package import _packages
 
 IMAGE_ID = "sha256:" + ("a" * 64)
 BUILD_DIGEST = "sha256:" + ("b" * 64)
 CREATED = "2026-08-28T17:00:00Z"
+SUMMARY = "Exercise immutable admission."
+MESSAGES = catalog_fixtures.messages(SUMMARY)
 MACHINE_CONTRACT = {
     "version": 1,
     "actions": [
@@ -29,6 +32,7 @@ MACHINE_CONTRACT = {
             "human_requests": [],
         }
     ],
+    "messages": MESSAGES,
 }
 
 

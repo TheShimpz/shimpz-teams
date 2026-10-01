@@ -6,7 +6,7 @@ import json
 import unittest
 from unittest import mock
 
-from test_assistant_manifest import _reviewed_catalog
+from test_assistant_manifest import FIXTURE_SUMMARY, _reviewed_catalog
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
@@ -32,7 +32,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
                     "must close every object",
                 ),
             ):
-                assistant_manifest.parse_machine_contract(json.dumps(contract).encode(), reviewed.integrations)
+                assistant_manifest.parse_machine_contract(
+                    json.dumps(contract).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                )
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -40,12 +42,16 @@ class AssistantActionSchemaTests(unittest.TestCase):
         typeless = json.loads(json.dumps(reviewed.machine_contract))
         typeless["actions"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "must close every object"):
-            assistant_manifest.parse_machine_contract(json.dumps(typeless).encode(), reviewed.integrations)
+            assistant_manifest.parse_machine_contract(
+                json.dumps(typeless).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            )
 
         boolean = json.loads(json.dumps(reviewed.machine_contract))
         boolean["actions"][0]["input_schema"]["properties"]["page"] = True
         with self.assertRaises(assistant_manifest.ManifestError):
-            assistant_manifest.parse_machine_contract(json.dumps(boolean).encode(), reviewed.integrations)
+            assistant_manifest.parse_machine_contract(
+                json.dumps(boolean).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            )
 
         literals = json.loads(json.dumps(reviewed.machine_contract))
         literals["actions"][0]["input_schema"]["properties"].update(
@@ -55,7 +61,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 "fixed": {"const": True},
             }
         )
-        parsed = assistant_manifest.parse_machine_contract(json.dumps(literals).encode(), reviewed.integrations)
+        parsed = assistant_manifest.parse_machine_contract(
+            json.dumps(literals).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+        )
 
         self.assertEqual(
             parsed["actions"][0]["input_schema"]["properties"]["flag"],
@@ -87,7 +95,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
                     self.subTest(keyword=keyword, reference=reference),
                     self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"),
                 ):
-                    assistant_manifest.parse_machine_contract(json.dumps(external).encode(), reviewed.integrations)
+                    assistant_manifest.parse_machine_contract(
+                        json.dumps(external).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                    )
 
         for definitions, reference in (
             ("$defs", "#/$defs/page"),
@@ -100,7 +110,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
             schema[definitions] = {"page": {"type": "integer"}, "a/b~c": {"type": "integer"}}
             schema["properties"]["page"] = {"$ref": reference}
             with self.subTest(reference=reference):
-                parsed = assistant_manifest.parse_machine_contract(json.dumps(local).encode(), reviewed.integrations)
+                parsed = assistant_manifest.parse_machine_contract(
+                    json.dumps(local).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                )
                 self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": reference})
 
     def test_machine_schema_refuses_a_dialect_switch_or_a_nested_identifier(self) -> None:
@@ -120,7 +132,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 self.subTest(place=place),
                 self.assertRaisesRegex(assistant_manifest.ManifestError, "Draft 2020-12 dialect"),
             ):
-                assistant_manifest.parse_machine_contract(json.dumps(switched).encode(), reviewed.integrations)
+                assistant_manifest.parse_machine_contract(
+                    json.dumps(switched).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                )
 
         rebound = json.loads(json.dumps(reviewed.machine_contract))
         rebound["actions"][0]["input_schema"]["properties"]["page"] = {
@@ -128,13 +142,17 @@ class AssistantActionSchemaTests(unittest.TestCase):
             "$ref": "#/$defs/simpleTypes",
         }
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "nested identifier"):
-            assistant_manifest.parse_machine_contract(json.dumps(rebound).encode(), reviewed.integrations)
+            assistant_manifest.parse_machine_contract(
+                json.dumps(rebound).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            )
 
         current = json.loads(json.dumps(reviewed.machine_contract))
         schema = current["actions"][0]["input_schema"]
         schema.update({"$schema": action_schema._DRAFT_2020_12, "$id": "https://example.test/action.json"})
         schema["properties"]["page"] = {"$schema": action_schema._DRAFT_2020_12, "type": "integer"}
-        parsed = assistant_manifest.parse_machine_contract(json.dumps(current).encode(), reviewed.integrations)
+        parsed = assistant_manifest.parse_machine_contract(
+            json.dumps(current).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+        )
         self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
     def test_machine_schema_reads_references_only_at_schema_nodes(self) -> None:
@@ -145,7 +163,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
         # A property may be named "$ref", and instance data may carry a "$ref" key: neither is a reference.
         schema["properties"]["$ref"] = {"type": "string"}
         schema["properties"]["mode"] = {"const": remote, "enum": [remote], "default": remote, "examples": [remote]}
-        parsed = assistant_manifest.parse_machine_contract(json.dumps(data).encode(), reviewed.integrations)
+        parsed = assistant_manifest.parse_machine_contract(
+            json.dumps(data).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+        )
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["$ref"], {"type": "string"})
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["mode"]["const"], remote)
 
@@ -155,7 +175,9 @@ class AssistantActionSchemaTests(unittest.TestCase):
             "items": {"anyOf": [{"type": "integer"}, {"not": {"contentSchema": remote}}]},
         }
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"):
-            assistant_manifest.parse_machine_contract(json.dumps(nested).encode(), reviewed.integrations)
+            assistant_manifest.parse_machine_contract(
+                json.dumps(nested).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            )
 
     def test_action_schema_validators_never_retrieve_a_uri(self) -> None:
         schema = {

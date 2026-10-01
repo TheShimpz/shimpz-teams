@@ -13,6 +13,7 @@ from assistant.manifest import (
     parse_manifest_contract,
     parse_manifest_genesis,
 )
+from tests import catalog_fixtures
 
 VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "manifest-vectors.json"
 PROTOCOL = VECTORS.parent
@@ -65,7 +66,11 @@ class AssistantProtocolTests(unittest.TestCase):
                 }
                 action[position] = case["schema"]
                 try:
-                    canonical_machine_contract({"version": 1, "actions": [action]}, ())
+                    canonical_machine_contract(
+                        {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()},
+                        (),
+                        summary=catalog_fixtures.SUMMARY,
+                    )
                 except ManifestError:
                     valid = False
                 else:

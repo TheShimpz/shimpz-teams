@@ -48,6 +48,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             resolution["machine_contract"],
             declarations,
             stored_input_declarations,
+            summary=resolution["summary"],
         )
         if machine_contract != resolution["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")

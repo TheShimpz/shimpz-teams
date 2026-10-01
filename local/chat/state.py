@@ -151,6 +151,7 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
             declared.integrations,
             declared.stored_inputs,
             spec.machine_contract,
+            summary=spec.summary,
         )
     except assistant_manifest.ManifestUnavailableError as exc:
         log.warning("Assistant manifest admission unavailable: %s", exc)

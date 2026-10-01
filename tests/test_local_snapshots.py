@@ -713,7 +713,7 @@ class LocalSnapshotTests(unittest.TestCase):
 
         changed = bindings.binding_from_local_record(
             "team_1",
-            {**record, "summary": "Changed local summary"},
+            {**record, "name": "Changed local name"},
             snapshots.validate_record,
         )
         controller.registry.local_replacement.return_value = (changed, spec)
@@ -722,7 +722,7 @@ class LocalSnapshotTests(unittest.TestCase):
                 controller,
                 "team_1",
                 existing,
-                {**record, "summary": "Changed local summary"},
+                {**record, "name": "Changed local name"},
             )
 
         replacement = {**record, "image_id": "sha256:" + ("c" * 64)}

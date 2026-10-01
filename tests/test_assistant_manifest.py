@@ -10,8 +10,10 @@ from unittest import mock
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from tests import catalog_fixtures
 
 FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.toml"
+FIXTURE_SUMMARY = "List Cloudflare zones and inspect their DNS records through OAuth."
 
 
 def _reviewed_catalog(assistant_id: str = "shimpz-cloudflare"):
@@ -20,7 +22,7 @@ def _reviewed_catalog(assistant_id: str = "shimpz-cloudflare"):
         "assistants": {
             assistant_id: {
                 "name": "Shimpz Cloudflare",
-                "summary": "Cloudflare contract test fixture",
+                "summary": FIXTURE_SUMMARY,
                 "allowed_hosts": ["api.cloudflare.com"],
                 "integrations": {
                     "cloudflare": {
@@ -174,15 +176,17 @@ class AssistantManifestTests(unittest.TestCase):
                     "human_requests": ["input:password"],
                 }
             ],
+            "messages": catalog_fixtures.messages(),
         }
+        summary = catalog_fixtures.SUMMARY
 
         self.assertEqual(
-            assistant_manifest.canonical_machine_contract(contract, (), declarations),
+            assistant_manifest.canonical_machine_contract(contract, (), declarations, summary=summary),
             contract,
         )
         contract["actions"][0]["human_requests"] = []
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "request is undeclared"):
-            assistant_manifest.canonical_machine_contract(contract, (), declarations)
+            assistant_manifest.canonical_machine_contract(contract, (), declarations, summary=summary)
 
     def test_reads_the_sdk_baked_v1_manifest_path(self) -> None:
         self.assertEqual(assistant_manifest.MANIFEST_PATH, "/opt/shimpz/shimpz.toml")
@@ -421,7 +425,7 @@ class AssistantManifestTests(unittest.TestCase):
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
 
         self.assertEqual(
-            assistant_manifest.parse_machine_contract(raw, reviewed.integrations),
+            assistant_manifest.parse_machine_contract(raw, reviewed.integrations, summary=FIXTURE_SUMMARY),
             reviewed.machine_contract,
         )
         self.assertEqual(
@@ -432,7 +436,9 @@ class AssistantManifestTests(unittest.TestCase):
         foreign = json.loads(raw)
         foreign["actions"][0]["integrations"] = ["github"]
         with self.assertRaises(assistant_manifest.ManifestError):
-            assistant_manifest.parse_machine_contract(json.dumps(foreign).encode(), reviewed.integrations)
+            assistant_manifest.parse_machine_contract(
+                json.dumps(foreign).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            )
 
     def test_reviewed_catalog_precompiles_payload_validators(self) -> None:
         with mock.patch.object(
@@ -470,7 +476,7 @@ class AssistantManifestTests(unittest.TestCase):
             b"x" * (assistant_manifest.MAX_CONTRACT_BYTES + 1),
         ):
             with self.subTest(size=len(raw)), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.parse_machine_contract(raw, reviewed.integrations)
+                assistant_manifest.parse_machine_contract(raw, reviewed.integrations, summary=FIXTURE_SUMMARY)
 
     def test_machine_contract_cache_reads_once_and_requires_exact_review(self) -> None:
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -479,7 +485,13 @@ class AssistantManifestTests(unittest.TestCase):
         cache = assistant_manifest.MachineContractCache()
 
         self.assertEqual(
-            cache.get(container, reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract),
+            cache.get(
+                container,
+                reviewed.integrations,
+                reviewed.stored_inputs,
+                reviewed.machine_contract,
+                summary=FIXTURE_SUMMARY,
+            ),
             reviewed.machine_contract,
         )
         with mock.patch.object(
@@ -488,7 +500,13 @@ class AssistantManifestTests(unittest.TestCase):
             wraps=assistant_manifest.canonical_machine_contract,
         ) as canonicalize:
             self.assertEqual(
-                cache.get(container, reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract),
+                cache.get(
+                    container,
+                    reviewed.integrations,
+                    reviewed.stored_inputs,
+                    reviewed.machine_contract,
+                    summary=FIXTURE_SUMMARY,
+                ),
                 reviewed.machine_contract,
             )
         canonicalize.assert_not_called()
@@ -497,7 +515,7 @@ class AssistantManifestTests(unittest.TestCase):
         drifted = json.loads(raw)
         drifted["actions"][0]["id"] = "other"
         with self.assertRaises(assistant_manifest.ManifestError):
-            cache.get(container, reviewed.integrations, reviewed.stored_inputs, drifted)
+            cache.get(container, reviewed.integrations, reviewed.stored_inputs, drifted, summary=FIXTURE_SUMMARY)
 
     def test_public_contract_helpers_reject_wrong_shapes_and_secret_like_text(self) -> None:
         with self.assertRaises(assistant_manifest.ManifestError):
@@ -532,7 +550,7 @@ class AssistantManifestTests(unittest.TestCase):
         valid = json.loads(json.dumps(reviewed.machine_contract))
         variants = []
         variants.append({})
-        variants.append({"version": 1, "actions": []})
+        variants.append({"version": 1, "actions": [], "messages": valid["messages"]})
         malformed_action = json.loads(json.dumps(valid))
         malformed_action["actions"][0]["extra"] = True
         variants.append(malformed_action)
@@ -552,9 +570,12 @@ class AssistantManifestTests(unittest.TestCase):
         for action in unused_integration["actions"]:
             action["integrations"] = []
         variants.append(unused_integration)
+        variants.append({key: value for key, value in valid.items() if key != "messages"})
+        variants.append({**valid, "messages": []})
+        variants.append({**valid, "messages": catalog_fixtures.messages("Another summary.")})
         for contract in variants:
             with self.subTest(contract=contract), self.assertRaises(assistant_manifest.ManifestError):
-                assistant_manifest.canonical_machine_contract(contract, reviewed.integrations)
+                assistant_manifest.canonical_machine_contract(contract, reviewed.integrations, summary=FIXTURE_SUMMARY)
 
         with self.assertRaisesRegex(action_schema.ActionSchemaError, "subschema"):
             action_schema._reject_open_or_boolean_subschema([])
@@ -611,15 +632,20 @@ class AssistantManifestTests(unittest.TestCase):
                     }
                     for index in range(actions)
                 ],
+                "messages": [catalog_fixtures.message(catalog_fixtures.SUMMARY)],
             }
+
+        summary = catalog_fixtures.SUMMARY
 
         limit = 4096
         for input_nodes, output_nodes in ((limit, 5), (5, limit)):
-            admitted = assistant_manifest.canonical_machine_contract(contract(input_nodes, output_nodes), ())
+            admitted = assistant_manifest.canonical_machine_contract(
+                contract(input_nodes, output_nodes), (), summary=summary
+            )
             self.assertEqual(len(admitted["actions"]), 1)
         for input_nodes, output_nodes, kind in ((limit + 1, 5, "input"), (5, limit + 1, "output")):
             with self.assertRaisesRegex(assistant_manifest.ManifestError, f"{kind} schema is too large"):
-                assistant_manifest.canonical_machine_contract(contract(input_nodes, output_nodes), ())
+                assistant_manifest.canonical_machine_contract(contract(input_nodes, output_nodes), (), summary=summary)
         # The bound is checked before any metaschema work, so excess data in an otherwise invalid schema is refused
         # as too large.
         invalid = {**schema(limit + 1), "required": "invalid"}
@@ -630,15 +656,16 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest._machine_schema(invalid, kind="input")
         check_schema.assert_not_called()
 
-        # Eight Actions of two schemas each: three contract values, five values per Action, one schema of 2,050
-        # values, and fifteen of 2,045 make 32,768 values, with every schema below its own bound.
+        # Eight Actions of two schemas each: four contract values, five values of the one summary message, five values
+        # per Action, one schema of 2,044 values, and fifteen of 2,045 make 32,768 values, with every schema below its
+        # own bound.
         whole = contract(2045, 2045, actions=8)
-        whole["actions"][0]["input_schema"] = schema(2050)
-        self.assertEqual(3 + 8 * 5 + 2050 + 15 * 2045, 32_768)
-        self.assertEqual(len(assistant_manifest.canonical_machine_contract(whole, ())["actions"]), 8)
+        whole["actions"][0]["input_schema"] = schema(2044)
+        self.assertEqual(4 + 5 + 8 * 5 + 2044 + 15 * 2045, 32_768)
+        self.assertEqual(len(assistant_manifest.canonical_machine_contract(whole, (), summary=summary)["actions"]), 8)
         whole["actions"][0]["output_schema"]["const"].append(0)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "machine contract is too large"):
-            assistant_manifest.canonical_machine_contract(whole, ())
+            assistant_manifest.canonical_machine_contract(whole, (), summary=summary)
 
         self.assertTrue(action_schema.json_nodes_within({"a": [1, ("b",)]}, 5))
         self.assertFalse(action_schema.json_nodes_within({"a": [1, ("b",)]}, 4))
@@ -653,7 +680,7 @@ class AssistantManifestTests(unittest.TestCase):
             valid_contract = json.loads((FIXTURE_MANIFEST.parent / "shimpz.contract.json").read_text())
             valid_entry = {
                 "name": "Assistant",
-                "summary": "Reviewed Assistant.",
+                "summary": FIXTURE_SUMMARY,
                 "allowed_hosts": [],
                 "integrations": {},
                 "stored_inputs": {},
@@ -829,18 +856,26 @@ class AssistantManifestTests(unittest.TestCase):
         raw = json.dumps(reviewed.machine_contract, separators=(",", ":")).encode()
         machine = assistant_manifest.MachineContractCache(max_entries=1)
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "identity"):
-            machine.get(object(), reviewed.integrations, reviewed.stored_inputs, reviewed.machine_contract)
+            machine.get(
+                object(),
+                reviewed.integrations,
+                reviewed.stored_inputs,
+                reviewed.machine_contract,
+                summary=FIXTURE_SUMMARY,
+            )
         machine.get(
             ContractContainer("first", raw),
             reviewed.integrations,
             reviewed.stored_inputs,
             reviewed.machine_contract,
+            summary=FIXTURE_SUMMARY,
         )
         machine.get(
             ContractContainer("second", raw),
             reviewed.integrations,
             reviewed.stored_inputs,
             reviewed.machine_contract,
+            summary=FIXTURE_SUMMARY,
         )
         self.assertEqual(tuple(machine._entries), ("second",))
         machine.discard(None)
