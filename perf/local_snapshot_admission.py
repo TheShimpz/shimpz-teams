@@ -15,6 +15,7 @@ from collections import defaultdict
 import docker
 from docker.errors import DockerException, NotFound
 
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from local.install import snapshots
 from perf.local_snapshot_inventory import _event_count, _percentiles
@@ -25,6 +26,7 @@ ARCHIVE_NAMES = {
     snapshots.SOURCE_PATH: "source_package",
     assistant_manifest.MANIFEST_PATH: "manifest",
     assistant_manifest.CONTRACT_PATH: "contract",
+    assistant_language.PACK_PATH: "language_pack",
     snapshots.ICON_PATH: "icon",
 }
 

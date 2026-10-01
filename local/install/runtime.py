@@ -27,6 +27,8 @@ class AssistantSpec:
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, object] = field(default_factory=dict)
+    # The reviewed binding's language-pack digest; the pack itself is admitted from the exact image (ADR-0091).
+    pack_digest: str = ""
     provenance: Literal["published", "local"] = "published"
     platform: str | None = None
 

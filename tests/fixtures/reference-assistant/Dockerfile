@@ -5,9 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY tests/fixtures/reference-assistant/shimpz.toml /opt/shimpz/shimpz.toml
 COPY tests/fixtures/reference-assistant/shimpz-action /usr/local/bin/shimpz-action
 COPY tests/fixtures/reference-assistant/shimpz.contract.json /opt/shimpz/shimpz.contract.json
+COPY tests/fixtures/reference-assistant/shimpz.pack.json /opt/shimpz/shimpz.pack.json
 RUN groupadd --gid 10001 assistant && \
     useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin assistant && \
-    chmod 0444 /opt/shimpz/shimpz.toml /opt/shimpz/shimpz.contract.json && \
+    chmod 0444 /opt/shimpz/shimpz.toml /opt/shimpz/shimpz.contract.json /opt/shimpz/shimpz.pack.json && \
     chmod 0555 /usr/local/bin/shimpz-action
 
 LABEL org.shimpz.assistant.id="shimpz-cloudflare"

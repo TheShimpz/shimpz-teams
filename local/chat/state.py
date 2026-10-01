@@ -153,6 +153,7 @@ def _admit_assistant_allowed_hosts(self, container, spec: AssistantSpec) -> tupl
             spec.machine_contract,
             summary=spec.summary,
         )
+        self._assistant_language_cache.get(container, spec.machine_contract, spec.pack_digest)
     except assistant_manifest.ManifestUnavailableError as exc:
         log.warning("Assistant manifest admission unavailable: %s", exc)
         raise ApiProblem(

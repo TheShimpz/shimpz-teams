@@ -49,6 +49,8 @@ class AssistantContract:
     integrations: dict[str, IntegrationSpec] = field(default_factory=dict)
     stored_inputs: dict[str, StoredInputSpec] = field(default_factory=dict)
     machine_contract: dict[str, Any] = field(default_factory=dict)
+    # The reviewed binding's language-pack digest; the pack itself is admitted from the verified image (ADR-0091).
+    pack_digest: str = ""
 
 
 @dataclass(frozen=True, slots=True)

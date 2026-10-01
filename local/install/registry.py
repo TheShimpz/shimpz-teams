@@ -203,6 +203,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             integrations=integrations,
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
+            pack_digest=str(document["pack_digest"]),
             provenance=binding.provenance,
             platform=str(document["platform"]) if binding.provenance == "local" else None,
         )

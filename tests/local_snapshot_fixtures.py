@@ -9,6 +9,7 @@ import tarfile
 from types import SimpleNamespace
 from unittest import mock
 
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from local.install import snapshots, source_package
 from tests import catalog_fixtures
@@ -20,6 +21,7 @@ BUILD_DIGEST = "sha256:" + ("b" * 64)
 CREATED = "2026-08-28T17:00:00Z"
 SUMMARY = "Exercise immutable admission."
 MESSAGES = catalog_fixtures.messages(SUMMARY)
+PACK = catalog_fixtures.pack_bytes(MESSAGES)
 MACHINE_CONTRACT = {
     "version": 1,
     "actions": [
@@ -106,19 +108,21 @@ def _container(files: dict[str, bytes]):
     return container
 
 
-def client(*, source_digest: str | None = None):
+def client(*, source_digest: str | None = None, pack: bytes | None = PACK):
+    """A Docker double for one staged image; ``pack=None`` leaves the image without its language pack."""
     package, fixture_manifest, icon = _package()
     digest = source_digest or f"sha256:{hashlib.sha256(package).hexdigest()}"
     image = _image(digest)
     raw_contract = json.dumps(MACHINE_CONTRACT, separators=(",", ":")).encode()
-    container = _container(
-        {
-            snapshots.SOURCE_PATH: package,
-            assistant_manifest.MANIFEST_PATH: fixture_manifest,
-            assistant_manifest.CONTRACT_PATH: raw_contract,
-            snapshots.ICON_PATH: icon,
-        }
-    )
+    files = {
+        snapshots.SOURCE_PATH: package,
+        assistant_manifest.MANIFEST_PATH: fixture_manifest,
+        assistant_manifest.CONTRACT_PATH: raw_contract,
+        snapshots.ICON_PATH: icon,
+    }
+    if pack is not None:
+        files[assistant_language.PACK_PATH] = pack
+    container = _container(files)
     docker_client = mock.Mock()
     docker_client.info.return_value = {"Architecture": "x86_64"}
     docker_client.images.get.return_value = image

@@ -19,6 +19,7 @@ from action import challenges as action_challenges
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from hosted import container as container_spec
 from hosted import token as token_store
@@ -165,6 +166,7 @@ _brain_runtime = brain_runtime_client.BrainRuntimeClient()
 _assistant_genesis_cache = assistant_genesis.GenesisCache()
 _assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
 _assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
+_assistant_language_cache = assistant_language.LanguagePackCache()
 _assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_STATE_PATH,
     ASSISTANT_INTEGRATION_KEY_PATH,

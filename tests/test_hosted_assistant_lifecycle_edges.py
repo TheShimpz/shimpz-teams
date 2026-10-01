@@ -11,6 +11,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_assistant_language import CONTRACT, DIGEST, RAW, PackContainer, _tampered
+
+from tests import catalog_fixtures
 
 lifecycle = harness.assistant_lifecycle
 resources = harness.hosted_resources
@@ -253,11 +256,38 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
             mock.patch.object(state._assistant_genesis_cache, "discard") as genesis,
             mock.patch.object(state._assistant_allowed_hosts_cache, "discard") as hosts,
             mock.patch.object(state._assistant_machine_contract_cache, "discard") as machine,
+            mock.patch.object(state._assistant_language_cache, "discard") as language,
         ):
             result = lifecycle._teardown_assistant(TEAM_ID, ASSISTANT_ID, container=container)
         self.assertEqual(result, resources._CleanupResult(True, True))
-        for discarded in (genesis, hosts, machine):
+        for discarded in (genesis, hosts, machine, language):
             discarded.assert_called_once_with(container.id)
+
+    def test_hosted_admission_refuses_a_pack_that_fails_its_binding(self) -> None:
+        spec = SimpleNamespace(
+            summary=catalog_fixtures.SUMMARY,
+            allowed_hosts=(),
+            contract=SimpleNamespace(
+                machine_contract=CONTRACT,
+                pack_digest=DIGEST,
+                integrations={},
+                stored_inputs={},
+            ),
+        )
+        cache = lifecycle.assistant_language.LanguagePackCache()
+        with mock.patch.object(state, "_assistant_language_cache", cache):
+            self.assertEqual(
+                lifecycle._assistant_language(spec, PackContainer("good", RAW)).pack_digest,
+                DIGEST,
+            )
+            with (
+                mock.patch.object(state, "_assistant_allowed_hosts_cache", mock.Mock()),
+                mock.patch.object(state, "_assistant_machine_contract_cache", mock.Mock()),
+                mock.patch.object(lifecycle.assistant_manifest, "reviewed_manifest_contract"),
+                self.assertRaises(state.ApiError) as refused,
+            ):
+                lifecycle._require_assistant_allowed_hosts(spec, PackContainer("tampered", _tampered()))
+        self.assertEqual(refused.exception.status, HTTPStatus.CONFLICT)
 
     def test_integration_retention_cancels_only_after_pruning(self) -> None:
         error = lifecycle.integration_store.OAuthIntegrationStoreError("state")

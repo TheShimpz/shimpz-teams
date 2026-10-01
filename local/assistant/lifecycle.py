@@ -87,6 +87,7 @@ def _rollback_assistant_install(
         self._assistant_genesis_cache.discard(container.id)
         self._assistant_allowed_hosts_cache.discard(container.id)
         self._assistant_machine_contract_cache.discard(container.id)
+        self._assistant_language_cache.discard(container.id)
         try:
             container.remove(force=True)
         except NotFound:
@@ -232,6 +233,7 @@ def _replace_unready_assistant(
         self._assistant_genesis_cache.discard(existing.id)
         self._assistant_allowed_hosts_cache.discard(existing.id)
         self._assistant_machine_contract_cache.discard(existing.id)
+        self._assistant_language_cache.discard(existing.id)
         existing.remove(force=True)
     except DockerException as exc:
         raise ApiProblem(
@@ -271,6 +273,7 @@ def _replace_outdated_assistant(
         self._assistant_genesis_cache.discard(existing.id)
         self._assistant_allowed_hosts_cache.discard(existing.id)
         self._assistant_machine_contract_cache.discard(existing.id)
+        self._assistant_language_cache.discard(existing.id)
         existing.remove(force=True)
     except DockerException as exc:
         raise ApiProblem(
@@ -472,6 +475,7 @@ def update_assistant(
             self._assistant_genesis_cache.discard(existing.id)
             self._assistant_allowed_hosts_cache.discard(existing.id)
             self._assistant_machine_contract_cache.discard(existing.id)
+            self._assistant_language_cache.discard(existing.id)
             existing.remove(force=True)
             if previous.allowed_hosts:
                 self._release_assistant_egress(
@@ -755,6 +759,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
         self._assistant_genesis_cache.discard(container.id)
         self._assistant_allowed_hosts_cache.discard(container.id)
         self._assistant_machine_contract_cache.discard(container.id)
+        self._assistant_language_cache.discard(container.id)
         if retired_image_id is not None and (binding is None or binding.provenance == "published"):
             self._queue_residue(retired_image_id)
         if spec.allowed_hosts:

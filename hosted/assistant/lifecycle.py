@@ -12,6 +12,7 @@ import docker.errors
 
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
@@ -75,12 +76,25 @@ def _require_assistant_allowed_hosts(
             spec.contract.machine_contract,
             summary=spec.summary,
         )
+        _assistant_language(spec, container)
     except assistant_manifest.ManifestError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
             "installed Assistant manifest failed its reviewed contract",
         ) from exc
     return declared.allowed_hosts
+
+
+def _assistant_language(
+    spec: assistant_registry.AssistantSpec,
+    container,
+) -> assistant_language.LanguagePack:
+    """The verified language pack of this exact container generation and its reviewed binding (ADR-0091)."""
+    return runtime_state._assistant_language_cache.get(
+        container,
+        spec.contract.machine_contract,
+        spec.contract.pack_digest,
+    )
 
 
 def _admit_assistant_contract(
@@ -350,6 +364,7 @@ def _teardown_assistant(
             runtime_state._assistant_genesis_cache.discard(container_id)
             runtime_state._assistant_allowed_hosts_cache.discard(container_id)
             runtime_state._assistant_machine_contract_cache.discard(container_id)
+            runtime_state._assistant_language_cache.discard(container_id)
     elif container is not None:
         with contextlib.suppress(runtime_state.ApiError):
             hosted_resources._fail_stop_team(container)

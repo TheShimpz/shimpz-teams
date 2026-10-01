@@ -278,7 +278,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
         {
             "assistant_id": "shimpz-cloudflare",
             "name": "Shimpz Cloudflare",
-            "summary": "Safely manage Cloudflare DNS records through OAuth.",
+            "summary": "List Cloudflare zones and inspect their DNS records through OAuth.",
             "assistant_version": "0.1.0",
             "creators": ["@roxygens"],
             "source_digest": flow.source_digest,
@@ -287,6 +287,7 @@ def fixture_resolution(flow: DockerFlow) -> dict[str, object]:
             "manifest_digest": f"sha256:{hashlib.sha256(manifest).hexdigest()}",
             "machine_contract_digest": f"sha256:{hashlib.sha256(machine_contract).hexdigest()}",
             "icon_digest": f"sha256:{hashlib.sha256(FIXTURE_ICON).hexdigest()}",
+            "pack_digest": f"sha256:{hashlib.sha256((FIXTURE / 'shimpz.pack.json').read_bytes()).hexdigest()}",
             "machine_contract": json.loads(machine_contract),
             "allowed_hosts": ["api.cloudflare.com"],
             "integrations": [

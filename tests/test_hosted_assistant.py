@@ -374,11 +374,13 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
         machine_cache = types.SimpleNamespace(
             get=lambda _container, _integrations, _stored_inputs, reviewed, **_kwargs: reviewed
         )
+        language_cache = types.SimpleNamespace(get=lambda *_args: None)
         with (
             mock.patch.multiple(
                 runtime_state,
                 _assistant_allowed_hosts_cache=cache,
                 _assistant_machine_contract_cache=machine_cache,
+                _assistant_language_cache=language_cache,
             ),
             mock.patch.object(
                 assistant_lifecycle,
@@ -409,6 +411,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 runtime_state,
                 _assistant_allowed_hosts_cache=assistant_manifest.ManifestContractCache(),
                 _assistant_machine_contract_cache=machine_cache,
+                _assistant_language_cache=language_cache,
             ),
             mock.patch.object(assistant_manifest, "read_container_manifest_contract", return_value=exact),
         ):
@@ -420,6 +423,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                     runtime_state,
                     _assistant_allowed_hosts_cache=assistant_manifest.ManifestContractCache(),
                     _assistant_machine_contract_cache=machine_cache,
+                    _assistant_language_cache=language_cache,
                 ),
                 mock.patch.object(
                     assistant_manifest,
@@ -439,6 +443,7 @@ class HostedAllowedHostsAdmissionTests(unittest.TestCase):
                 runtime_state,
                 _assistant_allowed_hosts_cache=types.SimpleNamespace(get=reject),
                 _assistant_machine_contract_cache=machine_cache,
+                _assistant_language_cache=language_cache,
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):

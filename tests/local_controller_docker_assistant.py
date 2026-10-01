@@ -45,7 +45,7 @@ class LocalAssistantLifecycleMixin:
                 {
                     "id": "shimpz-cloudflare",
                     "actions": ["list-dns-records", "list-zones"],
-                    "summary": "Safely manage Cloudflare DNS records through OAuth.",
+                    "summary": "List Cloudflare zones and inspect their DNS records through OAuth.",
                     "title": "Shimpz Cloudflare",
                 }
             ],

@@ -98,6 +98,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             integrations=integrations,
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
+            pack_digest=resolution["pack_digest"],
         ),
     )
 

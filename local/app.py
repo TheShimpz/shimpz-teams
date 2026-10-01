@@ -26,6 +26,7 @@ from action import execution as action_execution
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
 from inference import client as brain_runtime_client
@@ -131,6 +132,7 @@ class AssistantLifecycle:
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
+        self._assistant_language_cache = assistant_language.LanguagePackCache()
         self._blocked_action_workloads: set[str] = set()
 
     _rollback_assistant_install = local_assistant_lifecycle._rollback_assistant_install
