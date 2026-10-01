@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 
 from action import journal as action_journal
@@ -142,8 +143,13 @@ def confirm_routine(self, team_id: str, body: object) -> dict[str, object]:
     body = _body(body, {"proposal_id", "timezone"})
     proposal = _proposal(self, team_id, body["proposal_id"], take=False)
     if proposal.change["op"] == "cancel":
-        _proposal(self, team_id, proposal.proposal_id, take=True)
-        return delete_routine(self, team_id, proposal.change["routine_id"])
+        # Spent inside the deletion's own write, only once the Routine is found and no uncertain run refuses it.
+        return delete_routine(
+            self,
+            team_id,
+            proposal.change["routine_id"],
+            admit=lambda: _proposal(self, team_id, proposal.proposal_id, take=True),
+        )
     # Every recoverable check only peeks, so a wrong timezone or a Team that cannot be read now leaves the proposal
     # for a retry.
     timezone = _timezone(proposal, body["timezone"])
@@ -222,12 +228,14 @@ def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, 
     return routine_state.update(self, team_id, end)
 
 
-def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
+def delete_routine(
+    self, team_id: str, routine_id: object, *, admit: Callable[[], object] | None = None
+) -> dict[str, object]:
     """Delete a Routine: stop its running run and end a frozen one; an uncertain run must be resolved first.
 
     Marking the Routine deleting and reading its runs is one write, and a deleting Routine never resumes a run, so each
     frozen run seen here stays frozen until it is ended. A running segment is stopped and ends itself, and its end
-    completes the deletion.
+    completes the deletion. ``admit`` runs inside that write once the deletion is valid; if it raises, nothing changes.
     """
     team_id = validate_team_id(team_id)
     if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
@@ -235,9 +243,12 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
 
     def begin(state: record.TeamRoutines) -> tuple[record.TeamRoutines, tuple[record.Run, ...] | str]:
         try:
-            return record.begin_delete(state, routine_id)
+            deleting = record.begin_delete(state, routine_id)
         except record.RoutineStateError as exc:
             return state, str(exc)
+        if admit is not None:
+            admit()
+        return deleting
 
     runs = routine_state.update(self, team_id, begin)
     if runs == "routine-run-uncertain":

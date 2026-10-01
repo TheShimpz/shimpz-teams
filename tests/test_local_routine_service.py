@@ -413,10 +413,41 @@ class RunTests(RoutineServiceCase):
             with self.assertRaises(local_app.ApiProblem) as stop:
                 service.stop_routine("team_1", claim["run_id"])
             self.assertEqual(stop.exception.code, "routine-run-uncertain")
+            # A confirmed cancellation the uncertain run refuses keeps its one-use offer for after the resolution.
+            cancel = {
+                "op": "cancel",
+                "quote": "stop listing my zones",
+                "schedule": None,
+                "timezone": None,
+                "routine_id": value.routine_id,
+            }
+            offer = {
+                "proposal_id": service.routine_proposals.create("team_1", cancel, {}).proposal_id,
+                "timezone": "UTC",
+            }
+            with self.assertRaises(local_app.ApiProblem) as refused:
+                service.confirm_routine("team_1", offer)
+            self.assertEqual(refused.exception.code, "routine-run-uncertain")
+            self.assertFalse(record.routine(self.state(service), value.routine_id).deleting)
             service.resolve_routine_run("team_1", claim["run_id"], {"batch_fingerprint": held.batch[1]})
             self.assertEqual(self.state(service).runs, ())
             self.assertIsNone(controller.action_state.uncertain_fingerprint(held.generation))
             self.assertEqual(record.routine(self.state(service), value.routine_id).routine_id, value.routine_id)
+            # An offer spent meanwhile admits nothing: the Routine is not even marked deleting.
+            with (
+                mock.patch.object(
+                    service.routine_proposals, "take", side_effect=routine_proposal.ProposalError("used")
+                ),
+                self.assertRaises(local_app.ApiProblem) as spent,
+            ):
+                service.confirm_routine("team_1", offer)
+            self.assertEqual(spent.exception.code, "routine-proposal-unavailable")
+            self.assertFalse(record.routine(self.state(service), value.routine_id).deleting)
+            self.assertTrue(service.confirm_routine("team_1", offer)["deleted"])
+            self.assertEqual(self.state(service).routines, ())
+            with self.assertRaises(local_app.ApiProblem) as reused:
+                service.confirm_routine("team_1", offer)
+            self.assertEqual(reused.exception.code, "routine-proposal-unavailable")
 
     def test_other_failures_and_a_dead_lease(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
