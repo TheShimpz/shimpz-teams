@@ -72,10 +72,16 @@ def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict
     body = handler._body(max_bytes=BODY_LIMITS[route.operation])
     if route.operation == "routine-resolve":
         return service.resolve_routine_run(team_id, run_id, body)
+    if route.operation == "routine-challenge-open":
+        # The challenge renders its request copy in the Admin interface language (ADR-0091).
+        opening = http_routine.canonical_challenge_open(body)
+        if opening is None:
+            raise ApiProblem(
+                HTTPStatus.UNPROCESSABLE_ENTITY, "opening a challenge requires only locale", code="invalid-body"
+            )
+        return service.open_routine_challenge(team_id, run_id, opening["locale"])
     if body != {}:
         raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request requires an empty object", code="invalid-body")
-    if route.operation == "routine-challenge-open":
-        return service.open_routine_challenge(team_id, run_id)
     return service.stop_routine(team_id, run_id)
 
 

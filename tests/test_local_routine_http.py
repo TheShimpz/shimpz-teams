@@ -208,6 +208,11 @@ class SessionRouteTests(RoutineHttpCase):
                 raise action_human.HumanRequestSuspensionError(approval())
 
             controller.assistant_lifecycle.invoke = invoke
+            opened_title = next(
+                item["msgid"]
+                for item in approval().messages()
+                if item["id"] == approval().payload()["title"]["message"]
+            )
             value = self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             self.run_claim(service, claim)
@@ -216,10 +221,17 @@ class SessionRouteTests(RoutineHttpCase):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 self.assertEqual(json.loads(raw)["runs"][0]["status"], "frozen")
                 self.assertEqual(verify.call_args.kwargs["request"].authority_kinds, frozenset({"session"}))
-                status, _type, raw = self.request("POST", run + "/challenge", b'{"x":1}')
+                # Opening names exactly the Admin interface language its copy renders in (ADR-0091).
+                for invalid in (b'{"x":1}', EMPTY, b'{"locale":null}', b'{"locale":"pt-BR"}', b'{"locale":"pt","x":1}'):
+                    with self.subTest(body=invalid):
+                        status, _type, raw = self.request("POST", run + "/challenge", invalid)
+                        self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
+                status, _type, raw = self.request("POST", run + "/stop", b'{"x":1}')
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-                status, _type, raw = self.request("POST", run + "/challenge", EMPTY)
-                challenge_id = json.loads(raw)["challenge_id"]
+                status, _type, raw = self.request("POST", run + "/challenge", b'{"locale":"pt"}')
+                opened = json.loads(raw)
+                self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
+                challenge_id = opened["challenge_id"]
                 status, _type, raw = self.request("POST", run + "/resolve", b'{"batch_fingerprint":"x"}')
                 self.assertEqual((status, json.loads(raw)["code"]), (409, "routine-run-not-uncertain"))
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
@@ -257,7 +269,7 @@ class SessionRouteTests(RoutineHttpCase):
             claim = service.claim_routine_run(("anthropic", "openai"))
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             answer = json.dumps({"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}).encode()
             with mock.patch.object(
                 local_authority, "verify", side_effect=local_authority.SupervisorDeniedError

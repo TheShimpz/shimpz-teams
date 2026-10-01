@@ -126,7 +126,7 @@ class NoticeTests(FrozenCase):
             service.acknowledge_routine_notices(
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
             )
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             service.resume_routine_human(
                 "team_1",
                 claim["run_id"],
@@ -144,7 +144,7 @@ class EndingRaceTests(FrozenCase):
     def test_a_deleting_routine_never_resumes_its_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
             with self.assertRaises(local_app.ApiProblem) as caught:
                 service.resume_routine_human(
@@ -281,7 +281,7 @@ class StopBeforeRegistrationTests(FrozenCase):
     def test_a_stop_while_a_replay_is_admitted_ends_the_frozen_run_before_it_resumes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             admit = routine_human._current_context
 
             def stopped_meanwhile(*args):

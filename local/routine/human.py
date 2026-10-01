@@ -134,18 +134,30 @@ def _current_context(
     return current[2]
 
 
-def open_routine_challenge(self, team_id: str, run_id: str) -> dict[str, object]:
-    """A person opened a frozen run's notice: create a fresh one-use challenge for its exact request."""
+def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict[str, object]:
+    """A person opened a frozen run's notice: create a fresh one-use challenge for its exact request.
+
+    Each opening renders the request copy in the Admin interface language from the same binding's pack, so another
+    language is always a fresh challenge; a purpose from another language is not shown (ADR-0091).
+    """
     team_id = validate_team_id(team_id)
     value, _routine = _frozen(self, team_id, run_id)
     if value.request_kind != "human":
         return {"team_id": team_id, "run_id": value.run_id, "status": "integrations-required"}
     decoded = _decoded(self, team_id, value.run_id)
+    frozen = decoded.requirements[0]
     with self._lock(team_id):
-        _current_context(self, team_id, value, decoded.pending, decoded.requirements[0])
+        assistants = _current_context(self, team_id, value, decoded.pending, frozen)
+        active = next(item for item in assistants if item.spec.assistant_id == frozen.assistant_id)
+        try:
+            requirement = action_challenges.relocalize(frozen, self._assistant_language(active), locale)
+        except action_challenges.HumanChallengeError as exc:
+            raise _problem(
+                HTTPStatus.CONFLICT, "Action human request changed; the run stays frozen", "human-request-invalid"
+            ) from exc
         # One routine challenge per Team at a time: opening another returns the earlier run to waiting, still frozen.
         self.routine_human_challenges.cancel_team(team_id)
-        challenge = self.routine_human_challenges.create(team_id, decoded.requirements[0], (value.run_id, decoded))
+        challenge = self.routine_human_challenges.create(team_id, requirement, (value.run_id, decoded))
     return {**self._human_response(challenge), "run_id": value.run_id}
 
 

@@ -100,7 +100,7 @@ class RunFaultTests(RoutineServiceCase):
             frozen = record.run(self.state(service), claim["run_id"])
             self.assertEqual(frozen.request_kind, "integrations")
             self.assertEqual(
-                service.open_routine_challenge("team_1", claim["run_id"])["status"], "integrations-required"
+                service.open_routine_challenge("team_1", claim["run_id"], "en")["status"], "integrations-required"
             )
             with self.assertRaises(local_app.ApiProblem) as provider:
                 service.resume_routine_integrations("team_1", claim["run_id"], "anthropic", API_KEY)
@@ -201,7 +201,7 @@ class FrozenFaultTests(RoutineServiceCase):
     def test_a_failure_after_a_human_answer_is_held_uncertain(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             resumed = service.resume_routine_human(
                 "team_1",
                 claim["run_id"],
@@ -233,7 +233,7 @@ class FrozenFaultTests(RoutineServiceCase):
             ):
                 service.routine_store.put_continuation("team_1", claim["run_id"], blob)
                 with self.subTest(blob=blob), self.assertRaises(local_app.ApiProblem) as caught:
-                    service.open_routine_challenge("team_1", claim["run_id"])
+                    service.open_routine_challenge("team_1", claim["run_id"], "en")
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
@@ -242,7 +242,7 @@ class FrozenFaultTests(RoutineServiceCase):
                 mock.patch.object(service, "_active_chat_assistants", return_value=()),
                 self.assertRaises(local_app.ApiProblem) as changed,
             ):
-                service.open_routine_challenge("team_1", claim["run_id"])
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
             self.assertEqual(changed.exception.code, "team-context-changed")
             self.assertEqual(self.state(service).runs, ())
 
@@ -261,11 +261,11 @@ class FrozenFaultTests(RoutineServiceCase):
             )
             for patch in unreadable:
                 with self.subTest(patch=patch), patch, self.assertRaises(local_app.ApiProblem) as unavailable:
-                    service.open_routine_challenge("team_1", run_id)
+                    service.open_routine_challenge("team_1", run_id, "en")
                 self.assertEqual(
                     (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
                 )
-            opened = service.open_routine_challenge("team_1", run_id)
+            opened = service.open_routine_challenge("team_1", run_id, "en")
             with (
                 unreadable[0],
                 self.assertRaises(local_app.ApiProblem) as replay,
@@ -281,7 +281,7 @@ class FrozenFaultTests(RoutineServiceCase):
             (held,) = self.state(service).runs
             self.assertEqual((held.run_id, held.status), (run_id, "frozen"))
             self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
-            self.assertEqual(service.open_routine_challenge("team_1", run_id)["run_id"], run_id)
+            self.assertEqual(service.open_routine_challenge("team_1", run_id, "en")["run_id"], run_id)
 
     def test_an_unreadable_or_malformed_registry_keeps_the_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -293,14 +293,14 @@ class FrozenFaultTests(RoutineServiceCase):
                     self.broken_registry(service, directory, damage),
                     self.assertRaises(local_app.ApiProblem) as unavailable,
                 ):
-                    service.open_routine_challenge("team_1", run_id)
+                    service.open_routine_challenge("team_1", run_id, "en")
                 self.assertEqual(
                     (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
                 )
             (held,) = self.state(service).runs
             self.assertEqual((held.run_id, held.status), (run_id, "frozen"))
             self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
-            self.assertEqual(service.open_routine_challenge("team_1", run_id)["run_id"], run_id)
+            self.assertEqual(service.open_routine_challenge("team_1", run_id, "en")["run_id"], run_id)
 
     def test_a_removed_or_changed_model_configuration_ends_the_frozen_run(self) -> None:
         for load in (
@@ -313,14 +313,14 @@ class FrozenFaultTests(RoutineServiceCase):
                     mock.patch.object(service.inference_store, "load", load),
                     self.assertRaises(local_app.ApiProblem) as changed,
                 ):
-                    service.open_routine_challenge("team_1", claim["run_id"])
+                    service.open_routine_challenge("team_1", claim["run_id"], "en")
                 self.assertEqual(changed.exception.code, "team-context-changed")
                 self.assertEqual(self.state(service).runs, ())
 
     def test_an_answer_must_match_its_own_run_and_only_a_frozen_run_takes_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             challenge = service.routine_human_challenges.current("team_1")
             object.__setattr__(challenge, "payload", ("0" * 32, challenge.payload[1]))
             with self.assertRaises(local_app.ApiProblem) as other:
@@ -335,7 +335,7 @@ class FrozenFaultTests(RoutineServiceCase):
             self.routine(service)
             leased = service.claim_routine_run(("anthropic", "openai"))
             with self.assertRaises(local_app.ApiProblem) as not_frozen:
-                service.open_routine_challenge("team_1", leased["run_id"])
+                service.open_routine_challenge("team_1", leased["run_id"], "en")
             self.assertEqual(not_frozen.exception.code, "routine-run-not-frozen")
 
 

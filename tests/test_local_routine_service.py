@@ -23,6 +23,7 @@ from local import audit as local_audit
 from local import authority as local_authority
 from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
+from local.routine import human as routine_human
 from local.routine import proposal as routine_proposal
 from local.routine import run as routine_run
 from local.routine import store as routine_store
@@ -497,7 +498,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertEqual((run.status, run.request_kind, run.action), ("frozen", "human", "list-zones"))
             # A frozen run never blocks chat: no chat challenge exists.
             self.assertIsNone(service.human_challenges.current("team_1"))
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             self.assertEqual(opened["run_id"], claim["run_id"])
             resumed = service.resume_routine_human(
                 "team_1",
@@ -515,7 +516,7 @@ class FreezeTests(RoutineServiceCase):
             controller, service, claim, _frozen = self.paused(directory, completed("Approved and listed."))
             # Only the display name changes; the run's Team context keeps the immutable creation label.
             controller.team_names.save("team_1", "a" * 64, "Growth")
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             resumed = service.resume_routine_human(
                 "team_1",
                 claim["run_id"],
@@ -528,7 +529,7 @@ class FreezeTests(RoutineServiceCase):
     def test_a_denied_or_stopped_frozen_run_ends_and_an_expired_challenge_leaves_it_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             with self.assertRaises(local_app.ApiProblem) as expired:
                 service.resume_routine_human(
                     "team_1", claim["run_id"], {"challenge_id": "0" * 32, "decision": "deny"}, "openai", API_KEY
@@ -545,7 +546,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertEqual((denied["status"], self.state(service).notices[-1].outcome), ("denied", "denied"))
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
-            service.open_routine_challenge("team_1", claim["run_id"])
+            service.open_routine_challenge("team_1", claim["run_id"], "en")
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             self.assertIsNone(service.current_routine_challenge("team_1"))
             self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
@@ -553,7 +554,7 @@ class FreezeTests(RoutineServiceCase):
     def test_invalid_answers_and_runs_are_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             cases = (
                 ({"decision": "submit"}, "invalid-body"),
                 (
@@ -576,7 +577,7 @@ class FreezeTests(RoutineServiceCase):
             self.assertEqual(provider.exception.code, "inference-provider-mismatch")
             for run_id, code in (("0" * 32, "routine-run-not-found"), (7, "routine-run-not-found")):
                 with self.subTest(run_id=run_id), self.assertRaises(local_app.ApiProblem) as missing:
-                    service.open_routine_challenge("team_1", run_id)
+                    service.open_routine_challenge("team_1", run_id, "en")
                 self.assertEqual(missing.exception.code, code)
             with self.assertRaises(local_app.ApiProblem) as integration:
                 service.resume_routine_integrations("team_1", claim["run_id"], "openai", API_KEY)
@@ -589,21 +590,58 @@ class FreezeTests(RoutineServiceCase):
                 mock.patch.object(service, "_chat_identity", return_value=("changed",)),
                 self.assertRaises(local_app.ApiProblem) as changed,
             ):
-                service.open_routine_challenge("team_1", claim["run_id"])
+                service.open_routine_challenge("team_1", claim["run_id"], "en")
             self.assertEqual(changed.exception.code, "team-context-changed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "team-context-changed")
+
+    def test_each_opening_renders_a_fresh_challenge_in_the_admin_language(self) -> None:
+        """A frozen run's request copy follows the language of whoever opens it (ADR-0091)."""
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim, _frozen = self.paused(directory)
+            japanese = service.open_routine_challenge("team_1", claim["run_id"], "ja")
+            portuguese = service.open_routine_challenge("team_1", claim["run_id"], "pt")
+
+            self.assertNotEqual(japanese["challenge_id"], portuguese["challenge_id"])
+            self.assertEqual(japanese["request"], portuguese["request"])
+            self.assertEqual(japanese["pack_digest"], portuguese["pack_digest"])
+            self.assertEqual((japanese["locale"], portuguese["locale"]), ("ja", "pt"))
+            self.assertTrue(japanese["rendered"]["title"].startswith("JA "))
+            self.assertTrue(portuguese["rendered"]["title"].startswith("PT "))
+            self.assertNotIn("purpose", portuguese)
+            # Another language replaced the earlier challenge: only the newest one can be answered.
+            with self.assertRaises(local_app.ApiProblem) as stale:
+                service.resume_routine_human(
+                    "team_1",
+                    claim["run_id"],
+                    {"challenge_id": japanese["challenge_id"], "decision": "submit", "value": True},
+                    "openai",
+                    "sk-test-0123456789",
+                )
+            self.assertEqual(stale.exception.code, "human-request-expired")
+
+            with (
+                mock.patch.object(
+                    routine_human.action_challenges,
+                    "relocalize",
+                    side_effect=routine_human.action_challenges.HumanChallengeError("render"),
+                ),
+                self.assertRaises(local_app.ApiProblem) as refused,
+            ):
+                service.open_routine_challenge("team_1", claim["run_id"], "de")
+            self.assertEqual(refused.exception.code, "human-request-invalid")
+            self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "frozen")
 
     def test_a_binding_with_another_pack_ends_the_frozen_run_on_open_or_answer(self) -> None:
         """The frozen request's copy must still come from the binding's catalog and pack (ADR-0091)."""
         for stage in ("open", "answer"):
             with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
                 controller, service, claim, _frozen = self.paused(directory)
-                opened = service.open_routine_challenge("team_1", claim["run_id"]) if stage == "answer" else None
+                opened = service.open_routine_challenge("team_1", claim["run_id"], "en") if stage == "answer" else None
                 spec = controller.registry[ASSISTANT]
                 controller.registry[ASSISTANT] = dataclasses.replace(spec, pack_digest=f"sha256:{'9' * 64}")
                 with self.assertRaises(local_app.ApiProblem) as changed:
                     if opened is None:
-                        service.open_routine_challenge("team_1", claim["run_id"])
+                        service.open_routine_challenge("team_1", claim["run_id"], "en")
                     else:
                         service.resume_routine_human(
                             "team_1",
