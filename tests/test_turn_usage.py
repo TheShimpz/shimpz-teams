@@ -8,6 +8,7 @@ import json
 import sys
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -19,9 +20,11 @@ from local_controller_harness import LocalContractCase
 from test_local_chat_continuations import pending
 from test_local_turn_lifecycle import LOOKUP_INPUT, LOOKUP_RESULT
 
+from action import challenges as action_challenges
 from action import human as action_human
 from inference import client as brain_runtime_client
 from inference import usage as brain_usage
+from local.chat import api as local_chat_api
 from local.chat import continuation
 from protocol.http.v1 import payload as http_payload
 
@@ -126,67 +129,109 @@ class TurnUsageContinuationCodecTests(unittest.TestCase):
                 continuation._pending(value)
 
 
+def _approval() -> action_human.HumanRequest:
+    descriptor = {"kind": "approval", "ordinal": 0, "title": "List zones", "description": "Allow listing zones."}
+    descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+    return action_human.validate_request(descriptor, ("approval",))
+
+
+def _reported(inputs: int, outputs: int) -> dict[str, int]:
+    return {**REPORTED, "input_tokens": inputs, "output_tokens": outputs}
+
+
 class LocalTurnUsageTests(LocalContractCase):
-    def test_a_completed_turn_reports_every_brain_call_and_its_duration_across_a_human_resume(self) -> None:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-        descriptor = {"kind": "approval", "ordinal": 0, "title": "List zones", "description": "Allow listing zones."}
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("approval",))
+    def test_each_segment_counts_once_across_two_human_pauses_and_an_encrypted_reopen(self) -> None:
+        first = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
+        second = brain_runtime_client.ActionRequest("action-2", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            resumes = 0
+
             def start(self, _context, _message, *, conversation=()):
-                brain_usage.record("turn", "openai", "gpt-6-luna", REPORTED)
-                return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
+                brain_usage.record("turn", "openai", "gpt-6-luna", _reported(100, 10))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (first,))
 
             def purpose(self, *_args):
-                reported = {**REPORTED, "input_tokens": 9, "output_tokens": 4}
-                brain_usage.record("purpose", "openai", "gpt-6-luna", reported)
+                brain_usage.record("purpose", "openai", "gpt-6-luna", _reported(9, 4))
                 return "To list your zones, I need to read them in Cloudflare."
 
             def resume(self, _context, _results):
-                brain_usage.record("turn-resume", "openai", "gpt-6-luna", {**REPORTED, "input_tokens": 60})
+                self.resumes += 1
+                brain_usage.record("turn-resume", "openai", "gpt-6-luna", _reported(200 * self.resumes, 20))
+                if self.resumes == 1:
+                    return brain_runtime_client.RuntimeTurn("action-required", "", (second,))
                 return brain_runtime_client.RuntimeTurn("completed", "Two zones.", ())
 
-        invocations: list[object] = []
-
-        def invoke(*_args):
-            invocations.append(_args)
-            if len(invocations) == 1:
-                raise action_human.HumanRequestSuspensionError(admitted)
+        def invoke(*args):
+            # Each Action pauses once for approval, then its approved replay returns the result.
+            if not args[4].transcript.responses:
+                raise action_human.HumanRequestSuspensionError(_approval())
             return {"result": LOOKUP_RESULT}
 
-        body = {
-            "message": "List zones",
-            "files": [],
-            "assistant_ids": ["shimpz-cloudflare"],
-            "conversation": [],
-            "locale": "en",
-        }
+        body = {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []}
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             controller.assistant_lifecycle.invoke = invoke
+            service = controller.chat_turn_service
+
+            def approve(paused: dict[str, object]) -> dict[str, object]:
+                answer = {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True}
+                return service.resume_chat_human("team_1", answer, "openai", "sk-test-0123456789")
+
             # Each Team HTTP request has its own meter; the turn's usage rides on its encrypted continuation.
             with brain_usage.metered(), _clock(1_000):
-                paused = controller.chat_turn_service.chat("team_1", body, "openai", "sk-test-0123456789")
-            self.assertEqual(paused["status"], "human-required")
-            self.assertNotIn("usage", paused)
-            with brain_usage.metered(), _clock(9_500):
-                completed = controller.chat_turn_service.resume_chat_human(
-                    "team_1",
-                    {"challenge_id": paused["challenge_id"], "decision": "submit", "value": True},
-                    "openai",
-                    "sk-test-0123456789",
-                )
+                paused = service.chat("team_1", {**body, "locale": "en"}, "openai", "sk-test-0123456789")
+            # A Controller restart reopens the encrypted continuation with the usage so far.
+            service.human_challenges = action_challenges.HumanChallengeStore()
+            service._restore_all_chat_continuations()
+            restored = service.human_challenges.current("team_1").payload
+            self.assertEqual(restored.usage, brain_usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 109, 14),)))
+            with brain_usage.metered():
+                paused_again = approve(paused)
+            self.assertEqual(paused_again["status"], "human-required")
+            carried = service.human_challenges.current("team_1").payload.usage
+            self.assertEqual(carried, brain_usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 318, 38),)))
+            # Two Actions would teach a skill; that save is audited under a request principal this unit has not.
+            with (
+                brain_usage.metered(),
+                _clock(50_000),
+                mock.patch.object(local_chat_api.chat_knowledge, "learned_skill", return_value=None),
+            ):
+                completed = approve(paused_again)
 
+        self.assertNotIn("usage", paused)
         self.assertEqual(completed["reply"], "Two zones.")
-        self.assertEqual(
-            completed["usage"],
-            {
-                "duration_ms": 8_500,
-                "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1400, "output_tokens": 76}],
-            },
-        )
-        self.assertEqual(http_payload.canonical_turn_usage(completed["usage"]), completed["usage"])
+        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 718, "output_tokens": 58}
+        self.assertEqual(completed["usage"], {"duration_ms": 49_000, "models": [expected]})
+
+    def test_an_integration_resume_adds_its_calls_to_the_carried_turn(self) -> None:
+        carried = brain_usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 100, 10),))
+        challenge = SimpleNamespace(id="c" * 32)
+        pending_chat = dataclasses.replace(pending(), usage=carried)
+        admission = SimpleNamespace(response=None, pending=pending_chat)
+        with tempfile.TemporaryDirectory() as directory:
+            service = self._chat_controller(directory, SimpleNamespace()).chat_turn_service
+            outcome = SimpleNamespace(outcome=None, team_name="Marketing", identity=())
+
+            def run(_request):
+                brain_usage.record("turn-resume", "openai", "gpt-6-luna", _reported(50, 5))
+                return outcome
+
+            def respond(response):
+                return {"usage": response.usage.joined().wire()}
+
+            with (
+                mock.patch.object(local_chat_api.chat_turn_engine, "admit_integration_resume", return_value=admission),
+                mock.patch.object(service, "_run_chat_segment", side_effect=run),
+                mock.patch.object(service, "_segment_response", side_effect=respond),
+                brain_usage.metered(),
+                _clock(4_000),
+            ):
+                result = service.resume_chat_integrations(
+                    "team_1", {"challenge_id": challenge.id}, "openai", "sk-test-0123456789"
+                )
+        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 150, "output_tokens": 15}
+        self.assertEqual(result["usage"], {"duration_ms": 3_000, "models": [expected]})
 
 
 class HostedTurnUsageTests(unittest.TestCase):
@@ -241,6 +286,86 @@ class HostedTurnUsageTests(unittest.TestCase):
             request = SimpleNamespace(team_id="team_1", token=turn, file_ids=[], assistant_ids=(), owner="account_1")
             self.segment._chat_in_turn(request)
         self.assertEqual(respond.call_args.args[0].usage, usage.TurnUsage(42))
+
+
+class HostedTurnUsageResumeTests(unittest.TestCase):
+    """The Hosted human and Integration resume entrypoints add each segment once to the carried turn."""
+
+    segment = harness.hosted_chat_segment
+    usage = harness.hosted_chat_segment.brain_usage
+    orchestrator = harness.hosted_chat_segment.chat_orchestrator
+
+    def _pending(self, usage: object) -> object:
+        return harness.hosted_assistants._PendingHostedChat(
+            SimpleNamespace(), (), (), "account_1", ("anchor",), (), 0, usage
+        )
+
+    def _segment(self, inputs: int, *, paused: bool) -> object:
+        def run(_request):
+            self.usage.record("turn-resume", "openai", "gpt-6-luna", _reported(inputs, 1))
+            if paused:
+                outcome = self.orchestrator.ChatHumanSuspension(SimpleNamespace(), SimpleNamespace(), SimpleNamespace())
+                return self.segment.chat_turn_engine.SegmentResult("Marketing", (), outcome, (), (object(),))
+            return self.segment.chat_turn_engine.SegmentResult(
+                "Marketing", (), self.orchestrator.ChatOutcome("Done.", ()), ()
+            )
+
+        return mock.patch.object(self.segment, "_run_hosted_chat_segment", side_effect=run)
+
+    @staticmethod
+    @contextmanager
+    def _exclusive(_team_id, _lease):
+        yield "turn-1", SimpleNamespace(id="anchor")
+
+    def _resume_human(self, pending: object) -> dict[str, object]:
+        human = harness.hosted_chat_human
+        with (
+            mock.patch.object(human, "_pending_challenge", return_value=SimpleNamespace()),
+            mock.patch.object(human, "_validate_pending_context", return_value=pending),
+            mock.patch.object(human, "_admit_response", return_value=SimpleNamespace(transcripts=(), requests_used=1)),
+        ):
+            body = {"challenge_id": "c" * 32, "decision": "submit", "value": True}
+            return human.resume_chat_human("team_1", body, None, SimpleNamespace(owner="account_1"), self._exclusive)
+
+    def test_repeated_human_resumes_keep_the_start_and_add_each_segment_once(self) -> None:
+        paused: list[object] = []
+
+        def pause(_team_id, _token, _outcome, _requirements, pending):
+            paused.append(pending)
+            return {"status": "human-required"}
+
+        carried = self.usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 100, 10),))
+        with (
+            mock.patch.object(self.segment, "_pause_hosted_human", side_effect=pause),
+            mock.patch.object(self.orchestrator, "retain_suspension_transcripts", return_value=()),
+            mock.patch.object(harness.runtime_state, "_commit_chat_terminal", return_value=True),
+            mock.patch.object(self.usage, "_now_ms", return_value=7_000),
+        ):
+            with self.usage.metered(), self._segment(20, paused=True):
+                self.assertEqual(self._resume_human(self._pending(carried)), {"status": "human-required"})
+            with self.usage.metered(), self._segment(30, paused=False):
+                completed = self._resume_human(paused[0])
+
+        self.assertEqual(paused[0].usage, self.usage.TurnUsage(1_000, (("openai", "gpt-6-luna", 120, 11),)))
+        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 150, "output_tokens": 12}
+        self.assertEqual(completed["usage"], {"duration_ms": 6_000, "models": [expected]})
+
+    def test_an_integration_resume_adds_its_calls_to_the_carried_turn(self) -> None:
+        api = harness.hosted_chat_api
+        carried = self.usage.TurnUsage(2_000, (("openai", "gpt-6-luna", 100, 10),))
+        admission = SimpleNamespace(response=None, pending=self._pending(carried))
+        with (
+            mock.patch.object(api, "_exclusive_chat_turn", self._exclusive),
+            mock.patch.object(api.chat_turn_engine, "admit_integration_resume", return_value=admission),
+            mock.patch.object(harness.runtime_state, "_commit_chat_terminal", return_value=True),
+            mock.patch.object(self.usage, "_now_ms", return_value=2_500),
+            self.usage.metered(),
+            self._segment(5, paused=False),
+        ):
+            completed = api._resume_chat_integrations("team_1", "c" * 32, SimpleNamespace(owner="account_1"))
+
+        expected = {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 105, "output_tokens": 11}
+        self.assertEqual(completed["usage"], {"duration_ms": 500, "models": [expected]})
 
 
 if __name__ == "__main__":
