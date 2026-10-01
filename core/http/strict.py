@@ -496,6 +496,12 @@ CONTROLLER_ROUTES = (
         "assistant-icon",
     ),
     _controller_route(
+        "GET",
+        "/v1/teams/:team_id/assistants/:assistant_id/summary/:locale",
+        "assistant-summary",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
         "POST",
         "/v1/teams/:team_id/assistants/local/fresh",
         "local-assistant-fresh-install",

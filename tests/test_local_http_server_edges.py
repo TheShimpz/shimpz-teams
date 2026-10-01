@@ -449,6 +449,16 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
                 result = handler._route([], self.route(operation, **params))
                 self.assertEqual(result[2], operation)
 
+        controller.assistant_summary = mock.Mock(return_value={"locale": "pt", "summary": "Resumo."})
+        result = handler._route(
+            [],
+            self.route("assistant-summary", team_id="team_1", assistant_id="assistant", locale="pt"),
+        )
+        self.assertEqual(
+            result, (200, {"locale": "pt", "summary": "Resumo."}, "assistant-summary", "team_1", "assistant")
+        )
+        controller.assistant_summary.assert_called_once_with("team_1", "assistant", "pt")
+
         handler.command = "POST"
         result = handler._route(
             ["v1", "teams", "team_1", "assistants", "local"],

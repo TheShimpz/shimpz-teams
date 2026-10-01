@@ -12,6 +12,7 @@ from docker.errors import DockerException, NotFound
 
 from action import execution as action_execution
 from action import journal as action_journal
+from assistant import language as assistant_language
 from chat import orchestrator as chat_orchestrator
 from inference import config as inference_config
 from install import icons
@@ -23,6 +24,7 @@ from local.chat import resume as chat_resume
 from local.chat import segment as chat_segment
 from local.chat import types as chat_types
 from local.errors import ApiProblemError
+from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 
 
 class LocalLeafContractTests(unittest.TestCase):
@@ -192,6 +194,69 @@ class LocalLeafContractTests(unittest.TestCase):
         controller._active_action_containers = {}
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertFalse(result["accepted"])
+
+    def test_installed_summary_reads_only_the_binding_pack_in_the_requested_language(self) -> None:
+        summary = "Publish DNS changes safely."
+        identifier = catalog_validator.message_id(summary)
+        pack = assistant_language.LanguagePack(
+            catalog_digest="sha256:" + "a" * 64,
+            pack_digest="sha256:" + "b" * 64,
+            messages={identifier: {"id": identifier, "msgid": summary}},
+            translations={"pt": {identifier: "Publica alterações de DNS com segurança."}},
+        )
+        spec = types.SimpleNamespace(summary=summary)
+        container = types.SimpleNamespace(id="container-id")
+        binding = object()
+        lifecycle = types.SimpleNamespace(
+            _assistant_container=mock.Mock(return_value=container),
+            _assistant_language=mock.Mock(return_value=pack),
+        )
+        registry = types.SimpleNamespace(binding=mock.Mock(return_value=binding), spec=mock.Mock(return_value=spec))
+        controller = types.SimpleNamespace(
+            _lock=lambda _team_id: nullcontext(),
+            registry=registry,
+            assistant_lifecycle=lifecycle,
+        )
+
+        self.assertEqual(
+            assistant_api.assistant_summary(controller, "team_1", "helper", "pt"),
+            {"locale": "pt", "summary": "Publica alterações de DNS com segurança."},
+        )
+        registry.binding.assert_called_once_with("team_1", "helper")
+        registry.spec.assert_called_once_with(binding)
+        lifecycle._assistant_container.assert_called_once_with("team_1", "helper")
+        lifecycle._assistant_language.assert_called_once_with(
+            chat_types.ActiveAssistant(spec, "container-id", container)
+        )
+
+        # English is the binding's own catalog summary and never reads the pack.
+        lifecycle._assistant_language.reset_mock()
+        self.assertEqual(
+            assistant_api.assistant_summary(controller, "team_1", "helper", "en"),
+            {"locale": "en", "summary": summary},
+        )
+        lifecycle._assistant_language.assert_not_called()
+
+        # A pack that cannot be verified for the binding fails closed instead of answering in English.
+        lifecycle._assistant_language.side_effect = ApiProblemError(
+            409, "installed Assistant manifest failed its reviewed contract", code="assistant-manifest-invalid"
+        )
+        with self.assertRaises(ApiProblemError) as caught:
+            assistant_api.assistant_summary(controller, "team_1", "helper", "ja")
+        self.assertEqual(caught.exception.code, "assistant-manifest-invalid")
+
+        registry.binding.return_value = None
+        with self.assertRaises(ApiProblemError) as caught:
+            assistant_api.assistant_summary(controller, "team_1", "helper", "pt")
+        self.assertEqual(caught.exception.code, "assistant-not-installed")
+
+        for locale in ("pt-BR", "EN", None):
+            with self.subTest(locale=locale), self.assertRaises(ApiProblemError) as caught:
+                assistant_api.assistant_summary(controller, "team_1", "helper", locale)
+            self.assertEqual(caught.exception.code, "invalid-locale")
+        with self.assertRaises(ApiProblemError) as caught:
+            assistant_api.assistant_summary(controller, "team_1", "Helper/..", "pt")
+        self.assertEqual(caught.exception.code, "invalid-assistant-id")
 
     def test_assistant_inventory_maps_icon_docker_registry_and_egress_failures(self) -> None:
         binding = types.SimpleNamespace(resolution={})

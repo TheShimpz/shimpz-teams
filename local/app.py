@@ -255,6 +255,7 @@ class LocalController:
     configure_inference = local_inference.configure_inference
     list_assistants = local_assistant_api.list_assistants
     assistant_icon = local_assistant_api.assistant_icon
+    assistant_summary = local_assistant_api.assistant_summary
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
     list_local_snapshots = local_install_service.list_local_snapshots

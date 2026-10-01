@@ -737,37 +737,32 @@ class Handler(BaseHTTPRequestHandler):
                 assistant_id,
             )
         assistant_id = route.params["assistant_id"]
+        return (
+            HTTPStatus.OK,
+            self._installed_assistant_route(route, team_id, assistant_id),
+            operation,
+            team_id,
+            assistant_id,
+        )
+
+    def _installed_assistant_route(
+        self,
+        route: strict_http.ControllerRouteMatch,
+        team_id: str,
+        assistant_id: str,
+    ) -> dict[str, object]:
+        """Dispatch one operation on one installed Team Assistant."""
+        controller = self.server.controller
+        operation = route.operation
+        if operation == "assistant-summary":
+            return controller.assistant_summary(team_id, assistant_id, route.params["locale"])
         if operation == "assistant-action-labels":
             provider, api_key = self._model_credential_headers()
-            return (
-                HTTPStatus.OK,
-                controller.chat_turn_service.action_labels(
-                    team_id,
-                    assistant_id,
-                    self._body(),
-                    provider,
-                    api_key,
-                ),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.chat_turn_service.action_labels(team_id, assistant_id, self._body(), provider, api_key)
         if operation == "assistant-uninstall":
-            return (
-                HTTPStatus.OK,
-                controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
         if operation == "assistant-invoke":
-            return (
-                HTTPStatus.OK,
-                controller.invoke(team_id, assistant_id, route.params["action_id"], self._body()),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.invoke(team_id, assistant_id, route.params["action_id"], self._body())
         raise AssertionError("canonical local route was not dispatched")
 
     def _authorized_route(
