@@ -33,6 +33,8 @@ RUNTIME_IMAGE_ID = "sha256:trusted-runtime-id"
 ASSISTANT_ID = "hello-world"
 ASSISTANT_IMAGE_REF = "trusted-assistant:v1"
 ASSISTANT_IMAGE_ID = "sha256:trusted-assistant-id"
+EGRESS_IMAGE_REF = "trusted-egress:v1"
+EGRESS_IMAGE_ID = "sha256:trusted-egress-id"
 
 
 def _assistant_binding(
@@ -252,6 +254,8 @@ def _valid_topology() -> tuple[dict, dict[str, dict]]:
         policy.ASSISTANT_EGRESS_CONTAINER,
         labels=policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE),
         networks={CORE: _endpoint("core-id", policy.ASSISTANT_EGRESS_CONTAINER)},
+        image_ref=EGRESS_IMAGE_REF,
+        image_id=EGRESS_IMAGE_ID,
     )
     containers = {item["Id"]: item for item in (runtime, assistant, postgres, assistant_egress)}
     core = _network(policy.CORE_KIND, "core-id", "runtime-id", "assistant-id", "postgres-id", "assistant-egress-id")
@@ -607,6 +611,76 @@ def test_health_tolerates_only_stopped_unbound_assistants() -> None:
         team_healthcheck.DYNAMIC_ASSISTANTS = original_dynamic_assistants
 
 
+def test_image_identity_binds_the_exact_reference_and_its_resolved_id() -> None:
+    _core, containers = _valid_topology()
+    egress = containers["assistant-egress-id"]
+    check(
+        policy.image_identity_valid(egress, EGRESS_IMAGE_REF, EGRESS_IMAGE_ID),
+        "the pinned reference and its resolved image ID admit the proxy",
+    )
+    for reference, image_id, message in (
+        ("", EGRESS_IMAGE_ID, "an absent expected reference never matches"),
+        (EGRESS_IMAGE_REF, "", "an unresolved expected image never matches"),
+        ("foreign-egress:v1", EGRESS_IMAGE_ID, "a different configured reference is refused"),
+        (EGRESS_IMAGE_REF, "sha256:foreign-id", "a foreign image under the pinned reference is refused"),
+    ):
+        check(not policy.image_identity_valid(egress, reference, image_id), message)
+    original = policy.ASSISTANT_EGRESS_IMAGE
+    policy.ASSISTANT_EGRESS_IMAGE = EGRESS_IMAGE_REF
+    try:
+        check(
+            policy.assistant_egress_image_valid(egress, EGRESS_IMAGE_ID),
+            "the pinned Assistant egress member is valid",
+        )
+        check(
+            not policy.assistant_egress_image_valid(egress, "sha256:foreign-id"),
+            "a foreign image keeping the proxy name and role labels is refused",
+        )
+        check(
+            policy.assistant_egress_image_valid(containers["postgres-id"], "sha256:foreign-id"),
+            "the egress image pin constrains only the Assistant egress member",
+        )
+    finally:
+        policy.ASSISTANT_EGRESS_IMAGE = original
+
+
+def test_required_image_reference_fails_closed() -> None:
+    for value in (
+        "shimpz-egress:shimpz-local",
+        "ghcr.io/theshimpz/shimpz-egress@sha256:" + "a" * 64,
+    ):
+        check(
+            policy.require_image_reference(value, setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE") == value,
+            "an exact image reference is admitted unchanged",
+        )
+    for value in ("", " shimpz-egress", "shimpz egress", "-egress", None, "a" * 513):
+        try:
+            policy.require_image_reference(value, setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE")
+        except RuntimeError as exc:
+            check("SHIMPZ_ASSISTANT_EGRESS_IMAGE" in str(exc), "the refusal names the missing setting")
+        else:
+            raise AssertionError(f"malformed image reference {value!r} was admitted")
+
+
+def test_health_requires_the_egress_image_pin_and_its_exact_proxy() -> None:
+    original = (team_healthcheck._image_id, team_healthcheck.REQUIRED_IMAGES)
+    try:
+        team_healthcheck._image_id = lambda image_ref: "sha256:present"
+        team_healthcheck.REQUIRED_IMAGES = (RUNTIME_IMAGE_REF, EGRESS_IMAGE_REF)
+        check(team_healthcheck.images_ready(), "present pinned images are ready")
+        team_healthcheck.REQUIRED_IMAGES = (RUNTIME_IMAGE_REF, "")
+        check(not team_healthcheck.images_ready(), "a missing Assistant egress pin is never ready")
+        team_healthcheck._image_id = lambda image_ref: None
+        team_healthcheck.REQUIRED_IMAGES = (RUNTIME_IMAGE_REF, EGRESS_IMAGE_REF)
+        check(not team_healthcheck.images_ready(), "an absent pinned image is never ready")
+    finally:
+        team_healthcheck._image_id, team_healthcheck.REQUIRED_IMAGES = original
+    check(
+        team_healthcheck.REQUIRED_IMAGES == (team_healthcheck.REQUIRED_TEAM_IMAGE, policy.ASSISTANT_EGRESS_IMAGE),
+        "shipping readiness requires the Team runtime and Assistant egress pins",
+    )
+
+
 def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
     core, containers = _valid_topology()
     containers["runtime-id"]["Config"]["Image"] = team_healthcheck.REQUIRED_TEAM_IMAGE
@@ -636,6 +710,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
         team_healthcheck._docker_json,
         team_healthcheck._image_id,
         team_healthcheck.DYNAMIC_ASSISTANTS,
+        policy.ASSISTANT_EGRESS_IMAGE,
     )
 
     def docker_json(path: str) -> tuple[int, object]:
@@ -655,13 +730,21 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
         team_healthcheck._image_id = lambda image_ref: {
             team_healthcheck.REQUIRED_TEAM_IMAGE: RUNTIME_IMAGE_ID,
             ASSISTANT_IMAGE_REF: ASSISTANT_IMAGE_ID,
+            EGRESS_IMAGE_REF: EGRESS_IMAGE_ID,
         }.get(image_ref)
         team_healthcheck.DYNAMIC_ASSISTANTS = _binding_store()
+        policy.ASSISTANT_EGRESS_IMAGE = EGRESS_IMAGE_REF
         try:
             check(
                 team_healthcheck.main() == 0,
                 "a stopped residual container does not make the whole controller unready",
             )
+            containers["assistant-egress-id"]["Image"] = "sha256:foreign-egress-id"
+            check(
+                team_healthcheck.main() == 1,
+                "a foreign proxy keeping the shared name and role labels fails global readiness",
+            )
+            containers["assistant-egress-id"]["Image"] = EGRESS_IMAGE_ID
             orphan["State"]["Running"] = True
             check(
                 team_healthcheck.main() == 1,
@@ -675,6 +758,7 @@ def test_health_main_stays_ready_after_a_stopped_incomplete_rollback() -> None:
                 team_healthcheck._docker_json,
                 team_healthcheck._image_id,
                 team_healthcheck.DYNAMIC_ASSISTANTS,
+                policy.ASSISTANT_EGRESS_IMAGE,
             ) = original_checks
 
 

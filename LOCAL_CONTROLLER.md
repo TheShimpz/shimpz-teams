@@ -29,6 +29,10 @@ failure. It does not remove shared images, the controller container, or unlabele
 ## Runtime boundary
 
 - Required identity: `SHIMPZ_SPACE_ID`, a stable lowercase/dash-separated value of at most 48 bytes.
+- Required egress pin: `SHIMPZ_ASSISTANT_EGRESS_IMAGE`, the exact image reference Compose instantiates for the
+  Assistant egress proxy. The controller refuses to start without it and, before attaching or using the proxy,
+  answers `409 egress-proxy-drift` unless the proxy's configured reference and image ID equal that reference and
+  Docker's current resolution of it.
 - HTTP: port `7077`, private Compose networking only. Every route—including `/healthz`—requires
   `Authorization: Bearer <controller token>`.
 - Process: UID/GID `10001:10001`, supplementary token GID `10010`, read-only root filesystem, bounded

@@ -654,6 +654,19 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
 
 class LocalAppMainEdgeTests(unittest.TestCase):
+    def test_main_refuses_to_start_without_the_assistant_egress_image_pin(self) -> None:
+        for image in ("", "shimpz egress"):
+            with (
+                self.subTest(image=image),
+                mock.patch.dict(local_app.os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
+                mock.patch.object(local_app.network_policy, "ASSISTANT_EGRESS_IMAGE", image),
+                mock.patch.object(local_app.local_token_store, "ensure_token") as ensure_token,
+                mock.patch.object(local_app.docker, "from_env") as from_env,
+            ):
+                self.assertEqual(local_app.main(), 1)
+            ensure_token.assert_not_called()
+            from_env.assert_not_called()
+
     def test_main_maps_startup_failure_and_closes_successful_runtime(self) -> None:
         with mock.patch.dict(local_app.os.environ, {}, clear=True):
             self.assertEqual(local_app.main(), 1)
@@ -677,6 +690,11 @@ class LocalAppMainEdgeTests(unittest.TestCase):
         updater = types.SimpleNamespace(start=mock.Mock(), close=mock.Mock())
         with (
             mock.patch.dict(local_app.os.environ, {"SHIMPZ_SPACE_ID": "local-space"}),
+            mock.patch.object(
+                local_app.network_policy,
+                "ASSISTANT_EGRESS_IMAGE",
+                "ghcr.io/theshimpz/shimpz-egress@sha256:" + "e" * 64,
+            ),
             mock.patch.object(local_app.local_token_store, "ensure_token", return_value="token"),
             mock.patch.object(local_app.brain_runtime_token_store, "ensure"),
             mock.patch.object(local_app.docker, "from_env", return_value=client),

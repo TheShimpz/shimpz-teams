@@ -211,12 +211,12 @@ class HostedHealthcheckEdgeTests(unittest.TestCase):
         self.assertIs(inspections["other"], metadata)
 
         with mock.patch.object(healthcheck, "_docker_json", return_value=(404, None)):
-            self.assertFalse(healthcheck._team_network_ready("team_1", {}, set(), {}))
+            self.assertFalse(healthcheck._team_network_ready("team_1", {}, set(), {}, ""))
         with (
             mock.patch.object(healthcheck, "_docker_json", return_value=(200, {"Containers": {}})),
             mock.patch.object(healthcheck.network_policy, "network_members_valid", return_value=False),
         ):
-            self.assertFalse(healthcheck._team_network_ready("team_1", {}, set(), {}))
+            self.assertFalse(healthcheck._team_network_ready("team_1", {}, set(), {}, ""))
 
         workloads = {"workload": ("team_1", frozenset({healthcheck.network_policy.CORE_KIND}), False)}
         with (
@@ -225,7 +225,7 @@ class HostedHealthcheckEdgeTests(unittest.TestCase):
             mock.patch.object(healthcheck.network_policy, "network_members_valid", return_value=True),
             mock.patch.object(healthcheck.network_policy, "workload_endpoint_valid", return_value=False),
         ):
-            self.assertFalse(healthcheck._team_network_ready("team_1", {"workload": {}}, set(), workloads))
+            self.assertFalse(healthcheck._team_network_ready("team_1", {"workload": {}}, set(), workloads, ""))
 
     def test_network_topology_and_auth_gate_fail_closed(self) -> None:
         with mock.patch.object(healthcheck, "_docker_json", return_value=(503, None)):

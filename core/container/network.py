@@ -41,6 +41,10 @@ VOLUME_KINDS = frozenset({CONFIG_VOLUME_KIND, WORKSPACE_VOLUME_KIND})
 
 POSTGRES_CONTAINER = os.environ.get("SHIMPZ_POSTGRES_CONTAINER", f"shimpz-postgres{SUFFIX}")
 ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER", f"shimpz-assistant-egress{SUFFIX}")
+# The deployable that instantiates the Assistant egress proxy passes Team the exact same image reference. There is
+# deliberately no default: Team refuses to start without it and refuses any proxy that is not that exact artifact.
+ASSISTANT_EGRESS_IMAGE = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_IMAGE", "")
+_IMAGE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}")
 
 ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_RUNTIME_CAP_ADD = frozenset()
@@ -57,6 +61,33 @@ def _normalized_capabilities(values: object) -> set[str]:
     if not isinstance(values, list):
         return set()
     return {str(value).upper().removeprefix("CAP_") for value in values}
+
+
+def image_reference_valid(value: object) -> bool:
+    """Whether a value is one non-empty Docker image reference spelling."""
+    return isinstance(value, str) and _IMAGE_REFERENCE.fullmatch(value) is not None
+
+
+def require_image_reference(value: object, *, setting: str) -> str:
+    """Admit one Docker image reference, failing closed on absence or malformation."""
+    if not image_reference_valid(value):
+        raise RuntimeError(f"{setting} must name one exact image reference")
+    return value
+
+
+def image_identity_valid(metadata: Mapping, expected_image_ref: str, expected_image_id: str) -> bool:
+    """Bind a container to its exact configured reference and Docker's current image-ID resolution of it.
+
+    An OCI manifest digest and a local image ID are different identities, so the caller resolves the expected
+    reference through Docker and this compares IDs; the configured reference must also match exactly.
+    """
+    config = _mapping(metadata.get("Config"))
+    return (
+        bool(expected_image_ref)
+        and bool(expected_image_id)
+        and config.get("Image") == expected_image_ref
+        and metadata.get("Image") == expected_image_id
+    )
 
 
 def hard_memory_bytes(value: str | int | float, *, setting: str) -> int:
@@ -276,6 +307,15 @@ def shared_service_identity_valid(metadata: Mapping, expected_role: str | None =
     labels = _container_labels(metadata)
     expected = shared_service_labels(role)
     return all(labels.get(key) == value for key, value in expected.items())
+
+
+def assistant_egress_image_valid(metadata: Mapping, expected_image_id: str) -> bool:
+    """Whether a Team network member is not the Assistant egress proxy or runs its exact pinned artifact."""
+    return _container_name(metadata) != ASSISTANT_EGRESS_CONTAINER or image_identity_valid(
+        metadata,
+        ASSISTANT_EGRESS_IMAGE,
+        expected_image_id,
+    )
 
 
 def shared_service_role_for_name(name: str) -> str | None:
@@ -639,10 +679,7 @@ def workload_security_valid(
     host_config = _mapping(metadata.get("HostConfig"))
     config = _mapping(metadata.get("Config"))
     if (
-        not expected_image_ref
-        or not expected_image_id
-        or config.get("Image") != expected_image_ref
-        or metadata.get("Image") != expected_image_id
+        not image_identity_valid(metadata, expected_image_ref, expected_image_id)
         or str(host_config.get("Runtime") or "runc") != required_runtime
         or bool(host_config.get("Privileged"))
         or host_config.get("NetworkMode") != network_name(team_id, CORE_KIND)

@@ -291,6 +291,71 @@ class HostedNetworkAuthorizationEdgeTests(unittest.TestCase):
             resources._safe_connect(network, "service", required=True)
         network.connect.assert_called_once_with(container, aliases=None)
 
+    def test_safe_connect_attaches_only_the_exact_pinned_egress_artifact(self) -> None:
+        policy = resources.network_policy
+        reference = "shimpz-egress:shimpz-local"
+        image_id = "sha256:" + "1" * 64
+
+        def proxy(**changes):
+            attrs = {
+                "Name": f"/{policy.ASSISTANT_EGRESS_CONTAINER}",
+                "Config": {"Labels": policy.shared_service_labels(policy.ASSISTANT_EGRESS_ROLE), "Image": reference},
+                "Image": image_id,
+            }
+            attrs.update(changes)
+            return _container(name=policy.ASSISTANT_EGRESS_CONTAINER, attrs=attrs)
+
+        def images(resolved):
+            return SimpleNamespace(get=mock.Mock(side_effect=resolved))
+
+        def exact(ref: str):
+            if ref != reference:
+                raise resources.docker.errors.ImageNotFound(ref)
+            return SimpleNamespace(id=image_id)
+
+        cases = {
+            "foreign image under the pinned reference": (proxy(Image="sha256:" + "f" * 64), exact),
+            "foreign configured reference": (
+                proxy(Config={**proxy().attrs["Config"], "Image": "foreign/egress:latest"}),
+                exact,
+            ),
+            "pinned image absent": (proxy(), resources.docker.errors.ImageNotFound("absent")),
+        }
+        with mock.patch.object(policy, "ASSISTANT_EGRESS_IMAGE", reference):
+            matching = proxy()
+            network = _network()
+            state._docker.containers.get = mock.Mock(return_value=matching)
+            with mock.patch.object(state._docker, "images", images(exact), create=True):
+                resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
+            network.connect.assert_called_once_with(matching, aliases=None)
+
+            for name, (container, resolved) in cases.items():
+                with self.subTest(case=name):
+                    network = _network()
+                    state._docker.containers.get = mock.Mock(return_value=container)
+                    with (
+                        mock.patch.object(state._docker, "images", images(resolved), create=True),
+                        self.assertRaises(state.ApiError) as caught,
+                    ):
+                        resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
+                    self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
+                    network.connect.assert_not_called()
+
+            network = _network()
+            state._docker.containers.get = mock.Mock(return_value=proxy())
+            with (
+                mock.patch.object(
+                    state._docker,
+                    "images",
+                    images(resources.docker.errors.DockerException("unavailable")),
+                    create=True,
+                ),
+                self.assertRaises(state.ApiError) as caught,
+            ):
+                resources._safe_connect(network, policy.ASSISTANT_EGRESS_CONTAINER, required=True)
+            self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+            network.connect.assert_not_called()
+
     def test_network_dependency_wiring_and_teardown_are_identity_safe(self) -> None:
         network = _network()
         with mock.patch.object(resources, "_safe_connect") as connect:

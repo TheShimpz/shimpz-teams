@@ -442,6 +442,8 @@ class DockerFlowTests(
             "--env",
             f"SHIMPZ_ASSISTANT_EGRESS_CONTAINER={flow.egress_proxy}",
             "--env",
+            f"SHIMPZ_ASSISTANT_EGRESS_IMAGE={flow.egress_proxy_tag}",
+            "--env",
             "SHIMPZ_ASSISTANT_EGRESS_POLICY_DIR=/var/lib/shimpz-local/assistant-egress",
             "--env",
             "SHIMPZ_OAUTH_BROKER_PROXY_HOST=shimpz-account-egress",

@@ -9,6 +9,7 @@ from typing import NoReturn
 
 from docker.errors import DockerException, NotFound
 
+from core.container import network as network_policy
 from egress import policy as egress_policy
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
@@ -221,9 +222,29 @@ def _team_attachment_drifted(attrs: dict, network_name: str) -> bool:
     )
 
 
+def _proxy_image_drifted(client, attrs: dict) -> bool:
+    """Whether the proxy is not the exact pinned egress artifact; an unanswerable Engine is only unavailable."""
+    expected = network_policy.ASSISTANT_EGRESS_IMAGE
+    try:
+        expected_id = client.images.get(expected).id
+    except NotFound:
+        return True
+    except DockerException as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant egress proxy is unavailable",
+            code="egress-proxy-unavailable",
+        ) from exc
+    return not network_policy.image_identity_valid(attrs, expected, expected_id)
+
+
 def _egress_proxy(self, network_name: str):
     """The proxy as one Team network sees it: any drift answers 409 before a stopped proxy answers 503."""
-    if not ASSISTANT_EGRESS_CONTAINER or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None:
+    if (
+        not ASSISTANT_EGRESS_CONTAINER
+        or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None
+        or not network_policy.image_reference_valid(network_policy.ASSISTANT_EGRESS_IMAGE)
+    ):
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant egress proxy is unavailable",
@@ -261,6 +282,7 @@ def _egress_proxy(self, network_name: str):
         or host.get("PortBindings") not in (None, {})
         or len(policy_mounts) != 1
         or policy_mounts[0].get("RW") is not False
+        or _proxy_image_drifted(self.client, attrs)
     ):
         raise ApiProblem(
             HTTPStatus.CONFLICT,

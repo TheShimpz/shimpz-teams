@@ -8,12 +8,16 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from docker.errors import DockerException
+from docker.errors import DockerException, ImageNotFound
 from local_controller_harness import TestAssistantRegistry
 
+from core.container import network as network_policy
 from local import app as local_app
 from local import labels as local_labels
 from local.assistant import egress as local_egress
+
+EGRESS_IMAGE_REF = "ghcr.io/theshimpz/shimpz-egress@sha256:" + "e" * 64
+EGRESS_IMAGE_ID = "sha256:" + "1" * 64
 
 
 class _Proxy:
@@ -21,7 +25,9 @@ class _Proxy:
         self.name = "local-egress-proxy"
         self.status = "running"
         self.attrs = {
+            "Image": EGRESS_IMAGE_ID,
             "Config": {
+                "Image": EGRESS_IMAGE_REF,
                 "User": "10005:10005",
                 "Labels": {
                     local_labels.MANAGED_LABEL: "1",
@@ -66,6 +72,16 @@ class _Network:
         self.reload()
 
 
+class _Images:
+    def __init__(self) -> None:
+        self.ids = {EGRESS_IMAGE_REF: EGRESS_IMAGE_ID}
+
+    def get(self, reference: str):
+        if reference not in self.ids:
+            raise ImageNotFound(reference)
+        return types.SimpleNamespace(id=self.ids[reference])
+
+
 class _Containers:
     def __init__(self, proxy: _Proxy) -> None:
         self.proxy = proxy
@@ -91,7 +107,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
         self.network = _Network(self.proxy)
         self.controller = object.__new__(local_app.LocalController)
         self.controller.space_id = "local-space"
-        self.controller.client = types.SimpleNamespace(containers=_Containers(self.proxy))
+        self.controller.client = types.SimpleNamespace(containers=_Containers(self.proxy), images=_Images())
         self.spec = types.SimpleNamespace(
             assistant_id="shimpz-cloudflare",
             allowed_hosts=("api.open-meteo.com", "geocoding-api.open-meteo.com"),
@@ -102,6 +118,7 @@ class LocalAssistantEgressTests(unittest.TestCase):
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_DIR", self.policy_root),
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_POLICY_GID", os.getgid()),
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_CONTAINER", self.proxy.name),
+            mock.patch.object(network_policy, "ASSISTANT_EGRESS_IMAGE", EGRESS_IMAGE_REF),
         )
         for patcher in self.patches:
             patcher.start()
@@ -186,6 +203,51 @@ class LocalAssistantEgressTests(unittest.TestCase):
                     self.controller.assistant_lifecycle._egress_proxy(self.network.name)
 
                 self.assertEqual(caught.exception.code, "egress-proxy-drift")
+
+    def test_proxy_must_run_the_exact_pinned_egress_artifact(self) -> None:
+        self.assertIs(self.controller.assistant_lifecycle._egress_proxy(self.network.name), self.proxy)
+        foreign = {
+            "foreign image under the pinned reference": lambda proxy, _images: proxy.attrs.update(
+                Image="sha256:" + "f" * 64
+            ),
+            "foreign reference resolving to the same image": lambda proxy, images: (
+                proxy.attrs["Config"].update(Image="foreign/egress:latest"),
+                images.ids.update({"foreign/egress:latest": EGRESS_IMAGE_ID}),
+            ),
+            "pinned reference no longer present": lambda _proxy, images: images.ids.clear(),
+            "missing image identity": lambda proxy, _images: proxy.attrs.pop("Image"),
+        }
+        for status in ("running", "exited"):
+            for name, mutate in foreign.items():
+                with self.subTest(status=status, case=name):
+                    proxy = _Proxy("local-space")
+                    proxy.status = status
+                    images = _Images()
+                    mutate(proxy, images)
+                    self.controller.client.containers.proxy = proxy
+                    self.controller.client.images = images
+                    with self.assertRaises(local_app.ApiProblem) as caught:
+                        self.controller.assistant_lifecycle._egress_proxy(self.network.name)
+                    self.assertEqual((caught.exception.status, caught.exception.code), (409, "egress-proxy-drift"))
+                    self.assertNotIn(self.network.name, proxy.attrs["NetworkSettings"]["Networks"])
+
+        self.controller.client.images = types.SimpleNamespace(get=mock.Mock(side_effect=DockerException("unavailable")))
+        self.controller.client.containers.proxy = _Proxy("local-space")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            self.controller.assistant_lifecycle._egress_proxy(self.network.name)
+        self.assertEqual((caught.exception.status, caught.exception.code), (503, "egress-proxy-unavailable"))
+
+    def test_foreign_proxy_image_is_refused_before_team_attachment(self) -> None:
+        self.proxy.attrs["Image"] = "sha256:" + "f" * 64
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            self.controller.assistant_lifecycle._activate_assistant_egress(
+                "team_1",
+                self.spec,
+                self.network,
+                tuple(sorted(self.spec.allowed_hosts)),
+            )
+        self.assertEqual(caught.exception.code, "egress-proxy-drift")
+        self.assertNotIn(self.network.name, self.proxy.attrs["NetworkSettings"]["Networks"])
 
     def test_a_stopped_proxy_is_retryable_unless_its_profile_or_attachment_drifted(self) -> None:
         alias = local_egress.ASSISTANT_EGRESS_ALIAS
@@ -491,6 +553,14 @@ class LocalAssistantEgressTests(unittest.TestCase):
         ):
             lifecycle._egress_proxy(self.network.name)
         self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+        for image in ("", " ", "ghcr.io/theshimpz/shimpz-egress latest"):
+            with (
+                self.subTest(image=image),
+                mock.patch.object(network_policy, "ASSISTANT_EGRESS_IMAGE", image),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                lifecycle._egress_proxy(self.network.name)
+            self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
 
         self.controller.client.containers.get = mock.Mock(side_effect=DockerException("unavailable"))
         with self.assertRaises(local_app.ApiProblem) as caught:

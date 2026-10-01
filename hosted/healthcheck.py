@@ -32,7 +32,7 @@ DEFAULT_TEAM_IMAGE = (
     "registry.k8s.io/pause:3.10.2@sha256:f548e0e8e3dc1896ca956272154dde3314e8cc4fde0a57577ee9fa1c63f5baf4"
 )
 REQUIRED_TEAM_IMAGE = os.environ.get("SHIMPZ_TEAM_IMAGE", DEFAULT_TEAM_IMAGE)
-REQUIRED_IMAGES = (REQUIRED_TEAM_IMAGE,)
+REQUIRED_IMAGES = (REQUIRED_TEAM_IMAGE, network_policy.ASSISTANT_EGRESS_IMAGE)
 LISTEN_PORT = int(os.environ.get("SHIMPZ_TEAM_PORT", "7077"))
 DYNAMIC_ASSISTANTS = dynamic_assistants.DynamicAssistantStore(
     Path(
@@ -85,8 +85,11 @@ def _image_id(image_ref: str) -> str | None:
 
 
 def images_ready() -> bool:
-    """Require the exact local image references advertised by the provider registry."""
-    return all(_image_id(image_ref) is not None for image_ref in REQUIRED_IMAGES)
+    """Require the exact local Team runtime and Assistant egress image references."""
+    return all(
+        network_policy.image_reference_valid(image_ref) and _image_id(image_ref) is not None
+        for image_ref in REQUIRED_IMAGES
+    )
 
 
 def _expected_workload_image(
@@ -249,6 +252,7 @@ def _team_network_ready(
     inspections: dict[str, dict],
     running_runtimes: set[str],
     workloads: dict[str, tuple[str, frozenset[str], bool]],
+    egress_image_id: str,
 ) -> bool:
     kind = network_policy.CORE_KIND
     name = network_policy.network_name(team_id, kind)
@@ -265,6 +269,12 @@ def _team_network_ready(
         # image/resource/endpoint was proved above; only a running anchor must be a live member.
         require_runtime=team_id in running_runtimes,
         require_dependencies=True,
+    ):
+        return False
+    # A proxy that kept the shared name and role labels but not the pinned artifact may ignore outbound policy.
+    if not all(
+        network_policy.assistant_egress_image_valid(inspections[member_id], egress_image_id)
+        for member_id in network["Containers"]
     ):
         return False
     for workload_id, (workload_team_id, expected_kinds, running) in workloads.items():
@@ -307,8 +317,10 @@ def network_topology_ready() -> bool:
     inspections, team_ids, runtimes_by_team_id, running_runtimes, workloads = inspected
     if any(runtimes_by_team_id.get(team_id) != 1 for team_id in team_ids):
         return False
-
-    return all(_team_network_ready(team_id, inspections, running_runtimes, workloads) for team_id in team_ids)
+    egress_image_id = _image_id(network_policy.ASSISTANT_EGRESS_IMAGE) or ""
+    return all(
+        _team_network_ready(team_id, inspections, running_runtimes, workloads, egress_image_id) for team_id in team_ids
+    )
 
 
 def auth_gate_ready() -> bool:

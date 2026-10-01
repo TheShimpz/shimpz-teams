@@ -28,6 +28,7 @@ from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
+from core.container import network as network_policy
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import token as brain_runtime_token_store
@@ -642,6 +643,10 @@ class LocalController:
 def main() -> int:
     try:
         space_id = os.environ["SHIMPZ_SPACE_ID"]
+        network_policy.require_image_reference(
+            network_policy.ASSISTANT_EGRESS_IMAGE,
+            setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE",
+        )
         token = local_token_store.ensure_token()
         brain_runtime_token_store.ensure()
         client = docker.from_env(timeout=REQUEST_TIMEOUT_SECONDS)
