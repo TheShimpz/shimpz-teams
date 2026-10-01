@@ -34,15 +34,15 @@ Unknown fields and unsupported Spec versions fail closed.
 pre-build. `shimpz.contract.json` is build output and does not belong in an Assistant repository.
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
-capabilities, Stored Input ids, effect class, and optional verifier declared by that Action. An undeclared capability
+capabilities, Stored Input ids, effect class, and optional idempotency and verifier declared by that Action. An undeclared capability
 never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
-unique, every used Stored Input is declared, every nested object schema is closed, every effect and verifier is
-valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
+unique, every used Stored Input is declared, every nested object schema is closed, every effect, idempotency, and
+verifier declaration is valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
 the Action files and `lib/**/*.py` that runs before any Creator code is imported: request copy is supplied only as a
 literal template, and a computed template, f-string, alias, or formatting expression is refused.
 
@@ -131,7 +131,10 @@ the Action. A `read_only` Action never declares one:
 - `action` names another Action of the same contract whose effect is `read_only`. It declares no human request, or
   only `input:password` together with its one declared Stored Input, which Team satisfies without a person.
 - `input` has 1 to 16 members, each named by a property of the verifier's `input_schema` of 1 to 128 characters, and
-  binds every property that schema requires. A binding is closed: `{"from": "operation_id"}` copies the original
+  binds every property that schema requires. It must correlate the evidence with the exact operation: either one
+  binding is `{"from": "operation_id"}`, or for every member listed in the mutating Action input's top-level
+  `required`, one binding's pointer is exactly that member (`/<member>`), so the verifier receives the whole required
+  business payload. Binding only part of the payload, such as a zone without the record, is refused. A binding is closed: `{"from": "operation_id"}` copies the original
   operation's `operation_id` into a property whose schema is exactly `{"type": "string"}`, and
   `{"from": "input", "pointer": P}` copies one value of the original business input. There is no literal, model,
   output, or expression source.
@@ -149,8 +152,39 @@ the Action. A `read_only` Action never declares one:
 
 The verifier is invoked as its own logical operation with its own `operation_id`. `occurred` permits an already
 authorized continuation only with a recovered result that validates under the original output schema and secret
-policy; `not_occurred` must reflect authoritative terminal absence, and `inconclusive` holds for a person. There is
-no matcher language. `action-effect-vectors.json` freezes admitted and refused declarations over complete Action
+policy. `not_occurred` asserts terminal absence: the provider authoritatively reports that the correlated operation
+does not exist and can no longer complete, accounting for requests still in flight and for the provider's
+consistency delay; similar existing content or a temporary or eventually consistent absence is not `not_occurred`.
+Every other case, including a missing provider receipt, is `inconclusive` and holds for a person. There is no
+matcher language. Verification that depends on a retained provider receipt is not defined in v1.
+
+A `mutating` Action may also declare `idempotency`, how its provider honors the invocation's `operation_id` as an
+idempotency key. Absence means the provider offers no idempotency the Action relies on; that an `operation_id`
+exists proves nothing on its own. A `read_only` Action never declares it:
+
+```json
+{
+  "provider": "api.example.com",
+  "key": { "location": "header", "name": "Idempotency-Key" },
+  "scope": "account",
+  "retention_seconds": 86400,
+  "same_payload_required": true
+}
+```
+
+- `provider` is the lowercase public DNS host, of at least two labels and at most 253 characters, that receives the
+  key; it must be one of the manifest's `allowed_hosts`.
+- `key.location` is `header`, `query`, or `body`, and `key.name` is the field name: 1 to 128 ASCII letters, digits,
+  `.`, `_`, or `-`, starting with a letter or digit.
+- `scope` is `account` when the provider deduplicates a key across the whole credential or account, or `endpoint`
+  when only per operation path.
+- `retention_seconds`, from 60 to 31,536,000, is how long the provider remembers a key; outside it the same key
+  proves nothing.
+- `same_payload_required` is `true` when the provider requires an identical payload for a reused key.
+
+Team reuses one logical operation's key only within that retention and with an unchanged payload, and never across
+scheduled runs. The declaration is a reviewed Creator statement about the provider, not proof of external
+exactly-once execution. `action-effect-vectors.json` freezes admitted and refused declarations over complete Action
 lists, and `action_effect_validator.py` is the reference implementation.
 
 ## Message catalog
@@ -241,7 +275,7 @@ these members:
 | `provider` | The lowercase DNS host of the failed provider request, at most 253 characters, or `null`. |
 | `http_status` | The provider's HTTP status from 100 to 599, or `null`. |
 | `response_excerpt` | The sanitized beginning of the provider response body, at most 2,048 UTF-8 bytes, or `null`. |
-| `redacted` | `true` when any content was replaced or withheld as possibly secret or unsafe to disclose. |
+| `redacted` | `true` when any content was replaced or withheld as possibly secret or unsafe to disclose, including an unsafe character replaced with U+FFFD. |
 | `truncated` | `true` when any content was cut to its bound. |
 
 Diagnostic text may contain tab and line feed but no other control, bidi override or isolate, or zero-width
@@ -251,12 +285,15 @@ partial successful result, a stack trace, or a secret response, and it is never 
 not occur and never authority. A `mutating` Action's handled failure stays uncertain; only Team-admitted verifier
 evidence resolves it.
 
-The Assistant sanitizes before it bounds. It replaces the exact value of every secret it holds for the invocation
-(each Integration token, Stored Input value, password response, and every derived secret the Action registers or
-acquires) and secret-shaped text such as bearer and basic credentials, provider API keys, JSON Web Tokens, private
+The Assistant sanitizes every string member, including `error_type` and `provider`, before it bounds them. It
+replaces the exact value of every secret it holds for the invocation (each Integration token, Stored Input value,
+password response, and every derived secret the Action registers or acquires) in its common encodings (standard and
+URL-safe base64, JSON string escaping, upper- and lowercase percent-encoding, and case-insensitive spellings of
+hexadecimal or other case-insensitive tokens) and secret-shaped text such as bearer and basic credentials, provider API keys, JSON Web Tokens, private
 key blocks, `password=`, `token=`, or `api_key=` values, and URL user information, then truncates on a character
-boundary and sets the flags. Content that cannot be disclosed safely is omitted while the real type, status, and safe
-message remain. Unknown or encoded secrets cannot be detected universally in arbitrary prose, so Team independently
+boundary and sets the flags. Text longer than the sanitization window is withheld rather than partially matched, and a
+`provider` that is no longer a valid host after replacement becomes `null`. Content that cannot be disclosed safely is
+omitted while the real type, status, and safe message remain. Unknown or encoded secrets cannot be detected universally in arbitrary prose, so Team independently
 re-redacts every diagnostic string with the exact values it injected and the same secret-shaped patterns. Only the
 failure branch is sanitized: a result, a request, or a Stored Input rejection that echoes a secret is still refused.
 

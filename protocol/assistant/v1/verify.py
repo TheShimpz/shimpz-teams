@@ -241,6 +241,8 @@ if (
     or action_properties.get("effect", {}).get("enum") != list(EFFECTS)
     or "verifier" in machine["$defs"]["action"].get("required", [])
     or machine["$defs"].get("verifier", {}).get("additionalProperties") is not False
+    or "idempotency" in machine["$defs"]["action"].get("required", [])
+    or machine["$defs"].get("idempotency", {}).get("additionalProperties") is not False
 ):
     fail("Assistant Action effect contract is invalid")
 verify_reference_vectors("action-effect-vectors.json", "Action effect", "actions", effect_error)

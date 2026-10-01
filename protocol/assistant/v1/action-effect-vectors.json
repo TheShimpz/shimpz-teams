@@ -791,8 +791,7 @@
                 "pointer": "/zone"
               },
               "p15": {
-                "from": "input",
-                "pointer": "/zone"
+                "from": "operation_id"
               }
             },
             "outcome": "/outcome",
@@ -7874,6 +7873,2629 @@
           "effect": "mutating"
         }
       },
+      "valid": false
+    },
+    {
+      "name": "verifier correlated by the whole required payload",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "verifier": {
+            "action": "find-record",
+            "input": {
+              "zone": {
+                "from": "input",
+                "pointer": "/zone"
+              },
+              "record": {
+                "from": "input",
+                "pointer": "/record"
+              },
+              "ab": {
+                "from": "input",
+                "pointer": "/a~1b"
+              }
+            },
+            "outcome": "/outcome",
+            "result": "/record"
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "ab": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "ab"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "verifier correlated only by part of the payload",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "verifier": {
+            "action": "find-record",
+            "input": {
+              "zone": {
+                "from": "input",
+                "pointer": "/zone"
+              },
+              "name": {
+                "from": "input",
+                "pointer": "/record/name"
+              }
+            },
+            "outcome": "/outcome",
+            "result": "/record"
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "mutating Action declaring provider idempotency",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "idempotency at its retention bounds in every key location",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "query",
+              "name": "request_id"
+            },
+            "scope": "account",
+            "retention_seconds": 60,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "list-records",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        },
+        {
+          "id": "delete-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "body",
+              "name": "client.token"
+            },
+            "scope": "endpoint",
+            "retention_seconds": 31536000,
+            "same_payload_required": false
+          }
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "idempotency on a read-only Action",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating"
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency that is not an object",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": "Idempotency-Key"
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency with an unknown member",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true,
+            "ttl": 60
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency without its payload rule",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency key in a cookie",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "cookie",
+              "name": "key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency key name with a space",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency key with an unknown member",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key",
+              "prefix": "op-"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency key name longer than 128 characters",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency with an unknown scope",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "global",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency retention below a minute",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 59,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency retention beyond a year",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 31536001,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency retention as a boolean",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": true,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency payload rule that is not a boolean",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": "yes"
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency provider with one label",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "localhost",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency provider URL",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "https://api.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "idempotency provider in uppercase",
+      "actions": [
+        {
+          "id": "create-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "content": {
+                    "type": "string"
+                  },
+                  "ttl": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "name",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              "a/b": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "record",
+              "a/b"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "mutating",
+          "idempotency": {
+            "provider": "API.example.com",
+            "key": {
+              "location": "header",
+              "name": "Idempotency-Key"
+            },
+            "scope": "account",
+            "retention_seconds": 86400,
+            "same_payload_required": true
+          }
+        },
+        {
+          "id": "find-record",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "zone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "zone",
+              "name",
+              "operation"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "occurred",
+                  "not_occurred",
+                  "inconclusive"
+                ]
+              },
+              "record": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "outcome"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
       "valid": false
     }
   ]

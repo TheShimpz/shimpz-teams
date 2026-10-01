@@ -1,7 +1,9 @@
-"""Reference validation for Action effect classes and verifier descriptors (Assistant Spec v1).
+"""Reference validation for Action effect classes, idempotency, and verifier descriptors (Assistant Spec v1).
 
-Every Action declares ``effect``. A ``mutating`` Action may name one ``read_only`` Action of the same contract as
-its verifier, with fixed typed input bindings and the output positions of its outcome and recovered result.
+Every Action declares ``effect``. A ``mutating`` Action may declare how its provider honors the logical
+``operation_id`` as an idempotency key, and may name one ``read_only`` Action of the same contract as its verifier,
+with fixed typed input bindings correlated to the exact operation and the output positions of its outcome and
+recovered result.
 """
 
 from __future__ import annotations
@@ -17,6 +19,14 @@ MAX_BINDING_NAME = 128
 MAX_POINTER = 256
 POINTER = re.compile(r"(?:/(?:[^/~]|~[01])+)+")
 VERIFIER_KEYS = {"action", "input", "outcome", "result"}
+IDEMPOTENCY_KEYS = {"provider", "key", "scope", "retention_seconds", "same_payload_required"}
+KEY_LOCATIONS = ("header", "query", "body")
+KEY_SCOPES = ("account", "endpoint")
+KEY_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+PROVIDER_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
+MAX_PROVIDER_HOST = 253
+MIN_RETENTION_SECONDS = 60
+MAX_RETENTION_SECONDS = 31_536_000
 
 
 def effect_error(actions: object) -> str | None:
@@ -42,6 +52,10 @@ def _action_error(action: dict[str, object], by_id: dict[object, dict[str, objec
     effect = action.get("effect")
     if effect not in EFFECTS:
         return "effect_invalid"
+    if "idempotency" in action:
+        error = "idempotency_on_read_only" if effect != "mutating" else _idempotency_error(action["idempotency"])
+        if error is not None:
+            return error
     if "verifier" not in action:
         return None
     if effect != "mutating":
@@ -69,6 +83,28 @@ def _target_error(target: dict[str, object] | None, action: dict[str, object]) -
     return None if _non_interactive(target) else "verifier_interactive"
 
 
+def _idempotency_error(declaration: object) -> str | None:
+    """A declaration states where the provider reads the key, its scope, its retention, and its payload rule."""
+    key = declaration.get("key") if isinstance(declaration, dict) else None
+    admitted = (
+        isinstance(declaration, dict)
+        and set(declaration) == IDEMPOTENCY_KEYS
+        and isinstance(declaration["provider"], str)
+        and len(declaration["provider"]) <= MAX_PROVIDER_HOST
+        and PROVIDER_HOST.fullmatch(declaration["provider"]) is not None
+        and isinstance(key, dict)
+        and set(key) == {"location", "name"}
+        and key["location"] in KEY_LOCATIONS
+        and isinstance(key["name"], str)
+        and KEY_NAME.fullmatch(key["name"]) is not None
+        and declaration["scope"] in KEY_SCOPES
+        and type(declaration["retention_seconds"]) is int
+        and MIN_RETENTION_SECONDS <= declaration["retention_seconds"] <= MAX_RETENTION_SECONDS
+        and type(declaration["same_payload_required"]) is bool
+    )
+    return None if admitted else "idempotency_invalid"
+
+
 def _non_interactive(target: dict[str, object]) -> bool:
     """A verifier runs without a person: it may only satisfy its own declared Stored Input internally."""
     requests = target.get("human_requests")
@@ -92,7 +128,20 @@ def _bindings_error(bindings: object, source: object, destination: object) -> st
         error = _binding_error(binding, source, properties[name])
         if error is not None:
             return error
-    return None
+    return None if _correlated(bindings, source) else "verifier_uncorrelated"
+
+
+def _correlated(bindings: dict[str, object], source: object) -> bool:
+    """Bind the original ``operation_id``, or every required top-level member of the original input whole."""
+    if {"from": "operation_id"} in bindings.values():
+        return True
+    required = source.get("required", []) if isinstance(source, dict) else []
+    whole = {
+        binding["pointer"][1:].replace("~1", "/").replace("~0", "~")
+        for binding in bindings.values()
+        if binding["pointer"].count("/") == 1
+    }
+    return bool(required) and set(required) <= whole
 
 
 def _binding_error(binding: object, source: object, destination: object) -> str | None:
