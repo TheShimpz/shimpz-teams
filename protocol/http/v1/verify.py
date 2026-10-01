@@ -201,6 +201,7 @@ for name, admit in (
     ("help_url", payload.canonical_help_url),
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),
+    ("snapshot_summary", payload.canonical_snapshot_summary),
     ("routine_challenge_open", routine.canonical_challenge_open),
 ):
     cases = vectors.get(name, {})

@@ -1501,6 +1501,67 @@
       1
     ]
   },
+  "snapshot_summary": {
+    "valid": [
+      {
+        "locale": "en",
+        "summary": "Publish DNS changes safely."
+      },
+      {
+        "locale": "pt",
+        "summary": "Publica alterações de DNS com segurança."
+      },
+      {
+        "locale": "ja",
+        "summary": "DNS の変更を安全に公開します。"
+      }
+    ],
+    "invalid": [
+      {},
+      {
+        "locale": "pt"
+      },
+      {
+        "locale": "pt-BR",
+        "summary": "Publica alterações de DNS com segurança."
+      },
+      {
+        "locale": null,
+        "summary": "Publish DNS changes safely."
+      },
+      {
+        "locale": "en",
+        "summary": ""
+      },
+      {
+        "locale": "en",
+        "summary": " Publish DNS changes safely."
+      },
+      {
+        "locale": "en",
+        "summary": "Publish DNS\nchanges safely."
+      },
+      {
+        "locale": "en",
+        "summary": "Cafe\u0301 summary."
+      },
+      {
+        "locale": "en",
+        "summary": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      {
+        "locale": "en",
+        "summary": null
+      },
+      {
+        "locale": "en",
+        "summary": "Publish DNS changes safely.",
+        "trace_id": "0123456789abcdef0123456789abcdef"
+      },
+      [],
+      null
+    ]
+  },
   "routine_challenge_open": {
     "valid": [
       {

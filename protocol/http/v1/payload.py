@@ -73,6 +73,8 @@ SKILL_INPUT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
 # The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
+SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
+MAX_SNAPSHOT_SUMMARY_CHARS = 160
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
 
@@ -221,6 +223,22 @@ def _rendered(text: object, reference: object, maximum: int, *, nullable: bool) 
         and text.isprintable()
         and unicodedata.is_normalized("NFC", text)
     )
+
+
+def canonical_snapshot_summary(value: object) -> dict[str, object] | None:
+    """Return one Local snapshot's summary in one interface language (ADR-0091), or None.
+
+    The summary is the snapshot catalog's English summary for `en` and its translation from the snapshot's own pack
+    otherwise: bounded public text, never request copy. The caller compares `locale` with the one it asked for.
+    """
+    if (
+        not isinstance(value, dict)
+        or set(value) != SNAPSHOT_SUMMARY_FIELDS
+        or canonical_locale(value["locale"]) is None
+        or not _rendered(value["summary"], value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS, nullable=False)
+    ):
+        return None
+    return value
 
 
 def canonical_action_label(value: object) -> str | None:

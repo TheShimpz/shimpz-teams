@@ -49,6 +49,15 @@ pack under Team's lock as a fresh challenge with a new `challenge_id` and the ea
 answering at once. The turn keeps its own language and a purpose its origin locale. A binding whose catalog or pack
 changed ends the paused turn; Admin refuses an opened challenge whose `locale` is not the one it asked for.
 
+A staged Local snapshot's summary follows the interface language too (ADR-0091). Local Admin reads it at
+`GET /v1/local-assistants/:image_hash/summary/:locale` (Local only), where `locale` is one closed interface language;
+Team answers exactly `{locale, summary}` (`payload.canonical_snapshot_summary`): the snapshot catalog's English summary
+for `en`, otherwise that one message's translation from the snapshot's own pack, admitted complete for its own catalog
+and read from the immutable image without starting it. The summary is at most 160 trimmed, printable, NFC characters;
+no request copy, catalog, or pack is ever returned. Admin refuses an answer whose `locale` is not the one it asked for.
+The read shares the bounded icon preview: while extraction capacity is busy Team answers 503
+`local-assistant-preview-busy` with `retry_after_ms`.
+
 The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
 why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
 so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language

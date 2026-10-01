@@ -39,10 +39,11 @@ class LocalizedChallengeContractTests(unittest.TestCase):
         for case in self.vectors["rendered_copy"]["invalid"]:
             self.assertIsNone(payload.canonical_rendered(case["rendered"], case["request"]))
 
-    def test_pack_digest_and_challenge_open_locale_are_closed(self) -> None:
+    def test_pack_digest_challenge_open_and_snapshot_summary_locale_are_closed(self) -> None:
         for name, admit in (
             ("pack_digest", payload.canonical_pack_digest),
             ("routine_challenge_open", routine.canonical_challenge_open),
+            ("snapshot_summary", payload.canonical_snapshot_summary),
         ):
             for value in self.vectors[name]["valid"]:
                 self.assertEqual(admit(value), value)
