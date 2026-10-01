@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
+import time
 import unittest
 from dataclasses import replace
 from unittest import mock
@@ -118,6 +120,77 @@ class PurposeTests(RuntimeClientCase):
         with mock.patch.object(brain_runtime_client, "RequestAbort", return_value=expired):
             self.assertIsNone(client.purpose(context(self.secret), REQUEST, "Exa", "Search the web."))
         self.assertEqual(connection.requests, [])
+
+
+class _PartialBodyBrain:
+    """A real listener that answers with Connection: close and a partial body, then never finishes it."""
+
+    def __init__(self) -> None:
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.disconnected = threading.Event()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+        self.thread.start()
+
+    def _serve(self) -> None:
+        peer, _address = self.listener.accept()
+        with peer:
+            request = b""
+            while b"\r\n\r\n" not in request:
+                request += peer.recv(65536)
+            head, _, body = request.partition(b"\r\n\r\n")
+            length = int(
+                next(line for line in head.split(b"\r\n") if line.lower().startswith(b"content-length")).split(b":")[1]
+            )
+            while len(body) < length:
+                body += peer.recv(65536)
+            peer.sendall(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n"
+                b'Content-Length: 4096\r\n\r\n{"purpose":'
+            )
+            # The client's shutdown is the only way this read ends before the test gives up.
+            peer.settimeout(10)
+            try:
+                if peer.recv(1) == b"":
+                    self.disconnected.set()
+            except OSError:
+                self.disconnected.set()
+
+    def close(self) -> None:
+        self.listener.close()
+        self.thread.join(timeout=10)
+
+
+class RealSocketAbortTests(RuntimeClientCase):
+    """The deadline and Stop reach a response body still being read after the connection released its socket."""
+
+    def _client(self, brain: _PartialBodyBrain) -> brain_runtime_client.BrainRuntimeClient:
+        return brain_runtime_client.BrainRuntimeClient(
+            base_url=f"http://127.0.0.1:{brain.port}", token_file=self.token_file
+        )
+
+    def test_the_purpose_deadline_ends_a_hanging_closing_response(self):
+        brain = _PartialBodyBrain()
+        self.addCleanup(brain.close)
+        started = time.monotonic()
+        with mock.patch.object(brain_runtime_client, "PURPOSE_DEADLINE_SECONDS", 0.3):
+            self.assertIsNone(self._client(brain).purpose(context(self.secret), REQUEST, "Exa", "Search the web."))
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue(brain.disconnected.wait(5))
+
+    def test_stop_ends_a_hanging_closing_response(self):
+        brain = _PartialBodyBrain()
+        self.addCleanup(brain.close)
+        stop = brain_runtime_client.RequestAbort()
+        threading.Timer(0.3, stop.abort).start()
+        started = time.monotonic()
+        with (
+            brain_runtime_client.abortable(stop),
+            self.assertRaises(brain_runtime_client.BrainRuntimeError),
+        ):
+            self._client(brain).delete_thread("thread-1")
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertTrue(brain.disconnected.wait(5))
 
 
 if __name__ == "__main__":
