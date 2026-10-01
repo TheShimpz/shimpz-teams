@@ -165,6 +165,7 @@ def resume_chat_human(
                 pending.owner,
                 admission.transcripts,
                 admission.requests_used,
+                pending.usage,
             )
         )
 

@@ -21,6 +21,7 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from integrations import store as integration_store
@@ -587,6 +588,8 @@ class HostedSegmentResponseRequest:
     owner: str
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # What the turn consumed before this request; a chat turn always has one (ADR-0082).
+    usage: brain_usage.TurnUsage | None = None
 
 
 def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str, object]:
@@ -605,17 +608,22 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             identity=segment.identity,
             transcripts=chat_orchestrator.retain_suspension_transcripts(request.transcripts, suspension),
             requests_used=request.requests_used,
+            usage=None if request.usage is None else request.usage.joined(),
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         if not runtime_state._commit_chat_terminal(team_id, token):
             raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
-        return {
+        body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply[: hosted_assistants.CHAT_OUTPUT_CAP],
             "clarification": terminal.clarification,
         }
+        usage = None if request.usage is None else request.usage.joined().wire()
+        if usage is not None:
+            body["usage"] = usage
+        return body
 
     try:
         return chat_turn_engine.dispatch(
@@ -642,6 +650,8 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
 
 def _chat_in_turn(request: HostedChatSegmentRequest) -> dict[str, object]:
     """Run a new turn inside the claimed chat slot and dispatch its single terminal or suspension."""
+    # The turn is admitted: its duration runs from here to its terminal, across every resume.
+    usage = brain_usage.TurnUsage.start()
     segment = _run_hosted_chat_segment(request)
     file_ids = request.file_ids
     return _hosted_segment_response(
@@ -652,5 +662,6 @@ def _chat_in_turn(request: HostedChatSegmentRequest) -> dict[str, object]:
             request.assistant_ids,
             tuple(file_ids) if isinstance(file_ids, list) else (),
             request.owner,
+            usage=usage,
         )
     )

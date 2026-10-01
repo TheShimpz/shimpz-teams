@@ -148,6 +148,7 @@ class Handler(BaseHTTPRequestHandler):
                         "clarification": result["clarification"],
                         "team_id": result["team_id"],
                         "team_name": result["team_name"],
+                        **({"usage": result["usage"]} if "usage" in result else {}),
                     }
                 )
                 emit(terminal)

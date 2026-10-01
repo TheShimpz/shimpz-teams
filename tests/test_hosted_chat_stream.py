@@ -102,6 +102,21 @@ class HostedChatStreamTests(unittest.TestCase):
         self.assertEqual(chunked[size:], b"\r\n0\r\n\r\n")
         self.assertEqual(json.loads(chunked[:size]), {"type": "done", **DONE})
 
+    def test_stream_forwards_the_completed_turn_usage_on_its_done_record(self) -> None:
+        usage = {
+            "duration_ms": 6200,
+            "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 9, "output_tokens": 2}],
+        }
+        stream = StreamHarness()
+        with (
+            mock.patch.object(runtime_state, "_action_execution_journal", return_value=self.journal),
+            mock.patch.object(hosted_chat_segment, "_chat_in_turn", return_value={**DONE, "usage": usage}),
+        ):
+            app.Handler._stream_chat(stream, "team_1", "Prepare the campaign", [], ("shimpz-cloudflare",), OWNER)
+
+        size_line, chunked = stream.wfile.getvalue().split(b"\r\n", 1)
+        self.assertEqual(json.loads(chunked[: int(size_line, 16)]), {"type": "done", **DONE, "usage": usage})
+
     def test_stream_refuses_unavailable_action_state_before_any_response_byte(self) -> None:
         unavailable = types.SimpleNamespace(
             end_settled=mock.Mock(side_effect=action_journal.ActionJournalError("unavailable"))

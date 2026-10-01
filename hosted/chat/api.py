@@ -420,6 +420,7 @@ def _resume_chat_integrations(
                 pending.owner,
                 pending.transcripts,
                 pending.requests_used,
+                pending.usage,
             )
         )
 
