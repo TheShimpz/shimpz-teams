@@ -43,7 +43,8 @@ class FileUploadMetadata:
 def bearer_matches(headers: object, token: str) -> bool:
     """Accept exactly one bearer header and compare it in constant time."""
     values = headers.get_all("Authorization", failobj=[])
-    return len(values) == 1 and hmac.compare_digest(values[0], f"Bearer {token}")
+    # Headers decode as Latin-1, and compare_digest raises on non-ASCII text instead of refusing it.
+    return len(values) == 1 and values[0].isascii() and hmac.compare_digest(values[0], f"Bearer {token}")
 
 
 def read_json_document(

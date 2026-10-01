@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import http.client
 import unittest
 from email.message import Message
 from http import HTTPStatus
@@ -704,6 +705,17 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         handler._body.return_value["challenge_id"] = "a" * 32
         challenge.requirement.request.kind = "approval"
         self.assertIsNone(handler._expected_human_assurance("chat-human-submit", {"team_id": "team_1"}))
+
+    def test_non_ascii_bearer_is_refused_as_unauthenticated(self) -> None:
+        handler = self.handler()
+        # The stdlib parser decodes raw header bytes as Latin-1, so UTF-8 bytes arrive as non-ASCII text.
+        handler.headers = http.client.parse_headers(BytesIO(b"Authorization: Bearer \xc3\xa9\r\n\r\n"))
+        self.assertFalse(handler.headers["Authorization"].isascii())
+        self.assertFalse(handler._authorized())
+        with mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32):
+            handler._handle()
+        handler.send_response.assert_called_once_with(HTTPStatus.UNAUTHORIZED)
+        self.assertIn(b"authentication required", handler.wfile.getvalue())
 
     def test_handle_and_method_entrypoints_delegate_once(self) -> None:
         handler = self.handler()

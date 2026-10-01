@@ -204,6 +204,24 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             malformed.payload()
 
+    def test_request_admission_refuses_non_hex_fingerprints_before_comparing(self) -> None:
+        descriptor = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Continue safely",
+            "description": "Approve the reviewed action.",
+        }
+        canonical = human._fingerprint(descriptor)
+        malformed = ("\u00e9" * 64, canonical[:-1] + "\u00e9", "\uff10" * 64, canonical.upper(), canonical + "\n")
+        for fingerprint in malformed:
+            with (
+                self.subTest(fingerprint=fingerprint),
+                self.assertRaisesRegex(human.HumanRequestError, "^Assistant Action human request is invalid$"),
+            ):
+                human.validate_request({**descriptor, "fingerprint": fingerprint}, ("approval",))
+        admitted = human.validate_request({**descriptor, "fingerprint": canonical}, ("approval",))
+        self.assertEqual(admitted.fingerprint, canonical)
+
     def test_internal_request_shapes_cover_all_closed_descriptor_families(self) -> None:
         self.assertEqual(human._request_error(object()), "shape")
         self.assertEqual(human._request_error({}), "base")

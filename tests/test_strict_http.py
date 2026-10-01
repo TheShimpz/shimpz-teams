@@ -200,6 +200,14 @@ class SharedStrictHttpTest(unittest.TestCase):
         )
         self.assertEqual(target.query, {"key": "value"})
 
+    def test_bearer_match_refuses_non_ascii_headers_instead_of_raising(self) -> None:
+        token = "t" * 43
+        for value in (f"Bearer {token}", "Bearer \u00e9", "Bearer \u00c3\u00a9", f"Bearer {token[:-1]}\u00e9"):
+            headers = Message()
+            headers["Authorization"] = value
+            with self.subTest(value=value):
+                self.assertIs(strict_http.bearer_matches(headers, token), value == f"Bearer {token}")
+
     def test_route_groups_and_profile_validation_cover_every_routing_family(self) -> None:
         expected = {
             "health": "fixed",
