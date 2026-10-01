@@ -78,6 +78,8 @@ if (
     manifest_schema.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 8
     or stored_input.get("additionalProperties") is not False
     or stored_input.get("properties", {}).get("kind", {}).get("const") != "password"
+    or "help_url" in stored_input.get("required", [])
+    or manifest_schema.get("$defs", {}).get("helpUrl", {}).get("maxLength") != 2048
 ):
     fail("Assistant Stored Input manifest contract is invalid")
 

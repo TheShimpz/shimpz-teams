@@ -17,6 +17,71 @@
       "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\n"
     },
     {
+      "name": "stored_input_help_url",
+      "valid": true,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com/settings/system-users\"\n"
+    },
+    {
+      "name": "stored_input_help_url_with_query",
+      "valid": true,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://developers.facebook.com/apps/?show_reminder=true\"\n"
+    },
+    {
+      "name": "stored_input_help_url_not_https",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"http://business.facebook.com/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_without_path",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com\"\n"
+    },
+    {
+      "name": "stored_input_help_url_uppercase_host",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://Business.facebook.com/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_credentials",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://user:secret@business.facebook.com/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_port",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com:8443/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_fragment",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com/settings#keys\"\n"
+    },
+    {
+      "name": "stored_input_help_url_dot_segment",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com/a/../settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_space",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com/a b\"\n"
+    },
+    {
+      "name": "stored_input_help_url_ip_host",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://192.168.0.10/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_private_host",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://keys.internal/settings\"\n"
+    },
+    {
+      "name": "stored_input_help_url_too_long",
+      "valid": false,
+      "manifest": "[shimpz]\nspec = 1\nid = \"whatsapp\"\nversion = \"0.1.0\"\nname = \"WhatsApp\"\nsummary = \"Sends WhatsApp messages.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/assistant-whatsapp\"\ngenesis = \"Send requested WhatsApp messages.\"\n\n[network]\nallowed_hosts = [\"graph.facebook.com\"]\n\n[stored_inputs.whatsapp-token]\nkind = \"password\"\nlabel = \"WhatsApp token\"\ndescription = \"Token used to call the WhatsApp API.\"\nhelp_url = \"https://business.facebook.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n"
+    },
+    {
       "name": "legacy_root_fields",
       "valid": false,
       "manifest": "spec = 1\nid = \"hello-world\"\nversion = \"0.1.0\"\nname = \"Hello World\"\nsummary = \"Greets the caller.\"\ncreators = [\"@shimpz\"]\ngithub = \"https://github.com/TheShimpz/hello-world\"\nallowed_hosts = []\ngenesis = \"Produce a greeting.\"\n"

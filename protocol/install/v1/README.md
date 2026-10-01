@@ -62,8 +62,11 @@ same Action.
 
 Resolve also carries each reviewed Stored Input declaration and every Action's exact use list. Stored Inputs are
 token-like third-party credentials rather than OAuth Integrations. The declaration contains only id, closed
-`password` kind, label, and description; no value, configured status, or ciphertext crosses this boundary. Every
-Action references at most one declared id.
+`password` kind, label, description, and an optional `help_url`; no value, configured status, or ciphertext crosses
+this boundary. `help_url` is the page where a person creates the value: at most 2,048 characters of one canonical
+`https` URL on a public DNS host, with a path, an optional query, and no port, credentials, fragment, or dot
+segment, written exactly as WHATWG URL serialization would print it. Every Action references at most one declared
+id.
 
 ## Golden vectors
 

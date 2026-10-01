@@ -176,8 +176,17 @@
           "minLength": 1,
           "maxLength": 500,
           "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        },
+        "help_url": {
+          "$ref": "#/$defs/helpUrl"
         }
       }
+    },
+    "helpUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^https://(?=[^/]{1,253}/)(?![^/]*\\.(?:arpa|example|home|internal|invalid|lan|local|localdomain|localhost|onion|test)/)(?:(?!xn--)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?!xn--)[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?(?:/(?!\\.\\.?(?:/|\\?|(?![\\s\\S])))(?:[A-Za-z0-9._~!$&()*+,;=:@-]|%(?!2E)[0-9A-F]{2})*)+(?:\\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\\s\\S])"
     }
   }
 }

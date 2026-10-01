@@ -13,7 +13,10 @@ The manifest is represented by `manifest.schema.json`. Identity, version, disclo
 live under the required `[shimpz]` table. Exact outbound hosts live under the required `[network]`
 table. Optional provider requests remain peer `[integrations.<id>]` tables. Root-level metadata and
 optional persistent Action inputs use peer `[stored_inputs.<id>]` tables with the closed `password` kind,
-bounded public label, and bounded public description. Unknown fields are rejected rather than accepted as
+bounded public label, bounded public description, and an optional `help_url`: the page where a person creates the
+value, at most 2,048 characters of one canonical `https` URL on a public DNS host with a path, an optional query,
+and no port, credentials, fragment, or dot segment, written exactly as WHATWG URL serialization prints it. Team
+shows it as the key-creation link of the Stored Input request. Unknown fields are rejected rather than accepted as
 compatibility syntax. The required `[shimpz].id`
 is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.

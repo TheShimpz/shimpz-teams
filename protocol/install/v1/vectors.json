@@ -830,6 +830,110 @@
       }
     },
     {
+      "name": "resolve_stored_input_help_url",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "help_url": "https://business.facebook.com/settings/system-users"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_help_url_not_https",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "help_url": "http://business.facebook.com/settings"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_help_url_not_canonical",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "help_url": "https://business.facebook.com"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_help_url_credentials",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "help_url": "https://user@business.facebook.com/settings"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_stored_input_help_url_private_host",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "stored_inputs"
+        ],
+        "value": [
+          {
+            "id": "whatsapp-token",
+            "kind": "password",
+            "label": "WhatsApp token",
+            "description": "Token used to call the WhatsApp API.",
+            "help_url": "https://keys.internal/settings"
+          }
+        ]
+      }
+    },
+    {
       "name": "controller_install_request",
       "fixture": "controller_install_request",
       "valid": true
