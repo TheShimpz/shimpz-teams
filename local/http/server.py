@@ -903,15 +903,21 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.UNAUTHORIZED, {"error": "authentication required", "trace_id": trace_id})
             return
 
-        work = contextlib.nullcontext() if self.command in _READ_METHODS else self.server.activity.working()
+        mutating = self.command not in _READ_METHODS
+        work = self.server.activity.working() if mutating else contextlib.nullcontext()
         with work, brain_usage.metered():
-            local.dispatch_route(
-                lambda: self._authorized_route(request_audit),
-                request_audit.record,
-                self._send,
-                ApiProblem,
-                DockerException,
-            )
+            try:
+                local.dispatch_route(
+                    lambda: self._authorized_route(request_audit),
+                    request_audit.record,
+                    self._send,
+                    ApiProblem,
+                    DockerException,
+                )
+            finally:
+                # Opened before the in-flight count drops, so a Supervisor's work never reads as idle in between.
+                if mutating and request_audit.principal_class == "human":
+                    self.server.activity.supervised()
 
     def do_GET(self) -> None:
         self._handle()

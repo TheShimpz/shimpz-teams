@@ -50,7 +50,11 @@ failure. It does not remove shared images, the controller container, or unlabele
 The image healthcheck reads the controller bearer and performs authenticated `GET /healthz` on loopback.
 `python -m local.activity` uses the same loopback pattern for `GET /v1/activity` and prints only `idle` or `busy`:
 busy while any authenticated non-read request (chat turns, Action invocations, Assistant lifecycle) or automatic
-Assistant update is in flight. A chat paused on a human or Integration request is idle.
+Assistant update is in flight, and for 180 seconds after the last non-read request that passed Supervisor
+authority (chat turns and human-request submits, Assistant install and uninstall, Team create, rename, and delete,
+Routine changes). Machine-only calls, such as Routine claims and notices, health, and activity itself, and reads
+never open that quiet window. It is process memory on the monotonic clock, so a Team restart forgets it. A chat
+paused on a human or Integration request is idle once its quiet window ends.
 
 ## HTTP API
 

@@ -6,12 +6,14 @@ import http.client
 import json
 import runpy
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
 from local import activity as local_activity
+from local import authority as local_authority
 from local.http import audit as http_audit
 from local.http import server
 from local.install.automatic import AutomaticAssistantUpdater
@@ -57,6 +59,95 @@ class ActivityCounterTests(unittest.TestCase):
         )
         self.assertTrue(AutomaticAssistantUpdater(controller, activity=activity).run_once())
         self.assertEqual((observed, activity.state()), (["busy"], "idle"))
+
+
+class SupervisorQuietWindowTests(unittest.TestCase):
+    """Supervisor mutations and chat keep Team busy for the quiet window; machine calls and reads never do."""
+
+    def setUp(self) -> None:
+        self.now = 1_000.0
+        controller = SimpleNamespace(
+            health=lambda: {"status": "ok"},
+            list_teams=lambda: {"teams": []},
+            create_team=lambda team_id, team_name: {"team_id": team_id, "team_name": team_name},
+            chat_turn_service=SimpleNamespace(
+                claim_routine_run=lambda _providers: None,
+                routine_notices=lambda: {"notices": []},
+            ),
+        )
+        audit = mock.patch.object(http_audit.local_audit, "record", return_value="d" * 32)
+        audit.start()
+        self.addCleanup(audit.stop)
+        verify = mock.patch.object(
+            server.local_authority,
+            "verify",
+            return_value=local_authority.Evidence(
+                supervisor_id="a" * 32,
+                authority_kind="session",
+                authority_digest="b" * 64,
+                assertion_id="c" * 32,
+                expires_at=2_200_000_015,
+            ),
+        )
+        verify.start()
+        self.addCleanup(verify.stop)
+        self.server = server.BoundedServer(("127.0.0.1", 0), server.Handler, controller, TOKEN)
+        self.server.activity = local_activity.Activity(clock=lambda: self.now)
+        threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def request(self, method: str, path: str, body: dict[str, object] | None = None) -> int:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        headers = {"Authorization": f"Bearer {TOKEN}"}
+        encoded = None
+        if body is not None:
+            encoded = json.dumps(body).encode()
+            headers["Content-Type"] = "application/json"
+        connection.request(method, path, body=encoded, headers=headers)
+        status = connection.getresponse().status
+        connection.close()
+        # The response leaves before the handler's in-flight count drops; wait for it so only the window remains.
+        deadline = time.monotonic() + 5
+        while self.server.activity._active and time.monotonic() < deadline:
+            time.sleep(0.005)
+        return status
+
+    def create_team(self) -> int:
+        return self.request("POST", "/v1/teams/team_1/create", {"team_name": "Team"})
+
+    def test_a_supervisor_mutation_keeps_team_busy_only_for_the_quiet_window(self) -> None:
+        self.assertEqual(self.server.activity.state(), "idle")
+        self.assertEqual(self.create_team(), 200)
+        self.assertEqual(self.server.activity.state(), "busy")
+        self.now += local_activity.QUIET_SECONDS - 1
+        self.assertEqual(self.server.activity.state(), "busy")
+        self.now += 1
+        self.assertEqual(self.server.activity.state(), "idle")
+
+    def test_a_later_supervisor_mutation_restarts_the_window(self) -> None:
+        self.assertEqual(self.create_team(), 200)
+        self.now += local_activity.QUIET_SECONDS - 10
+        self.assertEqual(self.create_team(), 200)
+        self.now += local_activity.QUIET_SECONDS - 1
+        self.assertEqual(self.server.activity.state(), "busy")
+
+    def test_machine_calls_supervisor_reads_and_refused_authority_stay_idle(self) -> None:
+        self.assertEqual(self.request("GET", "/healthz"), 200)
+        self.assertEqual(self.request("GET", "/v1/activity"), 200)
+        self.assertEqual(self.request("POST", "/v1/routines/claim", {"providers": ["openai"]}), 200)
+        self.assertEqual(self.request("GET", "/v1/routines/notices"), 200)
+        self.assertEqual(self.request("GET", "/v1/teams"), 200)
+        with mock.patch.object(server.local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
+            self.assertEqual(self.create_team(), 403)
+        self.assertEqual(self.server.activity.state(), "idle")
+
+    def test_a_restarted_team_forgets_the_quiet_window(self) -> None:
+        self.assertEqual(self.create_team(), 200)
+        self.assertEqual(self.server.activity.state(), "busy")
+        restarted = server.BoundedServer(("127.0.0.1", 0), server.Handler, self.server.controller, TOKEN)
+        self.addCleanup(restarted.server_close)
+        self.assertEqual(restarted.activity.state(), "idle")
 
 
 class LoopbackActivityTests(unittest.TestCase):
