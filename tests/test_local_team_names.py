@@ -95,8 +95,12 @@ class TeamNameStoreTests(unittest.TestCase):
         self.assertEqual(sorted(path.name for path in self.root.iterdir()), ["unrelated.json"])
 
 
-def _network(team_id: str, network_id: str, label: str) -> types.SimpleNamespace:
-    return types.SimpleNamespace(id=network_id, attrs={"Labels": {TEAM_LABEL: team_id, TEAM_NAME_LABEL: label}})
+CREATED = "2026-09-30T12:00:00.000000001Z"
+
+
+def _network(team_id: str, network_id: str, label: str, created: object = CREATED) -> types.SimpleNamespace:
+    labels = {TEAM_LABEL: team_id, TEAM_NAME_LABEL: label}
+    return types.SimpleNamespace(id=network_id, attrs={"Labels": labels, "Created": created})
 
 
 class NamedTeamCase(unittest.TestCase):
@@ -106,8 +110,8 @@ class NamedTeamCase(unittest.TestCase):
         self.networks = {"team_a": _network("team_a", NETWORK_A, "Marketing")}
         locks: dict[str, threading.RLock] = {}
         lifecycle = types.SimpleNamespace(
-            _managed_team_networks=lambda: list(self.networks.values()),
-            _network=self.lookup,
+            _managed_team_networks=mock.Mock(side_effect=lambda: list(self.networks.values())),
+            _network=mock.Mock(side_effect=self.lookup),
             _validate_network=lambda network, _team_id, **_kwargs: network.attrs["Labels"][TEAM_NAME_LABEL],
             _base_labels=lambda team_id, _kind: {TEAM_LABEL: team_id},
             _network_name=lambda team_id: f"shimpz-{team_id}",
@@ -185,6 +189,65 @@ class RenameTests(NamedTeamCase):
         for thread in threads:
             thread.join()
         self.assertEqual(sorted(outcomes), ["renamed", "team-name-taken"])
+
+
+class ListOrderTests(NamedTeamCase):
+    def listed(self) -> list[str]:
+        return [team["team_id"] for team in self.call(local_names.list_teams)["teams"]]
+
+    def test_teams_list_newest_first_at_nanosecond_precision_across_offsets(self) -> None:
+        self.networks = {
+            team_id: _network(team_id, team_id[-1] * 64, team_id.title(), created)
+            for team_id, created in (
+                ("team_a", "2026-09-30T12:00:00Z"),
+                ("team_b", "2026-09-30T12:00:00.000000002Z"),
+                ("team_c", "2026-09-30T12:00:00.000000001Z"),
+                # 14:00:01 at +02:00 is one second after 12:00 UTC, and -03:00 two hours after it.
+                ("team_d", "2026-09-30T14:00:01+02:00"),
+                ("team_e", "2026-09-30T11:00:00.5-03:00"),
+                ("team_f", "2025-01-01T00:00:00.999999999Z"),
+            )
+        }
+        self.assertEqual(self.listed(), ["team_e", "team_d", "team_b", "team_c", "team_a", "team_f"])
+        # The listing reads the one network summary it already has: no Team is looked up or reinspected.
+        self.controller.assistant_lifecycle._managed_team_networks.assert_called_once_with()
+        self.controller.assistant_lifecycle._network.assert_not_called()
+
+    def test_only_one_instant_written_differently_falls_back_to_the_id(self) -> None:
+        self.networks = {
+            team_id: _network(team_id, team_id[-1] * 64, team_id.title(), created)
+            for team_id, created in (
+                ("team_c", "2026-09-30T12:00:00.5Z"),
+                ("team_a", "2026-09-30T09:00:00.500000000-03:00"),
+                ("team_b", "2026-09-30T14:00:00.50+02:00"),
+            )
+        }
+        self.assertEqual(self.listed(), ["team_a", "team_b", "team_c"])
+
+    def test_invalid_creation_metadata_is_a_controlled_refusal(self) -> None:
+        for created in (
+            None,
+            1727697600,
+            "",
+            "2026-09-30 12:00:00Z",
+            "2026-09-30T12:00:00",
+            "2026-09-30T12:00:00.Z",
+            "2026-09-30T12:00:00.0000000001Z",
+            "2026-02-30T12:00:00Z",
+            "2026-09-30T12:00:00+24:00",
+            "2026-09-30T12:00:00z",
+            "\u0662026-09-30T12:00:00Z",
+            "2026-09-30T12:00:00Z\n",
+        ):
+            with self.subTest(created=created):
+                self.networks["team_a"].attrs["Created"] = created
+                with self.assertRaises(ApiProblem) as caught:
+                    self.call(local_names.list_teams)
+                self.assertEqual((caught.exception.status, caught.exception.code), (503, "team-metadata-invalid"))
+
+    def test_a_rename_never_depends_on_creation_metadata(self) -> None:
+        self.networks["team_b"] = _network("team_b", NETWORK_B, "Sales", created=None)
+        self.assertEqual(self.call(local_names.rename_team, "team_a", "Growth")["team_name"], "Growth")
 
 
 class CreateTests(NamedTeamCase):

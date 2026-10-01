@@ -200,6 +200,10 @@ Local `DELETE /v1/teams/:team_id` carries exactly `{"team_name"}`, the current n
 side effect. `payload.canonical_local_team_name` admits a Local display name: the shared 1 to 80 trimmed characters
 without controls, already NFC. Supervisor assertions admit `PATCH` alongside `DELETE`, `GET`, `POST`, and `PUT`.
 Hosted Team names are unchanged by this contract.
+A Local `GET /v1/teams` lists every Team newest first by its Team network's creation instant, compared at Docker's
+full nanosecond precision after normalizing the reported offset; only Teams created at the same instant fall back to
+ascending `team_id`. Each item keeps exactly `{"team_id", "team_name", "status"}`, and creation metadata that is not
+a valid RFC 3339 instant refuses the listing with `503` `team-metadata-invalid`.
 
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify
