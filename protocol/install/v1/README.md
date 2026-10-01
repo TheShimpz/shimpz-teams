@@ -47,6 +47,18 @@ are JSON integers: `365` is octal `0555`, and `292` is octal `0444`. No port,
 health endpoint, authored server, mutable image, capability, or alternative
 runtime setting is admitted.
 
+The machine contract carries the Assistant's English message catalog as a sorted `messages` list of
+`{id, msgid, max_length, params}` (Developers Assistant Spec v1 owns its complete semantics). Every `id` is the
+lowercase SHA-256 of its `msgid` bytes, and the published `summary` is one catalog message with no parameters and a
+`max_length` of at most 160.
+
+Language packs travel with the artifact. Each final image holds the canonical pack for that catalog at the fixed
+read-only `/opt/shimpz/shimpz.pack.json` (`language_pack` in the runtime), and resolve carries its `pack_digest`:
+`sha256:` over the exact pack bytes. The signed provenance binds the same digest beside the manifest and machine
+contract digests. The Controller reads the pack from the verified image, requires that its bytes hash to
+`pack_digest` and that it is complete and valid for the resolved catalog, and keeps it with the reviewed binding.
+A missing, modified, incomplete, or mismatched pack fails closed.
+
 Signature and DSSE provenance bundles are not embedded. Resolve supplies
 immutable references under
 `ghcr.io/theshimpz/shimpz-assistant-trust` and the signer identity. The

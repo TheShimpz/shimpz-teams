@@ -40,8 +40,10 @@ An Action declares at most one authorization capability: plain `approval` or exa
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
-unique, every used Stored Input is declared, every nested object schema is closed, and the canonical contract is at
-most 512 KiB and 32,768 JSON values.
+unique, every used Stored Input is declared, every nested object schema is closed, the message catalog is valid,
+and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
+the Action files and `lib/**/*.py` that runs before any Creator code is imported: request copy is supplied only as a
+literal template, and a computed template, f-string, alias, or formatting expression is refused.
 
 Each Action `input_schema` and `output_schema` must describe a closed object (`"type": "object"` with
 `"additionalProperties": false` at every object position) and must not use a boolean subschema. It must be a valid
@@ -70,6 +72,47 @@ publication is stricter than Team in exactly two ways:
 `action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.
 
+## Message catalog
+
+Every user-visible string an Assistant authors is English catalog copy. The generated contract carries the catalog as
+a required `messages` list of `{id, msgid, max_length, params}` objects, sorted by `id` without duplicates, with 1 to
+256 messages, at most 131,072 bytes of canonical JSON, and at most 4,096 JSON values counted as above.
+
+- `msgid` is the English template: a trimmed, printable, NFC string of at most 500 characters without control, bidi
+  override or isolate, or zero-width formatting characters. `id` is the lowercase SHA-256 of its exact UTF-8 bytes.
+- A placeholder is one `string.Formatter` named field `{name}` whose name matches `[a-z][a-z0-9_]{0,31}`. Attribute
+  or index access, conversion, format specification, nesting, positional or numeric fields, escaped `{{` or `}}`,
+  and any other brace are refused. Each placeholder appears exactly once. There is no plural or context syntax.
+- `params` declares exactly the template's placeholders, sorted by `name`, at most 8, each with a `kind` and a
+  `max_length`: `integer` (a non-negative JSON integer whose decimal form has at most `max_length` digits, at most
+  15), `domain` (a lowercase DNS name of at least two labels, at most 253), or `identifier` (an opaque
+  `[A-Za-z0-9][A-Za-z0-9._:-]*` value, at most 128). Arbitrary prose is never a parameter kind.
+- `max_length` is the smallest character bound of every field that uses the message, one of 80, 120, 160, or 500.
+  The template's literal characters (the template without its placeholders) plus every parameter's `max_length`
+  must fit within it, so every rendering and every admitted translation fits its field without truncation.
+- The manifest `summary` joins the catalog: one message has exactly that `msgid`, no parameters, and a `max_length`
+  of at most 160. A summary that is not NFC or that contains a brace therefore cannot be published.
+
+The catalog digest is `sha256:` followed by the lowercase SHA-256 of the `messages` list in the canonical JSON
+profile used by request fingerprints.
+
+## Language packs
+
+`language-pack.schema.json` describes the canonical JSON pack `{format, catalog, policy, locales}` that Developers
+produces for a catalog and that travels with the built artifact. `format` is exactly `assistant-language-pack-v1`,
+`catalog` is the catalog digest, and `policy` is the `sha256:` identity of the pinned translation policy. `locales`
+holds exactly `ar`, `de`, `es`, `fr`, `ja`, `pt`, and `zh`; English is the catalog itself and never appears. Each
+locale maps every catalog `id`, and nothing else, to one translated template that is public text under the `msgid`
+rules, uses exactly the `msgid`'s placeholder set once each with the same syntax limits, and fits the message's
+`max_length` budget without truncation. The pack bytes are exactly its canonical JSON encoding, at most 2,097,152
+bytes, and the pack digest is `sha256:` followed by the lowercase SHA-256 of those bytes.
+
+Rendering replaces each placeholder once with its parameter value (an integer in decimal) in the English `msgid` or
+the locale's translation. A parameter is never interpreted, translated, or reformatted.
+
+`catalog-vectors.json` freezes admitted and refused catalogs (including generated count, byte, and value bounds),
+renderings, and packs; `message_catalog_validator.py` is the reference implementation.
+
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
@@ -81,19 +124,27 @@ environment variables, logs, generated artifacts, or the Brain.
 `result.schema.json` describes the tagged object written to stdout. A terminal response is
 `{"type":"result","result":{...}}`; the SDK validates `result` against the reviewed Action output schema.
 A capability-declared request is `{"type":"request","request":{...}}`, with one closed request kind,
-ordinal, canonical fingerprint, and bounded inert copy. Team accepts it only for the exact reviewed Action,
+ordinal, canonical fingerprint, and catalog copy references. Team accepts it only for the exact reviewed Action,
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
 response transcript. An Action failure returns no partial result or private diagnostic.
 The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
 declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value, and
 terminates the turn with a sanitized retry instruction; generic failure never clears a value.
 
-The fingerprint is lowercase SHA-256 over the request object before its `fingerprint` member is added. Its
-preimage is UTF-8 JSON with object keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted
-directly rather than ASCII-escaped, and no non-finite numbers. Request keys are fixed ASCII protocol names, and
-request values are limited to strings, integers, booleans, null, arrays, and objects, so this profile is portable
-without a general numeric canonicalizer. `human-request-vectors.json` freezes representative preimages, digests,
-semantic request constraints, and replay transcript failures that JSON Schema cannot express alone.
+Every copy field of a request (`title`, `description`, `label`, `placeholder`, and each option's `label` and
+`description`) is a reference `{"message": id, "params": {...}}` to the reviewed catalog, never a string; only
+`placeholder` and an option `description` may instead be `null`. The `message` must be declared, `params` must name
+exactly its declared parameters with values of their declared kind and length, and its `max_length` must not exceed
+the field's bound: 80 for a title, label, or option label, 120 for a placeholder, 160 for an option description, and
+500 for a description. Request kinds, option values, and the authorization scope stay canonical and untranslated.
+
+The fingerprint is lowercase SHA-256 over the request object, including its references and parameters, before its
+`fingerprint` member is added, so it never depends on the display language. Its preimage is UTF-8 JSON with object
+keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted directly rather than ASCII-escaped,
+and no non-finite numbers. Request keys are ASCII protocol or parameter names, and request values are limited to
+strings, integers, booleans, null, arrays, and objects, so this profile is portable without a general numeric
+canonicalizer. `human-request-vectors.json` freezes one reviewed catalog with representative preimages, digests,
+semantic request and reference constraints, and replay transcript failures that JSON Schema cannot express alone.
 
 Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
 ordinary `password` input is memory-only, protected from result echo, and must be the final request. A reviewed
@@ -105,8 +156,8 @@ cancellation, expiry, unsupported authentication, transcript divergence, and und
 Action without returning control to Assistant code.
 There are no authored HTTP servers or compatibility envelopes.
 
-Public prompt copy must be trimmed, printable Unicode and must not contain control, bidi override/isolate, or
-zero-width formatting characters. Option values are unique. Length and selection minima never exceed their
+Option values must be trimmed, printable Unicode and must not contain control, bidi override/isolate, or
+zero-width formatting characters, and they are unique. Length and selection minima never exceed their
 maxima, selection maxima never exceed the option count, and response ordinals are unique and contiguous from
 zero. The Assistant Spec owns the eight-request-per-Action limit; Team's chat protocol independently owns its
 turn-wide request limit and challenge lifetime.

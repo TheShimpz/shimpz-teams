@@ -88,6 +88,10 @@
             "path": "/opt/shimpz/shimpz.contract.json",
             "mode": 292
           },
+          "language_pack": {
+            "path": "/opt/shimpz/shimpz.pack.json",
+            "mode": 292
+          },
           "read_only_root": true,
           "tmpfs_bytes": 67108864,
           "capabilities": [],
@@ -118,8 +122,41 @@
                 "input:password"
               ]
             }
+          ],
+          "messages": [
+            {
+              "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+              "msgid": "Approve the greeting for {zone}",
+              "max_length": 80,
+              "params": [
+                {
+                  "name": "zone",
+                  "kind": "domain",
+                  "max_length": 40
+                }
+              ]
+            },
+            {
+              "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+              "msgid": "Complete one reviewed greeting Action.",
+              "max_length": 160,
+              "params": []
+            },
+            {
+              "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+              "msgid": "Greet {zone}",
+              "max_length": 160,
+              "params": [
+                {
+                  "name": "zone",
+                  "kind": "domain",
+                  "max_length": 40
+                }
+              ]
+            }
           ]
         },
+        "pack_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
         "allowed_hosts": [
           "api.cloudflare.com"
         ],
@@ -931,6 +968,359 @@
             "help_url": "https://keys.internal/settings"
           }
         ]
+      }
+    },
+    {
+      "name": "resolve_without_pack_digest",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "pack_digest"
+        ]
+      }
+    },
+    {
+      "name": "resolve_pack_digest_without_algorithm",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "pack_digest"
+        ],
+        "value": "3333333333333333333333333333333333333333333333333333333333333333"
+      }
+    },
+    {
+      "name": "resolve_without_language_pack_file",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "runtime",
+          "language_pack"
+        ]
+      }
+    },
+    {
+      "name": "resolve_language_pack_wrong_path",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "runtime",
+          "language_pack",
+          "path"
+        ],
+        "value": "/tmp/shimpz.pack.json"
+      }
+    },
+    {
+      "name": "resolve_language_pack_writable",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "runtime",
+          "language_pack",
+          "mode"
+        ],
+        "value": 438
+      }
+    },
+    {
+      "name": "resolve_without_message_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "remove",
+        "path": [
+          "machine_contract",
+          "messages"
+        ]
+      }
+    },
+    {
+      "name": "resolve_empty_message_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": []
+      }
+    },
+    {
+      "name": "resolve_message_unknown_field",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": [],
+            "context": "dns"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_message_prose_param",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "text",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_message_param_over_bound",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 254
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_message_unlisted_field_bound",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 100,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_message_id_mismatch",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_catalog_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {domain}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_unsorted_message_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_catalog_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          },
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_summary_not_in_catalog",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_summary_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "summary"
+        ],
+        "value": "Complete one greeting Action."
+      }
+    },
+    {
+      "name": "resolve_summary_message_over_bound",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_summary_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 500,
+            "params": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_summary_message_with_params",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "resolve_summary_mismatch",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "summary"
+        ],
+        "value": "Greet {zone}"
       }
     },
     {

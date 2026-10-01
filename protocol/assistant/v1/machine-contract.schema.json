@@ -4,7 +4,7 @@
   "title": "Shimpz Assistant SDK machine contract v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "actions"],
+  "required": ["version", "actions", "messages"],
   "properties": {
     "version": {
       "const": 1
@@ -15,6 +15,15 @@
       "maxItems": 128,
       "items": {
         "$ref": "#/$defs/action"
+      }
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/message"
       }
     }
   },
@@ -76,6 +85,53 @@
           },
           "minContains": 0,
           "maxContains": 1
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "msgid", "max_length", "params"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "msgid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+        },
+        "max_length": {
+          "enum": [80, 120, 160, 500]
+        },
+        "params": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/messageParam"
+          }
+        }
+      }
+    },
+    "messageParam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "max_length"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "kind": {
+          "enum": ["integer", "domain", "identifier"]
+        },
+        "max_length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 253
         }
       }
     },

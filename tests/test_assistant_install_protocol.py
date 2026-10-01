@@ -13,10 +13,10 @@ AUTHORITY = ROOT / "v1"
 MANIFEST = AUTHORITY / "contract-files.sha256"
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz",
-    "commit": "d6353b7becc12633e6b46fd3cfdfce36b8ef230c",
+    "commit": "049d72a43e3e5e4cb2528d8e518d44edaa98c318",
     "path": ".standards/assistant-install/v1",
-    "tree": "b7768373ab1f5f46598d95a54ea4dadf67dbfc14",
-    "contract_files_sha256": "f90a5a0d9b49e69e1873f9c2800f920a1224713d78713067cd1c65fe6236a41f",
+    "tree": "4b42659e8ba2c521f64ff9426a833c79eb31d3e0",
+    "contract_files_sha256": "cfc43e12c143913113ce1e1833d2370207980467ab626207daa1e47016fac0cf",
 }
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 

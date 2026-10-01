@@ -20,6 +20,7 @@ SUPPORTED_KEYWORDS = {
     "maxItems",
     "maxContains",
     "maxLength",
+    "maximum",
     "minItems",
     "minContains",
     "minLength",
@@ -277,10 +278,13 @@ def _validate_string(schema: dict[str, object], value: object, path: str) -> Non
         raise SchemaViolationError(f"{path}: string does not match pattern")
 
 
-def _validate_integer(schema: dict[str, object], value: object, path: str) -> None:
+def _validate_integer(schema: dict[str, object], value: int, path: str) -> None:
     minimum = schema.get("minimum")
-    if isinstance(value, int) and not isinstance(value, bool) and isinstance(minimum, int) and value < minimum:
+    maximum = schema.get("maximum")
+    if isinstance(minimum, int) and value < minimum:
         raise SchemaViolationError(f"{path}: integer is too small")
+    if isinstance(maximum, int) and value > maximum:
+        raise SchemaViolationError(f"{path}: integer is too large")
 
 
 def _json_equal(left: object, right: object) -> bool:

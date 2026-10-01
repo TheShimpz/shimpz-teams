@@ -117,6 +117,7 @@ def validate_resolve(value: dict[str, object]) -> None:
     expected = f"ghcr.io/theshimpz/shimpz-assistant@{value.get('oci_digest')}"
     if value.get("image_reference") != expected:
         raise ContractViolationError("resolve_digest_mismatch")
+    validate_catalog(value)
     intents = value.get("integrations")
     contract = value.get("machine_contract")
     if not isinstance(intents, list) or not isinstance(contract, dict):
@@ -164,6 +165,24 @@ def validate_resolve(value: dict[str, object]) -> None:
         if isinstance(action, dict)
     ):
         raise ContractViolationError("resolve_stored_input_mismatch")
+
+
+def validate_catalog(value: dict[str, object]) -> None:
+    """Bind each schema-valid catalog id to its template and require the summary message."""
+    contract = value.get("machine_contract")
+    messages = contract.get("messages") if isinstance(contract, dict) else None
+    if not isinstance(messages, list):
+        return
+    ids = [message["id"] for message in messages]
+    if ids != sorted(set(ids)) or any(
+        message["id"] != hashlib.sha256(message["msgid"].encode()).hexdigest() for message in messages
+    ):
+        raise ContractViolationError("resolve_catalog_mismatch")
+    if not any(
+        message["msgid"] == value["summary"] and not message["params"] and message["max_length"] <= 160
+        for message in messages
+    ):
+        raise ContractViolationError("resolve_summary_mismatch")
 
 
 def validate_lifetime(

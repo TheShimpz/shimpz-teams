@@ -50,6 +50,7 @@ def _execute(
         output = io.StringIO()
         module_names = (
             "human_request_validator",
+            "message_catalog_validator",
             "payload",
             "progress",
             "routine",
@@ -219,6 +220,22 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "human-request-vectors.json",
                 lambda value: value.update({"version": 2}),
             ),
+            lambda root: _rewrite_json(
+                root,
+                "human-request-vectors.json",
+                lambda value: value["catalog"].update({"summary": "Not in the catalog."}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["properties"]["messages"].update({"maxItems": 255}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "language-pack.schema.json",
+                lambda value: value["properties"]["locales"]["required"].append("en"),
+            ),
+            lambda root: _rewrite_json(root, "catalog-vectors.json", lambda value: value.update({"version": 2})),
             lambda root: _rewrite_json(
                 root,
                 "action-schema-vectors.json",

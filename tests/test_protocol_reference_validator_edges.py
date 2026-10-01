@@ -9,18 +9,52 @@ from pathlib import Path
 from unittest import mock
 
 from protocol.assistant.v1 import human_request_validator as human
+from protocol.assistant.v1 import message_catalog_validator as catalog_module
 from protocol.http.v1 import websocket
 from protocol.install.v1 import schema_validator as schema
 
 ROOT = Path(__file__).resolve().parents[1]
+ASSISTANT_PROTOCOL = ROOT / "protocol" / "assistant" / "v1"
+SUMMARY = "Approve reviewed changes."
+
+
+def _message(text: str, max_length: int = 80, params: tuple[tuple[str, str, int], ...] = ()) -> dict[str, object]:
+    return {
+        "id": catalog_module.message_id(text),
+        "msgid": text,
+        "max_length": max_length,
+        "params": [{"name": name, "kind": kind, "max_length": bound} for name, kind, bound in params],
+    }
+
+
+MESSAGES = sorted(
+    (
+        _message(SUMMARY, 160),
+        _message("Approve"),
+        _message("Approve this action", 500),
+        _message("Name"),
+        _message("Region"),
+        _message("A"),
+        _message("B"),
+        _message("Second", 160),
+        _message("Example: {zone}", 120, (("zone", "domain", 100),)),
+        _message("Changes: {count}. Record: {record}.", 80, (("count", "integer", 3), ("record", "identifier", 32))),
+    ),
+    key=lambda message: message["id"],
+)
+CATALOG = {message["id"]: message for message in MESSAGES}
+
+
+def _ref(text: str, **params: object) -> dict[str, object]:
+    return {"message": catalog_module.message_id(text), "params": params}
 
 
 def _approval(**changes: object) -> dict[str, object]:
     value: dict[str, object] = {
         "kind": "approval",
         "ordinal": 0,
-        "title": "Approve",
-        "description": "Approve this action",
+        "title": _ref("Approve"),
+        "description": _ref("Approve this action"),
     }
     value.update(changes)
     return value
@@ -29,7 +63,7 @@ def _approval(**changes: object) -> dict[str, object]:
 def _text_request(**changes: object) -> dict[str, object]:
     value = {
         **_approval(kind="input:text"),
-        "label": "Name",
+        "label": _ref("Name"),
         "required": True,
         "placeholder": None,
         "min_length": 1,
@@ -42,11 +76,11 @@ def _text_request(**changes: object) -> dict[str, object]:
 def _choice_request(*, multiple: bool = False, **changes: object) -> dict[str, object]:
     value = {
         **_approval(kind="input:choices" if multiple else "input:select"),
-        "label": "Region",
+        "label": _ref("Region"),
         "required": True,
         "options": [
-            {"value": "a", "label": "A", "description": None},
-            {"value": "b", "label": "B", "description": "Second"},
+            {"value": "a", "label": _ref("A"), "description": None},
+            {"value": "b", "label": _ref("B"), "description": _ref("Second")},
         ],
     }
     if multiple:
@@ -68,50 +102,113 @@ def _response(request: dict[str, object], value: object, **changes: object) -> d
 
 class HumanRequestValidatorEdgeTests(unittest.TestCase):
     def test_current_vectors_and_every_request_family_are_accepted(self) -> None:
-        protocol = ROOT / "protocol/assistant/v1"
-        vectors = json.loads((protocol / "human-request-vectors.json").read_bytes())
-        machine = json.loads((protocol / "machine-contract.schema.json").read_bytes())
+        vectors = json.loads((ASSISTANT_PROTOCOL / "human-request-vectors.json").read_bytes())
+        machine = json.loads((ASSISTANT_PROTOCOL / "machine-contract.schema.json").read_bytes())
         human.verify_vectors(vectors, machine["$defs"]["humanRequestCapability"]["enum"])
-
+        self.assertIsNone(catalog_module.catalog_error(MESSAGES, SUMMARY))
         requests = (
             _approval(),
             _approval(kind="auth:password"),
+            _approval(kind="auth:totp"),
+            _approval(kind="auth:passkey"),
+            _approval(title=_ref("Changes: {count}. Record: {record}.", count=12, record="rec_01:A.b-c")),
             _text_request(),
+            _text_request(placeholder=_ref("Example: {zone}", zone="example.com")),
             _text_request(kind="input:textarea", max_length=16000),
             _text_request(kind="input:password", max_length=1024),
+            _text_request(
+                kind="input:password",
+                max_length=1024,
+                stored_input="whatsapp-token",
+            ),
             _text_request(kind="input:phone", max_length=64),
             _choice_request(),
             _choice_request(kind="input:choice"),
             _choice_request(multiple=True),
         )
-        self.assertTrue(all(human.request_error(request) is None for request in requests))
+        self.assertTrue(all(human.request_error(request, CATALOG) is None for request in requests))
 
     def test_request_validation_rejects_base_length_and_choice_edges(self) -> None:
+        options = _choice_request()["options"]
         cases = (
             (None, "request_shape"),
+            ({"kind": "approval", "ordinal": 0}, "request_shape"),
             (_approval(ordinal=True), "request_shape"),
-            (_approval(title=" bad"), "public_text"),
+            (_approval(title="Approve"), "copy_reference"),
+            (_approval(title=None), "copy_reference"),
+            (_approval(title={"message": None, "params": {}}), "copy_reference"),
+            (_approval(title={"message": catalog_module.message_id("Approve"), "params": []}), "copy_reference"),
+            (_approval(title=_ref("Approve this action")), "copy_bound"),
             (_approval(extra=True), "request_shape"),
             (_approval(kind="unknown"), "request_kind"),
             (_text_request(required=1), "request_shape"),
-            (_text_request(placeholder=" bad"), "public_text"),
+            (_text_request(placeholder=_ref("Example: {zone}", zone="not a domain")), "copy_params"),
+            (_text_request(label=None), "copy_reference"),
             (_text_request(min_length=True), "length_bounds"),
             (_text_request(min_length=2, max_length=1), "length_bounds"),
+            (_text_request(stored_input="whatsapp-token"), "request_shape"),
+            (
+                _text_request(
+                    kind="input:password",
+                    max_length=1024,
+                    stored_input="WhatsApp_Token",
+                ),
+                "stored_input",
+            ),
             (_choice_request(options=[]), "options"),
             (
                 _choice_request(
                     options=[
-                        {"value": "a", "label": "A", "description": None},
-                        {"value": "a", "label": "Again", "description": None},
+                        {"value": "a", "label": _ref("A"), "description": None},
+                        {"value": "a", "label": _ref("B"), "description": None},
                     ]
                 ),
                 "options",
             ),
+            (_choice_request(label="Region"), "copy_reference"),
+            (_choice_request(options=[options[0], {**options[1], "description": "Second"}]), "copy_reference"),
+            (_choice_request(options=[options[0], {**options[1], "label": None}]), "copy_reference"),
             (_choice_request(multiple=True, min_selections=True), "selection_bounds"),
         )
         for request, expected in cases:
-            with self.subTest(expected=expected):
-                self.assertEqual(human.request_error(request), expected)
+            with self.subTest(expected=expected, request=request):
+                self.assertEqual(human.request_error(request, CATALOG), expected)
+
+    def test_reference_parameters_follow_their_declared_kind_and_length(self) -> None:
+        changes = "Changes: {count}. Record: {record}."
+        cases = (
+            ({"count": 999, "record": "x" * 32}, None),
+            ({"count": 0, "record": "A"}, None),
+            ({"count": 1000, "record": "a"}, "copy_params"),
+            ({"count": -1, "record": "a"}, "copy_params"),
+            ({"count": True, "record": "a"}, "copy_params"),
+            ({"count": "1", "record": "a"}, "copy_params"),
+            ({"count": 1, "record": "x" * 33}, "copy_params"),
+            ({"count": 1, "record": "-leading"}, "copy_params"),
+            ({"count": 1, "record": "two words"}, "copy_params"),
+            ({"count": 1, "record": 7}, "copy_params"),
+            ({"count": 1}, "copy_params"),
+            ({"count": 1, "record": "a", "extra": "a"}, "copy_params"),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                self.assertEqual(human.reference_error(_ref(changes, **params), CATALOG, 80), expected)
+        example = "Example: {zone}"
+        for zone, expected in (
+            ("example.com", None),
+            ("a.b", None),
+            ("xn--caf-dma.example", None),
+            ("localhost", "copy_params"),
+            ("Example.com", "copy_params"),
+            ("example.com.", "copy_params"),
+            ("-bad.example", "copy_params"),
+            ("a" * 97 + ".com", "copy_params"),
+        ):
+            with self.subTest(zone=zone):
+                self.assertEqual(human.reference_error(_ref(example, zone=zone), CATALOG, 120), expected)
+        self.assertEqual(human.reference_error(_ref(example, zone="example.com"), CATALOG, 80), "copy_bound")
+        self.assertEqual(human.reference_error(None, CATALOG, 80), "copy_reference")
+        self.assertEqual(human.reference_error(_ref("Unknown"), CATALOG, 80), "copy_reference")
 
     def test_transcript_validation_covers_order_count_and_response_semantics(self) -> None:
         approval = _approval()
@@ -121,9 +218,16 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
         choices = _choice_request(multiple=True)
         cases = (
             (None, [], "transcript_shape"),
+            ([_approval()] * 9, [], "transcript_shape"),
             ([_approval(ordinal=1)], [], "ordinal_sequence"),
             ([_approval(extra=True)], [], "request_shape"),
+            ([_approval(title=_ref("Unknown"))], [], "copy_reference"),
             ([_text_request(kind="input:password"), _approval(ordinal=1)], [], "secret_last"),
+            (
+                [_approval(), _approval(kind="auth:password", ordinal=1)],
+                [],
+                "authorization_once",
+            ),
             ([approval], [], "response_count"),
             ([approval], [{}], "response_shape"),
             ([approval], [_response(approval, True, kind="auth:password")], "response_match"),
@@ -141,57 +245,52 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
         )
         for requests, responses, expected in cases:
             with self.subTest(expected=expected):
-                self.assertEqual(human.transcript_error(requests, responses), expected)
+                self.assertEqual(human.transcript_error(requests, responses, CATALOG), expected)
 
-    def test_vector_envelope_checks_are_closed(self) -> None:
-        protocol = ROOT / "protocol/assistant/v1"
-        document = json.loads((protocol / "human-request-vectors.json").read_bytes())
+    def test_fingerprint_binds_references_and_parameters(self) -> None:
+        first = _approval(title=_ref("Changes: {count}. Record: {record}.", count=1, record="a"))
+        second = _approval(title=_ref("Changes: {count}. Record: {record}.", count=2, record="a"))
+        self.assertNotEqual(human.fingerprint(first), human.fingerprint(second))
+        self.assertEqual(human.fingerprint(first), human.fingerprint(copy.deepcopy(first)))
+
+    def test_vector_sections_and_helpers_are_closed(self) -> None:
+        document = json.loads((ASSISTANT_PROTOCOL / "human-request-vectors.json").read_bytes())
         capabilities = copy.deepcopy(document["capabilities"])
-        mutations = (
-            None,
+        for value in (
+            [],
             {**document, "extra": True},
             {**document, "version": 2},
             {**document, "limits": {}},
-        )
-        for mutated in mutations:
-            if mutated is None:
-                value: object = []
-            else:
-                value = mutated
-            with self.subTest(value_type=type(value).__name__), self.assertRaises(ValueError):
+            {**document, "catalog": []},
+            {**document, "catalog": {"messages": []}},
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
                 human.verify_vectors(value, capabilities)
-
         with (
             mock.patch.object(human, "_verify_fingerprints", side_effect=ValueError("fingerprint")),
             self.assertRaisesRegex(ValueError, "fingerprint"),
         ):
             human.verify_vectors(document, capabilities)
 
-    def test_fingerprint_and_case_section_checks_reject_drift(self) -> None:
         request = _approval()
-        digest = human.fingerprint(request)
-        valid_fingerprints = {
+        fingerprints = {
             "algorithm": "sha256",
             "serialization": "utf8-json-sort-keys-compact-no-ascii-escaping",
             "cases": [
-                {"name": "one", "request": request, "sha256": digest},
+                {"name": "one", "request": request, "sha256": human.fingerprint(request)},
                 {
                     "name": "two",
-                    "request": _approval(title="Other"),
-                    "sha256": human.fingerprint(_approval(title="Other")),
+                    "request": _approval(title=_ref("Name")),
+                    "sha256": human.fingerprint(_approval(title=_ref("Name"))),
                 },
             ],
         }
         invalid_sections = (
             None,
-            {**valid_fingerprints, "algorithm": "bad"},
-            {**valid_fingerprints, "cases": []},
-            {**valid_fingerprints, "cases": [None, None]},
-            {**valid_fingerprints, "cases": [{}]},
-            {
-                **valid_fingerprints,
-                "cases": [{**valid_fingerprints["cases"][0], "sha256": "0" * 64}, valid_fingerprints["cases"][1]],
-            },
+            {**fingerprints, "algorithm": "bad"},
+            {**fingerprints, "cases": []},
+            {**fingerprints, "cases": [None, None]},
+            {**fingerprints, "cases": [{**fingerprints["cases"][0], "sha256": "0" * 64}, fingerprints["cases"][1]]},
         )
         for section in invalid_sections:
             with self.subTest(section=section), self.assertRaises(ValueError):
@@ -201,25 +300,147 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             {"name": "valid", "valid": True, "request": request},
             {"name": "invalid", "valid": False, "request": _approval(extra=True), "error": "request_shape"},
         ]
-        human._verify_cases(valid_cases, "request")
-        for cases in (
+        human._verify_cases(valid_cases, "request", CATALOG)
+        invalid_cases = (
             None,
             [],
             [{}],
             [valid_cases[0], {**valid_cases[0]}],
             [{**valid_cases[0], "valid": False, "error": "wrong"}, valid_cases[1]],
             [valid_cases[0]],
-        ):
+        )
+        for cases in invalid_cases:
             with self.subTest(cases=cases), self.assertRaises(ValueError):
-                human._verify_cases(cases, "request")
+                human._verify_cases(cases, "request", CATALOG)
 
-    def test_private_text_option_and_response_helpers_reject_ambiguous_values(self) -> None:
-        self.assertFalse(human._input_base_valid({"required": True, "label": " bad"}))
-        self.assertEqual(human.request_error(_choice_request(required=1)), "request_shape")
+        self.assertEqual(human.request_error(_choice_request(required=1), CATALOG), "request_shape")
         self.assertFalse(human._option(None))
         self.assertFalse(human._option({"value": "a"}))
-        self.assertFalse(human._option({"value": "a", "label": "A", "description": " bad"}))
+        self.assertFalse(human._option({"value": " a", "label": _ref("A"), "description": None}))
         self.assertFalse(human._text("bad\n", 10))
+        self.assertFalse(human._identifier(None))
+
+
+class MessageCatalogValidatorEdgeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.vectors = json.loads((ASSISTANT_PROTOCOL / "catalog-vectors.json").read_bytes())
+        self.messages = self.vectors["catalog"]["messages"]
+        self.pack = self.vectors["pack"]["value"]
+
+    def test_current_vectors_verify(self) -> None:
+        catalog_module.verify_vectors(copy.deepcopy(self.vectors))
+        raw = catalog_module.canonical_json(self.pack)
+        self.assertEqual(catalog_module.pack_digest(raw), self.vectors["pack"]["digest"])
+        self.assertEqual(catalog_module.catalog_digest(self.messages), self.vectors["catalog"]["digest"])
+
+    def test_placeholders_admit_only_named_fields(self) -> None:
+        self.assertEqual(catalog_module.placeholders("No fields"), [])
+        self.assertEqual(catalog_module.placeholders("{a} and {b_2}"), ["a", "b_2"])
+        for template in ("{", "}", "} {a}", "{a", "{a.b}", "{a[0]}", "{a!r}", "{a:>2}", "{}", "{0}", "{{a}}", "{A}"):
+            with self.subTest(template=template):
+                self.assertIsNone(catalog_module.placeholders(template))
+
+    def test_catalog_errors_cover_shape_bounds_and_summary(self) -> None:
+        summary = _message(SUMMARY, 160)
+        cases = (
+            (None, "catalog_shape"),
+            ([summary, float("nan")], "catalog_shape"),
+            ([summary, {1, 2}], "catalog_shape"),
+            ([summary, None], "message_shape"),
+            ([summary, {**_message("Zone"), "max_length": True}], "message_shape"),
+            ([summary, {**_message("Zone"), "max_length": 81}], "message_shape"),
+            ([summary, {**_message("Zone"), "id": None}], "message_id"),
+            ([summary, {**_message("Zone"), "params": None}], "message_params"),
+            ([summary, {**_message("Zone"), "params": [None]}], "message_params"),
+            (
+                [summary, {**_message("Zone"), "params": [{"name": 1, "kind": "integer", "max_length": 1}]}],
+                "message_params",
+            ),
+            (
+                [summary, {**_message("Zone {a}"), "params": [{"name": "a", "kind": "integer", "max_length": True}]}],
+                "message_params",
+            ),
+            (
+                [summary, {**_message("Zone {a}"), "params": [{"name": "a", "kind": "integer", "max_length": 0}]}],
+                "message_params",
+            ),
+            (
+                [
+                    summary,
+                    _message(
+                        "{a} {b} {c} {d} {e} {f} {g} {h} {i}", 500, tuple((name, "integer", 1) for name in "abcdefghi")
+                    ),
+                ],
+                "message_params",
+            ),
+            ([summary, _message("{a} {a}", 80, (("a", "integer", 1),))], "message_placeholders"),
+            ([summary, _message("{a}", 80, (("a", "integer", 1), ("b", "integer", 1)))], "message_placeholders"),
+            ([_message(SUMMARY, 80)], None),
+            ([_message(SUMMARY, 500)], "catalog_summary"),
+            ([_message("Other", 160)], "catalog_summary"),
+        )
+        for messages, expected in cases:
+            with self.subTest(expected=expected, messages=messages):
+                self.assertEqual(catalog_module.catalog_error(messages, SUMMARY), expected)
+
+    def test_pack_errors_cover_bytes_encoding_shape_and_translations(self) -> None:
+        raw = catalog_module.canonical_json(self.pack)
+        self.assertIsNone(catalog_module.pack_error(raw, self.messages))
+        self.assertEqual(catalog_module.pack_error("text", self.messages), "pack_bytes")
+        self.assertEqual(
+            catalog_module.pack_error(b" " * (catalog_module.MAX_PACK_BYTES + 1), self.messages), "pack_bytes"
+        )
+        for encoded in (b"\xff", b"{", b"NaN", b'{"a":1,"a":1}'):
+            with self.subTest(encoded=encoded):
+                self.assertEqual(catalog_module.pack_error(encoded, self.messages), "pack_encoding")
+        shapes = (
+            [],
+            {**self.pack, "catalog": 1},
+            {**self.pack, "locales": []},
+            {**self.pack, "locales": {**self.pack["locales"], "ar": []}},
+        )
+        for value in shapes:
+            with self.subTest(value=value):
+                encoded = catalog_module.canonical_json(value)
+                self.assertEqual(catalog_module.pack_error(encoded, self.messages), "pack_shape")
+
+    def test_vector_document_and_sections_are_closed(self) -> None:
+        document = self.vectors
+        for value in ([], {**document, "extra": True}, {**document, "version": 2}, {**document, "limits": {}}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                catalog_module.verify_vectors(value)
+        catalog = document["catalog"]
+        for section in (None, {**catalog, "summary": "Missing"}, {**catalog, "digest": "sha256:" + "0" * 64}):
+            with self.subTest(section=section), self.assertRaises(ValueError):
+                catalog_module.verify_vectors({**document, "catalog": section})
+        pack = document["pack"]
+        for section in (None, {**pack, "digest": "sha256:" + "0" * 64}):
+            with self.subTest(section=section), self.assertRaises(ValueError):
+                catalog_module.verify_vectors({**document, "pack": section})
+        render = document["render_cases"][0]
+        for cases in (
+            None,
+            [],
+            [None],
+            [{**render, "reference": {**render["reference"], "params": {"extra": 1}}}],
+            [{**render, "rendered": "Different"}],
+        ):
+            with self.subTest(cases=cases), self.assertRaises(ValueError):
+                catalog_module.verify_vectors({**document, "render_cases": cases})
+        valid = document["pack_cases"][0]
+        invalid = document["pack_cases"][1]
+        for cases in (
+            None,
+            [],
+            [None],
+            [{**valid, "text": "{}"}],
+            [valid, {**valid}],
+            [{**valid, "name": ""}],
+            [{**valid, "valid": False, "error": "pack_shape"}, invalid],
+            [valid],
+        ):
+            with self.subTest(cases=cases), self.assertRaises(ValueError):
+                catalog_module.verify_vectors({**document, "pack_cases": cases})
 
 
 class WebSocketReferenceEdgeTests(unittest.TestCase):

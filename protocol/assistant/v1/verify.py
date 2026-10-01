@@ -9,12 +9,15 @@ import re
 from pathlib import Path
 
 from human_request_validator import verify_vectors as verify_human_vectors
+from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, catalog_error
+from message_catalog_validator import verify_vectors as verify_catalog_vectors
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"
 ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
 SCHEMAS = (
     "invocation.schema.json",
+    "language-pack.schema.json",
     "machine-contract.schema.json",
     "manifest.schema.json",
     "result.schema.json",
@@ -119,8 +122,28 @@ if (
 ):
     fail("Assistant human-request vectors are invalid")
 try:
+    if catalog_error(human["catalog"]["messages"], human["catalog"]["summary"]) is not None:
+        fail("Assistant human-request vector catalog is invalid")
     verify_human_vectors(human, declared_capabilities)
 except KeyError, TypeError, ValueError:
     fail("Assistant human-request vectors are invalid")
+
+messages = machine.get("properties", {}).get("messages", {})
+pack = json.loads((HERE / "language-pack.schema.json").read_bytes())
+copy_reference = result.get("$defs", {}).get("copyReference", {})
+if (
+    "messages" not in machine.get("required", [])
+    or messages.get("maxItems") != MAX_MESSAGES
+    or machine["$defs"].get("message", {}).get("required") != ["id", "msgid", "max_length", "params"]
+    or pack.get("properties", {}).get("format", {}).get("const") != PACK_FORMAT
+    or pack.get("properties", {}).get("locales", {}).get("required") != list(LOCALES)
+    or copy_reference.get("required") != ["message", "params"]
+    or "publicText" in result.get("$defs", {})
+):
+    fail("Assistant message catalog contract is invalid")
+try:
+    verify_catalog_vectors(json.loads((HERE / "catalog-vectors.json").read_bytes()))
+except KeyError, TypeError, ValueError:
+    fail("Assistant message catalog vectors are invalid")
 
 print("Assistant protocol artifacts and conformance vectors are valid")

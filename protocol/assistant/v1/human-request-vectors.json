@@ -16,62 +16,434 @@
   "limits": {
     "requests_per_action": 8,
     "options": 32,
-    "title_characters": 80,
-    "description_characters": 500
+    "copy_characters": {
+      "title": 80,
+      "description": 500,
+      "label": 80,
+      "placeholder": 120,
+      "option_label": 80,
+      "option_description": 160
+    }
+  },
+  "catalog": {
+    "summary": "Publish DNS changes for your Cloudflare zones.",
+    "messages": [
+      {
+        "id": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+        "msgid": "Route traffic through Cloudflare.",
+        "max_length": 160,
+        "params": []
+      },
+      {
+        "id": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+        "msgid": "Proxied",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "203b99619123bf13ae928fa9891feb17135913e6a93b22859480d708688ee2aa",
+        "msgid": "Provider secret",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "2c6a40482cfb20417b7ecf52a36ab16562fb2e7be392064a4e33d773474da5f0",
+        "msgid": "Contact number",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+        "msgid": "Create {zone} before token access.",
+        "max_length": 500,
+        "params": [
+          {
+            "name": "zone",
+            "kind": "domain",
+            "max_length": 120
+          }
+        ]
+      },
+      {
+        "id": "31fbef162594de01bab0cd525c51f74de7bcb15063029fa1a54b2cf5944c80d8",
+        "msgid": "Continue",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "39bd5f8bb1467bb43ef57dca99bd27f176553560dc660fd778676cf82d622e20",
+        "msgid": "Publish DNS changes for your Cloudflare zones.",
+        "max_length": 160,
+        "params": []
+      },
+      {
+        "id": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+        "msgid": "Enter the DNS zone.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "3defb9ff1b325b359d323bb585e830c18e7c53242f64fc4d0eee9d0083e39ea5",
+        "msgid": "Approve the third action.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+        "msgid": "Choose mode",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "4f9f0dabcd26ae53ecb47f632b5fc4d82f35d4110e2b0fb1a3bad7fce0c5a898",
+        "msgid": "Safe",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+        "msgid": "Mode",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "5e7425d72f32c5c80a5f7a131585657b80723ae22e01fd69776828feb19e3bd5",
+        "msgid": "Third",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+        "msgid": "Approve",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "63dceb8800b2dd4af9567a1f54f03b7c3dbdc27fac4799091ebfcc4928899ee5",
+        "msgid": "Phone",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+        "msgid": "Select how the record should be published.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "6c582b62e0e5aa05647388bd045f2e3e5e7f51f479d00d9df592634c8088a22b",
+        "msgid": "Fast",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "702911be92aa2407678d268e115d7441e5d89d2148b7f1dcc01becacaf8dfaa9",
+        "msgid": "Enter the number used by the provider.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+        "msgid": "Publish DNS",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "74a81e559779863d1b7c289b8d3749702808a96264a1041f60e74525f1979904",
+        "msgid": "Enter the third-party provider secret.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "7668cc6b6d9aca6f600d76bb828110bc6ff2ae42b7a1dd699757e933050b6daa",
+        "msgid": "Choose one execution mode.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "7e32a729b1226ed1270f282a8c63054d09b26bc9ec53ea69771ce38158dfade8",
+        "msgid": "Secret",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "815f2ada99485fb5816f8180a58950eb853ad279c04bbea9dac301ccb76a9fa4",
+        "msgid": "Choose zones",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "859390eb495b2ead7f05f0f799546c71435b2db31dbe082adecc3426fffc3391",
+        "msgid": "Publish",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "86022dc45a41c9b5cb47ed49d6c6d3b9b8cd4bbd0cd4965a5ef139e1528b72f9",
+        "msgid": "Choose the zones to inspect.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "8b12507783d5becacbf2ebe5b01a60024d8728a8f86dcc818bce699e8b3320bc",
+        "msgid": "One",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "8b88a85089561b7978c4e52c3150112912125f3d34ec59b6ff1450fc1079979c",
+        "msgid": "Second",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "8e8e48d3fb91599fa90934cd6c74005559dfa060494ab3f294e5cfe5ad656aed",
+        "msgid": "Approve the next action.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "94a72c074cfe574742c9e99e863322f73feff82981d065ff65a0308f44f19f62",
+        "msgid": "Two",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+        "msgid": "WhatsApp token",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "99cea318acf507d88bd8337c1e8763604cd1003f8b6a99c75706121997f6488b",
+        "msgid": "Authorize the reviewed action with your password.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+        "msgid": "DNS only",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "9fd7d832639839d6cf5bd05babd06808020dffeb702e645fec776676f102e926",
+        "msgid": "Approve the second action.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "a151ceb1711aad529a7704248f03333990022ebbfa07a7f04c004d70c167919f",
+        "msgid": "First",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "a1b60934a4597e170fb454d026d2350e3950b52b859c9003ebbe108563c6befa",
+        "msgid": "Safer",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "a53aa373c5e23e694a5498ab4d49bb604e15c7c77ba1aab4bc1423fc7fce7fe6",
+        "msgid": "Zones",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+        "msgid": "Zone",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+        "msgid": "Example: {zone}",
+        "max_length": 120,
+        "params": [
+          {
+            "name": "zone",
+            "kind": "domain",
+            "max_length": 100
+          }
+        ]
+      },
+      {
+        "id": "b6741b4ccf6d675a6e40b2457eb905960ff926a48ba5a9b0f8f7813b9d0f9a33",
+        "msgid": "Authorize",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+        "msgid": "Records to change: {count}. Zone: {zone}.",
+        "max_length": 80,
+        "params": [
+          {
+            "name": "count",
+            "kind": "integer",
+            "max_length": 3
+          },
+          {
+            "name": "zone",
+            "kind": "domain",
+            "max_length": 40
+          }
+        ]
+      },
+      {
+        "id": "c4ee9594477bfdf8c9003845b8d7eabac09386c0b4be643691ddd3c4bd2ab39e",
+        "msgid": "Enter a public name.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "c7406d3c2617b9ac9711119998fa1201b3d32cbdb5016ce2603316a1a73a4cc7",
+        "msgid": "Approve the reviewed action.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "d061e160a95208fb197425ece6c5a7415cb3fdc56b2018a56f884cfdba28e618",
+        "msgid": "Approve the first action.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "d194e8c0ff8d0c9a2c8f0d97d1b4d5bb691896a4d1d50cef814d00b152d8359d",
+        "msgid": "Publish the reviewed record.",
+        "max_length": 500,
+        "params": []
+      },
+      {
+        "id": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+        "msgid": "Token",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "dcd1d5223f73b3a965c07e3ff5dbee3eedcfedb806686a05b9b3868a2c3d6d50",
+        "msgid": "Name",
+        "max_length": 80,
+        "params": []
+      },
+      {
+        "id": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+        "msgid": "Enter the token used by this WhatsApp Action.",
+        "max_length": 500,
+        "params": []
+      }
+    ]
   },
   "fingerprint": {
     "algorithm": "sha256",
     "serialization": "utf8-json-sort-keys-compact-no-ascii-escaping",
     "cases": [
       {
-        "name": "approval_unicode",
+        "name": "approval_reference",
         "request": {
           "kind": "approval",
           "ordinal": 0,
-          "title": "Publish DNS",
-          "description": "Create café.example before token access."
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
         },
-        "sha256": "8c14efa10b833b4e5bb20b9aae146983c416066fc5043d9b54efd174d845d023"
+        "sha256": "d493dd2eadd092483bc8b5650b227db6b92098069617029afa78bea66ffce1e4"
+      },
+      {
+        "name": "parameterized_reference",
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+            "params": {
+              "count": 3,
+              "zone": "example.com"
+            }
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "sha256": "51a57786752a0578e8832ae5befd4e714f2341b551486f58e9251b2fcc13ad29"
       },
       {
         "name": "choice_with_options",
         "request": {
           "kind": "input:choice",
           "ordinal": 1,
-          "title": "Choose mode",
-          "description": "Select how the record should be published.",
-          "label": "Mode",
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
           "required": true,
           "options": [
             {
               "value": "proxied",
-              "label": "Proxied",
-              "description": "Route traffic through Cloudflare."
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
             },
             {
               "value": "dns-only",
-              "label": "DNS only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
               "description": null
             }
           ]
         },
-        "sha256": "7ec1cb29f5dc36de7e9cd9909fbcc114f1f4e308a39b0ab0df7b688096622e17"
+        "sha256": "b8b258eaf7910d75e12f92a7e0e64b7496322f7db1cb1182bcf816fbe39983cc"
       },
       {
         "name": "stored_password",
         "request": {
           "kind": "input:password",
           "ordinal": 0,
-          "title": "WhatsApp token",
-          "description": "Enter the token used by this WhatsApp Action.",
-          "label": "Token",
+          "title": {
+            "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "params": {}
+          },
+          "description": {
+            "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+            "params": {}
+          },
+          "label": {
+            "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+            "params": {}
+          },
           "required": true,
           "placeholder": null,
           "min_length": 1,
           "max_length": 1024,
           "stored_input": "whatsapp-token"
         },
-        "sha256": "34f985f2cd7e31378eafa0822d7789a2ec80823c94003b083ea6460a859fe468"
+        "sha256": "10a229a6a157294a82d273528faf622e28bc58f34177ca58dd3f3927f31d234d"
       }
     ]
   },
@@ -82,19 +454,596 @@
       "request": {
         "kind": "approval",
         "ordinal": 0,
-        "title": "Publish DNS",
-        "description": "Create the reviewed DNS record."
+        "title": {
+          "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+          "params": {}
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
       }
     },
     {
-      "name": "reject_bidi_title",
-      "valid": false,
-      "error": "public_text",
+      "name": "valid_parameterized_title",
+      "valid": true,
       "request": {
         "kind": "approval",
         "ordinal": 0,
-        "title": "Approve ‮safe.example",
-        "description": "Create the reviewed DNS record."
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_choice_with_null_option_description",
+      "valid": true,
+      "request": {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": {
+          "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+          "params": {}
+        },
+        "description": {
+          "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+          "params": {}
+        },
+        "label": {
+          "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+          "params": {}
+        },
+        "required": true,
+        "options": [
+          {
+            "value": "proxied",
+            "label": {
+              "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+              "params": {}
+            },
+            "description": {
+              "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+              "params": {}
+            }
+          },
+          {
+            "value": "dns-only",
+            "label": {
+              "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+              "params": {}
+            },
+            "description": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "valid_placeholder_reference",
+      "valid": true,
+      "request": {
+        "kind": "input:text",
+        "ordinal": 0,
+        "title": {
+          "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+          "params": {}
+        },
+        "description": {
+          "message": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+          "params": {}
+        },
+        "label": {
+          "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+          "params": {}
+        },
+        "required": true,
+        "placeholder": {
+          "message": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+          "params": {
+            "zone": "example.com"
+          }
+        },
+        "min_length": 1,
+        "max_length": 253
+      }
+    },
+    {
+      "name": "reject_string_copy",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": "Publish DNS",
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_null_title",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": null,
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_undeclared_message",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "91fbe76d70cd0b501ed6085a44d1132cc45c110fa6dcfa1154dd49272cd298dd",
+          "params": {}
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_reference_extra_member",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+          "params": {},
+          "text": "Publish DNS"
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_reference_without_params",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517"
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_description_bound_in_title",
+      "valid": false,
+      "error": "copy_bound",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+          "params": {}
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_missing_param",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_extra_param",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "example.com",
+            "note": "x"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_param_on_static_message",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+          "params": {
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_prose_domain",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "approve everything"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_uppercase_domain",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "Example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_single_label_domain",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "localhost"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_overlong_domain",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 3,
+            "zone": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_integer_over_length",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 1000,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_negative_integer",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": -1,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_boolean_integer",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": true,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_string_integer",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": "3",
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_string_option_label",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": {
+          "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+          "params": {}
+        },
+        "description": {
+          "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+          "params": {}
+        },
+        "label": {
+          "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+          "params": {}
+        },
+        "required": true,
+        "options": [
+          {
+            "value": "proxied",
+            "label": "Proxied",
+            "description": null
+          },
+          {
+            "value": "dns-only",
+            "label": {
+              "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+              "params": {}
+            },
+            "description": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "reject_option_label_bound",
+      "valid": false,
+      "error": "copy_bound",
+      "request": {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": {
+          "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+          "params": {}
+        },
+        "description": {
+          "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+          "params": {}
+        },
+        "label": {
+          "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+          "params": {}
+        },
+        "required": true,
+        "options": [
+          {
+            "value": "proxied",
+            "label": {
+              "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+              "params": {}
+            },
+            "description": null
+          },
+          {
+            "value": "dns-only",
+            "label": {
+              "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+              "params": {}
+            },
+            "description": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "reject_null_label",
+      "valid": false,
+      "error": "copy_reference",
+      "request": {
+        "kind": "input:text",
+        "ordinal": 0,
+        "title": {
+          "message": "dcd1d5223f73b3a965c07e3ff5dbee3eedcfedb806686a05b9b3868a2c3d6d50",
+          "params": {}
+        },
+        "description": {
+          "message": "c4ee9594477bfdf8c9003845b8d7eabac09386c0b4be643691ddd3c4bd2ab39e",
+          "params": {}
+        },
+        "label": null,
+        "required": true,
+        "placeholder": null,
+        "min_length": 1,
+        "max_length": 80
+      }
+    },
+    {
+      "name": "reject_bidi_option_value",
+      "valid": false,
+      "error": "options",
+      "request": {
+        "kind": "input:choice",
+        "ordinal": 0,
+        "title": {
+          "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+          "params": {}
+        },
+        "description": {
+          "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+          "params": {}
+        },
+        "label": {
+          "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+          "params": {}
+        },
+        "required": true,
+        "options": [
+          {
+            "value": "safe‮",
+            "label": {
+              "message": "4f9f0dabcd26ae53ecb47f632b5fc4d82f35d4110e2b0fb1a3bad7fce0c5a898",
+              "params": {}
+            },
+            "description": null
+          },
+          {
+            "value": "fast",
+            "label": {
+              "message": "6c582b62e0e5aa05647388bd045f2e3e5e7f51f479d00d9df592634c8088a22b",
+              "params": {}
+            },
+            "description": null
+          }
+        ]
       }
     },
     {
@@ -104,9 +1053,18 @@
       "request": {
         "kind": "input:password",
         "ordinal": 0,
-        "title": "Provider secret",
-        "description": "Enter the third-party provider secret.",
-        "label": "Secret",
+        "title": {
+          "message": "203b99619123bf13ae928fa9891feb17135913e6a93b22859480d708688ee2aa",
+          "params": {}
+        },
+        "description": {
+          "message": "74a81e559779863d1b7c289b8d3749702808a96264a1041f60e74525f1979904",
+          "params": {}
+        },
+        "label": {
+          "message": "7e32a729b1226ed1270f282a8c63054d09b26bc9ec53ea69771ce38158dfade8",
+          "params": {}
+        },
         "required": true,
         "placeholder": null,
         "min_length": 0,
@@ -119,9 +1077,18 @@
       "request": {
         "kind": "input:password",
         "ordinal": 0,
-        "title": "WhatsApp token",
-        "description": "Enter the token used by this WhatsApp Action.",
-        "label": "Token",
+        "title": {
+          "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+          "params": {}
+        },
+        "description": {
+          "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+          "params": {}
+        },
+        "label": {
+          "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+          "params": {}
+        },
         "required": true,
         "placeholder": null,
         "min_length": 1,
@@ -136,9 +1103,18 @@
       "request": {
         "kind": "input:password",
         "ordinal": 0,
-        "title": "WhatsApp token",
-        "description": "Enter the token used by this WhatsApp Action.",
-        "label": "Token",
+        "title": {
+          "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+          "params": {}
+        },
+        "description": {
+          "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+          "params": {}
+        },
+        "label": {
+          "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+          "params": {}
+        },
         "required": true,
         "placeholder": null,
         "min_length": 1,
@@ -153,9 +1129,18 @@
       "request": {
         "kind": "input:text",
         "ordinal": 0,
-        "title": "Name",
-        "description": "Enter a public name.",
-        "label": "Name",
+        "title": {
+          "message": "dcd1d5223f73b3a965c07e3ff5dbee3eedcfedb806686a05b9b3868a2c3d6d50",
+          "params": {}
+        },
+        "description": {
+          "message": "c4ee9594477bfdf8c9003845b8d7eabac09386c0b4be643691ddd3c4bd2ab39e",
+          "params": {}
+        },
+        "label": {
+          "message": "dcd1d5223f73b3a965c07e3ff5dbee3eedcfedb806686a05b9b3868a2c3d6d50",
+          "params": {}
+        },
         "required": true,
         "placeholder": null,
         "min_length": 1,
@@ -170,9 +1155,18 @@
       "request": {
         "kind": "input:phone",
         "ordinal": 0,
-        "title": "Contact number",
-        "description": "Enter the number used by the provider.",
-        "label": "Phone",
+        "title": {
+          "message": "2c6a40482cfb20417b7ecf52a36ab16562fb2e7be392064a4e33d773474da5f0",
+          "params": {}
+        },
+        "description": {
+          "message": "702911be92aa2407678d268e115d7441e5d89d2148b7f1dcc01becacaf8dfaa9",
+          "params": {}
+        },
+        "label": {
+          "message": "63dceb8800b2dd4af9567a1f54f03b7c3dbdc27fac4799091ebfcc4928899ee5",
+          "params": {}
+        },
         "required": true,
         "placeholder": null,
         "min_length": 0,
@@ -186,11 +1180,25 @@
       "request": {
         "kind": "input:text",
         "ordinal": 0,
-        "title": "Zone",
-        "description": "Enter the DNS zone.",
-        "label": "Zone",
+        "title": {
+          "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+          "params": {}
+        },
+        "description": {
+          "message": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+          "params": {}
+        },
+        "label": {
+          "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+          "params": {}
+        },
         "required": true,
-        "placeholder": "example.com",
+        "placeholder": {
+          "message": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+          "params": {
+            "zone": "example.com"
+          }
+        },
         "min_length": 20,
         "max_length": 10
       }
@@ -202,13 +1210,36 @@
       "request": {
         "kind": "input:choice",
         "ordinal": 0,
-        "title": "Choose mode",
-        "description": "Choose one execution mode.",
-        "label": "Mode",
+        "title": {
+          "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+          "params": {}
+        },
+        "description": {
+          "message": "7668cc6b6d9aca6f600d76bb828110bc6ff2ae42b7a1dd699757e933050b6daa",
+          "params": {}
+        },
+        "label": {
+          "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+          "params": {}
+        },
         "required": true,
         "options": [
-          {"value": "safe", "label": "Safe", "description": null},
-          {"value": "safe", "label": "Safer", "description": null}
+          {
+            "value": "safe",
+            "label": {
+              "message": "4f9f0dabcd26ae53ecb47f632b5fc4d82f35d4110e2b0fb1a3bad7fce0c5a898",
+              "params": {}
+            },
+            "description": null
+          },
+          {
+            "value": "safe",
+            "label": {
+              "message": "a1b60934a4597e170fb454d026d2350e3950b52b859c9003ebbe108563c6befa",
+              "params": {}
+            },
+            "description": null
+          }
         ]
       }
     },
@@ -219,13 +1250,36 @@
       "request": {
         "kind": "input:choices",
         "ordinal": 0,
-        "title": "Choose zones",
-        "description": "Choose the zones to inspect.",
-        "label": "Zones",
+        "title": {
+          "message": "815f2ada99485fb5816f8180a58950eb853ad279c04bbea9dac301ccb76a9fa4",
+          "params": {}
+        },
+        "description": {
+          "message": "86022dc45a41c9b5cb47ed49d6c6d3b9b8cd4bbd0cd4965a5ef139e1528b72f9",
+          "params": {}
+        },
+        "label": {
+          "message": "a53aa373c5e23e694a5498ab4d49bb604e15c7c77ba1aab4bc1423fc7fce7fe6",
+          "params": {}
+        },
         "required": true,
         "options": [
-          {"value": "one", "label": "One", "description": null},
-          {"value": "two", "label": "Two", "description": null}
+          {
+            "value": "one",
+            "label": {
+              "message": "8b12507783d5becacbf2ebe5b01a60024d8728a8f86dcc818bce699e8b3320bc",
+              "params": {}
+            },
+            "description": null
+          },
+          {
+            "value": "two",
+            "label": {
+              "message": "94a72c074cfe574742c9e99e863322f73feff82981d065ff65a0308f44f19f62",
+              "params": {}
+            },
+            "description": null
+          }
         ],
         "min_selections": 2,
         "max_selections": 3
@@ -240,19 +1294,53 @@
         {
           "kind": "approval",
           "ordinal": 0,
-          "title": "Publish DNS",
-          "description": "Create café.example before token access."
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
         },
         {
           "kind": "input:choice",
           "ordinal": 1,
-          "title": "Choose mode",
-          "description": "Select how the record should be published.",
-          "label": "Mode",
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
           "required": true,
           "options": [
-            {"value": "proxied", "label": "Proxied", "description": "Route traffic through Cloudflare."},
-            {"value": "dns-only", "label": "DNS only", "description": null}
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
           ]
         }
       ],
@@ -260,13 +1348,13 @@
         {
           "kind": "approval",
           "ordinal": 0,
-          "fingerprint": "8c14efa10b833b4e5bb20b9aae146983c416066fc5043d9b54efd174d845d023",
+          "fingerprint": "d493dd2eadd092483bc8b5650b227db6b92098069617029afa78bea66ffce1e4",
           "value": true
         },
         {
           "kind": "input:choice",
           "ordinal": 1,
-          "fingerprint": "7ec1cb29f5dc36de7e9cd9909fbcc114f1f4e308a39b0ab0df7b688096622e17",
+          "fingerprint": "b8b258eaf7910d75e12f92a7e0e64b7496322f7db1cb1182bcf816fbe39983cc",
           "value": "proxied"
         }
       ]
@@ -276,8 +1364,30 @@
       "valid": false,
       "error": "ordinal_sequence",
       "requests": [
-        {"kind": "approval", "ordinal": 0, "title": "First", "description": "Approve the first action."},
-        {"kind": "approval", "ordinal": 0, "title": "Second", "description": "Approve the second action."}
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "a151ceb1711aad529a7704248f03333990022ebbfa07a7f04c004d70c167919f",
+            "params": {}
+          },
+          "description": {
+            "message": "d061e160a95208fb197425ece6c5a7415cb3fdc56b2018a56f884cfdba28e618",
+            "params": {}
+          }
+        },
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "8b88a85089561b7978c4e52c3150112912125f3d34ec59b6ff1450fc1079979c",
+            "params": {}
+          },
+          "description": {
+            "message": "9fd7d832639839d6cf5bd05babd06808020dffeb702e645fec776676f102e926",
+            "params": {}
+          }
+        }
       ],
       "responses": []
     },
@@ -286,8 +1396,50 @@
       "valid": false,
       "error": "ordinal_sequence",
       "requests": [
-        {"kind": "approval", "ordinal": 0, "title": "First", "description": "Approve the first action."},
-        {"kind": "approval", "ordinal": 2, "title": "Third", "description": "Approve the third action."}
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "a151ceb1711aad529a7704248f03333990022ebbfa07a7f04c004d70c167919f",
+            "params": {}
+          },
+          "description": {
+            "message": "d061e160a95208fb197425ece6c5a7415cb3fdc56b2018a56f884cfdba28e618",
+            "params": {}
+          }
+        },
+        {
+          "kind": "approval",
+          "ordinal": 2,
+          "title": {
+            "message": "5e7425d72f32c5c80a5f7a131585657b80723ae22e01fd69776828feb19e3bd5",
+            "params": {}
+          },
+          "description": {
+            "message": "3defb9ff1b325b359d323bb585e830c18e7c53242f64fc4d0eee9d0083e39ea5",
+            "params": {}
+          }
+        }
+      ],
+      "responses": []
+    },
+    {
+      "name": "reject_undeclared_copy_in_replay",
+      "valid": false,
+      "error": "copy_reference",
+      "requests": [
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "a151ceb1711aad529a7704248f03333990022ebbfa07a7f04c004d70c167919f",
+            "params": {}
+          },
+          "description": {
+            "message": "00215d7a28da3e6f807265b3f4746d219b2e03c7eb898fd00e7289419d227dc4",
+            "params": {}
+          }
+        }
       ],
       "responses": []
     },
@@ -296,8 +1448,30 @@
       "valid": false,
       "error": "authorization_once",
       "requests": [
-        {"kind": "approval", "ordinal": 0, "title": "Approve", "description": "Approve the reviewed action."},
-        {"kind": "auth:password", "ordinal": 1, "title": "Authorize", "description": "Authorize the reviewed action with your password."}
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+            "params": {}
+          },
+          "description": {
+            "message": "c7406d3c2617b9ac9711119998fa1201b3d32cbdb5016ce2603316a1a73a4cc7",
+            "params": {}
+          }
+        },
+        {
+          "kind": "auth:password",
+          "ordinal": 1,
+          "title": {
+            "message": "b6741b4ccf6d675a6e40b2457eb905960ff926a48ba5a9b0f8f7813b9d0f9a33",
+            "params": {}
+          },
+          "description": {
+            "message": "99cea318acf507d88bd8337c1e8763604cd1003f8b6a99c75706121997f6488b",
+            "params": {}
+          }
+        }
       ],
       "responses": []
     },
@@ -306,10 +1480,58 @@
       "valid": false,
       "error": "response_match",
       "requests": [
-        {"kind": "approval", "ordinal": 0, "title": "Publish", "description": "Publish the reviewed record."}
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "859390eb495b2ead7f05f0f799546c71435b2db31dbe082adecc3426fffc3391",
+            "params": {}
+          },
+          "description": {
+            "message": "d194e8c0ff8d0c9a2c8f0d97d1b4d5bb691896a4d1d50cef814d00b152d8359d",
+            "params": {}
+          }
+        }
       ],
       "responses": [
-        {"kind": "auth:password", "ordinal": 0, "fingerprint": "6a533263d5d930dc0afe867a44b85c3a757d0a9f1b58e19fe2fb04e61f779779", "value": true}
+        {
+          "kind": "auth:password",
+          "ordinal": 0,
+          "fingerprint": "74e31f044e2559c6eba3d31d73441736178b57edf025383194425627be060811",
+          "value": true
+        }
+      ]
+    },
+    {
+      "name": "reject_changed_params_fingerprint",
+      "valid": false,
+      "error": "response_match",
+      "requests": [
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+            "params": {
+              "count": 3,
+              "zone": "example.com"
+            }
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        }
+      ],
+      "responses": [
+        {
+          "kind": "approval",
+          "ordinal": 0,
+          "fingerprint": "fa9ccd6f5faefb4416b9cb1692e3cc8cf0f81a309fa4b3a51b24257e0bc53f9f",
+          "value": true
+        }
       ]
     },
     {
@@ -320,18 +1542,46 @@
         {
           "kind": "input:choice",
           "ordinal": 0,
-          "title": "Choose mode",
-          "description": "Choose one execution mode.",
-          "label": "Mode",
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "7668cc6b6d9aca6f600d76bb828110bc6ff2ae42b7a1dd699757e933050b6daa",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
           "required": true,
           "options": [
-            {"value": "safe", "label": "Safe", "description": null},
-            {"value": "fast", "label": "Fast", "description": null}
+            {
+              "value": "safe",
+              "label": {
+                "message": "4f9f0dabcd26ae53ecb47f632b5fc4d82f35d4110e2b0fb1a3bad7fce0c5a898",
+                "params": {}
+              },
+              "description": null
+            },
+            {
+              "value": "fast",
+              "label": {
+                "message": "6c582b62e0e5aa05647388bd045f2e3e5e7f51f479d00d9df592634c8088a22b",
+                "params": {}
+              },
+              "description": null
+            }
           ]
         }
       ],
       "responses": [
-        {"kind": "input:choice", "ordinal": 0, "fingerprint": "ed725e178790c4bd249a04c8df467ca14b8de3941005a3b1ef19a7c18c9e3488", "value": "unsafe"}
+        {
+          "kind": "input:choice",
+          "ordinal": 0,
+          "fingerprint": "e45d686c71508dfe7c7b5d3bb4538fc6e4c3ae4d0804c36fa008ac626eeeb429",
+          "value": "unsafe"
+        }
       ]
     },
     {
@@ -342,15 +1592,35 @@
         {
           "kind": "input:password",
           "ordinal": 0,
-          "title": "Provider secret",
-          "description": "Enter the third-party provider secret.",
-          "label": "Secret",
+          "title": {
+            "message": "203b99619123bf13ae928fa9891feb17135913e6a93b22859480d708688ee2aa",
+            "params": {}
+          },
+          "description": {
+            "message": "74a81e559779863d1b7c289b8d3749702808a96264a1041f60e74525f1979904",
+            "params": {}
+          },
+          "label": {
+            "message": "7e32a729b1226ed1270f282a8c63054d09b26bc9ec53ea69771ce38158dfade8",
+            "params": {}
+          },
           "required": true,
           "placeholder": null,
           "min_length": 1,
           "max_length": 128
         },
-        {"kind": "approval", "ordinal": 1, "title": "Continue", "description": "Approve the next action."}
+        {
+          "kind": "approval",
+          "ordinal": 1,
+          "title": {
+            "message": "31fbef162594de01bab0cd525c51f74de7bcb15063029fa1a54b2cf5944c80d8",
+            "params": {}
+          },
+          "description": {
+            "message": "8e8e48d3fb91599fa90934cd6c74005559dfa060494ab3f294e5cfe5ad656aed",
+            "params": {}
+          }
+        }
       ],
       "responses": []
     }
