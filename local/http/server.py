@@ -850,20 +850,25 @@ class Handler(BaseHTTPRequestHandler):
             request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
             self._send_icon(contents)
             return None
-        if route.operation == "local-assistant-icon":
-            self._local_assistant_icon(route, request_audit)
+        if route.operation in {"local-assistant-icon", "local-assistant-summary"}:
+            self._local_assistant_preview(route, request_audit)
             return None
         return self._route(parts, route)
 
-    def _local_assistant_icon(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+    def _local_assistant_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        """Send one staged snapshot's icon or localized summary; a busy preview tells the caller when to retry."""
         image_id = f"sha256:{route.params['image_hash']}"
+        controller = self.server.controller
         try:
-            contents = self.server.controller.local_snapshot_icon(image_id)
+            if route.operation == "local-assistant-icon":
+                contents = controller.local_snapshot_icon(image_id)
+            else:
+                summary = controller.local_snapshot_summary(image_id, route.params["locale"])
         except ApiProblem as exc:
             if exc.code != "local-assistant-preview-busy":
                 raise
             trace_id = request_audit.record(
-                "local-assistant-icon",
+                route.operation,
                 result="error",
                 detail=exc.code,
             )
@@ -877,8 +882,11 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        request_audit.record("local-assistant-icon", result="ok")
-        self._send_icon(contents)
+        trace_id = request_audit.record(route.operation, result="ok")
+        if route.operation == "local-assistant-icon":
+            self._send_icon(contents)
+        else:
+            self._send(HTTPStatus.OK, {**summary, "trace_id": trace_id})
 
     def _expected_human_assurance(
         self,

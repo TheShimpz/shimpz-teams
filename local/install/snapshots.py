@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from docker.errors import DockerException, ImageNotFound
@@ -13,6 +15,8 @@ from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.install import source_package
+from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.http.v1 import payload as http_payload
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
 LOCAL_STAGE_VALUE = "assistant-v3"
@@ -86,6 +90,14 @@ class LocalSnapshotCandidate:
     image_id: str
     platform: str
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotPreview:
+    """A staged image's validated icon and its summary in every interface language, read without starting it."""
+
+    icon: bytes
+    summaries: Mapping[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,8 +190,13 @@ def require_candidate(
     return _candidate(image, _daemon_platform(client) if platform is None else platform)
 
 
-def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes:
-    """Return a validated icon from an exact staged image without starting it."""
+def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPreview:
+    """Return the validated icon and localized summaries of an exact staged image without starting it.
+
+    The summary in every non-English interface language is read only from the image's own pack, admitted complete
+    for the image's own catalog under Local's unsigned self-consistency trust (ADR-0060, ADR-0091); English is the
+    catalog summary itself, and no request message is ever read.
+    """
     candidate = require_candidate(client, image_id, platform=platform)
     extracted = _extract_preview_files(client, image_id)
     try:
@@ -187,6 +204,7 @@ def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes
         identity = assistant_manifest.parse_manifest_identity(manifest)
         creators = assistant_manifest.parse_manifest_creators(manifest)[:4]
         source_package.validate_icon(extracted[ICON_PATH])
+        summaries = _preview_summaries(identity.summary, manifest, extracted)
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant preview is invalid") from exc
     if (
@@ -197,7 +215,21 @@ def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes
         or creators != candidate.declared_creators
     ):
         raise LocalSnapshotError("the Local Assistant preview does not match its image labels")
-    return extracted[ICON_PATH]
+    return SnapshotPreview(icon=extracted[ICON_PATH], summaries=summaries)
+
+
+def _preview_summaries(summary: str, manifest: bytes, extracted: dict[str, bytes]) -> Mapping[str, str]:
+    contract = assistant_manifest.parse_manifest_contract(manifest)
+    machine_contract = assistant_manifest.parse_machine_contract(
+        extracted[assistant_manifest.CONTRACT_PATH],
+        contract.integrations,
+        contract.stored_inputs,
+        summary=summary,
+    )
+    raw_pack = extracted[assistant_language.PACK_PATH]
+    pack = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack))
+    identifier = catalog_validator.message_id(summary)
+    return MappingProxyType({locale: pack.template(identifier, locale) for locale in sorted(http_payload.CHAT_LOCALES)})
 
 
 def validate_record(record: dict[str, Any]) -> None:
@@ -370,6 +402,8 @@ def _extract_preview_files(client, image_id: str) -> dict[str, bytes]:
         image_id,
         (
             (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
+            (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
+            (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
             (ICON_PATH, "icon.png", 1024 * 1024),
         ),
     )

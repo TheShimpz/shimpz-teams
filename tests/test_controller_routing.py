@@ -96,6 +96,12 @@ class ControllerRoutingTests(unittest.TestCase):
             ),
             (
                 strict_http.LOCAL_CONTROLLER,
+                "GET",
+                "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/summary/pt",
+                "local-assistant-summary",
+            ),
+            (
+                strict_http.LOCAL_CONTROLLER,
                 "POST",
                 "/v1/teams/team_1/assistants/local",
                 "local-assistant-install",

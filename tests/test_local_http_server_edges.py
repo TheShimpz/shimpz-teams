@@ -573,6 +573,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         controller = SimpleNamespace(
             assistant_icon=mock.Mock(return_value=b"png"),
             local_snapshot_icon=mock.Mock(return_value=b"local-png"),
+            local_snapshot_summary=mock.Mock(return_value={"locale": "pt", "summary": "Resumo."}),
         )
         handler = self.handler(controller=controller)
         handler._resolved_route = mock.Mock(return_value=([], self.route("team-list")))
@@ -659,6 +660,37 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         ):
             handler._authorized_route(http_audit.RequestAudit())
         self.assertEqual(caught.exception.code, "local-assistant-preview-unavailable")
+
+        # A staged snapshot's localized summary shares the bounded preview, including its busy retry hint.
+        handler._resolved_route.return_value = (
+            [],
+            self.route("local-assistant-summary", image_hash="a" * 64, locale="pt"),
+        )
+        handler._send.reset_mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value="a" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        controller.local_snapshot_summary.assert_called_once_with("sha256:" + "a" * 64, "pt")
+        handler._send.assert_called_once_with(
+            HTTPStatus.OK,
+            {"locale": "pt", "summary": "Resumo.", "trace_id": "a" * 32},
+        )
+        controller.local_snapshot_summary.side_effect = ApiProblemError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview capacity is busy",
+            code="local-assistant-preview-busy",
+        )
+        handler._send.reset_mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value="b" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
 
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
         controller = HandlerRouteEdgeTests.controller()

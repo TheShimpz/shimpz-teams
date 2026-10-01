@@ -259,6 +259,7 @@ class LocalController:
     _install_bound_publication = local_install_service._install_bound_publication
     list_local_snapshots = local_install_service.list_local_snapshots
     local_snapshot_icon = local_install_service.local_snapshot_icon
+    local_snapshot_summary = local_install_service.local_snapshot_summary
     install_local_snapshot = local_install_service.install_local_snapshot
     install_fresh_local_snapshot = local_install_service.install_fresh_local_snapshot
 

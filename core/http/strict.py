@@ -480,6 +480,12 @@ CONTROLLER_ROUTES = (
         "local-assistant-icon",
         _LOCAL_CONTROLLER_ONLY,
     ),
+    _controller_route(
+        "GET",
+        "/v1/local-assistants/:image_hash/summary/:locale",
+        "local-assistant-summary",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space/bootstrap", "space-bootstrap-reset", _LOCAL_CONTROLLER_ONLY),
     _controller_route("DELETE", "/v1/space", "space-reset", _LOCAL_CONTROLLER_ONLY),
