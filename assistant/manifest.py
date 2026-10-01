@@ -448,7 +448,8 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
     if not isinstance(payload, dict):
         raise ValueError("Action payload must be an object")
     try:
-        validator.validate(payload)
+        with action_schema.pattern_work_budget():
+            validator.validate(payload)
     except (ValidationError, Unresolvable, RecursionError, action_schema.PatternError) as exc:
         raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload

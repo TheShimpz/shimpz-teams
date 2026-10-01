@@ -54,6 +54,17 @@ exactly the Draft 2020-12 URI, and `$id` appears only at the root. Property name
 `examples` values are data, never references. `unevaluatedProperties` is refused at every subschema position because
 its evaluation would bypass the pattern matcher.
 
+Validation visits a subschema once for every path that reaches it, so references can multiply work that the literal
+bounds do not show. Starting from the root, count one for every value at a subschema position: `additionalProperties`,
+`contains`, `contentSchema`, `else`, `if`, `items`, `not`, `propertyNames`, `then`, `unevaluatedItems`,
+`unevaluatedProperties`, each member of `allOf`, `anyOf`, `oneOf`, and `prefixItems`, and each value of `$defs`,
+`definitions`, `dependentSchemas`, `patternProperties`, and `properties`. At every subschema that holds `$ref`, count
+its target again as if it were written there, so a subschema reached along two paths counts twice. This expanded count
+is at most 4,096. Every reference must resolve, with `~1` and `~0` in a definition name decoding to `/` and `~`, and no
+reference may lead back into a subschema that contains it: recursive schemas are refused, and so is every `#`
+reference, because the root contains it. Developers, Team, and the Brain apply this rule alike. A schema without
+references, which is all the SDK generates, never counts more than its JSON values.
+
 Team and the Brain evaluate every `pattern` value and `patternProperties` name with RE2, never Python `re`, so one
 search runs in time linear in the subject. Team refuses a pattern that RE2 cannot compile under 1 MiB of memory, whose
 compiled program exceeds 16,384 instructions, or that Python `re` cannot compile. A pattern matches when it matches
@@ -61,6 +72,10 @@ anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII
 carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
 other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
 surrogate, fails validation. `pattern-vectors.json` freezes these semantics as pattern, subject, and outcome cases.
+One search costs at most its subject's UTF-8 length times its compiled program size, so Team and the Brain also bound
+the matching work of one payload validation: each search charges that product, and the validation fails once its
+charges exceed 67,108,864 (2^26), well under a second of RE2's slowest matching. SDK-generated patterns on bounded
+strings charge a small fraction of it.
 
 Developers refuses a build artifact that Team would refuse, and publication is stricter than Team in exactly three
 ways:

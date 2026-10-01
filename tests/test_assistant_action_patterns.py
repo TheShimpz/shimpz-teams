@@ -91,18 +91,22 @@ class PatternSemanticsTests(unittest.TestCase):
         nested = _admitted(
             _closed({"value": {"anyOf": [{"$schema": DRAFT_2020_12, "type": "string", "pattern": "^a$"}]}})
         )
-        rooted = _admitted(
+        referenced = _admitted(
             _closed(
-                {"value": {"type": "string", "pattern": "^a$"}, "self": {"$ref": "#"}},
-                **{"$schema": DRAFT_2020_12, "default": {"$schema": "data"}},
+                {"value": {"$ref": "#/$defs/value"}},
+                **{
+                    "$schema": DRAFT_2020_12,
+                    "default": {"$schema": "data"},
+                    "$defs": {"value": {"$schema": DRAFT_2020_12, "type": "string", "pattern": "^a$"}},
+                },
             )
         )
-        for schema, payload in ((nested, {"value": "a\n"}), (rooted, {"self": {"value": "a\n"}})):
+        for schema in (nested, referenced):
             # Python `re` would accept the trailing newline; RE2 matches `$` only at the end of the text.
-            with self.subTest(payload=payload), self.assertRaises(ValueError):
-                _validate(schema, payload)
-        self.assertEqual(_validate(rooted, {"self": {"value": "a"}}), {"self": {"value": "a"}})
-        self.assertEqual(rooted["default"], {"$schema": "data"})
+            with self.subTest(schema=sorted(schema)), self.assertRaises(ValueError):
+                _validate(schema, {"value": "a\n"})
+        self.assertEqual(_validate(referenced, {"value": "a"}), {"value": "a"})
+        self.assertEqual(referenced["default"], {"$schema": "data"})
 
     def test_additional_properties_consult_each_pattern_property_separately(self) -> None:
         schema = _admitted(
@@ -125,6 +129,44 @@ class PatternSemanticsTests(unittest.TestCase):
         self.assertTrue(action_schema.payload_validator({"additionalProperties": False}).is_valid([1]))
         self.assertTrue(action_schema.payload_validator({"patternProperties": {"^x": False}}).is_valid([1]))
         self.assertTrue(action_schema.payload_validator({"pattern": "^x"}).is_valid(1))
+
+
+class PatternWorkBudgetTests(unittest.TestCase):
+    # `a.{900}c` compiles to 7,206 instructions; RE2 runs it without its DFA at several nanoseconds per subject byte.
+    HEAVY = "a.{900}c"
+
+    def test_one_validation_charges_every_search_against_one_budget(self) -> None:
+        program = action_schema._compiled_pattern(self.HEAVY).programsize
+        fits = action_schema.MAX_PATTERN_WORK // program
+        self.assertFalse(action_schema.pattern_matches(self.HEAVY, "b" * fits))
+        with self.assertRaisesRegex(action_schema.PatternError, "work budget"):
+            action_schema.pattern_matches(self.HEAVY, "b" * (fits + 1))
+        with action_schema.pattern_work_budget():
+            self.assertFalse(action_schema.pattern_matches(self.HEAVY, "b" * (fits // 2)))
+            with self.assertRaisesRegex(action_schema.PatternError, "work budget"):
+                action_schema.pattern_matches(self.HEAVY, "b" * (fits - fits // 2 + 1))
+        # The budget is per block: searches after it start over.
+        self.assertFalse(action_schema.pattern_matches(self.HEAVY, "b" * fits))
+        # A multibyte subject is charged its UTF-8 length.
+        with self.assertRaisesRegex(action_schema.PatternError, "work budget"):
+            action_schema.pattern_matches(self.HEAVY, "é" * (fits // 2 + 1))
+
+    def test_payload_validation_fails_closed_once_its_searches_exceed_the_budget(self) -> None:
+        # One string, checked by the same heavy pattern from 64 expanded positions: each search alone fits.
+        schema = _admitted(
+            _closed(
+                {"value": {"allOf": [{"$ref": "#/$defs/heavy"}] * 64}},
+                **{"$defs": {"heavy": {"type": "string", "not": {"pattern": self.HEAVY}}}},
+            )
+        )
+        program = action_schema._compiled_pattern(self.HEAVY).programsize
+        short = "b" * (action_schema.MAX_PATTERN_WORK // program // 64)
+        self.assertEqual(_validate(schema, {"value": short}), {"value": short})
+        started = time.perf_counter()
+        with self.assertRaisesRegex(ValueError, "does not match its reviewed schema") as raised:
+            _validate(schema, {"value": short + "b"})
+        self.assertIsInstance(raised.exception.__cause__, action_schema.PatternError)
+        self.assertLess(time.perf_counter() - started, 2.0)
 
 
 class LinearTimeValidationPathTests(unittest.TestCase):

@@ -1,9 +1,10 @@
 """Team admission and validation of one SDK-generated Action input or output schema.
 
 An admitted schema describes a closed object, is a valid Draft 2020-12 schema checked without retrieving anything, fits
-its byte and JSON value bounds, references only its root or a named definition, has no boolean subschema, and uses only
-patterns the linear-time matcher admits. Validation evaluates every `pattern` and `patternProperties` with RE2, never
-Python `re`, whose backtracking would hold the GIL for time exponential in the subject.
+its byte and JSON value bounds, references only its root or a named definition, resolves every reference without a cycle
+within MAX_EXPANDED_SUBSCHEMAS once each is expanded, has no boolean subschema, and uses only patterns the linear-time
+matcher admits. Validation evaluates every `pattern` and `patternProperties` with RE2, never Python `re`, whose
+backtracking would hold the GIL for time exponential in the subject, and bounds the matching work of one payload.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import lru_cache
 from typing import Any
 
@@ -24,6 +27,9 @@ from referencing import Registry
 # SDK-generated schemas (at most a few hundred values) with wide headroom.
 MAX_NODES = 4096
 MAX_BYTES = 128 * 1024
+# Validation visits a subschema once for every path that reaches it, so references multiply work the literal bounds do
+# not show. The Assistant protocol pins this bound and its counting rule, and Developers publication applies it alike.
+MAX_EXPANDED_SUBSCHEMAS = 4096
 
 
 class ActionSchemaError(ValueError):
@@ -55,13 +61,38 @@ def _compiled_pattern(pattern: str):
     return compiled
 
 
+# One search costs at most its subject's UTF-8 length times its program size; RE2's slowest path, which it takes when a
+# program outgrows its DFA memory, measured at up to 9 ns per unit. One payload validation may charge at most this
+# much, about 0.6 s at that rate, so no schema can apply large programs to long subjects without bound.
+MAX_PATTERN_WORK = 1 << 26
+_pattern_work: ContextVar[list[int] | None] = ContextVar("pattern_work", default=None)
+
+
+@contextmanager
+def pattern_work_budget() -> Iterator[None]:
+    """Charge every search inside the block against one MAX_PATTERN_WORK budget."""
+    token = _pattern_work.set([MAX_PATTERN_WORK])
+    try:
+        yield
+    finally:
+        _pattern_work.reset(token)
+
+
 def pattern_matches(pattern: str, subject: str) -> bool:
-    """Whether pattern matches anywhere in subject, as JSON Schema `pattern` requires; raises PatternError."""
+    """Whether pattern matches anywhere in subject, as JSON Schema `pattern` requires; raises PatternError.
+
+    Outside pattern_work_budget, the search alone is charged against a fresh budget.
+    """
     compiled = _compiled_pattern(pattern)
     try:
-        return compiled.search(subject) is not None
+        size = len(subject.encode())
     except UnicodeEncodeError as exc:
         raise PatternError("subject is not valid Unicode") from exc
+    remaining = _pattern_work.get() or [MAX_PATTERN_WORK]
+    remaining[0] -= size * compiled.programsize
+    if remaining[0] < 0:
+        raise PatternError("pattern matching exceeds its work budget")
+    return compiled.search(subject) is not None
 
 
 def _pattern(validator, pattern, instance, schema):
@@ -267,6 +298,51 @@ def _schema_node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None
     return None
 
 
+def _reference_target(schema: Mapping[str, Any], reference: str) -> object:
+    # The node walk proved the reference is `#` or one direct definition; JSON Pointer escapes decode in its name.
+    if reference == "#":
+        return schema
+    container, _, name = reference[2:].partition("/")
+    return schema.get(container, {}).get(name.replace("~1", "/").replace("~0", "~"))
+
+
+def _expansion_edges(schema: Mapping[str, Any], node: Mapping[str, Any]) -> list[object]:
+    edges = [*_applied_subschemas(node)]
+    if "$ref" in node:
+        edges.append(_reference_target(schema, node["$ref"]))
+    return edges
+
+
+def expanded_subschemas(schema: Mapping[str, Any]) -> int | None:
+    """Count the subschemas validation can visit, or None when a reference is missing or leads back into itself.
+
+    Every value at a subschema position counts once per path from the root that reaches it, and a `$ref` target counts
+    again at every subschema holding that reference, so a `#` reference is always a cycle. Each subschema's count is
+    computed once, so the walk is linear in the document however large the expansion.
+    """
+    counts: dict[int, int] = {}
+    open_nodes = {id(schema)}
+    frames: list[tuple[Mapping[str, Any], list[object], list[int]]] = [(schema, _expansion_edges(schema, schema), [1])]
+    while frames:
+        node, edges, total = frames[-1]
+        if edges:
+            edge = edges.pop()
+            if edge is None or id(edge) in open_nodes:
+                return None
+            if isinstance(edge, Mapping) and id(edge) not in counts:
+                open_nodes.add(id(edge))
+                frames.append((edge, _expansion_edges(schema, edge), [1]))
+            else:
+                total[0] += counts.get(id(edge), 1)
+            continue
+        frames.pop()
+        open_nodes.discard(id(node))
+        counts[id(node)] = total[0]
+        if frames:
+            frames[-1][2][0] += total[0]
+    return counts[id(schema)]
+
+
 def _reject_node_problems(schema: Mapping[str, Any]) -> None:
     # A reviewed package is immutable: every reference must land on a schema position this walk has checked.
     pending: list[object] = [schema]
@@ -306,6 +382,11 @@ def admitted(value: object) -> dict[str, Any]:
     if len(encoded) > MAX_BYTES:
         raise ActionSchemaError("is too large")
     _reject_node_problems(value)
+    expanded = expanded_subschemas(value)
+    if expanded is None:
+        raise ActionSchemaError("must resolve every reference without a cycle")
+    if expanded > MAX_EXPANDED_SUBSCHEMAS:
+        raise ActionSchemaError("is too large once its references are expanded")
     _reject_open_or_boolean_subschema(value)
     return value
 

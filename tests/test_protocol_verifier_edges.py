@@ -234,6 +234,35 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(ASSISTANT / "verify.py", mutate)
 
+    def test_rejects_action_schema_vectors_that_do_not_pin_the_expanded_reference_bound(self) -> None:
+        definitions: dict[str, object] = {"d0": {"type": "string"}}
+        for level in range(1, 9):
+            definitions[f"d{level}"] = {"allOf": [{"$ref": f"#/$defs/d{level - 1}"}] * 2}
+        mutations = (
+            *(
+                lambda value, name=name: value.update(
+                    {"cases": [case for case in value["cases"] if case["name"] != name]}
+                )
+                for name in (
+                    "references expanding to exactly 4096 subschemas",
+                    "references expanding to 4097 subschemas",
+                )
+            ),
+            *(
+                lambda value, reference=reference: value["cases"][0]["schema"].update({"$ref": reference})
+                for reference in ("#", "#/$defs/missing")
+            ),
+            lambda value: value["cases"][0]["schema"].update(
+                {"allOf": [{"$ref": "#/$defs/d8"}] * 4, "$defs": definitions}
+            ),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(SystemExit, "expanded-reference bound"):
+                _execute(
+                    ASSISTANT / "verify.py",
+                    lambda root, mutation=mutation: _rewrite_json(root, "action-schema-vectors.json", mutation),
+                )
+
 
 class TeamHttpVerifierEdgeTests(unittest.TestCase):
     def test_accepts_the_current_pinned_protocol(self) -> None:
