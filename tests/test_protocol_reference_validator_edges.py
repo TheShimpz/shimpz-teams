@@ -230,6 +230,31 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
                 with self.subTest(maximum=maximum, value=type(value).__name__ if abs(value) > 10**20 else value):
                     self.assertIs(human.param_value(declaration, value), expected)
 
+    def test_dns_name_parameters_admit_only_exact_record_names_within_their_bound(self) -> None:
+        declaration = {"name": "name", "kind": "dns_name", "max_length": 30}
+        for value, expected in (
+            ("_acme-challenge.example.com", True),
+            ("_dmarc", True),
+            ("a_b_.c", True),
+            ("x" * 30, True),
+            ("x" * 31, False),
+            ("*.example.com", False),
+            ("_dmarc.example.com.", False),
+            ("_dmarc..example.com", False),
+            ("-dmarc.example.com", False),
+            ("dmarc-.example.com", False),
+            ("_DMARC.example.com", False),
+            ("exämple.com", False),
+            ("dmarc example", False),
+            ("", False),
+            (5, False),
+        ):
+            with self.subTest(value=value):
+                self.assertIs(human.param_value(declaration, value), expected)
+        longest = {"name": "name", "kind": "dns_name", "max_length": catalog_module.PARAM_BOUNDS["dns_name"]}
+        self.assertTrue(human.param_value(longest, ".".join(["a" * 63] * 3 + ["b" * 61])))
+        self.assertFalse(human.param_value(longest, "a" * 64 + ".example.com"))
+
     def test_transcript_validation_covers_order_count_and_response_semantics(self) -> None:
         approval = _approval()
         text = _text_request()

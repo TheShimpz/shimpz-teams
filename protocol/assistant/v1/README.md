@@ -88,7 +88,10 @@ a required `messages` list of `{id, msgid, max_length, params}` objects, sorted 
   rendering of an NFC template NFC. The rule relies on those ASCII-only kinds; a non-ASCII kind needs a new rule.
 - `params` declares exactly the template's placeholders, sorted by `name`, at most 8, each with a `kind` and a
   `max_length`: `integer` (a non-negative JSON integer whose decimal form has at most `max_length` digits, at most
-  15), `domain` (a lowercase DNS name of at least two labels, at most 253), or `identifier` (an opaque
+  15), `domain` (a lowercase DNS name of at least two labels, at most 253), `dns_name` (an exact DNS record name
+  such as `_acme-challenge.example.com`: one or more dot-separated labels of 1 to 63 lowercase ASCII letters, digits,
+  `_`, or `-` that neither start nor end with `-`, at most 253, with no trailing dot and no `*` wildcard label, because
+  a wildcard names a scope rather than the exact record being authorized), or `identifier` (an opaque
   `[A-Za-z0-9][A-Za-z0-9._:-]*` value, at most 128). Arbitrary prose is never a parameter kind.
 - `max_length` is the smallest character bound of every field that uses the message, one of 80, 120, 160, or 500.
   The template's literal characters (the template without its placeholders) plus every parameter's `max_length`

@@ -18,7 +18,7 @@ MAX_PARAMS = 8
 MAX_CATALOG_BYTES = 131_072
 MAX_CATALOG_VALUES = 4_096
 MAX_PACK_BYTES = 2_097_152
-PARAM_BOUNDS = {"integer": 15, "domain": 253, "identifier": 128}
+PARAM_BOUNDS = {"integer": 15, "domain": 253, "dns_name": 253, "identifier": 128}
 LIMITS = {
     "messages": MAX_MESSAGES,
     "params": MAX_PARAMS,

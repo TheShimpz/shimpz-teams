@@ -65,6 +65,18 @@
         ]
       },
       {
+        "id": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+        "msgid": "Authorize the DNS record {name}.",
+        "max_length": 500,
+        "params": [
+          {
+            "name": "name",
+            "kind": "dns_name",
+            "max_length": 253
+          }
+        ]
+      },
+      {
         "id": "31fbef162594de01bab0cd525c51f74de7bcb15063029fa1a54b2cf5944c80d8",
         "msgid": "Continue",
         "max_length": 80,
@@ -815,6 +827,287 @@
           "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
           "params": {
             "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_dns_name_service_labels",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_acme-challenge.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_dns_name_single_label",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_dmarc"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_dns_name_underscore_edges",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_srv_.example_.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_maximum_dns_name",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_overlong_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_dns_name_long_label",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_wildcard_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "*.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_trailing_dot_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_dmarc.example.com."
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_empty_label_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_dmarc..example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_leading_hyphen_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "-dmarc.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_trailing_hyphen_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "dmarc-.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_uppercase_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "_DMARC.example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_prose_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "the example zone"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_non_ascii_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": "exämple.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_integer_dns_name",
+      "valid": false,
+      "error": "copy_params",
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "6007acbe30b2cd98703e83350ea665c06009fcd51f26dd73b309294235f45f21",
+          "params": {}
+        },
+        "description": {
+          "message": "31b72952405be3f247ef3aea1096a5f4741a2d4eb2260b68fb043835c8987c47",
+          "params": {
+            "name": 5
           }
         }
       }

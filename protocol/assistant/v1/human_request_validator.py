@@ -27,7 +27,11 @@ COPY_BOUNDS = {
 }
 Catalog = Mapping[str, dict[str, object]]
 DOMAIN = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+# An exact DNS record name: lowercase ASCII labels of [a-z0-9_-] that neither start nor end with a hyphen, one or more,
+# dot-separated, with no wildcard label and no trailing dot. The declared bound (at most 253) caps the whole name.
+DNS_NAME = re.compile(r"[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?(?:\.[a-z0-9_](?:[a-z0-9_-]{0,61}[a-z0-9_])?)*")
 IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
+PATTERNS = {"domain": DOMAIN, "dns_name": DNS_NAME, "identifier": IDENTIFIER}
 
 
 def fingerprint(request: object) -> str:
@@ -86,8 +90,7 @@ def param_value(declaration: Mapping[str, object], value: object) -> bool:
         return type(value) is int and 0 <= value < 10**maximum
     if not isinstance(value, str) or len(value) > maximum:
         return False
-    pattern = DOMAIN if declaration["kind"] == "domain" else IDENTIFIER
-    return pattern.fullmatch(value) is not None
+    return PATTERNS[declaration["kind"]].fullmatch(value) is not None
 
 
 def transcript_error(requests: object, responses: object, catalog: Catalog) -> str | None:

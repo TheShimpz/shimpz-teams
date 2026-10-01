@@ -10,7 +10,7 @@ from pathlib import Path
 
 from human_request_validator import reference_error
 from human_request_validator import verify_vectors as verify_human_vectors
-from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, catalog_error
+from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
 from message_catalog_validator import verify_vectors as verify_catalog_vectors
 
 HERE = Path(__file__).resolve().parent
@@ -136,6 +136,7 @@ if (
     "messages" not in machine.get("required", [])
     or messages.get("maxItems") != MAX_MESSAGES
     or machine["$defs"].get("message", {}).get("required") != ["id", "msgid", "max_length", "params"]
+    or machine["$defs"].get("messageParam", {}).get("properties", {}).get("kind", {}).get("enum") != list(PARAM_BOUNDS)
     or pack.get("properties", {}).get("format", {}).get("const") != PACK_FORMAT
     or pack.get("properties", {}).get("locales", {}).get("required") != list(LOCALES)
     or copy_reference.get("required") != ["message", "params"]

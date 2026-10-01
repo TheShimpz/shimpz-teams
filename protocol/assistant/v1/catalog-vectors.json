@@ -27,6 +27,7 @@
     "param_bounds": {
       "integer": 15,
       "domain": 253,
+      "dns_name": 253,
       "identifier": 128
     }
   },
@@ -959,6 +960,57 @@
           "msgid": "Manage DNS records in your Cloudflare zones.",
           "max_length": 160,
           "params": []
+        }
+      ]
+    },
+    {
+      "name": "valid_dns_name_param",
+      "valid": true,
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "55becd1534840b676ab79b942bd582673f1ece8c2563a48e4ee0cb081fc73035",
+          "msgid": "Create the reviewed record {name}.",
+          "max_length": 500,
+          "params": [
+            {
+              "name": "name",
+              "kind": "dns_name",
+              "max_length": 253
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reject_dns_name_param_bound",
+      "valid": false,
+      "error": "message_params",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "4e82f8e19cfeab0cddd8b332a6ffa44204a38127d71263fe42e92a1fe691b5e7",
+          "msgid": "Record {name}",
+          "max_length": 500,
+          "params": [
+            {
+              "name": "name",
+              "kind": "dns_name",
+              "max_length": 254
+            }
+          ]
         }
       ]
     },
