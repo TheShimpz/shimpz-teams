@@ -7,6 +7,7 @@ import hashlib
 import json
 import ssl
 import tempfile
+import threading
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
@@ -699,3 +700,138 @@ class LocalPublicationInstallTests(unittest.TestCase):
 
         self.assertEqual(caught.exception.code, "assistant-not-installable")
         self.assertIsNone(controller.registry.get("team_1", resolution["assistant_id"]))
+
+
+class _StartAuthorizationContainer:
+    def __init__(self, name: str, image_id: str, events: list[object]) -> None:
+        self.id = name
+        self.attrs = {"Image": image_id}
+        self._events = events
+
+    def reload(self) -> None:
+        pass
+
+    def start(self) -> None:
+        self._events.append(("start", self.id))
+
+    def remove(self, *, force: bool) -> None:
+        self._events.append(("remove", self.id, force))
+
+
+class LocalStartAuthorizationCompensationTests(unittest.TestCase):
+    """A Developers outage during the final start authorization must run lifecycle compensation."""
+
+    def _controller(self, directory: str, events: list[object], existing: object | None) -> local_app.LocalController:
+        images = {
+            "current": SimpleNamespace(id="sha256:" + "c" * 64),
+            "successor": SimpleNamespace(id="sha256:" + "d" * 64),
+        }
+        generations = iter(("generation-1", "generation-2"))
+
+        def create(**kwargs: object) -> _StartAuthorizationContainer:
+            name = next(generations)
+            image_id = images["successor"].id if kwargs["image"] == self.successor_image else images["current"].id
+            events.append(("create", name, image_id))
+            return _StartAuthorizationContainer(name, image_id, events)
+
+        controller = object.__new__(local_app.LocalController)
+        controller.space_id = "local-space"
+        controller.cpuset_cpus = "0"
+        controller._locks = (threading.RLock(),)
+        controller.registry = AssistantRegistry(DynamicAssistantStore(Path(directory) / "bindings.json"))
+        controller.developers = mock.Mock()
+        controller.developers.icon.return_value = ICON
+        controller.assistant_icons = AssistantIconStore(Path(directory) / "icons")
+        controller.artifact_trust = mock.Mock()
+        controller.client = SimpleNamespace(
+            containers=SimpleNamespace(create=create),
+            images=SimpleNamespace(get=lambda _image_id: images["current"]),
+        )
+        controller._wire_collaborators()
+        lifecycle = controller.assistant_lifecycle
+        network = SimpleNamespace(name=lifecycle._network_name("team_1"))
+        lifecycle._network = lambda _team_id: network
+        lifecycle._assistant_container = lambda *_args, **_kwargs: existing
+        lifecycle._validate_container_security = lambda *_args, **_kwargs: None
+        lifecycle._assistant_image = lambda spec: (
+            images["successor"] if spec.image == self.successor_image else images["current"]
+        )
+        lifecycle._reserve_assistant_egress_environment = lambda *_args: ("a" * 32, {}, None)
+        lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(spec.allowed_hosts)
+        lifecycle._activate_assistant_egress = lambda *_args: events.append("activate-egress")
+        lifecycle._release_assistant_egress = lambda *_args, **_kwargs: events.append("release-egress")
+        lifecycle._team_has_egress_assistant = lambda *_args, **_kwargs: False
+        lifecycle._validate_container = lambda *_args: None
+        lifecycle._wait_ready = lambda *_args: None
+        lifecycle._active_assistant_genesis = lambda _active: None
+        lifecycle._queue_residue = lambda image_id: events.append(("residue", image_id))
+        lifecycle.updates = SimpleNamespace(
+            begin=lambda *_args: events.append("journal-begin") or SimpleNamespace(),
+            clear=lambda _update: events.append("journal-clear"),
+        )
+        return controller
+
+    def test_fresh_install_removes_the_unstarted_container_and_its_egress(self) -> None:
+        resolution = _runtime_resolution()
+        self.successor_image = resolution["image_reference"]
+        events: list[object] = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._controller(directory, events, None)
+            controller.developers.resolve.side_effect = (resolution, DevelopersError("offline"))
+
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.install_publication("team_1", resolution["assistant_id"], resolution["source_digest"])
+
+            binding = controller.registry.binding("team_1", resolution["assistant_id"])
+
+        self.assertEqual(caught.exception.code, "developers-unavailable")
+        self.assertIsNone(binding)
+        self.assertEqual(
+            events,
+            [
+                ("create", "generation-1", "sha256:" + "d" * 64),
+                "activate-egress",
+                ("remove", "generation-1", True),
+                "release-egress",
+            ],
+        )
+
+    def test_update_restores_the_previous_generation_synchronously(self) -> None:
+        current = _runtime_resolution()
+        successor = copy.deepcopy(current)
+        successor["assistant_version"] = "0.2.0"
+        successor["source_digest"] = f"sha256:{'9' * 64}"
+        successor["image_reference"] = current["image_reference"].replace(current["oci_digest"], "sha256:" + "e" * 64)
+        successor["oci_digest"] = "sha256:" + "e" * 64
+        self.successor_image = successor["image_reference"]
+        events: list[object] = []
+        existing = _StartAuthorizationContainer("generation-0", "sha256:" + "c" * 64, events)
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._controller(directory, events, existing)
+            controller.registry.put("team_1", current)
+            controller.developers.resolve.side_effect = (successor, DevelopersError("offline"))
+
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                controller.install_publication("team_1", successor["assistant_id"], successor["source_digest"])
+
+            binding = controller.registry.binding("team_1", successor["assistant_id"])
+
+        self.assertEqual(caught.exception.code, "developers-unavailable")
+        self.assertEqual(binding.resolution["source_digest"], current["source_digest"])
+        self.assertEqual(
+            events,
+            [
+                "journal-begin",
+                ("remove", "generation-0", True),
+                "release-egress",
+                ("create", "generation-1", "sha256:" + "d" * 64),
+                "activate-egress",
+                ("remove", "generation-1", True),
+                "release-egress",
+                ("create", "generation-2", "sha256:" + "c" * 64),
+                "activate-egress",
+                ("start", "generation-2"),
+                ("residue", "sha256:" + "d" * 64),
+                "journal-clear",
+            ],
+        )

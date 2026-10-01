@@ -343,9 +343,14 @@ def _verify_publication_assets(self, source_digest: str, resolution: dict[str, o
 
 def _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution):
     def authorize_start() -> None:
-        current = self.developers.resolve(source_digest)
-        if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
-            raise developers.PublicationNotInstallableError("publication changed before installation")
+        # Lifecycle compensation handles only ApiProblem and Docker failures, so the final Developers lookup must
+        # leave this callback already translated or a created container and its egress policy would survive.
+        try:
+            current = self.developers.resolve(source_digest)
+            if current["assistant_id"] != assistant_id or current["oci_digest"] != resolution["oci_digest"]:
+                raise developers.PublicationNotInstallableError("publication changed before installation")
+        except developers.DevelopersError as exc:
+            raise _developers_problem(exc) from exc
 
     if existing is None:
         spec, binding, created = self.registry.put_with_status(team_id, resolution)
@@ -359,7 +364,7 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
             if created and exc.code != "assistant-install-rollback-incomplete":
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
-        except developers.DevelopersError, bindings.DynamicAssistantError:
+        except bindings.DynamicAssistantError:
             if created:
                 self.registry.delete_if_matches(team_id, assistant_id, binding.binding_digest)
             raise
