@@ -15,6 +15,8 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
+from local.errors import ApiProblemError
+from local.validation import validate_team_name
 from protocol.http.v1 import payload as http_payload
 
 SCHEMA_VERSION = 3
@@ -404,7 +406,12 @@ def _identity(value: object) -> tuple[object, ...]:
         {"team_name", "network_id", "assistants", "files", "inference"},
         "continuation Team identity",
     )
-    team_name = _text(raw["team_name"], 80, "continuation Team name")
+    # Team names and filenames follow their owning validators, which admit every printable Unicode character the Team
+    # and its files may carry; both validators keep this codec's 80-character and 255-byte bounds.
+    try:
+        team_name = validate_team_name(raw["team_name"])
+    except ApiProblemError as exc:
+        raise ContinuationCodecError("continuation Team name is malformed") from exc
     network_id = raw["network_id"]
     if not isinstance(network_id, str) or _NETWORK_ID.fullmatch(network_id) is None:
         raise ContinuationCodecError("continuation network identity is malformed")
@@ -431,7 +438,7 @@ def _identity(value: object) -> tuple[object, ...]:
         if (
             not isinstance(entry["id"], str)
             or _FILE_ID.fullmatch(entry["id"]) is None
-            or _text(entry["name"], 255, "continuation filename") in {".", ".."}
+            or http_payload.canonical_filename(entry["name"]) is None
             or not isinstance(entry["media_type"], str)
             or not 1 <= len(entry["media_type"]) <= 127
             or type(entry["size"]) is not int
