@@ -192,9 +192,9 @@ An authenticated Supervisor may read the canonical PNG for one installed Assista
 verifies the icon digest again at read time, returns exactly `image/png`, and marks the response
 `no-store`. Missing bindings fail as absent; missing or tampered custody fails closed.
 
-An installed Assistant's summary follows the interface language (ADR-0091). Local Admin reads it at
-`GET /v1/teams/:team_id/assistants/:assistant_id/summary/:locale` (Local only), where `locale` is one closed interface
-language, and Team answers the same closed `{locale, summary}` as a staged snapshot's summary
+An installed Assistant's summary follows the interface language (ADR-0091). Admin reads it at
+`GET /v1/teams/:team_id/assistants/:assistant_id/summary/:locale`, where `locale` is one closed interface language,
+and Team answers the same closed `{locale, summary}` as a staged snapshot's summary
 (`payload.canonical_snapshot_summary`): the current binding's English catalog summary for `en`, otherwise that one
 message's translation from the pack verified against the binding's `pack_digest`. No request copy, catalog, or pack is
 ever returned. A missing binding fails as absent, and a missing or mismatched pack fails closed. Admin refuses an answer

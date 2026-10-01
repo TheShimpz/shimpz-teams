@@ -499,7 +499,6 @@ CONTROLLER_ROUTES = (
         "GET",
         "/v1/teams/:team_id/assistants/:assistant_id/summary/:locale",
         "assistant-summary",
-        _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route(
         "POST",

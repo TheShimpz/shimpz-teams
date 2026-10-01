@@ -310,6 +310,24 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         read_icon.assert_called_once_with("team_1", "example-assistant", mock.sentinel.lease)
         handler._send_icon.assert_called_once_with(b"bound icon")
 
+    def test_serves_the_installed_summary_in_the_requested_language(self) -> None:
+        request = hosted_controller._AuthorizedRequest(
+            {"assistant_id": "example-assistant", "locale": "pt"},
+            "team_1",
+            ("account", "account_1"),
+            mock.sentinel.lease,
+            {},
+        )
+        handler = object.__new__(app.Handler)
+        handler._send_json = mock.Mock()
+        answer = {"locale": "pt", "summary": "Resumo."}
+
+        with mock.patch.object(assistant_lifecycle, "_assistant_summary", return_value=answer) as read_summary:
+            handler._route_assistant_summary(request)
+
+        read_summary.assert_called_once_with("team_1", "example-assistant", "pt", mock.sentinel.lease)
+        handler._send_json.assert_called_once_with(HTTPStatus.OK, answer, no_store=True)
+
     def test_uninstalls_only_a_bound_dynamic_assistant(self) -> None:
         request = hosted_controller._AuthorizedRequest(
             {"assistant_id": "example-assistant"},

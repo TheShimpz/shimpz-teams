@@ -25,6 +25,8 @@ from hosted.team import resources as hosted_resources
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
 from integrations import store as integration_store
+from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.http.v1 import payload as http_payload
 
 
 class _IncompleteInstallRollback(runtime_state.ApiError):
@@ -811,3 +813,34 @@ def _assistant_icon(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant icon is unavailable",
             ) from exc
+
+
+def _assistant_summary(
+    team_id: str,
+    assistant_id: str,
+    locale: object,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    """One installed Assistant's summary in one closed interface language, read from its binding's pack (ADR-0091).
+
+    English is the binding's catalog summary itself; any other language is only that message's translation from the
+    pack verified against the binding's digest, so a missing or mismatched pack fails closed instead of answering in
+    English.
+    """
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "locale must be one interface language")
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            assistant_id, spec = _resolve_team_assistant(team_id, assistant_id)
+        except assistant_registry.AssistantSpecError as exc:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed in this Team") from exc
+        if canonical == assistant_language.ENGLISH:
+            return {"locale": canonical, "summary": spec.summary}
+        container = hosted_resources._get_container(container_spec.team_assistant_container_name(team_id, assistant_id))
+        if container is None:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant is not running in this Team")
+        pack = _assistant_language(spec.contract, container)
+        summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
+    return {"locale": canonical, "summary": summary}

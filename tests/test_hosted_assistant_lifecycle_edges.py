@@ -365,6 +365,59 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         ):
             self.assertEqual(lifecycle._assistant_icon(TEAM_ID, ASSISTANT_ID, lease), b"icon")
 
+    def test_installed_summary_reads_only_the_binding_pack_in_the_requested_language(self) -> None:
+        lease = object()
+        spec = SimpleNamespace(
+            summary=catalog_fixtures.SUMMARY,
+            contract=SimpleNamespace(machine_contract=CONTRACT, pack_digest=DIGEST),
+        )
+        cache = lifecycle.assistant_language.LanguagePackCache()
+        container = PackContainer("good", RAW)
+        with (
+            mock.patch.object(resources, "_require_current_authorization") as authorized,
+            mock.patch.object(state, "_assistant_language_cache", cache),
+            mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, spec)) as resolve,
+            mock.patch.object(resources, "_get_container", return_value=container) as get_container,
+        ):
+            self.assertEqual(
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "pt", lease),
+                {"locale": "pt", "summary": f"PT {catalog_fixtures.SUMMARY}"},
+            )
+            authorized.assert_called_once_with(TEAM_ID, lease, require_isolation=False)
+            resolve.assert_called_once_with(TEAM_ID, ASSISTANT_ID)
+            get_container.assert_called_once_with(
+                lifecycle.container_spec.team_assistant_container_name(TEAM_ID, ASSISTANT_ID)
+            )
+
+            # English is the binding's own catalog summary and never reads the pack.
+            get_container.reset_mock()
+            self.assertEqual(
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "en", lease),
+                {"locale": "en", "summary": catalog_fixtures.SUMMARY},
+            )
+            get_container.assert_not_called()
+
+            # A pack that does not match the binding fails closed instead of answering in English.
+            get_container.return_value = PackContainer("drifted", _tampered())
+            with self.assertRaises(state.ApiError) as drifted:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "de", lease)
+            self.assertEqual(drifted.exception.status, HTTPStatus.CONFLICT)
+
+            get_container.return_value = None
+            with self.assertRaises(state.ApiError) as stopped:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "ja", lease)
+            self.assertEqual(stopped.exception.status, HTTPStatus.CONFLICT)
+
+            resolve.side_effect = lifecycle.assistant_registry.AssistantSpecError("absent")
+            with self.assertRaises(state.ApiError) as absent:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "pt", lease)
+            self.assertEqual(absent.exception.status, HTTPStatus.NOT_FOUND)
+
+            for locale in ("pt-BR", "EN", None):
+                with self.subTest(locale=locale), self.assertRaises(state.ApiError) as invalid:
+                    lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, locale, lease)
+                self.assertEqual(invalid.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
+
 
 if __name__ == "__main__":
     unittest.main()
