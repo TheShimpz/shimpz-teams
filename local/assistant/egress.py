@@ -206,13 +206,13 @@ def _remove_egress_policy(
 
 def _team_attachment_drifted(attrs: dict, network_name: str) -> bool:
     """Whether the proxy's network state is malformed or its entry on one Team network lacks the exact alias."""
-    settings = attrs.get("NetworkSettings") or {}
-    networks = settings.get("Networks") or {} if isinstance(settings, dict) else None
+    settings = attrs.get("NetworkSettings")
+    networks = settings.get("Networks") if isinstance(settings, dict) else None
     if not isinstance(networks, dict):
         return True
-    attached = networks.get(network_name)
-    if attached is None:
+    if network_name not in networks:
         return False
+    attached = networks[network_name]
     aliases = attached.get("Aliases") if isinstance(attached, dict) else None
     return not (
         isinstance(aliases, list)

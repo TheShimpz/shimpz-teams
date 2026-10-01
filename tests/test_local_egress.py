@@ -208,6 +208,11 @@ class LocalAssistantEgressTests(unittest.TestCase):
             "malformed attachment": attach([alias]),
             "malformed networks": lambda proxy: proxy.attrs["NetworkSettings"].update(Networks=[team]),
             "malformed settings": lambda proxy: proxy.attrs.update(NetworkSettings=[team]),
+            "null attachment": attach(None),
+            "empty list networks": lambda proxy: proxy.attrs["NetworkSettings"].update(Networks=[]),
+            "null networks": lambda proxy: proxy.attrs["NetworkSettings"].update(Networks=None),
+            "false settings": lambda proxy: proxy.attrs.update(NetworkSettings=False),
+            "missing settings": lambda proxy: proxy.attrs.pop("NetworkSettings"),
             "privileged": lambda proxy: proxy.attrs["HostConfig"].update(Privileged=True),
         }
         for status in ("running", "exited", "created", "restarting"):
