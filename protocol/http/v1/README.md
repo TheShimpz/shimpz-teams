@@ -40,7 +40,14 @@ it from the English catalog or the pack, inserting each parameter once; Admin ve
 validates this projection, while request kinds, option values, and the authorization scope stay canonical. A live
 challenge binds the canonical fingerprint, the exact binding, the catalog and pack digests, and the locale; a
 different locale needs a fresh challenge. Opening a frozen Routine run's challenge carries the Admin interface
-language as exactly `{"locale": "pt"}` (`routine.canonical_challenge_open`, never `null`).
+language as exactly `{"locale": "pt"}` (`routine.canonical_challenge_open`, never `null`). Local Admin opens the
+Team's pending chat challenge with the same exact body at `POST /v1/teams/:team_id/chat/human/challenge`
+(Local only), and a chat body that names a locale reopens a pending challenge the same way. Team answers
+`{team_id, status: "none"}` when nothing is pending and returns a challenge already in that locale unchanged.
+Otherwise, as for a Routine opening, it re-renders the same canonical request and fingerprint from the same binding's
+pack under Team's lock as a fresh challenge with a new `challenge_id` and the earlier expiry, and the earlier id stops
+answering at once. The turn keeps its own language and a purpose its origin locale. A binding whose catalog or pack
+changed ends the paused turn; Admin refuses an opened challenge whose `locale` is not the one it asked for.
 
 The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
 why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,

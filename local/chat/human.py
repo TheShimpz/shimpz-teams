@@ -11,6 +11,7 @@ from local.chat.segment import SegmentRequest
 from local.chat.types import PendingLocalChat, ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 
 
 def pending_chat_human(self, team_id: str) -> dict[str, object]:
@@ -20,6 +21,64 @@ def pending_chat_human(self, team_id: str) -> dict[str, object]:
     _expire_human_challenges(self)
     challenge = self.human_challenges.current(team_id)
     return self._human_response(challenge) if challenge is not None else {"team_id": team_id, "status": "none"}
+
+
+def open_chat_human(self, team_id: str, body: object) -> dict[str, object]:
+    """Open the Team's pending human challenge in the Admin interface language, or report that none is pending.
+
+    The body is exactly ``{"locale": code}`` (ADR-0091). A challenge already in that language is returned unchanged;
+    any other language replaces it with a fresh challenge (see ``relocalized``).
+    """
+    team_id = validate_team_id(team_id)
+    opening = http_routine.canonical_challenge_open(body)
+    if opening is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "opening a challenge requires only locale", code="invalid-body"
+        )
+    self.assistant_lifecycle._network(team_id)
+    _expire_human_challenges(self)
+    with self._lock(team_id):
+        challenge = self.human_challenges.current(team_id)
+        if challenge is None:
+            return {"team_id": team_id, "status": "none"}
+        return self._human_response(relocalized(self, challenge, opening["locale"]))
+
+
+def relocalized(
+    self, challenge: action_challenges.PendingHumanChallenge, locale: str
+) -> action_challenges.PendingHumanChallenge:
+    """The pending request rendered in one interface language; another language is always a fresh challenge.
+
+    As with a Routine opening, the same canonical request and fingerprint are re-rendered from the same binding's
+    pack under Team's lock, the earlier challenge stops answering, and the fresh one keeps its expiry and continuation.
+    The turn keeps its own language and the purpose its origin locale, so a purpose is shown only in that locale.
+    """
+    if challenge.requirement.copy.locale == locale:
+        return challenge
+    team_id = challenge.team_id
+    with self._lock(team_id):
+        pending, assistants = _validate_pending_context(self, team_id, challenge.payload.provider, challenge)
+        active = next(item for item in assistants if item.spec.assistant_id == challenge.requirement.assistant_id)
+        try:
+            requirement = action_challenges.relocalize(challenge.requirement, self._assistant_language(active), locale)
+            fresh = self.human_challenges.reissue(team_id, challenge.id, requirement)
+        except action_challenges.HumanChallengeNotFoundError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT, "Action human request expired; retry the message", code="human-request-expired"
+            ) from exc
+        except action_challenges.HumanChallengeError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT, "Action human request changed; retry the message", code="human-request-invalid"
+            ) from exc
+        try:
+            self._persist_chat_continuation("human", fresh, (requirement,), pending)
+        except ApiProblem:
+            # The earlier challenge no longer answers, so a fresh one that cannot be kept ends the paused turn.
+            self.human_challenges.cancel_team(team_id)
+            self._delete_chat_continuation(team_id)
+            self._purge_human_pending(pending)
+            raise
+    return fresh
 
 
 def _expire_human_challenges(self) -> None:
@@ -63,7 +122,10 @@ def _pending_challenge(self, team_id: str, challenge_id: object) -> action_chall
     return challenge
 
 
-def _validate_pending_context(self, team_id: str, provider: str, challenge: object) -> PendingLocalChat:
+def _validate_pending_context(
+    self, team_id: str, provider: str, challenge: object
+) -> tuple[PendingLocalChat, tuple[object, ...]]:
+    """The challenge's continuation and the Team's running Assistants, which must be exactly as the turn left them."""
     if not isinstance(challenge, action_challenges.PendingHumanChallenge) or not isinstance(
         challenge.payload, PendingLocalChat
     ):
@@ -88,7 +150,7 @@ def _validate_pending_context(self, team_id: str, provider: str, challenge: obje
             "Team capabilities changed; retry",
             code="team-context-changed",
         )
-    return pending
+    return pending, current[2]
 
 
 def copy_binding_current(requirement: action_challenges.HumanRequirement, assistants: tuple[object, ...]) -> bool:
@@ -144,7 +206,7 @@ def resume_chat_human(
     with self._exclusive_chat_turn(team_id) as token:
         with self._lock(team_id):
             challenge = _pending_challenge(self, team_id, challenge_id)
-            pending = _validate_pending_context(self, team_id, provider, challenge)
+            pending, _assistants = _validate_pending_context(self, team_id, provider, challenge)
             admission = _admit_human_response(self, team_id, challenge, pending, decision, value)
             if admission is None:
                 return self._terminal_human_failure(team_id, token, pending, "denied")

@@ -399,6 +399,12 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
     _controller_route("GET", "/v1/teams/:team_id/chat/human", "chat-human-pending"),
     _controller_route("POST", "/v1/teams/:team_id/chat/human", "chat-human-submit"),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/chat/human/challenge",
+        "chat-human-open",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stop", "chat-stop"),
     _controller_route("GET", "/v1/teams/:team_id/assistant-integrations", "assistant-integration-list"),
     _controller_route(

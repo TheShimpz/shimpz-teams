@@ -48,6 +48,25 @@ class LocalHumanRequestHttpTests(unittest.TestCase):
         )
         self.assertEqual(handler._chat_status(pending), HTTPStatus.PRECONDITION_REQUIRED)
 
+    def test_opening_the_pending_challenge_in_a_language_is_a_local_post_route(self) -> None:
+        opened = {"team_id": "team_1", "status": "none"}
+        bodies: list[object] = []
+        service = SimpleNamespace(open_chat_human=lambda team_id, body: bodies.append(body) or opened)
+        handler = object.__new__(server.Handler)
+        handler.server = SimpleNamespace(controller=SimpleNamespace(chat_turn_service=service))
+        handler._body = lambda **_kwargs: {"locale": "pt"}
+        path = ["v1", "teams", "team_1", "chat", "human", "challenge"]
+
+        handler.command = "POST"
+        self.assertEqual(handler._chat_route(path), (HTTPStatus.OK, opened, "chat-human-open", "team_1", None))
+        self.assertEqual(bodies, [{"locale": "pt"}])
+        handler.command = "GET"
+        self.assertIsNone(handler._chat_route(path))
+        self.assertEqual(server._JSON_BODY_LIMITS["chat-human-open"], server.MAX_BODY_BYTES)
+        local = strict_http.resolve_controller_route(strict_http.LOCAL_CONTROLLER, "POST", tuple(path))
+        self.assertEqual(local.operation, "chat-human-open")
+        self.assertIsNone(strict_http.resolve_controller_route(strict_http.HOSTED_CONTROLLER, "POST", tuple(path)))
+
     def test_human_routes_are_shared_with_profile_specific_authority(self) -> None:
         local_get = strict_http.resolve_controller_route(
             strict_http.LOCAL_CONTROLLER,

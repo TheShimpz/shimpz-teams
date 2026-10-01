@@ -155,6 +155,8 @@ class ChatTurnService:
     resume_chat_integrations = local_chat_api.resume_chat_integrations
     resume_chat_human = local_chat_human.resume_chat_human
     pending_chat_human = local_chat_human.pending_chat_human
+    open_chat_human = local_chat_human.open_chat_human
+    _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_turn.chat_routines
     _routine_proposal = local_routine_turn.routine_proposal

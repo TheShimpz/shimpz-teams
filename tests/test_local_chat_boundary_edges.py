@@ -251,7 +251,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             self.assertEqual(caught.exception.code, "invalid-message")
 
         pending = {"status": "pending"}
-        subject._pending_chat_continuation = lambda _team_id: pending
+        subject._pending_chat_continuation = lambda _team_id, _locale: pending
         self.assertIs(
             local_chat_api.chat(
                 subject,
@@ -264,7 +264,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         )
 
         responses = iter((None, pending))
-        subject._pending_chat_continuation = lambda _team_id: next(responses)
+        subject._pending_chat_continuation = lambda _team_id, _locale: next(responses)
         subject._exclusive_chat_turn = lambda _team_id: nullcontext("token")
         self.assertIs(
             local_chat_api.chat(

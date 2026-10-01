@@ -126,6 +126,33 @@ class ChallengeStore[PendingT]:
             self._by_team[team] = identifier
             return challenge
 
+    def reissue(self, team_id: object, challenge_id: object, challenge_payload: object) -> PendingT:
+        """Replace one live challenge with a fresh one-use id for new metadata, keeping its payload and expiry.
+
+        The earlier id stops answering at once; the replacement never outlives the challenge it replaces.
+        """
+        team = self._team_id(team_id)
+        identifier = self._challenge_id(challenge_id)
+        if not self._contract.payload_validator(challenge_payload):
+            raise self._contract.error_class(f"{self._contract.label} challenge requires metadata")
+        with self._lock:
+            self._expire(self._clock())
+            previous = self._available(team, identifier)
+            replacement = secrets.token_hex(16)
+            while replacement in self._pending:
+                replacement = secrets.token_hex(16)
+            challenge = self._contract.pending_type(
+                replacement,
+                team,
+                previous.expires_at,
+                challenge_payload,
+                previous.payload,
+            )
+            self._pending.pop(identifier)
+            self._pending[replacement] = challenge
+            self._by_team[team] = replacement
+            return challenge
+
     def current(self, team_id: object) -> PendingT | None:
         team = self._team_id(team_id)
         with self._lock:

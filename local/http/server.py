@@ -64,6 +64,7 @@ _JSON_BODY_LIMITS = {
     "chat-intent-route": MAX_INTENT_ROUTE_BODY_BYTES,
     "chat-integration-submit": MAX_BODY_BYTES,
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
+    "chat-human-open": MAX_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
@@ -448,6 +449,12 @@ class Handler(BaseHTTPRequestHandler):
         operation = getattr(self.server.controller.chat_turn_service, method_name)
         return HTTPStatus.OK, operation(team_id), operation_name, team_id, None
 
+    def _chat_open(self, team_id: str) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
+        """Open the pending human challenge in the Admin interface language its request copy renders in (ADR-0091)."""
+        service = self.server.controller.chat_turn_service
+        payload = service.open_chat_human(team_id, self._body(max_bytes=MAX_BODY_BYTES))
+        return HTTPStatus.OK, payload, "chat-human-open", team_id, None
+
     def _chat_submit(
         self,
         team_id: str,
@@ -521,19 +528,30 @@ class Handler(BaseHTTPRequestHandler):
         self,
         parts: list[str],
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) not in {4, 5} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
+        if len(parts) not in {4, 5, 6} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
             return None
         team_id = validate_team_id(parts[2])
         if len(parts) == 4:
             return self._chat_start(team_id) if self.command == "POST" else None
-        segment = parts[4]
+        segment = "/".join(parts[4:])
         if self.command == "GET":
             return self._chat_pending(team_id, segment)
-        if self.command == "POST" and segment == "stop":
-            return self._chat_stop(team_id)
         if self.command != "POST":
             return None
-        return self._chat_decision(team_id, segment) or self._chat_submit(team_id, segment)
+        return (
+            self._chat_control(team_id, segment)
+            or self._chat_decision(team_id, segment)
+            or self._chat_submit(team_id, segment)
+        )
+
+    def _chat_control(
+        self,
+        team_id: str,
+        segment: str,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        """The non-streamed chat controls: Stop, and opening the pending human challenge in one language."""
+        control = {"stop": self._chat_stop, "human/challenge": self._chat_open}.get(segment)
+        return control(team_id) if control is not None else None
 
     def _stream_chat_route(
         self,
