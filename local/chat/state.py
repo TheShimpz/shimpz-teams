@@ -190,7 +190,7 @@ def _active_chat_assistants(self, team_id: str, network_name: str) -> tuple[_Act
     def current_egress_proxy():
         nonlocal egress_proxy
         if egress_proxy is None:
-            egress_proxy = self.assistant_lifecycle._egress_proxy()
+            egress_proxy = self.assistant_lifecycle._egress_proxy(network_name)
         return egress_proxy
 
     for container in containers:

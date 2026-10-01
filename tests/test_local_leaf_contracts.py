@@ -208,7 +208,7 @@ class LocalLeafContractTests(unittest.TestCase):
             _network=lambda _team_id: object(),
             _assistant_filters=lambda _team_id: {},
             _network_name=lambda _team_id: "network",
-            _egress_proxy=lambda: object(),
+            _egress_proxy=lambda _network_name: object(),
             _validate_container_profile=lambda *_args: (object(), {}),
             _validate_container_egress=lambda *_args: None,
             _has_current_assistant_artifact=lambda *_args: True,

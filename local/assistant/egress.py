@@ -204,7 +204,8 @@ def _remove_egress_policy(
         _raise_egress_problem(exc)
 
 
-def _egress_proxy(self):
+def _egress_proxy(self, network_name: str):
+    """The proxy as one Team network sees it: any drift answers 409 before a stopped proxy answers 503."""
     if not ASSISTANT_EGRESS_CONTAINER or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -231,6 +232,7 @@ def _egress_proxy(self):
     }
     mounts = attrs.get("Mounts") or []
     policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
+    attached = ((attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
     if (
         proxy.name != ASSISTANT_EGRESS_CONTAINER
         or not self._labels_include(labels, expected_labels)
@@ -249,8 +251,16 @@ def _egress_proxy(self):
             "Assistant egress proxy failed its isolation profile",
             code="egress-proxy-drift",
         )
+    if attached is not None and (
+        not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or [])
+    ):
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "Assistant egress proxy failed its Team attachment contract",
+            code="egress-proxy-drift",
+        )
     if proxy.status != "running":
-        # A proxy whose isolation profile holds is only stopped, as during a release swap or restart: retryable.
+        # A proxy whose profile and attachment hold is only stopped, as during a release swap or restart: retryable.
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant egress proxy is unavailable",
@@ -260,7 +270,7 @@ def _egress_proxy(self):
 
 
 def _connect_egress_proxy(self, network, proxy=None) -> None:
-    proxy = proxy if proxy is not None else self._egress_proxy()
+    proxy = proxy if proxy is not None else self._egress_proxy(network.name)
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if attached is None:
         try:
@@ -292,7 +302,7 @@ def _connect_egress_proxy(self, network, proxy=None) -> None:
 
 
 def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, proxy=None) -> None:
-    proxy = proxy if proxy is not None else self._egress_proxy()
+    proxy = proxy if proxy is not None else self._egress_proxy(network_name)
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
     if isinstance(attached, dict):
         if ASSISTANT_EGRESS_ALIAS in (attached.get("Aliases") or []):
@@ -313,7 +323,7 @@ def _reconcile_egress_proxy_attachment(self, team_id: str, network_name: str, pr
 
 
 def _disconnect_egress_proxy(self, network) -> None:
-    proxy = self._egress_proxy()
+    proxy = self._egress_proxy(network.name)
     attached = ((proxy.attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network.name)
     if attached is None:
         return

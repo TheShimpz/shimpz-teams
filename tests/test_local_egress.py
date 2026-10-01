@@ -183,24 +183,36 @@ class LocalAssistantEgressTests(unittest.TestCase):
                 drift(self.proxy.attrs["HostConfig"])
 
                 with self.assertRaises(local_app.ApiProblem) as caught:
-                    self.controller.assistant_lifecycle._egress_proxy()
+                    self.controller.assistant_lifecycle._egress_proxy(self.network.name)
 
                 self.assertEqual(caught.exception.code, "egress-proxy-drift")
 
-    def test_a_stopped_proxy_is_retryable_unless_its_profile_also_drifted(self) -> None:
+    def test_a_stopped_proxy_is_retryable_unless_its_profile_or_attachment_drifted(self) -> None:
         for status in ("exited", "created", "restarting"):
             with self.subTest(status=status):
                 self.proxy.status = status
                 with self.assertRaises(local_app.ApiProblem) as caught:
-                    self.controller.assistant_lifecycle._egress_proxy()
+                    self.controller.assistant_lifecycle._egress_proxy(self.network.name)
                 self.assertEqual(
                     (caught.exception.status, caught.exception.code),
                     (503, "egress-proxy-unavailable"),
                 )
-        self.proxy.attrs["HostConfig"]["Privileged"] = True
+        networks = self.proxy.attrs["NetworkSettings"]["Networks"]
+        networks[self.network.name] = {"Aliases": [local_egress.ASSISTANT_EGRESS_ALIAS]}
         with self.assertRaises(local_app.ApiProblem) as caught:
-            self.controller.assistant_lifecycle._egress_proxy()
-        self.assertEqual((caught.exception.status, caught.exception.code), (409, "egress-proxy-drift"))
+            self.controller.assistant_lifecycle._egress_proxy(self.network.name)
+        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
+        drifts = {
+            "wrong Team alias": lambda: networks.update({self.network.name: {"Aliases": ["wrong"]}}),
+            "malformed Team attachment": lambda: networks.update({self.network.name: ["wrong"]}),
+            "privileged": lambda: self.proxy.attrs["HostConfig"].update(Privileged=True),
+        }
+        for name, drift in drifts.items():
+            with self.subTest(name=name):
+                drift()
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.controller.assistant_lifecycle._egress_proxy(self.network.name)
+                self.assertEqual((caught.exception.status, caught.exception.code), (409, "egress-proxy-drift"))
 
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
         team_id = "team_1"
@@ -461,12 +473,12 @@ class LocalAssistantEgressTests(unittest.TestCase):
             mock.patch.object(local_egress, "ASSISTANT_EGRESS_CONTAINER", ""),
             self.assertRaises(local_app.ApiProblem) as caught,
         ):
-            lifecycle._egress_proxy()
+            lifecycle._egress_proxy(self.network.name)
         self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
 
         self.controller.client.containers.get = mock.Mock(side_effect=DockerException("unavailable"))
         with self.assertRaises(local_app.ApiProblem) as caught:
-            lifecycle._egress_proxy()
+            lifecycle._egress_proxy(self.network.name)
         self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
         self.controller.client.containers.get = _Containers(self.proxy).get
 

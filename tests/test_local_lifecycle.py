@@ -475,7 +475,7 @@ class LocalLifecycleTests(LocalContractCase):
             tuple(item["assistant"] for item in result["assistants"]),
             ("future-assistant", "shimpz-cloudflare"),
         )
-        controller.assistant_lifecycle._egress_proxy.assert_called_once_with()
+        controller.assistant_lifecycle._egress_proxy.assert_called_once_with(network_name)
 
     def test_chat_inventory_uses_listed_attrs_and_one_egress_proxy_inspection(self) -> None:
         controller, first, events = self._lifecycle_controller()
@@ -516,7 +516,7 @@ class LocalLifecycleTests(LocalContractCase):
         controller.client.containers.list.assert_called_once_with(
             **controller.assistant_lifecycle._assistant_filters("team_1")
         )
-        controller.assistant_lifecycle._egress_proxy.assert_called_once_with()
+        controller.assistant_lifecycle._egress_proxy.assert_called_once_with(network_name)
 
     def test_release_update_rejects_a_previous_security_contract(self) -> None:
         controller, _container, events = self._lifecycle_controller()

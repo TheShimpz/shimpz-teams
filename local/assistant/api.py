@@ -41,7 +41,7 @@ def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:
         def current_egress_proxy():
             nonlocal egress_proxy
             if egress_proxy is None:
-                egress_proxy = self.assistant_lifecycle._egress_proxy()
+                egress_proxy = self.assistant_lifecycle._egress_proxy(self.assistant_lifecycle._network_name(team_id))
             return egress_proxy
 
         try:
