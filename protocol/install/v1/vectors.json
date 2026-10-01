@@ -1100,6 +1100,50 @@
       }
     },
     {
+      "name": "resolve_message_dns_name_param",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "messages"
+        ],
+        "value": [
+          {
+            "id": "28aa2f6d384072ed19fa2af665ab9105dbe6251264cab079025ae56544c2122d",
+            "msgid": "Approve the greeting for {zone}",
+            "max_length": 80,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "dns_name",
+                "max_length": 40
+              }
+            ]
+          },
+          {
+            "id": "8bf075a9306a7c881be0a1948f590cd5e07fd4bc8000981fdf4c97dade99d8c6",
+            "msgid": "Complete one reviewed greeting Action.",
+            "max_length": 160,
+            "params": []
+          },
+          {
+            "id": "b9cd804198a1dd974b3d36a8b8f025986f7d147355befb42da9b5874204e009f",
+            "msgid": "Greet {zone}",
+            "max_length": 160,
+            "params": [
+              {
+                "name": "zone",
+                "kind": "domain",
+                "max_length": 40
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "name": "resolve_message_prose_param",
       "fixture": "resolve_response",
       "valid": false,

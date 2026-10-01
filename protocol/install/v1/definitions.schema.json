@@ -366,6 +366,7 @@
           "enum": [
             "integer",
             "domain",
+            "dns_name",
             "identifier"
           ]
         },
