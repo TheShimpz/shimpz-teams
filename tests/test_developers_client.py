@@ -91,8 +91,9 @@ class DevelopersClientTests(unittest.TestCase):
         self.assertEqual(value, icon)
         method, path, request = _Connection.requests[0]
         self.assertEqual(method, "GET")
-        self.assertEqual(path, f"/api/v1/assistant-publications/{RESOLUTION['source_digest']}/icon.png")
+        self.assertEqual(path, f"/internal/v1/assistants/{RESOLUTION['source_digest']}/icon.png")
         self.assertEqual(request["headers"]["Accept"], "image/png")
+        self.assertEqual(request["headers"]["Authorization"], f"Bearer {'t' * 48}")
 
     def test_safe_statuses_and_malformed_success_fail_closed(self) -> None:
         cases = (

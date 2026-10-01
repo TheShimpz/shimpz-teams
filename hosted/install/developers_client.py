@@ -65,10 +65,10 @@ class DevelopersClient:
         return _validated("install-authorization-receipt.schema.json", value)
 
     def icon(self, source_digest: str, icon_digest: str) -> bytes:
-        """Fetch one immutable publication icon and verify its exact digest."""
+        """Fetch one installable publication icon of either visibility and verify its exact digest."""
         status, raw = self._raw_request(
             "GET",
-            f"/api/v1/assistant-publications/{source_digest}/icon.png",
+            f"/internal/v1/assistants/{source_digest}/icon.png",
             None,
             accept="image/png",
         )

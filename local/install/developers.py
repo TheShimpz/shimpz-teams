@@ -45,7 +45,7 @@ class DevelopersClient:
         return value
 
     def latest(self, source_digest: str) -> dict[str, Any]:
-        """Resolve the newest visibility-bounded candidate for one installed digest."""
+        """Resolve the newest public approved candidate for one installed public digest."""
         if _SOURCE_DIGEST.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}/latest")
