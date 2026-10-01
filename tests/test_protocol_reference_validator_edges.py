@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -194,6 +195,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
             with self.subTest(params=params):
                 self.assertEqual(human.reference_error(_ref(changes, **params), CATALOG, 80), expected)
         example = "Example: {zone}"
+        self.assertEqual(human.reference_error(_ref(changes, count=10**5000, record="a"), CATALOG, 80), "copy_params")
         for zone, expected in (
             ("example.com", None),
             ("a.b", None),
@@ -209,6 +211,24 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
         self.assertEqual(human.reference_error(_ref(example, zone="example.com"), CATALOG, 80), "copy_bound")
         self.assertEqual(human.reference_error(None, CATALOG, 80), "copy_reference")
         self.assertEqual(human.reference_error(_ref("Unknown"), CATALOG, 80), "copy_reference")
+
+    def test_integer_parameters_compare_numerically_at_every_declared_length(self) -> None:
+        for maximum in (1, catalog_module.PARAM_BOUNDS["integer"]):
+            declaration = {"name": "count", "kind": "integer", "max_length": maximum}
+            cases = (
+                (0, True),
+                (10**maximum - 1, True),
+                (10**maximum, False),
+                (-1, False),
+                (True, False),
+                (False, False),
+                (1.0, False),
+                (10**5000, False),
+                (-(10**5000), False),
+            )
+            for value, expected in cases:
+                with self.subTest(maximum=maximum, value=type(value).__name__ if abs(value) > 10**20 else value):
+                    self.assertIs(human.param_value(declaration, value), expected)
 
     def test_transcript_validation_covers_order_count_and_response_semantics(self) -> None:
         approval = _approval()
@@ -328,7 +348,7 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
         self.pack = self.vectors["pack"]["value"]
 
     def test_current_vectors_verify(self) -> None:
-        catalog_module.verify_vectors(copy.deepcopy(self.vectors))
+        catalog_module.verify_vectors(copy.deepcopy(self.vectors), human.reference_error)
         raw = catalog_module.canonical_json(self.pack)
         self.assertEqual(catalog_module.pack_digest(raw), self.vectors["pack"]["digest"])
         self.assertEqual(catalog_module.catalog_digest(self.messages), self.vectors["catalog"]["digest"])
@@ -339,6 +359,102 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
         for template in ("{", "}", "} {a}", "{a", "{a.b}", "{a[0]}", "{a!r}", "{a:>2}", "{}", "{0}", "{{a}}", "{A}"):
             with self.subTest(template=template):
                 self.assertIsNone(catalog_module.placeholders(template))
+
+    def test_combining_mark_after_placeholder_is_refused_because_rendering_would_leave_nfc(self) -> None:
+        reference = {"message": "unused", "params": {"x": "e"}}
+        self.assertFalse(catalog_module.public_text(catalog_module.render(reference, "{x}́"), 80))
+        summary = _message(SUMMARY, 160)
+        for template, expected in (
+            ("Zone {x}́", "message_placeholders"),
+            ("Zone {x}ः", "message_placeholders"),
+            ("Zone {x}⃝", "message_placeholders"),
+            ("Zone {x}́ more", "message_placeholders"),
+            ("Zone {x}é", None),
+            ("Zone {x} ́", None),
+            ("Zone x́ {x}", None),
+            ("Zone {x}", None),
+        ):
+            with self.subTest(template=ascii(template)):
+                messages = sorted((summary, _message(template, 80, (("x", "identifier", 8),))), key=lambda m: m["id"])
+                self.assertEqual(catalog_module.catalog_error(messages, SUMMARY), expected)
+        translated = copy.deepcopy(self.pack)
+        message = next(message for message in self.messages if message["params"])
+        field = "{" + message["params"][0]["name"] + "}"
+        translated["locales"]["de"][message["id"]] = translated["locales"]["de"][message["id"]].replace(
+            field, field + "́"
+        )
+        raw = catalog_module.canonical_json(translated)
+        self.assertEqual(catalog_module.pack_error(raw, self.messages), "translation_placeholders")
+
+    def test_value_count_is_iterative_and_stops_above_its_limit(self) -> None:
+        exceed = catalog_module._json_values_exceed
+        self.assertFalse(exceed([1, {"a": [2]}], 5))
+        self.assertTrue(exceed([1, {"a": [2]}], 4))
+        self.assertFalse(exceed(catalog_module.nested_catalog(SUMMARY, 4090), catalog_module.MAX_CATALOG_VALUES))
+        self.assertTrue(exceed(catalog_module.nested_catalog(SUMMARY, 4091), catalog_module.MAX_CATALOG_VALUES))
+        self.assertTrue(exceed(catalog_module.nested_catalog(SUMMARY, 100_000), catalog_module.MAX_CATALOG_VALUES))
+        self.assertTrue(exceed([0] * 1_000_000, catalog_module.MAX_CATALOG_VALUES))
+
+    def test_deep_nesting_is_refused_instead_of_raising(self) -> None:
+        self.assertEqual(
+            catalog_module.catalog_error(catalog_module.nested_catalog(SUMMARY, 1100), SUMMARY), "message_shape"
+        )
+        self.assertEqual(
+            catalog_module.catalog_error(catalog_module.nested_catalog(SUMMARY, 100_000), SUMMARY), "catalog_bounds"
+        )
+        nested = catalog_module.nested_catalog(SUMMARY, 4000)
+        outcomes: list[object] = []
+
+        def small_stack() -> None:
+            # Precondition: this stack cannot encode admissibly counted nesting, so the encoder path is exercised.
+            with self.assertRaises(RecursionError):
+                catalog_module.canonical_json(nested)
+            outcomes.append(catalog_module.catalog_error(nested, SUMMARY))
+
+        previous = threading.stack_size(256 * 1024)
+        try:
+            worker = threading.Thread(target=small_stack)
+            worker.start()
+            worker.join()
+        finally:
+            threading.stack_size(previous)
+        self.assertEqual(outcomes, ["message_shape"])
+        depth = 1_000_000
+        self.assertEqual(catalog_module.pack_error(b"[" * depth + b"]" * depth, self.messages), "pack_encoding")
+
+    def test_render_vectors_prove_only_admitted_references_and_field_bounds(self) -> None:
+        document = self.vectors
+        base = next(case for case in document["render_cases"] if case["reference"]["params"].get("count") == 3)
+        message = next(message for message in self.messages if message["id"] == base["reference"]["message"])
+        template = message["msgid"] if base["locale"] == "en" else self.pack["locales"][base["locale"]][message["id"]]
+
+        def variant(bound: object = None, **params: object) -> dict[str, object]:
+            reference = {**base["reference"], "params": {**base["reference"]["params"], **params}}
+            rendered = catalog_module.render(reference, template)
+            return {
+                **base,
+                "reference": reference,
+                "bound": base["bound"] if bound is None else bound,
+                "rendered": rendered,
+            }
+
+        catalog_module.verify_vectors({**document, "render_cases": [variant(count=9999)]}, human.reference_error)
+        mutations = (
+            variant(count=-1),
+            variant(count=10_000),
+            variant(count=True),
+            variant(zone="Example.com"),
+            variant(zone="localhost"),
+            variant(bound=79),
+            variant(bound=True),
+            variant(bound="500"),
+            variant(bound=80),
+            {**variant(), "reference": {**base["reference"], "extra": 1}},
+            {**variant(), "reference": {"message": "0" * 64, "params": {}}},
+        )
+        for case in mutations:
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, "render_cases"):
+                catalog_module.verify_vectors({**document, "render_cases": [case]}, human.reference_error)
 
     def test_catalog_errors_cover_shape_bounds_and_summary(self) -> None:
         summary = _message(SUMMARY, 160)
@@ -358,6 +474,14 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
             ),
             (
                 [summary, {**_message("Zone {a}"), "params": [{"name": "a", "kind": "integer", "max_length": True}]}],
+                "message_params",
+            ),
+            (
+                [summary, {**_message("Zone {a}"), "params": [{"name": "a", "kind": [], "max_length": 1}]}],
+                "message_params",
+            ),
+            (
+                [summary, {**_message("Zone {a}"), "params": [{"name": "a", "kind": {}, "max_length": 1}]}],
                 "message_params",
             ),
             (
@@ -408,15 +532,15 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
         document = self.vectors
         for value in ([], {**document, "extra": True}, {**document, "version": 2}, {**document, "limits": {}}):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                catalog_module.verify_vectors(value)
+                catalog_module.verify_vectors(value, human.reference_error)
         catalog = document["catalog"]
         for section in (None, {**catalog, "summary": "Missing"}, {**catalog, "digest": "sha256:" + "0" * 64}):
             with self.subTest(section=section), self.assertRaises(ValueError):
-                catalog_module.verify_vectors({**document, "catalog": section})
+                catalog_module.verify_vectors({**document, "catalog": section}, human.reference_error)
         pack = document["pack"]
         for section in (None, {**pack, "digest": "sha256:" + "0" * 64}):
             with self.subTest(section=section), self.assertRaises(ValueError):
-                catalog_module.verify_vectors({**document, "pack": section})
+                catalog_module.verify_vectors({**document, "pack": section}, human.reference_error)
         render = document["render_cases"][0]
         for cases in (
             None,
@@ -426,7 +550,7 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
             [{**render, "rendered": "Different"}],
         ):
             with self.subTest(cases=cases), self.assertRaises(ValueError):
-                catalog_module.verify_vectors({**document, "render_cases": cases})
+                catalog_module.verify_vectors({**document, "render_cases": cases}, human.reference_error)
         valid = document["pack_cases"][0]
         invalid = document["pack_cases"][1]
         for cases in (
@@ -440,7 +564,7 @@ class MessageCatalogValidatorEdgeTests(unittest.TestCase):
             [valid],
         ):
             with self.subTest(cases=cases), self.assertRaises(ValueError):
-                catalog_module.verify_vectors({**document, "pack_cases": cases})
+                catalog_module.verify_vectors({**document, "pack_cases": cases}, human.reference_error)
 
 
 class WebSocketReferenceEdgeTests(unittest.TestCase):

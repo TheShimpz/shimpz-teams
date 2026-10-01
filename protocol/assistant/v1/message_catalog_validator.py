@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 LOCALES = ("ar", "de", "es", "fr", "ja", "pt", "zh")
 PACK_FORMAT = "assistant-language-pack-v1"
@@ -35,6 +35,7 @@ PACK_KEYS = frozenset({"format", "catalog", "policy", "locales"})
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 PARAM_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
 PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]{0,31})\}")
+ReferenceCheck = Callable[[object, Mapping[str, dict[str, object]], int], str | None]
 
 
 def canonical_json(value: object) -> bytes:
@@ -84,21 +85,31 @@ def placeholders(template: str) -> list[str] | None:
 
 def catalog_error(messages: object, summary: object) -> str | None:
     """Return the first catalog error, if any, for a contract whose manifest declares this summary."""
-    if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_MESSAGES:
-        return "catalog_shape"
-    try:
-        encoded = canonical_json(messages)
-    except TypeError, ValueError:
-        return "catalog_shape"
-    if len(encoded) > MAX_CATALOG_BYTES or _json_values(messages) > MAX_CATALOG_VALUES:
-        return "catalog_bounds"
-    error = next((error for message in messages if (error := message_error(message)) is not None), None)
+    error = _aggregate_error(messages) or next(
+        (error for message in messages if (error := message_error(message)) is not None), None
+    )
     if error is not None:
         return error
     ids = [message["id"] for message in messages]
     if ids != sorted(set(ids)):
         return "catalog_order"
     return _summary_error(messages, summary)
+
+
+def _aggregate_error(messages: object) -> str | None:
+    """Return the first whole-catalog shape or aggregate-bound error, if any, before any entry is inspected."""
+    if not isinstance(messages, list) or not 1 <= len(messages) <= MAX_MESSAGES:
+        return "catalog_shape"
+    if _json_values_exceed(messages, MAX_CATALOG_VALUES):
+        return "catalog_bounds"
+    try:
+        encoded = canonical_json(messages)
+    except RecursionError:
+        # Within the value bound, only nesting deeper than any admissible message can exhaust the encoder stack.
+        return "message_shape"
+    except TypeError, ValueError:
+        return "catalog_shape"
+    return "catalog_bounds" if len(encoded) > MAX_CATALOG_BYTES else None
 
 
 def message_error(message: object) -> str | None:
@@ -140,7 +151,7 @@ def _canonical_document(raw: bytes) -> object:
     try:
         value = json.loads(raw.decode("utf-8"))
         encoded = canonical_json(value)
-    except UnicodeDecodeError, ValueError, TypeError:
+    except UnicodeDecodeError, ValueError, TypeError, RecursionError:
         return None
     return value if encoded == raw else None
 
@@ -176,10 +187,22 @@ def _translations_error(locales: dict[str, dict[str, object]], messages: list[di
 
 def _template_error(template: str, params: Mapping[str, Mapping[str, object]], bound: int, role: str) -> str | None:
     names = placeholders(template)
-    if names is None or len(names) != len(set(names)) or set(names) != set(params):
+    if names is None or len(names) != len(set(names)) or set(names) != set(params) or _mark_follows_field(template):
         return f"{role}_placeholders"
     literal = len(template) - sum(len(name) + 2 for name in names)
     return None if literal + sum(params[name]["max_length"] for name in names) <= bound else f"{role}_budget"
+
+
+def _mark_follows_field(template: str) -> bool:
+    """Return whether a combining mark (general category M) directly follows a placeholder.
+
+    Every parameter kind is ASCII-only, and under NFC an ASCII character composes only with a following combining
+    mark, so refusing that adjacency keeps every rendering of an NFC template NFC (``{x}`` + U+0301 with ``x="e"``
+    would otherwise render a decomposed ``e``). The rule relies on those ASCII-only kinds; a non-ASCII kind needs a
+    new rule. Renderings are still checked for NFC after insertion, and parameter values are never normalized.
+    """
+    following = (template[match.end() : match.end() + 1] for match in PLACEHOLDER.finditer(template))
+    return any(character and unicodedata.category(character).startswith("M") for character in following)
 
 
 def _declarations(value: object) -> dict[str, dict[str, object]] | None:
@@ -195,6 +218,7 @@ def _declaration(value: object) -> bool:
         and set(value) == {"name", "kind", "max_length"}
         and isinstance(value["name"], str)
         and PARAM_NAME.fullmatch(value["name"]) is not None
+        and isinstance(value["kind"], str)
         and value["kind"] in PARAM_BOUNDS
         and type(value["max_length"]) is int
         and 1 <= value["max_length"] <= PARAM_BOUNDS[value["kind"]]
@@ -212,16 +236,30 @@ def _summary_error(messages: list[dict[str, object]], summary: object) -> str | 
     return None
 
 
-def _json_values(value: object) -> int:
-    if isinstance(value, dict):
-        return 1 + sum(_json_values(child) for child in value.values())
-    if isinstance(value, list):
-        return 1 + sum(_json_values(child) for child in value)
-    return 1
+def _json_values_exceed(value: object, limit: int) -> bool:
+    """Return whether a JSON value holds more than ``limit`` values, counted iteratively so depth cannot recurse.
+
+    The value itself, every array element, and every object member value count once. The walk stops as soon as the
+    visited and pending values exceed the limit, so it never holds or visits more than ``limit`` values.
+    """
+    pending = [value]
+    visited = 0
+    while pending:
+        item = pending.pop()
+        visited += 1
+        children = item.values() if isinstance(item, dict) else item if isinstance(item, list) else ()
+        if visited + len(pending) + len(children) > limit:
+            return True
+        pending.extend(children)
+    return False
 
 
-def verify_vectors(document: object) -> None:
-    """Fail when a catalog, reference rendering, or pack vector no longer proves its stated outcome."""
+def verify_vectors(document: object, reference_error: ReferenceCheck) -> None:
+    """Fail when a catalog, reference rendering, or pack vector no longer proves its stated outcome.
+
+    ``reference_error`` is the human-request reference check (``human_request_validator.reference_error``), so a
+    rendering vector proves only a reference that Team admits for a field with an admitted bound.
+    """
     if not isinstance(document, dict) or set(document) != {
         "version",
         "locales",
@@ -246,7 +284,7 @@ def verify_vectors(document: object) -> None:
     _verify_outcomes(
         document["catalog_cases"], "catalog", lambda case: catalog_error(_case_messages(case), case["summary"])
     )
-    _verify_renders(document["render_cases"], messages, document["pack"]["value"])
+    _verify_renders(document["render_cases"], messages, document["pack"]["value"], reference_error)
     _verify_outcomes(document["pack_cases"], "pack", lambda case: pack_error(_case_bytes(case), messages))
 
 
@@ -268,21 +306,24 @@ def _verify_pack(section: object, messages: list[dict[str, object]]) -> None:
         raise ValueError("pack")
 
 
-def _verify_renders(cases: object, messages: list[dict[str, object]], pack: dict[str, object]) -> None:
+def _verify_renders(
+    cases: object, messages: list[dict[str, object]], pack: dict[str, object], reference_error: ReferenceCheck
+) -> None:
     catalog = {message["id"]: message for message in messages}
     if not isinstance(cases, list) or not cases:
         raise ValueError("render_cases")
     for case in cases:
         if not isinstance(case, dict) or set(case) != {"name", "reference", "bound", "locale", "rendered"}:
             raise ValueError("render_cases")
-        identifier = case["reference"]["message"]
-        declared = {item["name"] for item in catalog[identifier]["params"]}
-        if set(case["reference"]) != {"message", "params"} or set(case["reference"]["params"]) != declared:
+        reference = case["reference"]
+        bound = case["bound"]
+        if not _field_bound(bound) or reference_error(reference, catalog, bound) is not None:
             raise ValueError(f"render_cases:{case['name']}")
+        identifier = reference["message"]
         locale = case["locale"]
         template = catalog[identifier]["msgid"] if locale == "en" else pack["locales"][locale][identifier]
-        rendered = render(case["reference"], template)
-        if rendered != case["rendered"] or not public_text(rendered, case["bound"]):
+        rendered = render(reference, template)
+        if rendered != case["rendered"] or not public_text(rendered, bound):
             raise ValueError(f"render_cases:{case['name']}")
 
 
@@ -297,8 +338,20 @@ def generated_catalog(summary: str, generated: Mapping[str, int]) -> list[dict[s
     return sorted(messages, key=lambda message: message["id"])
 
 
+def nested_catalog(summary: str, depth: int) -> list[object]:
+    """Expand a nesting catalog case: the summary message plus one entry made of ``depth`` nested arrays."""
+    nested: list[object] = []
+    for _ in range(depth - 1):
+        nested = [nested]
+    return [{"id": message_id(summary), "msgid": summary, "max_length": SUMMARY_BOUND, "params": []}, nested]
+
+
 def _case_messages(case: dict[str, object]) -> object:
-    return case["messages"] if "messages" in case else generated_catalog(case["summary"], case["generated"])
+    if "messages" in case:
+        return case["messages"]
+    if "nested" in case:
+        return nested_catalog(case["summary"], case["nested"])
+    return generated_catalog(case["summary"], case["generated"])
 
 
 def _case_bytes(case: dict[str, object]) -> bytes:
@@ -310,7 +363,10 @@ def _verify_outcomes(cases: object, kind: str, evaluate) -> None:
         raise ValueError(f"{kind}_cases")
     names: set[str] = set()
     outcomes: set[bool] = set()
-    payloads = {"catalog": ({"summary", "messages"}, {"summary", "generated"}), "pack": ({"pack"}, {"text"})}[kind]
+    payloads = {
+        "catalog": ({"summary", "messages"}, {"summary", "generated"}, {"summary", "nested"}),
+        "pack": ({"pack"}, {"text"}),
+    }[kind]
     for case in cases:
         valid = case.get("valid") if isinstance(case, dict) else None
         base = {"name", "valid"} | ({"error"} if valid is False else set())

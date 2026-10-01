@@ -8,6 +8,7 @@ import json
 import re
 from pathlib import Path
 
+from human_request_validator import reference_error
 from human_request_validator import verify_vectors as verify_human_vectors
 from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, catalog_error
 from message_catalog_validator import verify_vectors as verify_catalog_vectors
@@ -142,7 +143,7 @@ if (
 ):
     fail("Assistant message catalog contract is invalid")
 try:
-    verify_catalog_vectors(json.loads((HERE / "catalog-vectors.json").read_bytes()))
+    verify_catalog_vectors(json.loads((HERE / "catalog-vectors.json").read_bytes()), reference_error)
 except KeyError, TypeError, ValueError:
     fail("Assistant message catalog vectors are invalid")
 

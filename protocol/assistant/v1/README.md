@@ -83,6 +83,9 @@ a required `messages` list of `{id, msgid, max_length, params}` objects, sorted 
 - A placeholder is one `string.Formatter` named field `{name}` whose name matches `[a-z][a-z0-9_]{0,31}`. Attribute
   or index access, conversion, format specification, nesting, positional or numeric fields, escaped `{{` or `}}`,
   and any other brace are refused. Each placeholder appears exactly once. There is no plural or context syntax.
+  A combining mark (Unicode general category `M`) must not directly follow a placeholder: every parameter kind is
+  ASCII-only, and an ASCII character composes under NFC only with a following combining mark, so this keeps every
+  rendering of an NFC template NFC. The rule relies on those ASCII-only kinds; a non-ASCII kind needs a new rule.
 - `params` declares exactly the template's placeholders, sorted by `name`, at most 8, each with a `kind` and a
   `max_length`: `integer` (a non-negative JSON integer whose decimal form has at most `max_length` digits, at most
   15), `domain` (a lowercase DNS name of at least two labels, at most 253), or `identifier` (an opaque
@@ -103,15 +106,17 @@ produces for a catalog and that travels with the built artifact. `format` is exa
 `catalog` is the catalog digest, and `policy` is the `sha256:` identity of the pinned translation policy. `locales`
 holds exactly `ar`, `de`, `es`, `fr`, `ja`, `pt`, and `zh`; English is the catalog itself and never appears. Each
 locale maps every catalog `id`, and nothing else, to one translated template that is public text under the `msgid`
-rules, uses exactly the `msgid`'s placeholder set once each with the same syntax limits, and fits the message's
-`max_length` budget without truncation. The pack bytes are exactly its canonical JSON encoding, at most 2,097,152
+rules, uses exactly the `msgid`'s placeholder set once each with the same syntax limits (including no combining
+mark directly after a placeholder), and fits the message's `max_length` budget without truncation. The pack bytes are exactly its canonical JSON encoding, at most 2,097,152
 bytes, and the pack digest is `sha256:` followed by the lowercase SHA-256 of those bytes.
 
 Rendering replaces each placeholder once with its parameter value (an integer in decimal) in the English `msgid` or
-the locale's translation. A parameter is never interpreted, translated, or reformatted.
+the locale's translation. A parameter is never interpreted, translated, normalized, or reformatted, and a rendering is
+still validated as NFC public text within its field bound after insertion.
 
-`catalog-vectors.json` freezes admitted and refused catalogs (including generated count, byte, and value bounds),
-renderings, and packs; `message_catalog_validator.py` is the reference implementation.
+`catalog-vectors.json` freezes admitted and refused catalogs (including generated count, byte, value, and nesting
+bounds), renderings, and packs; `message_catalog_validator.py` is the reference implementation. Each rendering vector
+uses a reference that the request rules below admit for a field with one of the admitted bounds.
 
 ## Invocation
 

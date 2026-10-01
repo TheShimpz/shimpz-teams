@@ -82,7 +82,8 @@ def param_value(declaration: Mapping[str, object], value: object) -> bool:
     """Return whether one parameter value satisfies its declared kind and maximum length."""
     maximum = declaration["max_length"]
     if declaration["kind"] == "integer":
-        return type(value) is int and value >= 0 and len(str(value)) <= maximum
+        # Compare numerically: a decimal conversion of a huge integer raises ValueError instead of refusing it.
+        return type(value) is int and 0 <= value < 10**maximum
     if not isinstance(value, str) or len(value) > maximum:
         return False
     pattern = DOMAIN if declaration["kind"] == "domain" else IDENTIFIER

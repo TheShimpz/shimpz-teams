@@ -223,6 +223,20 @@
       }
     },
     {
+      "name": "reject_nested_message_below_bounds",
+      "valid": false,
+      "error": "message_shape",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "nested": 1100
+    },
+    {
+      "name": "reject_nesting_over_value_bound",
+      "valid": false,
+      "error": "catalog_bounds",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "nested": 4096
+    },
+    {
       "name": "reject_unknown_message_field",
       "valid": false,
       "error": "message_shape",
@@ -686,6 +700,108 @@
       ]
     },
     {
+      "name": "reject_combining_mark_after_placeholder",
+      "valid": false,
+      "error": "message_placeholders",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "379c28512cfb8447d57c782ed726191b5a22b674157d911b4b3c743e2ae7865b",
+          "msgid": "Delete record {record_id}́",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "record_id",
+              "kind": "identifier",
+              "max_length": 32
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reject_spacing_mark_after_placeholder",
+      "valid": false,
+      "error": "message_placeholders",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "a6050d76f4c25743a301d0cfc6b92fd1a1e62080b7b66d95e4282044dd7a4818",
+          "msgid": "Delete record {record_id}ः",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "record_id",
+              "kind": "identifier",
+              "max_length": 32
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "valid_precomposed_letter_after_placeholder",
+      "valid": true,
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "d1d1f7506f7ab7aa7fc239719567edd2b4591aa7cc700fd1cdfa152052b22930",
+          "msgid": "Delete record {record_id}é",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "record_id",
+              "kind": "identifier",
+              "max_length": 32
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "valid_combining_mark_after_literal",
+      "valid": true,
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "986756d966093f5a8f0786ac8c9b4c3760aa4178106c1bc2c4c517e5807bed2d",
+          "msgid": "Delete record x́ {record_id}",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "record_id",
+              "kind": "identifier",
+              "max_length": 32
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "reject_unsorted_params",
       "valid": false,
       "error": "message_params",
@@ -736,6 +852,58 @@
             {
               "name": "note",
               "kind": "text",
+              "max_length": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reject_array_param_kind",
+      "valid": false,
+      "error": "message_params",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "68a704d0998528aeb585fde798c11b1130c4d75fc7f047cd70329d14b15efb55",
+          "msgid": "Note {note}",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "note",
+              "kind": [],
+              "max_length": 40
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "reject_object_param_kind",
+      "valid": false,
+      "error": "message_params",
+      "summary": "Manage DNS records in your Cloudflare zones.",
+      "messages": [
+        {
+          "id": "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc",
+          "msgid": "Manage DNS records in your Cloudflare zones.",
+          "max_length": 160,
+          "params": []
+        },
+        {
+          "id": "68a704d0998528aeb585fde798c11b1130c4d75fc7f047cd70329d14b15efb55",
+          "msgid": "Note {note}",
+          "max_length": 80,
+          "params": [
+            {
+              "name": "note",
+              "kind": {},
               "max_length": 40
             }
           ]
@@ -1830,6 +1998,99 @@
             "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Cloudflare ゾーンの DNS レコードを管理します。",
             "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "公開する DNS の変更: {count}。ゾーン: {zone}。",
             "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "レコード {record_id} を削除 ({record_id})"
+          },
+          "pt": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie os registros DNS das suas zonas da Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Alterações de DNS a publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Excluir o registro {record_id}"
+          },
+          "zh": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "管理您的 Cloudflare 区域中的 DNS 记录。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "待发布的 DNS 更改：{count}。区域：{zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "删除记录 {record_id}"
+          }
+        }
+      }
+    },
+    {
+      "name": "reject_combining_mark_after_translated_placeholder",
+      "valid": false,
+      "error": "translation_placeholders",
+      "pack": {
+        "format": "assistant-language-pack-v1",
+        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
+        "locales": {
+          "ar": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "حذف السجل {record_id}"
+          },
+          "de": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "DNS-Einträge in Ihren Cloudflare-Zonen verwalten.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eintrag {record_id} löschen"
+          },
+          "es": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gestiona los registros DNS de tus zonas de Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Cambios de DNS por publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eliminar el registro {record_id}"
+          },
+          "fr": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gérez les enregistrements DNS de vos zones Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Modifications DNS à publier : {count}. Zone : {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Supprimer l’enregistrement {record_id}́"
+          },
+          "ja": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Cloudflare ゾーンの DNS レコードを管理します。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "公開する DNS の変更: {count}。ゾーン: {zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "レコード {record_id} を削除"
+          },
+          "pt": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie os registros DNS das suas zonas da Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Alterações de DNS a publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Excluir o registro {record_id}"
+          },
+          "zh": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "管理您的 Cloudflare 区域中的 DNS 记录。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "待发布的 DNS 更改：{count}。区域：{zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "删除记录 {record_id}"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_combining_mark_after_translated_literal",
+      "valid": true,
+      "pack": {
+        "format": "assistant-language-pack-v1",
+        "catalog": "sha256:ffa157d3fb6d4b61e7052b19c28c259f550b1dc077aacfe701e9c36d8b2f45c7",
+        "policy": "sha256:cb490b8c5cd5b22574eb564c8d5cf52e76960c590e50a8b47ae0398e81b56c4d",
+        "locales": {
+          "ar": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "إدارة سجلات DNS في مناطق Cloudflare الخاصة بك.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "تغييرات DNS المطلوب نشرها: {count}. المنطقة: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "حذف السجلّ {record_id}"
+          },
+          "de": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "DNS-Einträge in Ihren Cloudflare-Zonen verwalten.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Zu veröffentlichende DNS-Änderungen: {count}. Zone: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eintrag {record_id} löschen"
+          },
+          "es": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gestiona los registros DNS de tus zonas de Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Cambios de DNS por publicar: {count}. Zona: {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Eliminar el registro {record_id}"
+          },
+          "fr": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gérez les enregistrements DNS de vos zones Cloudflare.",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "Modifications DNS à publier : {count}. Zone : {zone}.",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "Supprimer l’enregistrement {record_id}"
+          },
+          "ja": {
+            "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Cloudflare ゾーンの DNS レコードを管理します。",
+            "4243e71ce3972551c9e6c77ee4d2e296fd52655b8eabf50a7c979e2732c18f66": "公開する DNS の変更: {count}。ゾーン: {zone}。",
+            "d01a4f0de47b07ae8cf5b48557161c17b5714bf958e82678bfac8569b5ae104b": "レコード {record_id} を削除"
           },
           "pt": {
             "21a6ff7c084964dd633b2555c6d830749bb58ad6be899bd98e153479eac070bc": "Gerencie os registros DNS das suas zonas da Cloudflare.",

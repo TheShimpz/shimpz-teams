@@ -820,6 +820,48 @@
       }
     },
     {
+      "name": "valid_zero_integer",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 0,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
+      "name": "valid_maximum_integer",
+      "valid": true,
+      "request": {
+        "kind": "approval",
+        "ordinal": 0,
+        "title": {
+          "message": "bdd377a4f8134f675f54043337259d1e2653cb769bcb24172e9231f4780516a6",
+          "params": {
+            "count": 999,
+            "zone": "example.com"
+          }
+        },
+        "description": {
+          "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+          "params": {
+            "zone": "example.com"
+          }
+        }
+      }
+    },
+    {
       "name": "reject_integer_over_length",
       "valid": false,
       "error": "copy_params",
