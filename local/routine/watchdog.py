@@ -22,6 +22,13 @@ from routine import record
 
 INTERVAL_SECONDS = 30
 _PRINCIPAL = local_audit.AuditPrincipal("team-local", "machine")
+# What one failed pass, or one Team's failed check within a periodic pass, can raise; the next pass retries it.
+_PASS_ERRORS = (
+    routine_store.RoutineStoreError,
+    record.RoutineStateError,
+    action_journal.ActionJournalError,
+    ApiProblemError,
+)
 log = logging.getLogger("shimpz.team.local.routine.watchdog")
 
 
@@ -81,15 +88,25 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
 
 
 def check(service, *, startup: bool = False) -> None:
-    """One pass: stop segments out of active time, then recover and clean up every Team's Routine runs."""
-    routine_run.stop_overdue(service)
+    """One pass: stop segments out of active time, then recover and clean up every Team's Routine runs.
+
+    A periodic pass audits one Team's failure and goes on, so a Team whose state cannot be read never holds back the
+    others. At startup every failure stays fatal, as does a Routine directory whose Team cannot be identified.
+    """
+    for team_id, run_id in routine_run.stop_overdue(service):
+        _audit("routine-stop", run_id, team_id)
     try:
         key = local_authority.routine_key_fingerprint()
     except local_authority.SupervisorUnavailableError:
         key = None
     now = int(time.time())
     for team_id in service.routine_store.teams():
-        _check_team(service, team_id, now, key, startup=startup)
+        try:
+            _check_team(service, team_id, now, key, startup=startup)
+        except _PASS_ERRORS:
+            if startup:
+                raise
+            _audit("routine-watchdog", "team-check-failed", team_id)
 
 
 class RoutineWatchdog:
@@ -112,11 +129,6 @@ class RoutineWatchdog:
         while not self._stop.wait(self._interval):
             try:
                 check(self._service)
-            except (
-                routine_store.RoutineStoreError,
-                record.RoutineStateError,
-                action_journal.ActionJournalError,
-                ApiProblemError,
-            ):
+            except _PASS_ERRORS:
                 # A failed pass leaves every run as it was; the next pass retries, and the failure is audited.
                 _audit("routine-watchdog", "check-failed")
