@@ -8,6 +8,8 @@ dependencies = [
     "docker==7.1.0",
     # One-use X25519 + AES-GCM delivery means the credential endpoint never returns plaintext.
     "cryptography==50.0.0",
+    # RE2 matches an Action schema `pattern` in time linear in the subject and releases the GIL while it runs.
+    "google-re2==1.1.20251105",
     "jsonschema==4.25.1",
 ]
 

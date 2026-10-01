@@ -17,7 +17,6 @@ from typing import Any
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
-from referencing import Registry
 from referencing.exceptions import Unresolvable
 
 from assistant import action_schema
@@ -340,7 +339,7 @@ def _strict_json(raw: bytes, *, maximum: int, kind: str) -> object:
 
 def action_schema_validator(schema: dict[str, Any]) -> Draft202012Validator:
     """Build a validator for a reviewed Action schema that resolves references only inside that schema."""
-    return Draft202012Validator(schema, registry=Registry())
+    return action_schema.payload_validator(schema)
 
 
 def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
@@ -450,7 +449,7 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
         raise ValueError("Action payload must be an object")
     try:
         validator.validate(payload)
-    except (ValidationError, Unresolvable, RecursionError) as exc:
+    except (ValidationError, Unresolvable, RecursionError, action_schema.PatternError) as exc:
         raise ValueError("Action payload does not match its reviewed schema") from exc
     return payload
 

@@ -436,9 +436,9 @@ class AssistantManifestTests(unittest.TestCase):
 
     def test_reviewed_catalog_precompiles_payload_validators(self) -> None:
         with mock.patch.object(
-            assistant_manifest,
-            "Draft202012Validator",
-            wraps=assistant_manifest.Draft202012Validator,
+            assistant_manifest.action_schema,
+            "payload_validator",
+            wraps=assistant_manifest.action_schema.payload_validator,
         ) as validator_class:
             catalog = _reviewed_catalog()
             reviewed = catalog["shimpz-cloudflare"]
@@ -450,7 +450,7 @@ class AssistantManifestTests(unittest.TestCase):
         validator = reviewed.action_validators["list-zones"]["input"]
         with (
             mock.patch.object(assistant_manifest, "_machine_schema") as canonicalize,
-            mock.patch.object(assistant_manifest, "Draft202012Validator") as construct,
+            mock.patch.object(assistant_manifest.action_schema, "payload_validator") as construct,
         ):
             self.assertEqual(
                 assistant_manifest.validate_schema_payload(validator, {"page": 1, "per_page": 10}),

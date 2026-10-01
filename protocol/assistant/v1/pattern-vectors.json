@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "search is unanchored",
+      "pattern": "b",
+      "subject": "abc",
+      "matches": true
+    },
+    {
+      "name": "dollar without the m flag matches only at the end of the text",
+      "pattern": "^a$",
+      "subject": "a\n",
+      "matches": false
+    },
+    {
+      "name": "dollar matches at the end of the text",
+      "pattern": "^a$",
+      "subject": "a",
+      "matches": true
+    },
+    {
+      "name": "m flag lets dollar match before a newline",
+      "pattern": "(?m)^a$",
+      "subject": "b\na\nc",
+      "matches": true
+    },
+    {
+      "name": "\\A anchors the start of the text",
+      "pattern": "\\Aa",
+      "subject": "ba",
+      "matches": false
+    },
+    {
+      "name": "\\d matches an ASCII digit",
+      "pattern": "^\\d$",
+      "subject": "7",
+      "matches": true
+    },
+    {
+      "name": "\\d excludes a non-ASCII digit",
+      "pattern": "^\\d$",
+      "subject": "٣",
+      "matches": false
+    },
+    {
+      "name": "\\w matches an underscore",
+      "pattern": "^\\w$",
+      "subject": "_",
+      "matches": true
+    },
+    {
+      "name": "\\w excludes a non-ASCII letter",
+      "pattern": "^\\w$",
+      "subject": "é",
+      "matches": false
+    },
+    {
+      "name": "\\W matches a non-ASCII letter",
+      "pattern": "^\\W$",
+      "subject": "é",
+      "matches": true
+    },
+    {
+      "name": "\\s matches a tab",
+      "pattern": "^\\s$",
+      "subject": "\t",
+      "matches": true
+    },
+    {
+      "name": "\\s excludes a vertical tab",
+      "pattern": "\\s",
+      "subject": "\u000b",
+      "matches": false
+    },
+    {
+      "name": "\\s excludes a no-break space",
+      "pattern": "\\s",
+      "subject": " ",
+      "matches": false
+    },
+    {
+      "name": "\\b is an ASCII word boundary",
+      "pattern": "\\bé",
+      "subject": "é",
+      "matches": false
+    },
+    {
+      "name": "\\b matches before an ASCII word",
+      "pattern": "\\ba",
+      "subject": " a",
+      "matches": true
+    },
+    {
+      "name": "\\B matches inside an ASCII word",
+      "pattern": "a\\Bb",
+      "subject": "ab",
+      "matches": true
+    },
+    {
+      "name": "dot excludes a newline",
+      "pattern": "^.$",
+      "subject": "\n",
+      "matches": false
+    },
+    {
+      "name": "s flag lets dot match a newline",
+      "pattern": "(?s)^.$",
+      "subject": "\n",
+      "matches": true
+    },
+    {
+      "name": "dot matches one non-ASCII code point",
+      "pattern": "^.$",
+      "subject": "😀",
+      "matches": true
+    },
+    {
+      "name": "i flag folds non-ASCII case",
+      "pattern": "(?i)^é$",
+      "subject": "É",
+      "matches": true
+    },
+    {
+      "name": "i flag folds the Kelvin sign",
+      "pattern": "(?i)^k$",
+      "subject": "K",
+      "matches": true
+    },
+    {
+      "name": "literals are case-sensitive without the i flag",
+      "pattern": "^é$",
+      "subject": "É",
+      "matches": false
+    },
+    {
+      "name": "class ranges are code point ranges",
+      "pattern": "^[à-ÿ]$",
+      "subject": "é",
+      "matches": true
+    },
+    {
+      "name": "negated class matches a non-ASCII letter",
+      "pattern": "^[^a]$",
+      "subject": "é",
+      "matches": true
+    },
+    {
+      "name": "nested quantifiers match",
+      "pattern": "(a+)+b",
+      "subject": "aaab",
+      "matches": true
+    },
+    {
+      "name": "nested quantifiers refuse a long near miss",
+      "pattern": "(a+)+b",
+      "subject": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "matches": false
+    },
+    {
+      "name": "named group matches",
+      "pattern": "^(?P<x>a)$",
+      "subject": "a",
+      "matches": true
+    },
+    {
+      "name": "hexadecimal escape matches its code point",
+      "pattern": "^\\x41$",
+      "subject": "A",
+      "matches": true
+    },
+    {
+      "name": "lazy counted repetition still matches the whole subject",
+      "pattern": "^a{2,4}?$",
+      "subject": "aaa",
+      "matches": true
+    },
+    {
+      "name": "empty alternative matches anywhere",
+      "pattern": "a|",
+      "subject": "z",
+      "matches": true
+    },
+    {
+      "name": "scoped flags apply only inside their group",
+      "pattern": "^(?i:a)b$",
+      "subject": "AB",
+      "matches": false
+    }
+  ]
+}

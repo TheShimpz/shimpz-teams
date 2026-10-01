@@ -25,7 +25,7 @@ def fail(message: str) -> None:
     raise SystemExit(message)
 
 
-def verify_verdict_vectors(filename: str, label: str, subject: str, kind: type) -> None:
+def verify_verdict_vectors(filename: str, label: str, fields: dict[str, type], verdict: str = "valid") -> None:
     vectors = json.loads((HERE / filename).read_bytes())
     cases = vectors.get("cases") if isinstance(vectors, dict) else None
     if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
@@ -35,17 +35,16 @@ def verify_verdict_vectors(filename: str, label: str, subject: str, kind: type) 
     for case in cases:
         if (
             not isinstance(case, dict)
-            or set(case) != {subject, "name", "valid"}
+            or set(case) != {*fields, "name", verdict}
             or not isinstance(case["name"], str)
             or not case["name"]
             or case["name"] in names
-            or not isinstance(case["valid"], bool)
-            or not isinstance(case[subject], kind)
-            or not case[subject]
+            or not isinstance(case[verdict], bool)
+            or not all(isinstance(case[field], kind) and case[field] for field, kind in fields.items())
         ):
             fail(f"Assistant {label} vector case is invalid")
         names.add(case["name"])
-        outcomes.add(case["valid"])
+        outcomes.add(case[verdict])
     if outcomes != {False, True}:
         fail(f"Assistant {label} vectors require positive and negative cases")
 
@@ -100,8 +99,9 @@ if result_types != {"result", "request", "stored_input_rejected"}:
     fail("Assistant Stored Input result contract is invalid")
 
 
-verify_verdict_vectors("manifest-vectors.json", "manifest", "manifest", str)
-verify_verdict_vectors("action-schema-vectors.json", "Action schema", "schema", dict)
+verify_verdict_vectors("manifest-vectors.json", "manifest", {"manifest": str})
+verify_verdict_vectors("action-schema-vectors.json", "Action schema", {"schema": dict})
+verify_verdict_vectors("pattern-vectors.json", "pattern", {"pattern": str, "subject": str}, "matches")
 
 human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())

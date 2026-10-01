@@ -238,13 +238,15 @@ class _BindingStore:
 runtime_state._dynamic_assistants = _BindingStore()
 
 # The loaded app keeps direct references to its fakes. Restore the process import table so discovery
-# order can never make unrelated tests import a partial Docker/client module.
+# order can never make unrelated tests import a partial Docker/client module. Installed dependencies stay loaded even
+# when the environment lives inside the Team checkout.
 for module_name, module in tuple(sys.modules.items()):
     source = getattr(module, "__file__", None)
     if source is None:
         continue
     try:
-        belongs_to_team = Path(source).resolve().is_relative_to(TEAM)
+        resolved = Path(source).resolve()
+        belongs_to_team = resolved.is_relative_to(TEAM) and "site-packages" not in resolved.parts
     except OSError, RuntimeError, ValueError:
         belongs_to_team = False
     if belongs_to_team and module_name not in {__name__, spec.name}:

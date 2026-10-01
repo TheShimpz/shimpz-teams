@@ -220,25 +220,6 @@
       }
     },
     {
-      "name": "Pydantic verbose-mode pattern",
-      "valid": true,
-      "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "pattern": "(?x)^[a-z]+$",
-            "title": "Code",
-            "type": "string"
-          }
-        },
-        "required": [
-          "code"
-        ],
-        "title": "Input",
-        "type": "object"
-      }
-    },
-    {
       "name": "schema at the 4096 JSON value bound counting enum literals and examples annotations",
       "valid": true,
       "schema": {
@@ -4344,6 +4325,34 @@
       }
     },
     {
+      "name": "nested quantifiers RE2 matches in linear time",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^(a+)+b$"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested counted repetitions within RE2's product bound",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{4}-){10}$"
+          }
+        }
+      }
+    },
+    {
       "name": "non-object root",
       "valid": false,
       "schema": {
@@ -4569,6 +4578,103 @@
             "type": "string"
           }
         }
+      }
+    },
+    {
+      "name": "verbose-mode pattern RE2 cannot read",
+      "valid": false,
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "pattern": "(?x)^[a-z]+$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "Input",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pattern with a \\u escape RE2 cannot read",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "\\u0041"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern repetition above RE2's count bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "a{1001}"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested pattern repetitions beyond RE2's product bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "(?:a{100}){11}"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern property beyond RE2's product bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "patternProperties": {
+          "(?:a{100}){11}": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern whose RE2 program exceeds Team's bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "(?:\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W){1000}"
+          }
+        }
+      }
+    },
+    {
+      "name": "unevaluated properties bypass the pattern matcher",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "unevaluatedProperties": false
       }
     },
     {
