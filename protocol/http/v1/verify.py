@@ -200,6 +200,7 @@ for name, admit in (
     ("chat_locale", payload.canonical_locale),
     ("help_url", payload.canonical_help_url),
     ("purpose", payload.canonical_purpose),
+    ("turn_usage", payload.canonical_turn_usage),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

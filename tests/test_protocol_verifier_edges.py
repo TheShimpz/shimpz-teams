@@ -473,6 +473,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def admitted_invalid_locale(value: dict[str, object]) -> None:
             value["chat_locale"]["invalid"] = ["en"]
 
+        def admitted_invalid_turn_usage(value: dict[str, object]) -> None:
+            value["turn_usage"]["invalid"] = [value["turn_usage"]["valid"][0]]
+
         def rejected_label(value: dict[str, object]) -> None:
             value["action_label_text"]["labels"] = [" padded "]
 
@@ -483,6 +486,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_purpose,
             rejected_help_url,
             admitted_invalid_locale,
+            admitted_invalid_turn_usage,
             rejected_label,
             admitted_invalid_label,
         ):
