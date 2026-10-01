@@ -206,9 +206,14 @@ class ListOrderTests(NamedTeamCase):
                 ("team_d", "2026-09-30T14:00:01+02:00"),
                 ("team_e", "2026-09-30T11:00:00.5-03:00"),
                 ("team_f", "2025-01-01T00:00:00.999999999Z"),
+                # The widest admitted offsets still name exact instants.
+                ("team_g", "2025-01-01T23:59:00-23:59"),
+                ("team_h", "2025-01-01T00:00:00+23:59"),
             )
         }
-        self.assertEqual(self.listed(), ["team_e", "team_d", "team_b", "team_c", "team_a", "team_f"])
+        self.assertEqual(
+            self.listed(), ["team_e", "team_d", "team_b", "team_c", "team_a", "team_g", "team_f", "team_h"]
+        )
         # The listing reads the one network summary it already has: no Team is looked up or reinspected.
         self.controller.assistant_lifecycle._managed_team_networks.assert_called_once_with()
         self.controller.assistant_lifecycle._network.assert_not_called()
@@ -235,6 +240,9 @@ class ListOrderTests(NamedTeamCase):
             "2026-09-30T12:00:00.0000000001Z",
             "2026-02-30T12:00:00Z",
             "2026-09-30T12:00:00+24:00",
+            "2026-09-30T12:00:00+00:60",
+            "2026-09-30T12:00:00+01:99",
+            "2026-09-30T12:00:00-23:60",
             "2026-09-30T12:00:00z",
             "\u0662026-09-30T12:00:00Z",
             "2026-09-30T12:00:00Z\n",

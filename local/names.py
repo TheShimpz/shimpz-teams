@@ -31,9 +31,11 @@ MAX_RECORD_BYTES = 4096
 # Every name this store writes: a Team's display-name record and its interrupted temporary file.
 _OWNED_NAME_RE = re.compile(r"(?:[0-9a-f]{64}\.name\.json|\.[0-9a-f]{64}\.name\.json\.[0-9a-f]{16}\.tmp)\Z")
 _RECORD_KEYS = {"schema", "team_id", "network_id", "team_name"}
-# Docker's RFC 3339 network creation time: whole seconds, an optional fraction of up to nanoseconds, and an offset.
+# Docker's RFC 3339 network creation time: whole seconds, an optional fraction of up to nanoseconds, and an offset
+# bounded here because datetime.fromisoformat would normalize an out-of-range one such as +00:60.
 _CREATED_RE = re.compile(
-    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?(Z|[+-][0-9]{2}:[0-9]{2})\Z"
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?"
+    r"(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])\Z"
 )
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
