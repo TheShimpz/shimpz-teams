@@ -117,7 +117,7 @@ class LocalLeafContractTests(unittest.TestCase):
         ):
             chat_segment._run_chat_segment_with_metadata(controller, request, None)
 
-        controller.action_state.purge_replayable.side_effect = action_journal.ActionJournalError("unavailable")
+        controller.action_state.end_settled.side_effect = action_journal.ActionJournalError("unavailable")
         controller._raise_chat_problem = mock.Mock(side_effect=RuntimeError("mapped journal failure"))
         fresh_request = chat_segment.SegmentRequest(
             team_id="team_1",

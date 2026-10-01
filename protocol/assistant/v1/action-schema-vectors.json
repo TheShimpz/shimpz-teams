@@ -126,19 +126,6 @@
       }
     },
     {
-      "name": "reference to the root",
-      "valid": true,
-      "schema": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "self": {
-            "$ref": "#"
-          }
-        }
-      }
-    },
-    {
       "name": "reference to a $defs definition",
       "valid": true,
       "schema": {
@@ -217,25 +204,6 @@
             "type": "string"
           }
         }
-      }
-    },
-    {
-      "name": "Pydantic verbose-mode pattern",
-      "valid": true,
-      "schema": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "pattern": "(?x)^[a-z]+$",
-            "title": "Code",
-            "type": "string"
-          }
-        },
-        "required": [
-          "code"
-        ],
-        "title": "Input",
-        "type": "object"
       }
     },
     {
@@ -4344,6 +4312,201 @@
       }
     },
     {
+      "name": "nested quantifiers RE2 matches in linear time",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^(a+)+b$"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested counted repetitions within RE2's product bound",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "^(?:[0-9]{4}-){10}$"
+          }
+        }
+      }
+    },
+    {
+      "name": "definition referenced from several positions",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        },
+        "properties": {
+          "first": {
+            "$ref": "#/$defs/name"
+          },
+          "last": {
+            "$ref": "#/$defs/name"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/name"
+            }
+          }
+        },
+        "required": [
+          "first",
+          "last"
+        ]
+      }
+    },
+    {
+      "name": "references expanding to exactly 4096 subschemas",
+      "valid": true,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "d0": {
+            "type": "string"
+          },
+          "d1": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d0"
+              },
+              {
+                "$ref": "#/$defs/d0"
+              }
+            ]
+          },
+          "d2": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d1"
+              },
+              {
+                "$ref": "#/$defs/d1"
+              }
+            ]
+          },
+          "d3": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d2"
+              },
+              {
+                "$ref": "#/$defs/d2"
+              }
+            ]
+          },
+          "d4": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d3"
+              },
+              {
+                "$ref": "#/$defs/d3"
+              }
+            ]
+          },
+          "d5": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d4"
+              },
+              {
+                "$ref": "#/$defs/d4"
+              }
+            ]
+          },
+          "d6": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d5"
+              },
+              {
+                "$ref": "#/$defs/d5"
+              }
+            ]
+          },
+          "d7": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d6"
+              },
+              {
+                "$ref": "#/$defs/d6"
+              }
+            ]
+          },
+          "d8": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d7"
+              },
+              {
+                "$ref": "#/$defs/d7"
+              }
+            ]
+          }
+        },
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/d8"
+          },
+          "b": {
+            "$ref": "#/$defs/d8"
+          },
+          "p00": {},
+          "p01": {},
+          "p02": {},
+          "p03": {},
+          "p04": {},
+          "p05": {},
+          "p06": {},
+          "p07": {},
+          "p08": {},
+          "p09": {},
+          "p10": {},
+          "p11": {},
+          "p12": {},
+          "p13": {},
+          "p14": {},
+          "p15": {},
+          "p16": {},
+          "p17": {},
+          "p18": {},
+          "p19": {},
+          "p20": {},
+          "p21": {},
+          "p22": {},
+          "p23": {},
+          "p24": {},
+          "p25": {},
+          "p26": {},
+          "p27": {},
+          "p28": {},
+          "p29": {},
+          "p30": {},
+          "p31": {},
+          "p32": {}
+        }
+      }
+    },
+    {
       "name": "non-object root",
       "valid": false,
       "schema": {
@@ -4569,6 +4732,103 @@
             "type": "string"
           }
         }
+      }
+    },
+    {
+      "name": "verbose-mode pattern RE2 cannot read",
+      "valid": false,
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "pattern": "(?x)^[a-z]+$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "Input",
+        "type": "object"
+      }
+    },
+    {
+      "name": "pattern with a \\u escape RE2 cannot read",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "\\u0041"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern repetition above RE2's count bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "a{1001}"
+          }
+        }
+      }
+    },
+    {
+      "name": "nested pattern repetitions beyond RE2's product bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "(?:a{100}){11}"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern property beyond RE2's product bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "patternProperties": {
+          "(?:a{100}){11}": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "pattern whose RE2 program exceeds Team's bound",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": "string",
+            "pattern": "(?:\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W\\W){1000}"
+          }
+        }
+      }
+    },
+    {
+      "name": "unevaluated properties bypass the pattern matcher",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "unevaluatedProperties": false
       }
     },
     {
@@ -8906,6 +9166,565 @@
               2043,
               2044
             ]
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to the root is a cycle",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "self": {
+            "$ref": "#"
+          }
+        }
+      }
+    },
+    {
+      "name": "root reference at the root is a cycle",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$ref": "#"
+      }
+    },
+    {
+      "name": "recursive definition",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "node": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "children": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/node"
+                }
+              }
+            }
+          }
+        },
+        "properties": {
+          "tree": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    },
+    {
+      "name": "mutually recursive definitions",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "a": {
+            "anyOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/$defs/b"
+              }
+            ]
+          },
+          "b": {
+            "not": {
+              "$ref": "#/definitions/c"
+            }
+          }
+        },
+        "definitions": {
+          "c": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/a"
+              }
+            ]
+          }
+        },
+        "properties": {
+          "x": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "reference to a missing definition",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "a": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "x": {
+            "$ref": "#/$defs/b"
+          }
+        }
+      }
+    },
+    {
+      "name": "references expanding to 4097 subschemas",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "d0": {
+            "type": "string"
+          },
+          "d1": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d0"
+              },
+              {
+                "$ref": "#/$defs/d0"
+              }
+            ]
+          },
+          "d2": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d1"
+              },
+              {
+                "$ref": "#/$defs/d1"
+              }
+            ]
+          },
+          "d3": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d2"
+              },
+              {
+                "$ref": "#/$defs/d2"
+              }
+            ]
+          },
+          "d4": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d3"
+              },
+              {
+                "$ref": "#/$defs/d3"
+              }
+            ]
+          },
+          "d5": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d4"
+              },
+              {
+                "$ref": "#/$defs/d4"
+              }
+            ]
+          },
+          "d6": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d5"
+              },
+              {
+                "$ref": "#/$defs/d5"
+              }
+            ]
+          },
+          "d7": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d6"
+              },
+              {
+                "$ref": "#/$defs/d6"
+              }
+            ]
+          },
+          "d8": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d7"
+              },
+              {
+                "$ref": "#/$defs/d7"
+              }
+            ]
+          }
+        },
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/d8"
+          },
+          "b": {
+            "$ref": "#/$defs/d8"
+          },
+          "p00": {},
+          "p01": {},
+          "p02": {},
+          "p03": {},
+          "p04": {},
+          "p05": {},
+          "p06": {},
+          "p07": {},
+          "p08": {},
+          "p09": {},
+          "p10": {},
+          "p11": {},
+          "p12": {},
+          "p13": {},
+          "p14": {},
+          "p15": {},
+          "p16": {},
+          "p17": {},
+          "p18": {},
+          "p19": {},
+          "p20": {},
+          "p21": {},
+          "p22": {},
+          "p23": {},
+          "p24": {},
+          "p25": {},
+          "p26": {},
+          "p27": {},
+          "p28": {},
+          "p29": {},
+          "p30": {},
+          "p31": {},
+          "p32": {},
+          "p33": {}
+        }
+      }
+    },
+    {
+      "name": "thirty definitions each referencing the previous twice",
+      "valid": false,
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "$defs": {
+          "d0": {
+            "type": "string"
+          },
+          "d1": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d0"
+              },
+              {
+                "$ref": "#/$defs/d0"
+              }
+            ]
+          },
+          "d2": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d1"
+              },
+              {
+                "$ref": "#/$defs/d1"
+              }
+            ]
+          },
+          "d3": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d2"
+              },
+              {
+                "$ref": "#/$defs/d2"
+              }
+            ]
+          },
+          "d4": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d3"
+              },
+              {
+                "$ref": "#/$defs/d3"
+              }
+            ]
+          },
+          "d5": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d4"
+              },
+              {
+                "$ref": "#/$defs/d4"
+              }
+            ]
+          },
+          "d6": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d5"
+              },
+              {
+                "$ref": "#/$defs/d5"
+              }
+            ]
+          },
+          "d7": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d6"
+              },
+              {
+                "$ref": "#/$defs/d6"
+              }
+            ]
+          },
+          "d8": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d7"
+              },
+              {
+                "$ref": "#/$defs/d7"
+              }
+            ]
+          },
+          "d9": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d8"
+              },
+              {
+                "$ref": "#/$defs/d8"
+              }
+            ]
+          },
+          "d10": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d9"
+              },
+              {
+                "$ref": "#/$defs/d9"
+              }
+            ]
+          },
+          "d11": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d10"
+              },
+              {
+                "$ref": "#/$defs/d10"
+              }
+            ]
+          },
+          "d12": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d11"
+              },
+              {
+                "$ref": "#/$defs/d11"
+              }
+            ]
+          },
+          "d13": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d12"
+              },
+              {
+                "$ref": "#/$defs/d12"
+              }
+            ]
+          },
+          "d14": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d13"
+              },
+              {
+                "$ref": "#/$defs/d13"
+              }
+            ]
+          },
+          "d15": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d14"
+              },
+              {
+                "$ref": "#/$defs/d14"
+              }
+            ]
+          },
+          "d16": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d15"
+              },
+              {
+                "$ref": "#/$defs/d15"
+              }
+            ]
+          },
+          "d17": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d16"
+              },
+              {
+                "$ref": "#/$defs/d16"
+              }
+            ]
+          },
+          "d18": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d17"
+              },
+              {
+                "$ref": "#/$defs/d17"
+              }
+            ]
+          },
+          "d19": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d18"
+              },
+              {
+                "$ref": "#/$defs/d18"
+              }
+            ]
+          },
+          "d20": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d19"
+              },
+              {
+                "$ref": "#/$defs/d19"
+              }
+            ]
+          },
+          "d21": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d20"
+              },
+              {
+                "$ref": "#/$defs/d20"
+              }
+            ]
+          },
+          "d22": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d21"
+              },
+              {
+                "$ref": "#/$defs/d21"
+              }
+            ]
+          },
+          "d23": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d22"
+              },
+              {
+                "$ref": "#/$defs/d22"
+              }
+            ]
+          },
+          "d24": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d23"
+              },
+              {
+                "$ref": "#/$defs/d23"
+              }
+            ]
+          },
+          "d25": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d24"
+              },
+              {
+                "$ref": "#/$defs/d24"
+              }
+            ]
+          },
+          "d26": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d25"
+              },
+              {
+                "$ref": "#/$defs/d25"
+              }
+            ]
+          },
+          "d27": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d26"
+              },
+              {
+                "$ref": "#/$defs/d26"
+              }
+            ]
+          },
+          "d28": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d27"
+              },
+              {
+                "$ref": "#/$defs/d27"
+              }
+            ]
+          },
+          "d29": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d28"
+              },
+              {
+                "$ref": "#/$defs/d28"
+              }
+            ]
+          },
+          "d30": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/d29"
+              },
+              {
+                "$ref": "#/$defs/d29"
+              }
+            ]
+          }
+        },
+        "properties": {
+          "a": {
+            "$ref": "#/$defs/d30"
           }
         }
       }

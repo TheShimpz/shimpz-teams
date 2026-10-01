@@ -28,6 +28,7 @@ from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import integration_secrets as integration_secrets_client
+from inference import usage as brain_usage
 from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import store as integration_store
@@ -91,6 +92,8 @@ class _PendingHostedChat:
     requests_used: int = 0
     # The interface language the turn's start pinned (ADR-0091).
     locale: str | None = None
+    # What the paused turn consumed so far (ADR-0082).
+    usage: brain_usage.TurnUsage | None = None
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:

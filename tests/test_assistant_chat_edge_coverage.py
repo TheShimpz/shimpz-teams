@@ -27,7 +27,7 @@ def _prepared(identity: tuple[object, ...] = ("identity",)) -> chat_turn.Prepare
         prepare=lambda _batch: None,
         invoke=lambda _request: {},
         delivered=lambda _batch: None,
-        abandon_uncertain=lambda: False,
+        terminate=lambda: False,
     )
     return chat_turn.PreparedSegment("Team", identity, context(), [], batch)
 

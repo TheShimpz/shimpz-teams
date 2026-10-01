@@ -182,13 +182,26 @@ class HumanResponseTests(unittest.TestCase):
         with self.assertRaisesRegex(human.HumanRequestError, "fingerprint"):
             human.validate_request(descriptor, ("approval",), catalog=CATALOG)
         # A fingerprint that is not exactly 64 lowercase ASCII hex characters fails closed before any comparison.
-        for malformed_fingerprint in ("\u00e9" * 64, "A" * 64, "0" * 63, "0" * 64 + "\n"):
+        canonical = human._fingerprint({key: value for key, value in descriptor.items() if key != "fingerprint"})
+        malformed_fingerprints = (
+            "\u00e9" * 64,
+            canonical[:-1] + "\u00e9",
+            "\uff10" * 64,
+            "A" * 64,
+            canonical.upper(),
+            "0" * 63,
+            "0" * 64 + "\n",
+            canonical + "\n",
+        )
+        for malformed_fingerprint in malformed_fingerprints:
             malformed_request = {**descriptor, "fingerprint": malformed_fingerprint}
             with (
                 self.subTest(fingerprint=malformed_fingerprint),
-                self.assertRaisesRegex(human.HumanRequestError, "invalid"),
+                self.assertRaisesRegex(human.HumanRequestError, "^Assistant Action human request is invalid$"),
             ):
                 human.validate_request(malformed_request, ("approval",), catalog=CATALOG)
+        admitted = human.validate_request({**descriptor, "fingerprint": canonical}, ("approval",), catalog=CATALOG)
+        self.assertEqual(admitted.fingerprint, canonical)
         with self.assertRaises(human.HumanRequestError):
             human.validate_request(human_request_fixtures.descriptor("approval"), (), catalog=CATALOG)
         with self.assertRaises(human.HumanRequestError):

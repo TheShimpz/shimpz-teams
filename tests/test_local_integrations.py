@@ -514,7 +514,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller = object.__new__(local_app.LocalController)
             controller.space_id = "local-space"
             controller.brain_runtime = Runtime()
-            controller.action_state = SimpleNamespace(purge_replayable=lambda _generation: False)
+            controller.action_state = SimpleNamespace(end_settled=lambda _generation: False)
             controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),

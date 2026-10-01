@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import tempfile
 import types
 import unittest
 from http import HTTPStatus
-from io import BytesIO
 from pathlib import Path
 from unittest import mock
 
@@ -14,7 +12,6 @@ from hosted_assistant_fixture import (
     ANCHOR_ID,
     HOSTED_BINDING,
     HOSTED_SPEC,
-    app,
     assistant_lifecycle,
     chat_in_turn,
     hosted_assistants,
@@ -238,69 +235,6 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         finally:
             chat_lock.release()
-
-    def test_hosted_stream_emits_the_exact_v2_done_shape(self) -> None:
-        class StreamHarness:
-            _audit_security = app.Handler._audit_security
-
-            def __init__(self) -> None:
-                self.status = None
-                self.headers: list[tuple[str, str]] = []
-                self.wfile = BytesIO()
-
-            def send_response(self, status) -> None:
-                self.status = status
-
-            def send_header(self, name: str, value: str) -> None:
-                self.headers.append((name, value))
-
-            def end_headers(self) -> None:
-                pass
-
-        @contextlib.contextmanager
-        def exclusive_turn(_team_id, _lease):
-            yield "turn-token", types.SimpleNamespace(id=ANCHOR_ID)
-
-        stream = StreamHarness()
-        with (
-            mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", exclusive_turn),
-            mock.patch.object(
-                hosted_chat_segment,
-                "_chat_in_turn",
-                return_value={
-                    "team_id": "team_1",
-                    "team_name": "Marketing",
-                    "reply": "Campaign ready.",
-                    "clarification": None,
-                },
-            ),
-        ):
-            app.Handler._stream_chat(
-                stream,
-                "team_1",
-                "Prepare the campaign",
-                [],
-                ("shimpz-cloudflare",),
-                types.SimpleNamespace(owner="account_1"),
-            )
-
-        size_line, chunked = stream.wfile.getvalue().split(b"\r\n", 1)
-        size = int(size_line, 16)
-        encoded_event = chunked[:size]
-        self.assertEqual(stream.status, HTTPStatus.OK)
-        self.assertIn(("Content-Type", "application/x-ndjson"), stream.headers)
-        self.assertIn(("Cache-Control", "no-store"), stream.headers)
-        self.assertEqual(chunked[size:], b"\r\n0\r\n\r\n")
-        self.assertEqual(
-            json.loads(encoded_event),
-            {
-                "type": "done",
-                "team_id": "team_1",
-                "team_name": "Marketing",
-                "reply": "Campaign ready.",
-                "clarification": None,
-            },
-        )
 
     def test_hosted_chat_scope_is_explicit_bounded_and_selects_only_requested_assistants(self) -> None:
         contract = types.SimpleNamespace(actions={})

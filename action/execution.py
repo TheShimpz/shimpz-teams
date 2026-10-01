@@ -256,6 +256,9 @@ class ActionBatch:
         if tuple(request.interrupt_id for request in requests) != expected:
             raise action_journal.ActionJournalConflictError("Action delivery batch changed")
         self._journal.delivered(self._batch)
+        self._release()
+
+    def _release(self) -> None:
         self._batch = None
         self._operations = {}
         self._origins = frozenset()
@@ -264,18 +267,22 @@ class ActionBatch:
         if callable(self._journal_source):
             self._journal = None
 
-    def abandon_uncertain(self) -> bool:
-        """Release only this batch after an in-band terminal uncertain execution."""
-        if self._journal is None or self._batch is None or not self._executing_here:
+    def terminate(self) -> bool:
+        """End this undelivered batch when its turn fails, so the generation admits a fresh batch.
+
+        An outcome made uncertain by this attempt is abandoned in-band. A settled batch, including one whose every
+        Action completed before the Brain failed or Stop won, ends with its receipts kept for an exact replay only.
+        An outcome left uncertain by an earlier process is never ended here.
+        """
+        if self._journal is None or self._batch is None:
             return False
-        abandoned = self._journal.abandon_uncertain(self._batch)
-        if abandoned:
-            self._batch = None
-            self._operations = {}
-            self._executing_here.clear()
-            if callable(self._journal_source):
-                self._journal = None
-        return abandoned
+        ended = self._abandon_uncertain() if self._executing_here else self._journal.end(self._batch)
+        if ended:
+            self._release()
+        return ended
+
+    def _abandon_uncertain(self) -> bool:
+        return self._journal.abandon_uncertain(self._batch)
 
 
 class HeldActionBatch(ActionBatch):
@@ -292,10 +299,9 @@ class HeldActionBatch(ActionBatch):
         super().prepare(requests)
         self._names = {request.interrupt_id: (request.assistant_id, request.action) for request in requests}
 
-    def abandon_uncertain(self) -> bool:
-        if self._journal is not None and self._batch is not None and self._executing_here:
-            self.held = self._batch.fingerprint
-            self.held_actions = tuple(sorted(self._names[interrupt] for interrupt in self._executing_here))
+    def _abandon_uncertain(self) -> bool:
+        self.held = self._batch.fingerprint
+        self.held_actions = tuple(sorted(self._names[interrupt] for interrupt in self._executing_here))
         return False
 
 

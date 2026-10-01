@@ -14,6 +14,7 @@ import os
 import re
 import stat
 import threading
+import weakref
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
@@ -347,7 +348,9 @@ class RoutineStore:
             raise RoutineStoreError("Routine keyring must be separate from Routine state")
         self._guard = threading.Lock()
         self._key_lock = threading.Lock()
-        self._locks: dict[str, threading.RLock] = {}
+        # Held weakly, as Team chat locks are: a Team's lock lives only while a holder or waiter references it, so a
+        # deleted Team leaves nothing behind and everyone contending on one Team shares the same lock.
+        self._locks: weakref.WeakValueDictionary[str, threading.RLock] = weakref.WeakValueDictionary()
         # A Space reset closes the store and bumps the epoch, so a write that began before it can never land after.
         self._closed = False
         self._epoch = 0
@@ -355,7 +358,11 @@ class RoutineStore:
     def lock(self, team_id: object) -> threading.RLock:
         team = _team_id(team_id)
         with self._guard:
-            return self._locks.setdefault(team, threading.RLock())
+            lock = self._locks.get(team)
+            if lock is None:
+                lock = threading.RLock()
+                self._locks[team] = lock
+            return lock
 
     def _team_dir(self, team_id: str) -> Path:
         return self.root / hashlib.sha256(team_id.encode()).hexdigest()

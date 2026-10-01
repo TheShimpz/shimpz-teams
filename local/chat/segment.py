@@ -159,7 +159,7 @@ def _run_chat_segment_with_metadata(
                 self._raise_chat_problem("context-changed", None)
         if request.continuation is None:
             try:
-                self.action_state.purge_replayable(generation)
+                self.action_state.end_settled(generation)
             except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}

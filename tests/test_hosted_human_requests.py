@@ -237,7 +237,7 @@ class HostedHumanRequestTests(unittest.TestCase):
 
         self.assertTrue(cancelled)
         self.assertIsNone(challenges.current("team_1"))
-        journal.purge_replayable.assert_called_once_with("container-1")
+        journal.end_settled.assert_called_once_with("container-1")
 
 
 if __name__ == "__main__":

@@ -352,6 +352,23 @@ class ActionRpcFrameTests(unittest.TestCase):
                 lambda value: value,
             )
 
+    def test_rpc_request_with_a_non_ascii_fingerprint_is_an_invalid_result(self) -> None:
+        request = {
+            "kind": "approval",
+            "ordinal": 0,
+            "title": "Publish zone",
+            "description": "Publish this reviewed DNS zone.",
+            "fingerprint": "\u00e9" * 64,
+        }
+        with self.assertRaises(action_execution.RpcInvalidResultError) as refused:
+            action_execution.project_rpc_result(
+                {"type": "request", "request": request},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(human_requests=("approval",)),
+            )
+        self.assertIsInstance(refused.exception.__cause__, action_human.HumanRequestError)
+
     def test_rpc_projects_exact_stored_input_requests_and_rejections(self) -> None:
         request = human_request_fixtures.descriptor(
             "input:password",

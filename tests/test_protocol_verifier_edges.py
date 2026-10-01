@@ -241,10 +241,44 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "action-schema-vectors.json",
                 lambda value: value["cases"][0].update({"schema": "closed"}),
             ),
+            lambda root: _rewrite_json(
+                root,
+                "pattern-vectors.json",
+                lambda value: value["cases"][0].update({"matches": "yes"}),
+            ),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(ASSISTANT / "verify.py", mutate)
+
+    def test_rejects_action_schema_vectors_that_do_not_pin_the_expanded_reference_bound(self) -> None:
+        definitions: dict[str, object] = {"d0": {"type": "string"}}
+        for level in range(1, 9):
+            definitions[f"d{level}"] = {"allOf": [{"$ref": f"#/$defs/d{level - 1}"}] * 2}
+        mutations = (
+            *(
+                lambda value, name=name: value.update(
+                    {"cases": [case for case in value["cases"] if case["name"] != name]}
+                )
+                for name in (
+                    "references expanding to exactly 4096 subschemas",
+                    "references expanding to 4097 subschemas",
+                )
+            ),
+            *(
+                lambda value, reference=reference: value["cases"][0]["schema"].update({"$ref": reference})
+                for reference in ("#", "#/$defs/missing")
+            ),
+            lambda value: value["cases"][0]["schema"].update(
+                {"allOf": [{"$ref": "#/$defs/d8"}] * 4, "$defs": definitions}
+            ),
+        )
+        for mutation in mutations:
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(SystemExit, "expanded-reference bound"):
+                _execute(
+                    ASSISTANT / "verify.py",
+                    lambda root, mutation=mutation: _rewrite_json(root, "action-schema-vectors.json", mutation),
+                )
 
 
 class TeamHttpVerifierEdgeTests(unittest.TestCase):
@@ -506,6 +540,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def admitted_invalid_locale(value: dict[str, object]) -> None:
             value["chat_locale"]["invalid"] = ["en"]
 
+        def admitted_invalid_turn_usage(value: dict[str, object]) -> None:
+            value["turn_usage"]["invalid"] = [value["turn_usage"]["valid"][0]]
+
         def rejected_label(value: dict[str, object]) -> None:
             value["action_label_text"]["labels"] = [" padded "]
 
@@ -516,6 +553,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_purpose,
             rejected_help_url,
             admitted_invalid_locale,
+            admitted_invalid_turn_usage,
             rejected_label,
             admitted_invalid_label,
         ):

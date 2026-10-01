@@ -255,6 +255,19 @@ class DeletionTests(StoreCase):
         self.assertEqual((self.store.teams(), list(self.store.root.iterdir())), ((), []))
         self.assertFalse(self.store.key_path.exists())
 
+    def test_a_deleted_team_releases_its_lock_and_a_held_lock_is_shared(self):
+        put(self.store, "team_1", busy_state())
+        held = self.store.lock("team_2")
+        with mock.patch.object(routine_store.threading, "RLock", wraps=threading.RLock) as created:
+            self.assertIs(self.store.lock("team_2"), held)
+            self.assertIs(self.store.lock("team_2"), held)
+        # A lookup that finds a live lock allocates nothing.
+        created.assert_not_called()
+        self.store.delete("team_1")
+        self.assertNotIn("team_1", self.store._locks)
+        del held
+        self.assertEqual(len(self.store._locks), 0)
+
 
 class FilesystemFailureTests(StoreCase):
     def test_listing_and_removal_failures_fail_closed(self):

@@ -75,6 +75,12 @@ CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
 MAX_SNAPSHOT_SUMMARY_CHARS = 160
+# What one completed chat turn consumed: its wall-clock duration and the model tokens it was told it used.
+MAX_TURN_DURATION_MS = 86_400_000
+MAX_TURN_USAGE_MODELS = 16
+MAX_TURN_USAGE_TOKENS = 1_000_000_000
+TURN_USAGE_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}\Z")
+TURN_USAGE_MODEL_FIELDS = frozenset({"provider", "model", "input_tokens", "output_tokens"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
 
@@ -249,6 +255,47 @@ def canonical_action_label(value: object) -> str | None:
     if any(unicodedata.category(character).startswith("C") for character in value):
         return None
     return value
+
+
+def _turn_usage_count(value: object, maximum: int) -> bool:
+    return type(value) is int and 0 <= value <= maximum
+
+
+def _turn_usage_model(value: object) -> tuple[str, str] | None:
+    if not isinstance(value, dict) or set(value) != TURN_USAGE_MODEL_FIELDS:
+        return None
+    provider = value["provider"]
+    model = value["model"]
+    if (
+        not isinstance(provider, str)
+        or not isinstance(model, str)
+        or TURN_USAGE_ID_RE.fullmatch(provider) is None
+        or TURN_USAGE_ID_RE.fullmatch(model) is None
+        or not _turn_usage_count(value["input_tokens"], MAX_TURN_USAGE_TOKENS)
+        or not _turn_usage_count(value["output_tokens"], MAX_TURN_USAGE_TOKENS)
+    ):
+        return None
+    return provider, model
+
+
+def canonical_turn_usage(value: object) -> dict[str, object] | None:
+    """Return one exact completed-turn usage, or None when it breaks the closed shape.
+
+    It is presentation metadata only: a duration and, per provider and model, the input and output tokens the
+    provider responses reported. Models are distinct, sorted by provider then model, and at least one is present.
+    """
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"duration_ms", "models"}
+        or not _turn_usage_count(value["duration_ms"], MAX_TURN_DURATION_MS)
+        or not isinstance(value["models"], list)
+        or not 1 <= len(value["models"]) <= MAX_TURN_USAGE_MODELS
+    ):
+        return None
+    keys = [_turn_usage_model(model) for model in value["models"]]
+    if None in keys or keys != sorted(set(keys)):
+        return None
+    return {"duration_ms": value["duration_ms"], "models": [dict(model) for model in value["models"]]}
 
 
 class _ClarificationShapeError(ValueError):

@@ -406,11 +406,11 @@ class ActionJournalTests(unittest.TestCase):
         self.assertFalse(replay.execute)
         self.assertEqual(replay.result, {"answer": 1})
 
-    def test_replayable_purge_abandons_paused_work_but_keeps_uncertain_work(self) -> None:
+    def test_fresh_turn_ends_settled_work_but_keeps_uncertain_work(self) -> None:
         journal = self.journal()
         prepared = journal.prepare_batch("generation-0", "thread-0", [self.first])
-        self.assertTrue(journal.purge_replayable("generation-0"))
-        with self.assertRaises(action_journal.ActionJournalConflictError):
+        self.assertTrue(journal.end_settled("generation-0"))
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "ended"):
             journal.begin(prepared, self.first)
 
         paused = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
@@ -419,22 +419,89 @@ class ActionJournalTests(unittest.TestCase):
         journal.begin(paused, self.second)
         journal.suspend(paused, self.second)
 
-        self.assertTrue(journal.purge_replayable("generation-1"))
-        self.assertFalse(journal.purge_replayable("generation-1"))
+        self.assertTrue(journal.end_settled("generation-1"))
+        self.assertFalse(journal.end_settled("generation-1"))
+        self.assertFalse(journal.end_settled("generation-absent"))
 
         uncertain = journal.prepare_batch("generation-2", "thread-2", [self.second])
         journal.begin(uncertain, self.second)
-        self.assertFalse(journal.purge_replayable("generation-2"))
+        self.assertFalse(journal.end_settled("generation-2"))
         with self.assertRaises(action_journal.ActionJournalUncertainError):
             journal.begin(uncertain, self.second)
 
         completed = journal.prepare_batch("generation-3", "thread-3", [self.first])
         journal.begin(completed, self.first)
         journal.complete(completed, self.first, {"answer": 3})
-        self.assertFalse(journal.purge_replayable("generation-3"))
-        replay = journal.begin(completed, self.first)
-        self.assertFalse(replay.execute)
-        self.assertEqual(replay.result, {"answer": 3})
+        self.assertTrue(journal.end_settled("generation-3"))
+        fresh = journal.prepare_batch("generation-3", "thread-3", [self.second])
+        self.assertTrue(journal.begin(fresh, self.second).execute)
+
+    def test_an_ended_batch_keeps_receipts_refuses_replay_and_admits_a_fresh_batch(self) -> None:
+        journal = self.journal(max_generations=1)
+        completed = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        journal.begin(completed, self.first)
+        journal.complete(completed, self.first, {"answer": 1})
+
+        self.assertTrue(journal.end(completed))
+        self.assertFalse(journal.end(completed))
+        receipts = self.read_rows(
+            "SELECT b.state, o.state, o.result FROM batches AS b JOIN operations AS o USING (generation)"
+        )
+        self.assertEqual(receipts, [("ended", "completed", b'{"answer":1}')])
+        for transition in (
+            lambda: journal.begin(completed, self.first),
+            lambda: journal.complete(completed, self.first, {"answer": 1}),
+            lambda: journal.delivered(completed),
+            lambda: journal.prepare_batch("generation-1", "thread-2", [self.second, self.first]),
+        ):
+            with self.subTest(transition=transition), self.assertRaises(action_journal.ActionJournalConflictError):
+                transition()
+        self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "capacity"):
+            journal.prepare_batch("generation-2", "thread-2", [self.second])
+
+        self.assertEqual(journal.prepare_batch("generation-1", "thread-1", [self.first]), completed)
+        self.assertEqual(journal.begin(completed, self.first), action_journal.Execution(False, {"answer": 1}))
+        self.assertTrue(journal.end(completed))
+        fresh = journal.prepare_batch("generation-1", "thread-1", [self.second])
+        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "replaced this ending handle"):
+            journal.end(completed)
+        self.assertTrue(journal.begin(fresh, self.second).execute)
+        journal.complete(fresh, self.second, {"answer": 2})
+        journal.delivered(fresh)
+        self.assertFalse(journal.end(fresh))
+
+    def test_an_uncertain_batch_never_ends(self) -> None:
+        journal = self.journal()
+        batch = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
+        journal.begin(batch, self.first)
+
+        self.assertFalse(journal.end(batch))
+        self.assertEqual(journal.uncertain_fingerprint("generation-1"), batch.fingerprint)
+        with self.assertRaises(action_journal.ActionJournalUncertainError):
+            journal.begin(batch, self.first)
+
+    def test_a_reopened_journal_ends_a_completed_batch_before_a_fresh_turn(self) -> None:
+        """A Controller restart loses the in-memory turn, never the generation's next batch."""
+        journal = self.journal()
+        completed = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        journal.begin(completed, self.first)
+        journal.complete(completed, self.first, {"answer": 1})
+        journal.close()
+
+        with action_journal.ActionJournal(self.path) as reopened:
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "pending"):
+                reopened.prepare_batch("generation-1", "thread-1", [self.second])
+            self.assertTrue(reopened.end_settled("generation-1"))
+            fresh = reopened.prepare_batch("generation-1", "thread-1", [self.second])
+            self.assertTrue(reopened.begin(fresh, self.second).execute)
+
+    def read_rows(self, statement: str) -> list[tuple[object, ...]]:
+        connection = sqlite3.connect(self.path)
+        try:
+            return connection.execute(statement).fetchall()
+        finally:
+            connection.close()
 
     def test_unsafe_file_and_symlink_paths_are_rejected(self) -> None:
         self.path.parent.mkdir(mode=0o700)
@@ -668,7 +735,7 @@ class ActionJournalTests(unittest.TestCase):
         journal = self.journal()
         self.assert_sql_failure(
             journal,
-            "SELECT fingerprint FROM batches",
+            "SELECT fingerprint, state FROM batches",
             lambda: journal.prepare_batch("generation", "thread", (self.first,)),
             "prepared",
         )
@@ -729,10 +796,33 @@ class ActionJournalTests(unittest.TestCase):
         )
         self.assert_sql_failure(
             journal,
-            "SELECT state FROM operations",
-            lambda: journal.purge_replayable("generation"),
-            "replayable",
+            "SELECT o.state FROM batches",
+            lambda: journal.end_settled("generation"),
+            "settled",
         )
+        batch = journal.prepare_batch("generation", "thread", (self.first,))
+        self.assert_sql_failure(
+            journal,
+            "UPDATE batches SET state = 'ended'",
+            lambda: journal.end(batch),
+            "ended",
+        )
+        self.assert_change_conflict(journal, lambda: journal.end_settled("generation"))
+        journal.end(batch)
+        self.assert_sql_failure(
+            journal,
+            "DELETE FROM batches WHERE generation = ? AND state = 'ended'",
+            lambda: journal.prepare_batch("generation", "thread", (self.second,)),
+            "prepared",
+        )
+        self.assert_change_conflict(journal, lambda: journal.prepare_batch("generation", "thread", (self.second,)))
+        self.assert_sql_failure(
+            journal,
+            "UPDATE batches SET state = 'open'",
+            lambda: journal.prepare_batch("generation", "thread", (self.first,)),
+            "prepared",
+        )
+        self.assert_change_conflict(journal, lambda: journal.prepare_batch("generation", "thread", (self.first,)))
 
     def test_every_compare_and_swap_rejects_a_lost_update(self) -> None:
         journal = self.journal()

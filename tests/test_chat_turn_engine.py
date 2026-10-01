@@ -97,7 +97,7 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller.space_id = "local-space"
     controller.brain_runtime = SimpleNamespace()
     controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)
-    controller.action_state = SimpleNamespace(purge_replayable=lambda _generation: False)
+    controller.action_state = SimpleNamespace(end_settled=lambda _generation: False)
     controller._lock = lambda _team_id: contextlib.nullcontext()
     controller.storage = SimpleNamespace(
         metadata=lambda _team_id, _files, _connection=None: [],
@@ -162,7 +162,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 raise AssertionError("a human-suspended batch must not be delivered")
 
             @staticmethod
-            def abandon_uncertain() -> None:
+            def terminate() -> None:
                 return None
 
         class Runtime(_Runtime):
@@ -373,7 +373,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 raise AssertionError("a failed batch must not be delivered")
 
             @staticmethod
-            def abandon_uncertain() -> None:
+            def terminate() -> None:
                 decisions.append("abandon")
 
         strategy = chat_turn_engine.SegmentStrategy(
@@ -413,7 +413,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 raise AssertionError("a failed batch must not be delivered")
 
             @staticmethod
-            def abandon_uncertain() -> None:
+            def terminate() -> None:
                 raise action_journal.ActionJournalError("journal unavailable")
 
         strategy = chat_turn_engine.SegmentStrategy(

@@ -12,6 +12,7 @@ import os
 import re
 import stat
 import unicodedata
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from pathlib import Path
 
@@ -30,6 +31,13 @@ MAX_RECORD_BYTES = 4096
 # Every name this store writes: a Team's display-name record and its interrupted temporary file.
 _OWNED_NAME_RE = re.compile(r"(?:[0-9a-f]{64}\.name\.json|\.[0-9a-f]{64}\.name\.json\.[0-9a-f]{16}\.tmp)\Z")
 _RECORD_KEYS = {"schema", "team_id", "network_id", "team_name"}
+# Docker's RFC 3339 network creation time: whole seconds, an optional fraction of up to nanoseconds, and an offset
+# bounded here because datetime.fromisoformat would normalize an out-of-range one such as +00:60.
+_CREATED_RE = re.compile(
+    r"([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(?:\.([0-9]{1,9}))?"
+    r"(Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])\Z"
+)
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _unavailable() -> ApiProblem:
@@ -141,28 +149,47 @@ def display_name(self, team_id: str, network) -> str:
     return self.team_names.load(team_id, network.id) or label
 
 
-def _named_teams(self) -> list[tuple[str, str]]:
-    teams: list[tuple[str, str]] = []
+def _created_ns(network) -> int:
+    """The Team network's Docker creation instant in nanoseconds since the epoch, whatever offset Docker reports."""
+    created = network.attrs.get("Created")
+    match = _CREATED_RE.fullmatch(created) if isinstance(created, str) else None
+    try:
+        if match is None:
+            raise ValueError("creation time is not RFC 3339")
+        whole, fraction, offset = match.groups()
+        instant = datetime.fromisoformat(whole + ("+00:00" if offset == "Z" else offset))
+    except ValueError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Docker returned an invalid Team creation time",
+            code="team-metadata-invalid",
+        ) from exc
+    return (instant - _EPOCH) // timedelta(seconds=1) * 10**9 + int((fraction or "").ljust(9, "0"))
+
+
+def _named_teams(self) -> list[tuple[str, str, object]]:
+    teams: list[tuple[str, str, object]] = []
     for network in self.assistant_lifecycle._managed_team_networks():
         team_id = (network.attrs.get("Labels") or {}).get(TEAM_LABEL)
         if not isinstance(team_id, str):
             raise ApiProblem(HTTPStatus.CONFLICT, "Team resource ownership conflict", code="ownership-conflict")
         validate_team_id(team_id)
-        teams.append((team_id, display_name(self, team_id, network)))
+        teams.append((team_id, display_name(self, team_id, network), network))
     return teams
 
 
 def _require_free(self, team_name: str, team_id: str) -> None:
     folded = _folded(team_name)
-    if any(other != team_id and _folded(name) == folded for other, name in _named_teams(self)):
+    if any(other != team_id and _folded(name) == folded for other, name, _network in _named_teams(self)):
         raise ApiProblem(HTTPStatus.CONFLICT, "another Team already has this name", code="team-name-taken")
 
 
 def list_teams(self) -> dict[str, list[dict[str, str]]]:
+    """Every Team, newest first by its network's creation instant; the id orders only equal instants."""
     with self._names_lock:
-        teams = [{"team_id": team_id, "team_name": name, "status": "running"} for team_id, name in _named_teams(self)]
-    teams.sort(key=lambda item: item["team_id"])
-    return {"teams": teams}
+        named = [(-_created_ns(network), team_id, name) for team_id, name, network in _named_teams(self)]
+    named.sort()
+    return {"teams": [{"team_id": team_id, "team_name": name, "status": "running"} for _key, team_id, name in named]}
 
 
 def _existing(self, team_id: str, team_name: str, network) -> dict[str, object]:

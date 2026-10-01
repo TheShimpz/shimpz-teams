@@ -81,16 +81,9 @@ def _chat(
     # The slot comes first. A losing concurrent request must not run even the local credential probe,
     # much less provider status or a second provider CLI.
     with _exclusive_chat_turn(team_id, lease) as (token, container):
-        pending = _pending_hosted_chat(team_id)
+        pending = _admit_fresh_turn(team_id, container)
         if pending is not None:
             return pending
-        try:
-            runtime_state._action_execution_journal().purge_replayable(container.id)
-        except hosted_chat_segment.action_journal.ActionJournalError as exc:
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Team Action execution state is unavailable",
-            ) from exc
         return hosted_chat_segment._chat_in_turn(
             hosted_chat_segment.HostedChatSegmentRequest(
                 team_id=team_id,
@@ -103,6 +96,25 @@ def _chat(
                 locale=locale,
             )
         )
+
+
+def _admit_fresh_turn(team_id: str, container: object) -> dict[str, object] | None:
+    """Admit a fresh turn under its held exclusive slot, before any response byte, for ordinary and streamed chat.
+
+    A pending gate answers instead. Otherwise the generation's settled journal residue ends, including a batch whose
+    in-memory challenge or turn a Controller restart lost, so the new turn's batch is not refused as pending.
+    """
+    pending = _pending_hosted_chat(team_id)
+    if pending is not None:
+        return pending
+    try:
+        runtime_state._action_execution_journal().end_settled(container.id)
+    except hosted_chat_segment.action_journal.ActionJournalError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Team Action execution state is unavailable",
+        ) from exc
+    return None
 
 
 def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
@@ -409,6 +421,7 @@ def _resume_chat_integrations(
                 pending.owner,
                 pending.transcripts,
                 pending.requests_used,
+                usage=pending.usage,
             )
         )
 

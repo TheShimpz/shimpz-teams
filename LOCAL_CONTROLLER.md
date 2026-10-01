@@ -157,7 +157,10 @@ Assistant containers run as `10001:10001`, with read-only roots, all capabilitie
 `no-new-privileges`, default seccomp, no host mounts or published ports, one Team network, and fixed
 CPU/memory/PID/file-descriptor limits. Each Action input is schema-validated, approval and secret/Integration
 requirements are enforced before dispatch, output is bounded and schema-validated, and durable journal
-state prevents ambiguous retries from silently executing a non-idempotent Action twice.
+state prevents ambiguous retries from silently executing a non-idempotent Action twice. A turn that ends before
+the model accepts its results (a provider failure, Stop, or a restart before the next message) ends its settled
+batch: the completed receipts stay and replay only for that exact batch, and the next message's batch runs. A batch
+with an uncertain outcome is never ended this way.
 
 ## Release binding
 

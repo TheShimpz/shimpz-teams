@@ -13,17 +13,22 @@ from chat import orchestrator as chat_orchestrator
 from core import strict_json
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
+from local.errors import ApiProblemError
+from local.validation import validate_team_name
 from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 MAX_JSON_DEPTH = 16
 MAX_JSON_NODES = 4096
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
+# A turn's wall-clock admission in epoch milliseconds, within the exact JSON integer range.
+MAX_STARTED_MS = 2**53 - 1
 _FILE_ID = re.compile(r"[0-9a-f]{32}\Z")
 _IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64})\Z")
 _NETWORK_ID = re.compile(r"[^\s\x00-\x1f\x7f]{1,256}\Z")
@@ -47,6 +52,8 @@ class PendingLocalChat:
     requests_used: int = 0
     # The interface language the turn's start pinned (ADR-0091).
     locale: str | None = None
+    # What a paused chat turn consumed so far (ADR-0082); a Routine run carries none.
+    usage: brain_usage.TurnUsage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,7 +171,49 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "transcripts": _transcripts_payload(pending.transcripts),
         "requests_used": _requests_used(pending.requests_used),
         "locale": pending.locale,
+        "usage": _usage_payload(pending.usage),
     }
+
+
+def _usage_payload(usage: object) -> dict[str, object] | None:
+    if usage is None:
+        return None
+    if not isinstance(usage, brain_usage.TurnUsage):
+        raise ContinuationCodecError("pending turn usage is malformed")
+    return _usage_value(
+        {
+            "started_ms": usage.started_ms,
+            "models": [
+                {"provider": provider, "model": model, "input_tokens": inputs, "output_tokens": outputs}
+                for provider, model, inputs, outputs in usage.models
+            ],
+        }
+    )
+
+
+def _usage(value: object) -> brain_usage.TurnUsage | None:
+    if value is None:
+        return None
+    raw = _usage_value(value)
+    return brain_usage.TurnUsage(
+        raw["started_ms"],
+        tuple(
+            (model["provider"], model["model"], model["input_tokens"], model["output_tokens"])
+            for model in raw["models"]
+        ),
+    )
+
+
+def _usage_value(value: object) -> dict[str, object]:
+    """A turn's start and its models in the closed wire shape, which also admits no models before any call."""
+    raw = _mapping(value, {"started_ms", "models"}, "pending turn usage")
+    started_ms = raw["started_ms"]
+    models = raw["models"]
+    if type(started_ms) is not int or not 0 <= started_ms <= MAX_STARTED_MS or not isinstance(models, list):
+        raise ContinuationCodecError("pending turn usage is malformed")
+    if models and http_payload.canonical_turn_usage({"duration_ms": 0, "models": models}) is None:
+        raise ContinuationCodecError("pending turn usage is malformed")
+    return raw
 
 
 def _transcripts_payload(transcripts: tuple[action_human.ActionTranscript, ...]) -> list[dict[str, object]]:
@@ -416,7 +465,12 @@ def _identity(value: object) -> tuple[object, ...]:
         {"team_name", "network_id", "assistants", "files", "inference"},
         "continuation Team identity",
     )
-    team_name = _text(raw["team_name"], 80, "continuation Team name")
+    # Team names and filenames follow their owning validators, which admit every printable Unicode character the Team
+    # and its files may carry; both validators keep this codec's 80-character and 255-byte bounds.
+    try:
+        team_name = validate_team_name(raw["team_name"])
+    except ApiProblemError as exc:
+        raise ContinuationCodecError("continuation Team name is malformed") from exc
     network_id = raw["network_id"]
     if not isinstance(network_id, str) or _NETWORK_ID.fullmatch(network_id) is None:
         raise ContinuationCodecError("continuation network identity is malformed")
@@ -443,7 +497,7 @@ def _identity(value: object) -> tuple[object, ...]:
         if (
             not isinstance(entry["id"], str)
             or _FILE_ID.fullmatch(entry["id"]) is None
-            or _text(entry["name"], 255, "continuation filename") in {".", ".."}
+            or http_payload.canonical_filename(entry["name"]) is None
             or not isinstance(entry["media_type"], str)
             or not 1 <= len(entry["media_type"]) <= 127
             or type(entry["size"]) is not int
@@ -475,6 +529,7 @@ def _pending(value: object) -> PendingLocalChat:
             "transcripts",
             "requests_used",
             "locale",
+            "usage",
         },
         "pending continuation",
     )
@@ -512,6 +567,7 @@ def _pending(value: object) -> PendingLocalChat:
         transcripts=transcripts,
         requests_used=requests_used,
         locale=locale,
+        usage=_usage(raw["usage"]),
     )
 
 

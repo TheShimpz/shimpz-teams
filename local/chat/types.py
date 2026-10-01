@@ -5,6 +5,7 @@ from http import HTTPStatus
 
 from action import human as action_human
 from chat import turn as chat_turn_engine
+from inference import usage as brain_usage
 from local.chat import continuation as local_chat_continuations
 from local.errors import ApiProblemError
 from local.install.runtime import AssistantSpec
@@ -30,6 +31,8 @@ class ResponseRequest:
     provider: str
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # What the turn consumed before this request; a chat turn always has one (ADR-0082).
+    usage: brain_usage.TurnUsage | None = None
 
 
 def required_active_assistant(

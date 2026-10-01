@@ -105,7 +105,8 @@ class Handler(BaseHTTPRequestHandler):
         terminal: dict[str, object]
         stream_error = None
         with hosted_chat_api._exclusive_chat_turn(team_id, lease) as (token, container):
-            pending = hosted_chat_api._pending_hosted_chat(team_id)
+            # The durable token is claimed and the fresh turn admitted before a 200 or any response byte.
+            pending = hosted_chat_api._admit_fresh_turn(team_id, container)
             if pending is not None:
                 self._send_json(
                     HTTPStatus.PRECONDITION_REQUIRED,
@@ -113,7 +114,6 @@ class Handler(BaseHTTPRequestHandler):
                     no_store=True,
                 )
                 return
-                # The durable token is claimed before a 200 or any response byte reaches the client.
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/x-ndjson")
             self.send_header("Transfer-Encoding", "chunked")
@@ -148,6 +148,7 @@ class Handler(BaseHTTPRequestHandler):
                         "clarification": result["clarification"],
                         "team_id": result["team_id"],
                         "team_name": result["team_name"],
+                        **({"usage": result["usage"]} if "usage" in result else {}),
                     }
                 )
                 emit(terminal)

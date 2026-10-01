@@ -232,7 +232,7 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 True,
                 False,
             ),
-            (developers.DevelopersError("changed"), True, True),
+            (bindings.DynamicAssistantError("changed"), True, True),
             (bindings.DynamicAssistantError("changed"), False, False),
         )
         for failure, created, should_delete in failure_cases:

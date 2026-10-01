@@ -203,6 +203,7 @@ for name, admit in (
     ("pack_digest", payload.canonical_pack_digest),
     ("snapshot_summary", payload.canonical_snapshot_summary),
     ("routine_challenge_open", routine.canonical_challenge_open),
+    ("turn_usage", payload.canonical_turn_usage),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):

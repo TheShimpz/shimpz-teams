@@ -7,11 +7,11 @@ from hosted import state as runtime_state
 
 
 def cancel_replayable_human(team_id: str, generation: str) -> bool:
-    """Cancel a pending human gate and remove only safely replayable Action state."""
+    """Cancel a pending human gate and end only settled Action state; uncertain work stays."""
     if not runtime_state._human_challenges.cancel_team(team_id):
         return False
     try:
-        runtime_state._action_execution_journal().purge_replayable(generation)
+        runtime_state._action_execution_journal().end_settled(generation)
     except action_journal.ActionJournalError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,

@@ -213,7 +213,7 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
         controller.assistant_lifecycle = lifecycle
 
         networks = []
-        for team_id in ("team_2", "team_1"):
+        for team_id, created in (("team_1", "2026-09-30T12:00:00.1Z"), ("team_2", "2026-09-30T12:00:00.2Z")):
             labels = lifecycle._base_labels(team_id, "team")
             labels[local_labels.TEAM_NAME_LABEL] = f"Team {team_id[-1]}"
             networks.append(
@@ -225,21 +225,25 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
                         "Driver": "bridge",
                         "Internal": True,
                         "Attachable": False,
+                        "Created": created,
                     },
                     reload=mock.Mock(),
                 )
             )
         controller.client.networks.list.return_value = networks
+        controller.client.networks.get = mock.Mock()
+        # The newest Team leads, ordered from the creation time the network summary already carries.
         self.assertEqual(
             controller.list_teams(),
             {
                 "teams": [
-                    {"team_id": "team_1", "team_name": "Team 1", "status": "running"},
                     {"team_id": "team_2", "team_name": "Team 2", "status": "running"},
+                    {"team_id": "team_1", "team_name": "Team 1", "status": "running"},
                 ]
             },
         )
         controller.client.networks.list.assert_called_once()
+        controller.client.networks.get.assert_not_called()
         for network in networks:
             network.reload.assert_not_called()
 

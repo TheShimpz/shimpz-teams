@@ -449,15 +449,18 @@ class OAuthBrokerClientTests(unittest.TestCase):
                 code_verifier="v" * 43,
                 scopes=SCOPES,
             )
-        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
-            self.client.refresh(
-                provider_id="cloudflare",
-                refresh_token=REFRESH,
-                broker_lease="invalid",
-                scopes=SCOPES,
-            )
-        with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
-            self.client.revoke(provider_id="cloudflare", token=ACCESS, broker_lease="invalid")
+        # The Store grammar admits only ASCII expiry digits; Unicode decimal digits must not pass the mirror.
+        for lease in ("invalid", LEASE.replace("1999999999", "\u0661" * 10)):
+            with self.subTest(lease=lease):
+                with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
+                    self.client.refresh(
+                        provider_id="cloudflare",
+                        refresh_token=REFRESH,
+                        broker_lease=lease,
+                        scopes=SCOPES,
+                    )
+                with self.assertRaisesRegex(integration_broker.OAuthBrokerClientError, "lease is invalid"):
+                    self.client.revoke(provider_id="cloudflare", token=ACCESS, broker_lease=lease)
         with (
             patch.object(
                 integration_broker.integration_providers,

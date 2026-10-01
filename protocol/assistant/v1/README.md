@@ -53,21 +53,52 @@ member value at any depth, whether it is a subschema, an annotation such as `def
 such as `const` or `enum`; member names are not counted separately. At every subschema position, `$ref` names only
 `#` or one direct `#/$defs/<name>` or `#/definitions/<name>` without `/` or `%`, `$dynamicRef` is absent, `$schema` is
 exactly the Draft 2020-12 URI, and `$id` appears only at the root. Property names and `const`, `enum`, `default`, and
-`examples` values are data, never references. Developers refuses a build artifact that Team would refuse, and
-publication is stricter than Team in exactly two ways:
+`examples` values are data, never references. `unevaluatedProperties` is refused at every subschema position because
+its evaluation would bypass the pattern matcher.
+
+Validation visits a subschema once for every path that reaches it, so references can multiply work that the literal
+bounds do not show. Starting from the root, count one for every value at a subschema position: `additionalProperties`,
+`contains`, `contentSchema`, `else`, `if`, `items`, `not`, `propertyNames`, `then`, `unevaluatedItems`,
+`unevaluatedProperties`, each member of `allOf`, `anyOf`, `oneOf`, and `prefixItems`, and each value of `$defs`,
+`definitions`, `dependentSchemas`, `patternProperties`, and `properties`. At every subschema that holds `$ref`, count
+its target again as if it were written there, so a subschema reached along two paths counts twice. This expanded count
+is at most 4,096. Every reference must resolve, with `~1` and `~0` in a definition name decoding to `/` and `~`, and no
+reference may lead back into a subschema that contains it: recursive schemas are refused, and so is every `#`
+reference, because the root contains it. Developers, Team, and the Brain apply this rule alike. A schema without
+references, which is all the SDK generates, never counts more than its JSON values.
+
+Team and the Brain evaluate every `pattern` value and `patternProperties` name with RE2, never Python `re`, so one
+search runs in time linear in the subject. Team refuses a pattern that RE2 cannot compile under 1 MiB of memory, whose
+compiled program exceeds 16,384 instructions, or that Python `re` cannot compile. A pattern matches when it matches
+anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII (`\s` is tab, newline, form feed,
+carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
+other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
+surrogate, fails validation. `pattern-vectors.json` freezes these semantics as pattern, subject, and outcome cases.
+One search costs at most its subject's UTF-8 length times its compiled program size, so Team and the Brain also bound
+the matching work of one payload validation: each search charges that product, and the validation fails once its
+charges exceed 67,108,864 (2^26), well under a second of RE2's slowest matching. SDK-generated patterns on bounded
+strings charge a small fraction of it.
+
+Developers refuses a build artifact that Team would refuse, and publication is stricter than Team in exactly three
+ways:
 
 - Subschemas nest at most 32 levels below the root schema.
 - Each `pattern` value and `patternProperties` name nests its syntax tree at most 32 levels deep and uses only this
-  subset of Python `re`: literals, escaped punctuation, `\a`, `\f`, `\n`, `\r`, `\t`, `\v`, `\xHH`, `\uHHHH`, and
-  `\UHHHHHHHH`; `.`, `^`, `$`, `\A`, `\b`, `\B`, `\d`, `\D`, `\s`, `\S`, `\w`, and `\W`; optionally negated bracketed
+  subset that RE2 and Python `re` read alike: literals, escaped punctuation, `\a`, `\f`, `\n`, `\r`, `\t`, `\v`, and
+  `\xHH`; `.`, `^`, `$`, `\A`, `\b`, `\B`, `\d`, `\D`, `\s`, `\S`, `\w`, and `\W`; optionally negated bracketed
   classes of literals, ranges, and those Perl classes, with an unescaped `-` only first or last; alternation; greedy
-  or lazy `*`, `+`, `?`, `{m}`, `{m,}`, and `{m,n}` below 4294967295 applied to a literal, `.`, class, or group;
-  `(...)`, `(?P<name>...)` with an ASCII identifier name, `(?:...)`, and scoped `i`, `m`, or `s` flags that may be
-  negated; and global `i`, `m`, `s`, or `x` flags only as one group at the very start. In `x` mode, whitespace and `#`
-  comments may separate items but not appear inside a class, a hexadecimal escape, a counted repetition or its lazy
-  suffix, or between `(` and `?`, and a comment contains no backslash. Everything else, including lookaround,
-  backreferences, octal and braced escapes, `\z`, Unicode property classes, nested and POSIX classes, class set
-  operations, possessive or nested repetition, and `(?<name>...)`, is refused.
+  or lazy `*`, `+`, `?`, `{m}`, `{m,}`, and `{m,n}` written without whitespace, applied to a literal, `.`, class, or
+  group, with every count at most 1,000 and the counts of nested counted repetitions multiplying to at most 1,000 on
+  every path; `(...)`, `(?P<name>...)` with an ASCII identifier name, `(?:...)`, and scoped `i`, `m`, or `s` flags
+  that may be negated; and global `i`, `m`, or `s` flags only as one group at the very start. Everything else,
+  including the `x` flag, `\uHHHH` and `\UHHHHHHHH`, lookaround, backreferences, octal and braced escapes, `\z`,
+  Unicode property classes, nested and POSIX classes, class set operations, possessive or nested repetition, and
+  `(?<name>...)`, is refused.
+- Each such pattern fits 16,384 instructions by an upper bound of its RE2 program: 16 for the search, 8 per literal,
+  16 per `.`, 32 per Perl class, 2 per assertion, 1 per empty expression, 2 more per group, 1 more per alternative,
+  32 plus 4 per member for a bracketed class of ASCII members without a negated Perl class and 128 plus 32 per
+  member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or lower
+  count when unbounded, and at least 1) times one more than its operand, plus 1.
 
 `action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.

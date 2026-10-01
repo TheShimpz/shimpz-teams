@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import sys
 import unittest
 from dataclasses import replace
@@ -15,6 +16,7 @@ from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
@@ -36,7 +38,9 @@ TURN = brain_runtime_client.RuntimeTurn(
 )
 
 
-def pending(image: str = IMAGE) -> local_chat_continuations.PendingLocalChat:
+def pending(
+    image: str = IMAGE, *, team_name: str = "Demo Team", filename: str = "brief.txt"
+) -> local_chat_continuations.PendingLocalChat:
     return local_chat_continuations.PendingLocalChat(
         continuation=chat_orchestrator.ChatContinuation(
             turn=TURN,
@@ -48,13 +52,13 @@ def pending(image: str = IMAGE) -> local_chat_continuations.PendingLocalChat:
         file_ids=("a" * 32,),
         provider="openai",
         identity=(
-            "Demo Team",
+            team_name,
             "network-id",
             (("demo-assistant", image, "container-id"),),
             [
                 {
                     "id": "a" * 32,
-                    "name": "brief.txt",
+                    "name": filename,
                     "media_type": "text/plain",
                     "size": 42,
                 }
@@ -65,8 +69,14 @@ def pending(image: str = IMAGE) -> local_chat_continuations.PendingLocalChat:
 
 
 class LocalChatContinuationCodecTests(unittest.TestCase):
-    def _round_trip(self, kind: str, requirements: tuple[object, ...]) -> None:
-        bindings, payload = local_chat_continuations.encode(kind, requirements, pending())
+    def _round_trip(
+        self,
+        kind: str,
+        requirements: tuple[object, ...],
+        state: local_chat_continuations.PendingLocalChat | None = None,
+    ) -> None:
+        state = pending() if state is None else state
+        bindings, payload = local_chat_continuations.encode(kind, requirements, state)
         stored = local_chat_continuation_store.StoredContinuation(
             "team_1",
             kind,
@@ -79,7 +89,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         decoded = local_chat_continuations.decode(stored)
         self.assertEqual(decoded.kind, kind)
         self.assertEqual(decoded.requirements, requirements)
-        self.assertEqual(decoded.pending, pending())
+        self.assertEqual(decoded.pending, state)
         # A frozen Routine run keeps the same parts in its own store and decodes them identically.
         self.assertEqual(local_chat_continuations.decode_parts(kind, payload, bindings), decoded)
 
@@ -140,6 +150,40 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.requirements, requirements)
         self.assertEqual(decoded.pending, state)
         self.assertEqual(bindings, (f"demo-assistant/publish/{LOCAL_IMAGE}/-",))
+
+    def test_round_trips_every_team_name_and_filename_their_owners_admit(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        family = "\U0001f468\u200d\U0001f469\u200d\U0001f467"
+        for team_name, filename in (
+            ("Research Team", "meeting notes.txt"),
+            (f"Research\u00a0Team {family}", f"meeting\u00a0notes {family}.txt"),
+            ("x" * 80, "\u00e9" * 127 + "x"),
+        ):
+            with self.subTest(team_name=team_name, filename=filename):
+                self._round_trip("integrations", requirements, pending(team_name=team_name, filename=filename))
+
+    def test_rejects_team_names_and_filenames_their_owners_refuse(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        for team_name in ("", " Research Team", "Research\nTeam", "x" * 81):
+            with (
+                self.subTest(team_name=team_name),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "Team name is malformed"),
+            ):
+                local_chat_continuations.encode("integrations", requirements, pending(team_name=team_name))
+        for filename in ("", "..", "notes/brief.txt", "notes\\brief.txt", "brief\x7f.txt", "\u00e9" * 128):
+            with (
+                self.subTest(filename=filename),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "file is malformed"),
+            ):
+                local_chat_continuations.encode("integrations", requirements, pending(filename=filename))
 
     def test_rejects_mutable_or_malformed_image_identities(self) -> None:
         requirements = (
@@ -337,6 +381,39 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
+
+    def test_schema_five_keeps_the_turn_locale_usage_and_localized_copy_together(self) -> None:
+        """One paused record carries ADR-0091 locale and copy beside ADR-0082 usage; schema 4 records are refused."""
+        request = human_request_fixtures.request("approval")
+        requirement = (
+            human_request_fixtures.requirement(
+                request, locale="pt", assistant_id="demo-assistant", purpose="Publish it.", purpose_locale="pt"
+            ),
+        )
+        usage = brain_usage.TurnUsage(1_700_000_000_000, (("openai", "gpt-6-luna", 1331, 36),))
+        state = dataclasses.replace(pending(), locale="pt", usage=usage)
+
+        bindings, payload = local_chat_continuations.encode("human", requirement, state)
+        decoded = local_chat_continuations.decode(
+            local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
+        )
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 5)
+        self.assertEqual(decoded.pending, state)
+        self.assertEqual(decoded.requirements, requirement)
+        self.assertEqual(decoded.requirements[0].copy.locale, "pt")
+
+        body = json.loads(payload)
+        variants = {
+            "schema 4": {**body, "schema": 4},
+            "no locale": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "locale"}},
+            "no usage": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "usage"}},
+        }
+        for name, variant in variants.items():
+            stored = local_chat_continuation_store.StoredContinuation(
+                "team_1", "human", "c" * 32, 1_300, 1, bindings, json.dumps(variant).encode()
+            )
+            with self.subTest(name), self.assertRaises(local_chat_continuations.ContinuationCodecError):
+                local_chat_continuations.decode(stored)
 
     def test_refuses_to_persist_password_response_material(self) -> None:
         secret_request = {

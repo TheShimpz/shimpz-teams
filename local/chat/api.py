@@ -8,6 +8,7 @@ from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from chat import turn as chat_turn_engine
 from inference import config as inference_config
+from inference import usage as brain_usage
 from local import audit as local_audit
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
@@ -56,6 +57,7 @@ def _segment_response(
             transcripts=chat_orchestrator.retain_suspension_transcripts(response.transcripts, suspension),
             requests_used=response.requests_used,
             locale=segment.locale,
+            usage=None if response.usage is None else response.usage.joined(),
         )
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
@@ -88,13 +90,17 @@ def _segment_response(
         if not committed:
             self._withdraw_routine_proposal(team_id, proposal)
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
-        return {
+        body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply,
             "clarification": terminal.clarification,
             "routine_proposal": proposal,
         }
+        usage = None if response.usage is None else response.usage.joined().wire()
+        if usage is not None:
+            body["usage"] = usage
+        return body
 
     try:
         return chat_turn_engine.dispatch(
@@ -165,6 +171,8 @@ def chat(
         pending = self._pending_chat_continuation(team_id, locale)
         if pending is not None:
             return pending
+        # The turn is admitted: its duration runs from here to its terminal, across every resume.
+        usage = brain_usage.TurnUsage.start()
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,
@@ -180,7 +188,7 @@ def chat(
             )
         )
         return self._segment_response(
-            _ResponseRequest(team_id, token, segment, assistant_ids, tuple(file_ids), provider)
+            _ResponseRequest(team_id, token, segment, assistant_ids, tuple(file_ids), provider, usage=usage)
         )
 
 
@@ -276,5 +284,6 @@ def resume_chat_integrations(
                 provider,
                 pending.transcripts,
                 pending.requests_used,
+                usage=pending.usage,
             )
         )

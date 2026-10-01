@@ -77,6 +77,18 @@ must equal `payload.render_clarification`: the question, a blank line, then one 
 the default marked with " ✓" and a non-empty description after " — ". The question is presentation only:
 it requests and authorizes nothing, and the user answers with a new chat message.
 
+A completed Team chat terminal body may also carry `usage`, what the whole logical turn consumed; Admin relays it on
+the browser `done` frame and keeps it with the reply. It is absent when no model call of the turn reported usage.
+`duration_ms` is the elapsed wall-clock time from the turn's admission to its terminal, across every human or
+Integration resume and including the time spent waiting for a person, at most 86,400,000. `models` holds 1 to 16
+distinct entries sorted by `provider` then `model`, each exactly `{provider, model, input_tokens, output_tokens}`:
+identifiers match `^[a-z0-9][a-z0-9._-]{0,63}$` and each count is an integer from 0 to 1,000,000,000. The counts are
+the ADR-0082 observation of every Brain call the turn made (its start, resumes, and request purposes), as the provider
+responses stated them, with cache reads and writes inside the input. They are a floor: a failed Brain request reports
+nothing, and the intent route and capability plan that Admin requests before the turn are separate requests outside
+it. `payload.canonical_turn_usage` validates it; a consumer refuses a terminal whose `usage` breaks the shape. It is
+presentation metadata only: it carries no price, prompt, reply, or credential and authorizes nothing.
+
 A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
 line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry changes
 (`payload.canonical_memory_changes`): `remember` with a preference replaces its topic and becomes newest, `forget`
@@ -241,6 +253,10 @@ Local `DELETE /v1/teams/:team_id` carries exactly `{"team_name"}`, the current n
 side effect. `payload.canonical_local_team_name` admits a Local display name: the shared 1 to 80 trimmed characters
 without controls, already NFC. Supervisor assertions admit `PATCH` alongside `DELETE`, `GET`, `POST`, and `PUT`.
 Hosted Team names are unchanged by this contract.
+A Local `GET /v1/teams` lists every Team newest first by its Team network's creation instant, compared at Docker's
+full nanosecond precision after normalizing the reported offset; only Teams created at the same instant fall back to
+ascending `team_id`. Each item keeps exactly `{"team_id", "team_name", "status"}`, and creation metadata that is not
+a valid RFC 3339 instant refuses the listing with `503` `team-metadata-invalid`.
 
 `vectors.json` contains positive and negative cases that Team, Admin, and Store execute
 independently. Generated consumer mirrors pin the producing Teams commit, verify

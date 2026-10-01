@@ -23,13 +23,31 @@ SCHEMAS = (
     "manifest.schema.json",
     "result.schema.json",
 )
+# Every Draft 2020-12 position whose value is a subschema; Team, the Brain, and publication walk exactly these.
+MAX_EXPANDED_SUBSCHEMAS = 4096
+APPLICATORS = (
+    "additionalProperties",
+    "contains",
+    "contentSchema",
+    "else",
+    "if",
+    "items",
+    "not",
+    "propertyNames",
+    "then",
+    "unevaluatedItems",
+    "unevaluatedProperties",
+)
+LIST_APPLICATORS = ("allOf", "anyOf", "oneOf", "prefixItems")
+MAP_APPLICATORS = ("$defs", "definitions", "dependentSchemas", "patternProperties", "properties")
+LOCAL_DEFINITION = re.compile(r"#/(\$defs|definitions)/([^/%]+)")
 
 
 def fail(message: str) -> None:
     raise SystemExit(message)
 
 
-def verify_verdict_vectors(filename: str, label: str, subject: str, kind: type) -> None:
+def verify_verdict_vectors(filename: str, label: str, fields: dict[str, type], verdict: str = "valid") -> None:
     vectors = json.loads((HERE / filename).read_bytes())
     cases = vectors.get("cases") if isinstance(vectors, dict) else None
     if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
@@ -39,19 +57,59 @@ def verify_verdict_vectors(filename: str, label: str, subject: str, kind: type) 
     for case in cases:
         if (
             not isinstance(case, dict)
-            or set(case) != {subject, "name", "valid"}
+            or set(case) != {*fields, "name", verdict}
             or not isinstance(case["name"], str)
             or not case["name"]
             or case["name"] in names
-            or not isinstance(case["valid"], bool)
-            or not isinstance(case[subject], kind)
-            or not case[subject]
+            or not isinstance(case[verdict], bool)
+            or not all(isinstance(case[field], kind) and case[field] for field, kind in fields.items())
         ):
             fail(f"Assistant {label} vector case is invalid")
         names.add(case["name"])
-        outcomes.add(case["valid"])
+        outcomes.add(case[verdict])
     if outcomes != {False, True}:
         fail(f"Assistant {label} vectors require positive and negative cases")
+
+
+def reference_target(root: dict, reference: object) -> object:
+    if reference == "#":
+        return root
+    match = LOCAL_DEFINITION.fullmatch(reference) if isinstance(reference, str) else None
+    definitions = root.get(match[1]) if match else None
+    return definitions.get(match[2].replace("~1", "/").replace("~0", "~")) if isinstance(definitions, dict) else None
+
+
+def expanded_subschemas(root: dict) -> int | None:
+    """Count subschema values with every reference expanded; None when one is missing or leads back into itself."""
+    counts: dict[int, int] = {}
+
+    def count(node: object, open_nodes: frozenset[int]) -> int | None:
+        if not isinstance(node, dict):
+            return 1
+        if id(node) in open_nodes:
+            return None
+        if id(node) not in counts:
+            edges = [node[keyword] for keyword in APPLICATORS if keyword in node]
+            edges += [
+                child for keyword in LIST_APPLICATORS if isinstance(node.get(keyword), list) for child in node[keyword]
+            ]
+            edges += [
+                child
+                for keyword in MAP_APPLICATORS
+                if isinstance(node.get(keyword), dict)
+                for child in node[keyword].values()
+            ]
+            if "$ref" in node:
+                edges.append(reference_target(root, node["$ref"]))
+                if edges[-1] is None:
+                    return None
+            sizes = [count(edge, open_nodes | {id(node)}) for edge in edges]
+            if None in sizes:
+                return None
+            counts[id(node)] = 1 + sum(sizes)
+        return counts[id(node)]
+
+    return count(root, frozenset())
 
 
 rows: dict[str, str] = {}
@@ -104,8 +162,17 @@ if result_types != {"result", "request", "stored_input_rejected"}:
     fail("Assistant Stored Input result contract is invalid")
 
 
-verify_verdict_vectors("manifest-vectors.json", "manifest", "manifest", str)
-verify_verdict_vectors("action-schema-vectors.json", "Action schema", "schema", dict)
+verify_verdict_vectors("manifest-vectors.json", "manifest", {"manifest": str})
+verify_verdict_vectors("action-schema-vectors.json", "Action schema", {"schema": dict})
+expansions = {
+    (case["valid"], expanded_subschemas(case["schema"]))
+    for case in json.loads((HERE / "action-schema-vectors.json").read_bytes())["cases"]
+}
+if not {(True, MAX_EXPANDED_SUBSCHEMAS), (False, MAX_EXPANDED_SUBSCHEMAS + 1)} <= expansions or any(
+    valid and (size is None or size > MAX_EXPANDED_SUBSCHEMAS) for valid, size in expansions
+):
+    fail("Assistant Action schema vectors do not pin the expanded-reference bound")
+verify_verdict_vectors("pattern-vectors.json", "pattern", {"pattern": str, "subject": str}, "matches")
 
 human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())

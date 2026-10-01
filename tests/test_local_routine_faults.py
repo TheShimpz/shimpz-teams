@@ -404,9 +404,11 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
                 self.assertEqual(len(self.state(service).discards), 1)
                 self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
-                # The watchdog's pass fails the same way; its loop audits it and retries later.
+                # The watchdog's periodic pass audits the Team's failure and retries it later; startup stays fatal.
+                routine_watchdog.check(service)
+                self.assertEqual(len(self.state(service).discards), 1)
                 with self.assertRaises(local_app.ApiProblem):
-                    routine_watchdog.check(service)
+                    routine_watchdog.check(service, startup=True)
             self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
             self.assertEqual(self.state(service).discards, ())
 
@@ -439,3 +441,120 @@ class WatchdogFaultTests(RoutineServiceCase):
             ):
                 routine_watchdog.check(service, startup=True)
             self.assertEqual(self.state(service).runs, ())
+
+
+class TeamIsolationTests(RoutineServiceCase):
+    """One identified Team's unreadable Routine state never holds back the healthy Teams (ADR-0086)."""
+
+    @staticmethod
+    def break_team(service, team_id: str = "team_2") -> None:
+        """Write a real state file that names its Team but whose body fails the store's contract."""
+        path = service.routine_store._team_dir(team_id) / "state.json"
+        routine_store._PRIVATE.atomic_write(path, json.dumps({"team_id": team_id}).encode(), "Routine state")
+
+    def expire(self, service, run_id: str) -> None:
+        past = int(time.time()) - 60
+        service.routine_store.update(
+            "team_1",
+            lambda state: (
+                dataclasses.replace(
+                    state,
+                    runs=tuple(
+                        dataclasses.replace(item, lease_expires_at=past) if item.run_id == run_id else item
+                        for item in state.runs
+                    ),
+                ),
+                None,
+            ),
+        )
+
+    def test_a_periodic_pass_recovers_healthy_teams_and_audits_the_unreadable_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            claim = service.claim_routine_run(("anthropic", "openai"))
+            self.expire(service, claim["run_id"])
+            self.break_team(service)
+            self.assertEqual(set(service.routine_store.teams()), {"team_1", "team_2"})
+
+            routine_watchdog.check(service)
+
+            state = self.state(service)
+            self.assertEqual((state.runs, state.notices[-1].detail), ((), {"code": "interrupted", "actions": []}))
+            local_app.local_audit.record.assert_any_call(
+                "routine-watchdog",
+                result="error",
+                principal=routine_watchdog._PRINCIPAL,
+                team_id="team_2",
+                detail="team-check-failed",
+            )
+            # At startup the same Team stays a hard failure.
+            with self.assertRaises(routine_store.RoutineStoreError):
+                routine_watchdog.check(service, startup=True)
+
+    def test_an_unidentifiable_team_directory_still_fails_the_pass(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            path = service.routine_store._team_dir("team_2") / "state.json"
+            routine_store._PRIVATE.atomic_write(path, b'{"team_id":"Team 2"}', "Routine state")
+            with self.assertRaises(routine_store.RoutineStoreError):
+                routine_watchdog.check(service)
+
+    def test_claims_skip_an_unreadable_team_and_serve_the_healthy_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            self.break_team(service)
+
+            claim = service.claim_routine_run(("anthropic", "openai"))
+
+            self.assertEqual(claim["team_id"], "team_1")
+            local_app.local_audit.record_request.assert_any_call(
+                "routine-claim", result="error", team_id="team_2", detail="routine-state-unavailable"
+            )
+
+    def test_a_claim_whose_team_state_cannot_change_is_audited_and_passed_over(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            with mock.patch.object(service.routine_store, "update", side_effect=routine_store.RoutineStoreError("x")):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            local_app.local_audit.record_request.assert_any_call(
+                "routine-claim", result="error", team_id="team_1", detail="routine-state-unavailable"
+            )
+            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+
+    def test_a_team_whose_due_run_cannot_transition_is_audited_and_passed_over(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            # The state reads, but the record rules refuse its claim transition (e.g. an inconsistent notice).
+            refused = routine_run.record.RoutineStateError("notice-invalid")
+            with mock.patch.object(routine_run, "_claim", side_effect=refused):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            local_app.local_audit.record_request.assert_any_call(
+                "routine-claim", result="error", team_id="team_1", detail="routine-state-unavailable"
+            )
+            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+
+    def test_one_overdue_run_that_cannot_be_stopped_never_keeps_another_running(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            routine_run.register_routine_run(service, "team_1", "1" * 32, "token-1", 0)
+            routine_run.register_routine_run(service, "team_2", "2" * 32, "token-2", 0)
+            # The first run's Action cannot be proved stopped; the second run must still be stopped.
+            service._active_action_containers["team_1"] = ("token-1", object())
+            blocked = local_app.ApiProblem(HTTPStatus.SERVICE_UNAVAILABLE, "blocked", code="assistant-action-blocked")
+            with mock.patch.object(service.assistant_lifecycle, "_fail_stop_action", side_effect=blocked):
+                routine_watchdog.check(service)
+
+            self.assertLessEqual({"token-1", "token-2"}, service._cancelled_chat_tokens)
+            self.assertTrue(service._routine_runs["1" * 32].overdue)
+            local_app.local_audit.record.assert_any_call(
+                "routine-stop",
+                result="error",
+                principal=routine_watchdog._PRINCIPAL,
+                team_id="team_1",
+                detail="1" * 32,
+            )

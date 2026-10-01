@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from protocol.assistant.v1 import human_request_validator
@@ -44,6 +46,15 @@ def _claims() -> dict[str, object]:
 
 
 class PayloadEdgeCoverageTests(unittest.TestCase):
+    def test_turn_usage_golden_vectors_admit_only_the_closed_shape(self) -> None:
+        vectors = json.loads((Path(payload.__file__).with_name("vectors.json")).read_text(encoding="utf-8"))
+        for value in vectors["turn_usage"]["valid"]:
+            with self.subTest(value=value):
+                self.assertEqual(payload.canonical_turn_usage(value), value)
+        for value in vectors["turn_usage"]["invalid"]:
+            with self.subTest(value=value):
+                self.assertIsNone(payload.canonical_turn_usage(value))
+
     def test_positive_identifiers_metadata_and_storage_projections(self) -> None:
         self.assertEqual(payload.canonical_team_id("team_1"), "team_1")
         self.assertEqual(payload.canonical_assistant_id("assistant-one"), "assistant-one")

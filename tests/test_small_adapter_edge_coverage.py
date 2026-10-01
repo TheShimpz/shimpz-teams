@@ -296,7 +296,7 @@ class TokenAndProcessCoverageTests(unittest.TestCase):
 
     def test_hosted_chat_cleanup_maps_journal_failure(self) -> None:
         journal = mock.Mock()
-        journal.purge_replayable.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("offline")
+        journal.end_settled.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("offline")
         with (
             mock.patch.object(hosted_chat_lifecycle.runtime_state._human_challenges, "cancel_team", return_value=True),
             mock.patch.object(hosted_chat_lifecycle.runtime_state, "_action_execution_journal", return_value=journal),

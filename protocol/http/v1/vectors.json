@@ -1598,6 +1598,39 @@
       null
     ]
   },
+  "turn_usage": {
+    "valid": [
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 0, "models": [{"provider": "anthropic", "model": "claude-sonnet-5-5", "input_tokens": 2462, "output_tokens": 48}, {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 86400000, "models": [{"provider": "openai", "model": "gpt-6.1-sol", "input_tokens": 0, "output_tokens": 1000000000}]}
+    ],
+    "invalid": [
+      null,
+      [],
+      {"duration_ms": 6200},
+      {"duration_ms": 6200, "models": []},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}], "usd": 0.0015},
+      {"duration_ms": -1, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 86400001, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 6.2, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": true, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}, {"provider": "anthropic", "model": "claude-sonnet-5-5", "input_tokens": 2462, "output_tokens": 48}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}, {"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1331, "output_tokens": 36}]},
+      {"duration_ms": 6200, "models": [{"provider": "OpenAI", "model": "gpt-6-luna", "input_tokens": 1, "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "models/gpt-6-luna", "input_tokens": 1, "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "-gpt", "input_tokens": 1, "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": -1, "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1, "output_tokens": 1000000001}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": "1", "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1, "output_tokens": false}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1}]},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "gpt-6-luna", "input_tokens": 1, "output_tokens": 1, "cache_read_tokens": 0}]},
+      {"duration_ms": 6200, "models": [{"provider": 1, "model": "gpt-6-luna", "input_tokens": 1, "output_tokens": 1}]},
+      {"duration_ms": 6200, "models": ["openai"]},
+      {"duration_ms": 6200, "models": {"openai": 1}},
+      {"duration_ms": 6200, "models": [{"provider": "openai", "model": "m00", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m01", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m02", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m03", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m04", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m05", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m06", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m07", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m08", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m09", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m10", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m11", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m12", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m13", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m14", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m15", "input_tokens": 1, "output_tokens": 1}, {"provider": "openai", "model": "m16", "input_tokens": 1, "output_tokens": 1}]}
+    ]
+  },
   "chat_conversation": {
     "valid": [
       [],

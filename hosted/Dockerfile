@@ -7,7 +7,13 @@
 # process's own UID is unprivileged (10001) — defense-in-depth against trivial filesystem tampering,
 # not a claim that socket access itself is contained (holding the socket is host-root-equivalent).
 # Pinned by digest; bump deliberately.
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6
+
+# Obtain the exact uv binary from its attested OCI index; it never enters the runtime stage.
+FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
+ARG SOURCE_DATE_EPOCH=0
+
+# Resolve dependencies and the hash-verified Cosign binary outside the final image.
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
 ARG SOURCE_DATE_EPOCH=0
 
 ARG DEBIAN_SNAPSHOT=20260731T000000Z
@@ -26,13 +32,37 @@ RUN set -eux; \
     test "$(grep -Fc "https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" /etc/apt/sources.list.d/debian-snapshot.list)" -eq 2; \
     test "$(grep -Fc "https://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" /etc/apt/sources.list.d/debian-snapshot.list)" -eq 1
 
-ARG UV_VERSION=0.12.1
-# The hash pins the immutable versioned installer served by astral.sh.
-ARG UV_INSTALL_SHA256=d3f5412d38c99f9d024901843bf98206f0d2c6dbe64df40d0b740e2751ca62c1
 ARG COSIGN_VERSION=3.1.2
 ARG COSIGN_AMD64_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf
 ARG COSIGN_ARM64_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302
 ARG TARGETARCH
+
+# Downloaded + hash-checked BEFORE execution — never `curl | sh`.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && \
+    case "${TARGETARCH}" in \
+        amd64) cosign_sha256="${COSIGN_AMD64_SHA256}" ;; \
+        arm64) cosign_sha256="${COSIGN_ARM64_SHA256}" ;; \
+        *) echo "unsupported Cosign architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -LsSf "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
+        -o /tmp/cosign \
+    && echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c - \
+    && install -m 0755 /tmp/cosign /usr/local/bin/cosign \
+    && rm -f /tmp/cosign
+
+WORKDIR /app
+COPY --from=uv /uv /usr/local/bin/uv
+# BuildKit is required: read-only bind mounts keep dependency metadata out of every image layer while the
+# frozen lock binds Docker SDK's complete transitive graph and artifact hashes.
+RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
+    --mount=type=bind,source=uv.lock,target=/app/uv.lock,ro \
+    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
+    rm -rf /root/.cache/uv
+
+# Minimal runtime: no APT toolchain, curl, or uv; only the virtual environment and Cosign.
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS runtime
+ARG SOURCE_DATE_EPOCH=0
+
 # Must match the GID that owns /var/run/docker.sock on the host (stat -c '%g' /var/run/docker.sock).
 ARG DOCKER_GID=989
 # Fixed GID for Team's token group — the caller (admin, uid 1000) joins it to read the token.
@@ -48,28 +78,6 @@ ARG SHIMPZ_ACCOUNT_TEAM_AUTHORITY_TOKEN_GID=10019
 ARG SHIMPZ_BRAIN_RUNTIME_TOKEN_GID=10016
 ARG SHIMPZ_ASSISTANT_EGRESS_POLICY_GID=10017
 
-# Downloaded + hash-checked BEFORE execution — never `curl | sh`.
-RUN apt-get update && apt-get install -y --no-install-recommends curl && \
-    curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" -o /tmp/uv-install.sh && \
-    echo "${UV_INSTALL_SHA256}  /tmp/uv-install.sh" | sha256sum -c - && \
-    env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh /tmp/uv-install.sh && \
-    rm -f /tmp/uv-install.sh && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /var/lib/apt/periodic/* /var/cache/apt/* /var/cache/fontconfig/* \
-        /var/cache/ldconfig/aux-cache /var/cache/man/* /var/log/apt/* \
-        /var/log/alternatives.log /var/log/dpkg.log /root/.cache/uv
-
-RUN case "${TARGETARCH}" in \
-        amd64) cosign_sha256="${COSIGN_AMD64_SHA256}" ;; \
-        arm64) cosign_sha256="${COSIGN_ARM64_SHA256}" ;; \
-        *) echo "unsupported Cosign architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -LsSf "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
-        -o /tmp/cosign \
-    && echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c - \
-    && install -m 0755 /tmp/cosign /usr/local/bin/cosign \
-    && rm -f /tmp/cosign
-
 # Every shared capability has a distinct supplementary group.
 RUN groupadd -g "${DOCKER_GID}" dockersock \
     && groupadd -g "${SHIMPZ_TEAM_TOKEN_GID}" shimpzteam-token \
@@ -84,12 +92,8 @@ RUN groupadd -g "${DOCKER_GID}" dockersock \
         -M -s /usr/sbin/nologin shimpzteam
 
 WORKDIR /app
-# BuildKit is required: read-only bind mounts keep dependency metadata out of every image layer while the
-# frozen lock binds Docker SDK's complete transitive graph and artifact hashes.
-RUN --mount=type=bind,source=pyproject.toml,target=/app/pyproject.toml,ro \
-    --mount=type=bind,source=uv.lock,target=/app/uv.lock,ro \
-    UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
-    rm -rf /root/.cache/uv
+COPY --from=dependencies /opt/venv /opt/venv
+COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign
 
 COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
      hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \

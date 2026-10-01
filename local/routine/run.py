@@ -94,6 +94,33 @@ def _provider(self, team_id: str, providers: tuple[str, ...]) -> str | None:
     return provider if provider in providers else None
 
 
+def _state_unavailable(team_id: str) -> None:
+    local_audit.record_request("routine-claim", result="error", team_id=team_id, detail="routine-state-unavailable")
+
+
+def _readable_states(self, teams: tuple[str, ...]) -> dict[str, record.TeamRoutines]:
+    """Each identified Team's Routine state; one that cannot be read is audited and left out, never blocking others."""
+    states = {}
+    for team_id in teams:
+        try:
+            states[team_id] = routine_state.load(self, team_id)
+        except ApiProblem:
+            _state_unavailable(team_id)
+    return states
+
+
+def _claim_team(self, team_id: str, now: int, key: str):
+    """Lease one due run of the Team, or None; a Team whose state cannot be changed is audited and passed over."""
+    # Teardown holds the Team lifecycle lock while it takes the Routine lock; the contract check inside the claim
+    # needs the lifecycle lock too, so it is taken first here, in the same order, never inside the Routine lock.
+    with self._lock(team_id):
+        try:
+            return routine_state.update(self, team_id, lambda state: _claim(self, team_id, state, now, key))
+        except ApiProblem, record.RoutineStateError:
+            _state_unavailable(team_id)
+            return None
+
+
 def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
@@ -105,9 +132,8 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     except local_authority.SupervisorUnavailableError:
         return None
     now = int(time.time())
-    teams = routine_state.call(self.routine_store.teams)
-    states = {team_id: routine_state.load(self, team_id) for team_id in teams}
-    for team_id in sorted(teams, key=lambda team: (states[team].served_at, team)):
+    states = _readable_states(self, routine_state.call(self.routine_store.teams))
+    for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
         provider = _provider(self, team_id, providers)
         if provider is None or _chat_busy(self, team_id):
             continue
@@ -117,10 +143,7 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
             except ApiProblem:
                 # Nothing more starts for this Team until what its ended runs hold is removed.
                 continue
-        # Teardown holds the Team lifecycle lock while it takes the Routine lock; the contract check inside the claim
-        # needs the lifecycle lock too, so it is taken first here, in the same order, never inside the Routine lock.
-        with self._lock(team_id):
-            claim = routine_state.update(self, team_id, lambda state, team=team_id: _claim(self, team, state, now, key))
+        claim = _claim_team(self, team_id, now, key)
         if claim is not None:
             local_audit.record_request("routine-claim", result="ok", team_id=team_id, detail=claim.run.run_id)
             return {
@@ -444,12 +467,21 @@ def stop_routine_run(self, team_id: str, run_id: str) -> bool:
     return True
 
 
-def stop_overdue(self) -> None:
-    """Stop every running segment whose run spent its active time; each then ends failed, not stopped."""
+def stop_overdue(self) -> tuple[tuple[str, str], ...]:
+    """Stop every running segment whose run spent its active time; each then ends failed, not stopped.
+
+    One run whose stop fails never keeps the others running: its Team and run are returned for the caller to audit,
+    and the next pass tries it again.
+    """
     now = time.monotonic()
     with self._active_chat_guard:
         overdue = [(run_id, item) for run_id, item in self._routine_runs.items() if item.deadline <= now]
         for run_id, item in overdue:
             self._routine_runs[run_id] = dataclasses.replace(item, overdue=True)
+    failed = []
     for run_id, item in overdue:
-        stop_routine_run(self, item.team_id, run_id)
+        try:
+            stop_routine_run(self, item.team_id, run_id)
+        except ApiProblem:
+            failed.append((item.team_id, run_id))
+    return tuple(failed)
