@@ -38,7 +38,8 @@ COPY local/__init__.py local/activity.py local/app.py local/audit.py local/autho
 COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/
-COPY assistant/__init__.py assistant/genesis.py assistant/manifest.py assistant/spec.py ./assistant/
+COPY assistant/__init__.py assistant/action_schema.py assistant/genesis.py assistant/manifest.py assistant/spec.py \
+    ./assistant/
 COPY chat/__init__.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/

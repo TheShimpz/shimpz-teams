@@ -9,18 +9,18 @@ import tarfile
 import threading
 import tomllib
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError, ValidationError
+from jsonschema.exceptions import ValidationError
 from referencing import Registry
 from referencing.exceptions import Unresolvable
 
+from assistant import action_schema
 from core import strict_json
 from integrations import providers as integration_providers
 
@@ -28,6 +28,8 @@ MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
 CONTRACT_PATH = "/opt/shimpz/shimpz.contract.json"
 MAX_MANIFEST_BYTES = 256 * 1024
 MAX_CONTRACT_BYTES = 512 * 1024
+# Each Action schema has its own JSON value bound; this one keeps up to 128 Actions from adding up to dense data.
+MAX_CONTRACT_NODES = 32_768
 MAX_CATALOG_ASSISTANTS = 32
 MAX_CATALOG_BYTES = MAX_CATALOG_ASSISTANTS * MAX_CONTRACT_BYTES + 64 * 1024
 MAX_ARCHIVE_BYTES = MAX_MANIFEST_BYTES + (32 * 1024)
@@ -310,176 +312,16 @@ def _strict_json(raw: bytes, *, maximum: int, kind: str) -> object:
         raise ManifestError(f"Assistant {kind} is invalid JSON") from exc
 
 
-_SCHEMA_KEYWORDS = frozenset(
-    {
-        "additionalProperties",
-        "propertyNames",
-        "items",
-        "contains",
-        "not",
-        "if",
-        "then",
-        "else",
-    }
-)
-_SCHEMA_MAP_KEYWORDS = frozenset(
-    {
-        "properties",
-        "patternProperties",
-        "dependentSchemas",
-        "$defs",
-        "definitions",
-    }
-)
-_SCHEMA_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
-_OBJECT_KEYWORDS = frozenset(
-    {
-        "properties",
-        "patternProperties",
-        "additionalProperties",
-        "required",
-        "minProperties",
-        "maxProperties",
-        "dependentRequired",
-        "dependentSchemas",
-        "propertyNames",
-    }
-)
-
-
-def _subschema_permits_object(node: dict[str, Any]) -> bool:
-    schema_type = node.get("type")
-    return (
-        schema_type == "object"
-        or (isinstance(schema_type, list) and "object" in schema_type)
-        or (schema_type is None and bool(node.keys() & _OBJECT_KEYWORDS))
-    )
-
-
-def _child_subschemas(node: dict[str, Any]) -> Iterator[object]:
-    for keyword in _SCHEMA_KEYWORDS:
-        child = node.get(keyword)
-        if child is not None and not (keyword == "additionalProperties" and child is False):
-            yield child
-    for keyword in _SCHEMA_MAP_KEYWORDS:
-        children = node.get(keyword)
-        if isinstance(children, dict):
-            yield from children.values()
-    for keyword in _SCHEMA_LIST_KEYWORDS:
-        children = node.get(keyword)
-        if isinstance(children, list):
-            yield from children
-
-
-def _reject_open_or_boolean_subschema(node: object, *, kind: str) -> None:
-    if isinstance(node, bool):
-        raise ManifestError(f"Assistant Action {kind} schema must not use a boolean subschema")
-    if not isinstance(node, dict):
-        raise ManifestError(f"Assistant Action {kind} schema subschema is invalid")
-    if _subschema_permits_object(node) and node.get("additionalProperties") is not False:
-        raise ManifestError(f"Assistant Action {kind} schema must close every object")
-    for child in _child_subschemas(node):
-        _reject_open_or_boolean_subschema(child, kind=kind)
-
-
-def _plain_json(value: object) -> bool:
-    if type(value) is dict:
-        return all(type(key) is str and _plain_json(child) for key, child in value.items())
-    if type(value) is list:
-        return all(_plain_json(child) for child in value)
-    return value is None or type(value) in (str, int, float, bool)
-
-
-_DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"
-# A reference may name only the root or one direct definition. Both are walked schema positions, so a reference never
-# executes a const, enum, default, or examples value as a schema. A percent escape is refused because the resolver
-# decodes it before it splits the pointer.
-_LOCAL_REFERENCE = re.compile(r"#(?:/(?:\$defs|definitions)/[^/%]+)?")
-# The Draft 2020-12 positions that hold subschemas; every other value, such as a property name or a const, enum,
-# default, or examples value, is data and never a reference.
-_APPLICATOR_KEYWORDS = frozenset(
-    {
-        "additionalProperties",
-        "contains",
-        "contentSchema",
-        "else",
-        "if",
-        "items",
-        "not",
-        "propertyNames",
-        "then",
-        "unevaluatedItems",
-        "unevaluatedProperties",
-    }
-)
-_APPLICATOR_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"})
-_APPLICATOR_MAP_KEYWORDS = frozenset({"$defs", "definitions", "dependentSchemas", "patternProperties", "properties"})
-
-
-def _applied_subschemas(node: Mapping[str, Any]) -> Iterator[object]:
-    # The metaschema check already proved each applicator value has its Draft 2020-12 shape.
-    for keyword in _APPLICATOR_KEYWORDS & node.keys():
-        yield node[keyword]
-    for keyword in _APPLICATOR_LIST_KEYWORDS & node.keys():
-        yield from node[keyword]
-    for keyword in _APPLICATOR_MAP_KEYWORDS & node.keys():
-        yield from node[keyword].values()
-
-
-def _schema_node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None:
-    reference = node.get("$ref", "#")
-    if "$dynamicRef" in node or not (isinstance(reference, str) and _LOCAL_REFERENCE.fullmatch(reference)):
-        return "must reference only its root or a named definition"
-    # Another dialect would apply keywords this walk never reads, and a nested base URI could rebind a reference.
-    if node.get("$schema", _DRAFT_2020_12) != _DRAFT_2020_12:
-        return "must use only the Draft 2020-12 dialect"
-    if nested and "$id" in node:
-        return "must not declare a nested identifier"
-    return None
-
-
-def _reject_unwalked_references(schema: Mapping[str, Any], *, kind: str) -> None:
-    # A reviewed package is immutable: every reference must land on a schema position this walk has checked.
-    pending: list[object] = [schema]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, Mapping):
-            problem = _schema_node_problem(node, nested=node is not schema)
-            if problem is not None:
-                raise ManifestError(f"Assistant Action {kind} schema {problem}")
-            pending.extend(_applied_subschemas(node))
-
-
 def action_schema_validator(schema: dict[str, Any]) -> Draft202012Validator:
     """Build a validator for a reviewed Action schema that resolves references only inside that schema."""
     return Draft202012Validator(schema, registry=Registry())
 
 
-@lru_cache(maxsize=256)
-def _check_machine_schema_json(encoded: bytes) -> None:
-    # The cached verdict applies to this exact JSON, never to a mutable caller object.
-    Draft202012Validator.check_schema(json.loads(encoded))
-
-
 def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or value.get("type") != "object":
-        raise ManifestError(f"Assistant Action {kind} schema must describe an object")
     try:
-        encoded = json.dumps(value, allow_nan=False, separators=(",", ":")).encode()
-    except (TypeError, ValueError, RecursionError) as exc:
-        raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
-    try:
-        if len(encoded) <= 4096 and _plain_json(value):
-            _check_machine_schema_json(encoded)
-        else:
-            Draft202012Validator.check_schema(value)
-    except (SchemaError, RecursionError) as exc:
-        raise ManifestError(f"Assistant Action {kind} schema is invalid") from exc
-    if len(encoded) > 128 * 1024:
-        raise ManifestError(f"Assistant Action {kind} schema is too large")
-    _reject_unwalked_references(value, kind=kind)
-    _reject_open_or_boolean_subschema(value, kind=kind)
-    return value
+        return action_schema.admitted(value)
+    except action_schema.ActionSchemaError as exc:
+        raise ManifestError(f"Assistant Action {kind} schema {exc}") from exc.__cause__
 
 
 def canonical_machine_contract(
@@ -490,6 +332,8 @@ def canonical_machine_contract(
     """Validate and canonicalize an untrusted SDK-generated Action contract."""
     if not isinstance(value, dict) or set(value) != {"version", "actions"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
+    if not action_schema.json_nodes_within(value, MAX_CONTRACT_NODES):
+        raise ManifestError("Assistant machine contract is too large")
     raw_actions = value["actions"]
     if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 128:
         raise ManifestError("Assistant machine contract Actions are invalid")

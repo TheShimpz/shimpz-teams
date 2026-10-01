@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from assistant import action_schema
 from assistant import manifest as assistant_manifest
 
 FIXTURE_MANIFEST = Path(__file__).resolve().parent / "fixtures" / "reference-assistant" / "shimpz.toml"
@@ -555,8 +556,8 @@ class AssistantManifestTests(unittest.TestCase):
             with self.subTest(contract=contract), self.assertRaises(assistant_manifest.ManifestError):
                 assistant_manifest.canonical_machine_contract(contract, reviewed.integrations)
 
-        with self.assertRaisesRegex(assistant_manifest.ManifestError, "subschema"):
-            assistant_manifest._reject_open_or_boolean_subschema([], kind="input")
+        with self.assertRaisesRegex(action_schema.ActionSchemaError, "subschema"):
+            action_schema._reject_open_or_boolean_subschema([])
         schema_with_list = {
             "type": "object",
             "additionalProperties": False,
@@ -583,6 +584,64 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest._machine_schema(
                 {"type": "object", "additionalProperties": False, "const": float("nan")}, kind="input"
             )
+
+    def test_machine_contract_bounds_every_json_value_of_each_schema_and_the_whole_contract(self) -> None:
+        def schema(nodes: int) -> dict[str, object]:
+            # Root, type, additionalProperties, and the default and const containers are five values; nested rows of
+            # three values and scalar literals fill the rest.
+            data = nodes - 5
+            return {
+                "type": "object",
+                "additionalProperties": False,
+                "default": [{"a": [None]}] * (data // 3),
+                "const": [0] * (data % 3),
+            }
+
+        def contract(input_nodes: int, output_nodes: int, actions: int = 1) -> dict[str, object]:
+            return {
+                "version": 1,
+                "actions": [
+                    {
+                        "id": f"run-{index}",
+                        "input_schema": schema(input_nodes),
+                        "output_schema": schema(output_nodes),
+                        "integrations": [],
+                        "stored_inputs": [],
+                        "human_requests": [],
+                    }
+                    for index in range(actions)
+                ],
+            }
+
+        limit = 4096
+        for input_nodes, output_nodes in ((limit, 5), (5, limit)):
+            admitted = assistant_manifest.canonical_machine_contract(contract(input_nodes, output_nodes), ())
+            self.assertEqual(len(admitted["actions"]), 1)
+        for input_nodes, output_nodes, kind in ((limit + 1, 5, "input"), (5, limit + 1, "output")):
+            with self.assertRaisesRegex(assistant_manifest.ManifestError, f"{kind} schema is too large"):
+                assistant_manifest.canonical_machine_contract(contract(input_nodes, output_nodes), ())
+        # The bound is checked before any metaschema work, so excess data in an otherwise invalid schema is refused
+        # as too large.
+        invalid = {**schema(limit + 1), "required": "invalid"}
+        with (
+            mock.patch.object(action_schema.Draft202012Validator, "check_schema") as check_schema,
+            self.assertRaisesRegex(assistant_manifest.ManifestError, "too large"),
+        ):
+            assistant_manifest._machine_schema(invalid, kind="input")
+        check_schema.assert_not_called()
+
+        # Eight Actions of two schemas each: three contract values, five values per Action, one schema of 2,050
+        # values, and fifteen of 2,045 make 32,768 values, with every schema below its own bound.
+        whole = contract(2045, 2045, actions=8)
+        whole["actions"][0]["input_schema"] = schema(2050)
+        self.assertEqual(3 + 8 * 5 + 2050 + 15 * 2045, 32_768)
+        self.assertEqual(len(assistant_manifest.canonical_machine_contract(whole, ())["actions"]), 8)
+        whole["actions"][0]["output_schema"]["const"].append(0)
+        with self.assertRaisesRegex(assistant_manifest.ManifestError, "machine contract is too large"):
+            assistant_manifest.canonical_machine_contract(whole, ())
+
+        self.assertTrue(action_schema.json_nodes_within({"a": [1, ("b",)]}, 5))
+        self.assertFalse(action_schema.json_nodes_within({"a": [1, ("b",)]}, 4))
 
     def test_reviewed_catalog_file_and_entry_shapes_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

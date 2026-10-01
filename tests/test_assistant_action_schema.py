@@ -8,6 +8,7 @@ from unittest import mock
 
 from test_assistant_manifest import _reviewed_catalog
 
+from assistant import action_schema
 from assistant import manifest as assistant_manifest
 
 
@@ -131,8 +132,8 @@ class AssistantActionSchemaTests(unittest.TestCase):
 
         current = json.loads(json.dumps(reviewed.machine_contract))
         schema = current["actions"][0]["input_schema"]
-        schema.update({"$schema": assistant_manifest._DRAFT_2020_12, "$id": "https://example.test/action.json"})
-        schema["properties"]["page"] = {"$schema": assistant_manifest._DRAFT_2020_12, "type": "integer"}
+        schema.update({"$schema": action_schema._DRAFT_2020_12, "$id": "https://example.test/action.json"})
+        schema["properties"]["page"] = {"$schema": action_schema._DRAFT_2020_12, "type": "integer"}
         parsed = assistant_manifest.parse_machine_contract(json.dumps(current).encode(), reviewed.integrations)
         self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
@@ -197,7 +198,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
             "required": ["value"],
             "properties": {"value": {"type": "string"}},
         }
-        assistant_manifest._check_machine_schema_json.cache_clear()
+        action_schema._check_schema_json.cache_clear()
         check_schema = assistant_manifest.Draft202012Validator.check_schema
         try:
             with mock.patch.object(
@@ -222,7 +223,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                     assistant_manifest._machine_schema(schema, kind="input")
                 self.assertEqual(checked.call_count, 4)
         finally:
-            assistant_manifest._check_machine_schema_json.cache_clear()
+            action_schema._check_schema_json.cache_clear()
 
     def test_deep_machine_schema_fails_closed_on_validator_recursion(self) -> None:
         schema: dict[str, object] = {"type": "object", "additionalProperties": False}
