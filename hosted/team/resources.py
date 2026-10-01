@@ -638,6 +638,10 @@ def _require_network_policy(
             HTTPStatus.SERVICE_UNAVAILABLE,
             f"Team isolation is blocked: invalid or contaminated {kind} network",
         )
+    # An already-attached proxy is used by every egress-declaring Assistant without passing _safe_connect again.
+    for metadata in containers.values():
+        if network_policy.assistant_egress_member(metadata):
+            _require_assistant_egress_image(metadata)
     if inspect_memo is not None:
         inspect_memo[memo_key] = True
 
@@ -689,8 +693,8 @@ def _already_connected(exc: docker.errors.APIError) -> bool:
     )
 
 
-def _require_assistant_egress_image(container) -> None:
-    """Refuse a proxy that is not the exact pinned egress artifact before any Team network can reach it."""
+def _require_assistant_egress_image(metadata: dict) -> None:
+    """Refuse a proxy that is not the exact pinned egress artifact before any Team network can use it."""
     expected = network_policy.ASSISTANT_EGRESS_IMAGE
     try:
         expected_id = runtime_state._docker.images.get(expected).id
@@ -701,7 +705,7 @@ def _require_assistant_egress_image(container) -> None:
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Assistant egress proxy is unavailable",
         ) from exc
-    if not network_policy.image_identity_valid(container.attrs, expected, expected_id):
+    if not network_policy.image_identity_valid(metadata, expected, expected_id):
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its pinned image contract",
@@ -732,7 +736,7 @@ def _safe_connect(network, container_name: str, *, aliases: list[str] | None = N
                 f"required shared-plane container {container_name!r} has invalid role metadata",
             )
         if expected_shared_role == network_policy.ASSISTANT_EGRESS_ROLE:
-            _require_assistant_egress_image(container)
+            _require_assistant_egress_image(container.attrs)
     try:
         network.connect(container, aliases=aliases)
     except docker.errors.APIError as exc:

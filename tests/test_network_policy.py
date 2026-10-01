@@ -653,7 +653,18 @@ def test_required_image_reference_fails_closed() -> None:
             policy.require_image_reference(value, setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE") == value,
             "an exact image reference is admitted unchanged",
         )
-    for value in ("", " shimpz-egress", "shimpz egress", "-egress", None, "a" * 513):
+    for value in (
+        "",
+        " shimpz-egress:v1",
+        "shimpz egress:v1",
+        "-egress:v1",
+        None,
+        "shimpz-egress",
+        "shimpz-egress:",
+        "ghcr.io/theshimpz/shimpz-egress@sha256:abc",
+        "ghcr.io/theshimpz/shimpz-egress@sha512:" + "a" * 128,
+        "a/" * 128 + "b:v1",
+    ):
         try:
             policy.require_image_reference(value, setting="SHIMPZ_ASSISTANT_EGRESS_IMAGE")
         except RuntimeError as exc:

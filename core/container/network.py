@@ -44,7 +44,16 @@ ASSISTANT_EGRESS_CONTAINER = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_CONTAINER",
 # The deployable that instantiates the Assistant egress proxy passes Team the exact same image reference. There is
 # deliberately no default: Team refuses to start without it and refuses any proxy that is not that exact artifact.
 ASSISTANT_EGRESS_IMAGE = os.environ.get("SHIMPZ_ASSISTANT_EGRESS_IMAGE", "")
-_IMAGE_REFERENCE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/:@-]{0,511}")
+# Docker's reference grammar, narrowed to an explicit tag and/or sha256 digest so an implicit ``latest`` never pins.
+_DOMAIN_COMPONENT = r"(?:[A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9])"
+_PATH_COMPONENT = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
+_IMAGE_REFERENCE = re.compile(
+    rf"(?P<name>(?:{_DOMAIN_COMPONENT}(?:\.{_DOMAIN_COMPONENT})*(?::[0-9]+)?/)?"
+    rf"{_PATH_COMPONENT}(?:/{_PATH_COMPONENT})*)"
+    r"(?=[:@])(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?",
+    re.ASCII,
+)
+DOCKER_IMAGE_NAME_MAX = 255
 
 ASSISTANT_ID_RE = re.compile(r"^[a-z](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 EXPECTED_RUNTIME_CAP_ADD = frozenset()
@@ -64,8 +73,9 @@ def _normalized_capabilities(values: object) -> set[str]:
 
 
 def image_reference_valid(value: object) -> bool:
-    """Whether a value is one non-empty Docker image reference spelling."""
-    return isinstance(value, str) and _IMAGE_REFERENCE.fullmatch(value) is not None
+    """Whether a value is one Docker image reference with an explicit tag or sha256 digest."""
+    match = _IMAGE_REFERENCE.fullmatch(value) if isinstance(value, str) else None
+    return match is not None and len(match.group("name")) <= DOCKER_IMAGE_NAME_MAX
 
 
 def require_image_reference(value: object, *, setting: str) -> str:
@@ -309,9 +319,14 @@ def shared_service_identity_valid(metadata: Mapping, expected_role: str | None =
     return all(labels.get(key) == value for key, value in expected.items())
 
 
+def assistant_egress_member(metadata: Mapping) -> bool:
+    """Whether a container claims the configured Assistant egress proxy name."""
+    return _container_name(metadata) == ASSISTANT_EGRESS_CONTAINER
+
+
 def assistant_egress_image_valid(metadata: Mapping, expected_image_id: str) -> bool:
     """Whether a Team network member is not the Assistant egress proxy or runs its exact pinned artifact."""
-    return _container_name(metadata) != ASSISTANT_EGRESS_CONTAINER or image_identity_valid(
+    return not assistant_egress_member(metadata) or image_identity_valid(
         metadata,
         ASSISTANT_EGRESS_IMAGE,
         expected_image_id,
