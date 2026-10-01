@@ -76,7 +76,11 @@ def _require_assistant_allowed_hosts(
             spec.contract.machine_contract,
             summary=spec.summary,
         )
-        _assistant_language(spec, container)
+        runtime_state._assistant_language_cache.get(
+            container,
+            spec.contract.machine_contract,
+            spec.contract.pack_digest,
+        )
     except assistant_manifest.ManifestError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
@@ -86,15 +90,17 @@ def _require_assistant_allowed_hosts(
 
 
 def _assistant_language(
-    spec: assistant_registry.AssistantSpec,
+    contract: assistant_registry.AssistantContract,
     container,
 ) -> assistant_language.LanguagePack:
     """The verified language pack of this exact container generation and its reviewed binding (ADR-0091)."""
-    return runtime_state._assistant_language_cache.get(
-        container,
-        spec.contract.machine_contract,
-        spec.contract.pack_digest,
-    )
+    try:
+        return runtime_state._assistant_language_cache.get(container, contract.machine_contract, contract.pack_digest)
+    except assistant_manifest.ManifestError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "installed Assistant manifest failed its reviewed contract",
+        ) from exc
 
 
 def _admit_assistant_contract(

@@ -179,6 +179,7 @@ class AssistantLifecycle:
     _validate_current_assistant_artifact = local_assistant_resources._validate_current_assistant_artifact
     _validate_container = local_assistant_resources._validate_container
     _active_assistant_genesis = local_chat_state._active_assistant_genesis
+    _assistant_language = local_chat_state._assistant_language
     _admit_assistant_allowed_hosts = local_chat_state._admit_assistant_allowed_hosts
 
     _close_exec_stream = staticmethod(local_assistant_rpc._close_exec_stream)
@@ -581,6 +582,7 @@ class LocalController:
                 action_spec,
                 private,
                 validate_action_payload,
+                spec,
             )
         except action_execution.StoredInputRejectedError as exc:
             local_chat_execution.clear_rejected_stored_input(

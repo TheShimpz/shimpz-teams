@@ -43,7 +43,8 @@ class SegmentRequest:
     message: str | None = None
     # Committed presentation history before a new turn; never set for a continuation.
     conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = ()
-    # The interface language a new turn is written in; a continuation keeps the one its start pinned (ADR-0090).
+    # The interface language a new turn is written in; a continuation carries the one its start pinned, so a later
+    # request of the same turn renders in it (ADR-0090, ADR-0091).
     locale: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
@@ -64,6 +65,35 @@ def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_c
             brain_runtime_client.RuntimeAction(id=action_id, summary=action.summary, input_schema=action.input_schema)
             for action_id, action in sorted(active.spec.actions.items())
         ),
+    )
+
+
+def _human_requirement(
+    self,
+    bindings: dict[str, _ActiveAssistant],
+    action_request: brain_runtime_client.ActionRequest,
+    human_request: action_human.HumanRequest,
+    locale: str,
+) -> action_challenges.HumanRequirement:
+    """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091)."""
+    active = _required_active_assistant(bindings, action_request.assistant_id)
+    action = active.spec.actions.get(action_request.action)
+    if action is None:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+    try:
+        copy = action_challenges.render_copy(human_request, self._assistant_language(active), locale)
+    except action_challenges.HumanChallengeError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
+    return action_challenges.HumanRequirement(
+        active.spec.assistant_id,
+        active.spec.name,
+        action_request.action,
+        action.summary,
+        action_request.interrupt_id,
+        human_request,
+        active.spec.version,
+        copy,
+        help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
     )
 
 
@@ -102,21 +132,9 @@ def _run_chat_segment_with_metadata(
     def human_requirement(
         action_request: brain_runtime_client.ActionRequest,
         human_request: action_human.HumanRequest,
+        locale: str,
     ) -> action_challenges.HumanRequirement:
-        active = _required_active_assistant(bindings, action_request.assistant_id)
-        action = active.spec.actions.get(action_request.action)
-        if action is None:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
-        return action_challenges.HumanRequirement(
-            active.spec.assistant_id,
-            active.spec.name,
-            action_request.action,
-            action.summary,
-            action_request.interrupt_id,
-            human_request,
-            active.spec.version,
-            help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
-        )
+        return _human_requirement(self, bindings, action_request, human_request, locale)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
         nonlocal bindings, identity, network_id, contracts
@@ -247,4 +265,5 @@ def _run_chat_segment_with_metadata(
         requirements.integrations,
         requirements.human,
         contracts,
+        request.locale,
     )

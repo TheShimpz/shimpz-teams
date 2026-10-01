@@ -291,9 +291,12 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             "action_summary": "Summary",
             "interrupt_id": "interrupt",
             "request": {},
+            "messages": [],
             "assistant_version": "0.4.2",
+            "copy": {},
             "help_url": None,
             "purpose": None,
+            "purpose_locale": None,
         }
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._human_requirement(invalid_human)

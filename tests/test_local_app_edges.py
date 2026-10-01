@@ -555,6 +555,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
         spec.stored_inputs = {"whatsapp-token": declaration}
+        spec.machine_contract = {"messages": []}
         token = "whatsapp-private-token-123456789"
         response = action_human.HumanResponse(
             "input:password",

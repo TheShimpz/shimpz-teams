@@ -13,6 +13,10 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 importlib.import_module("hosted")
 importlib.import_module("hosted.team")
+# Requests, their rendered copy, and language packs built by shared test fixtures must be the classes the loaded
+# app checks, so these Docker-free modules are shared with the test process (ADR-0091).
+importlib.import_module("action.challenges")
+importlib.import_module("assistant.language")
 
 _MODULES_BEFORE_APP_LOAD = dict(sys.modules)
 

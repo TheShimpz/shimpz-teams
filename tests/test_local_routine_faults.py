@@ -33,6 +33,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from routine import record
+from tests import human_request_fixtures
 
 
 def broken(*_args, **_kwargs):
@@ -68,8 +69,7 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_an_unanswerable_authentication_ends_the_run_instead_of_freezing(self) -> None:
         descriptor = {"kind": "auth:totp", "ordinal": 0, "title": "Confirm", "description": "Confirm identity."}
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        totp = action_human.validate_request(descriptor, ("auth:totp",))
+        totp = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:totp",))
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.paused(directory, totp)
             result = self.run_claim(service, claim)

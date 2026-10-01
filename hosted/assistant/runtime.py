@@ -89,6 +89,8 @@ class _PendingHostedChat:
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # The interface language the turn's start pinned (ADR-0091).
+    locale: str | None = None
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:
@@ -603,6 +605,11 @@ def _project_hosted_action_result(
                 declared_stored_inputs=tuple(action_spec.stored_inputs),
                 supplied_stored_inputs=frozenset(private.stored_inputs)
                 | frozenset(private.transcript.submitted_stored_inputs()),
+                catalog=(
+                    action_human.catalog_by_id(request.contract.machine_contract)
+                    if action_spec.human_requests
+                    else None
+                ),
             ),
         )
     except action_execution.StoredInputRejectedError as exc:

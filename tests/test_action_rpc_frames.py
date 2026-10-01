@@ -30,6 +30,9 @@ from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy
 from local.assistant import rpc as local_assistant_rpc
+from tests import human_request_fixtures
+
+CATALOG = human_request_fixtures.CATALOG
 
 
 def _frame(stream_id: int, payload: bytes) -> bytes:
@@ -298,22 +301,28 @@ class ActionRpcFrameTests(unittest.TestCase):
                 )
 
     def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
-        request = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Publish zone",
-            "description": "Publish this reviewed DNS zone.",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "approval", title="Publish zone", description="Publish this reviewed DNS zone."
+        )
 
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
             action_execution.project_rpc_result(
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
-                action_execution.RpcResultPolicy(human_requests=("approval",)),
+                action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
             )
         self.assertEqual(suspended.exception.request.payload(), request)
+
+        # A reference to a message the reviewed catalog does not declare is refused (ADR-0091).
+        for catalog in (None, {}):
+            with self.subTest(catalog=catalog), self.assertRaises(action_execution.RpcInvalidResultError):
+                action_execution.project_rpc_result(
+                    {"type": "request", "request": request},
+                    {},
+                    lambda value: value,
+                    action_execution.RpcResultPolicy(human_requests=("approval",), catalog=catalog),
+                )
 
         with self.assertRaises(action_execution.RpcInvalidResultError):
             action_execution.project_rpc_result(
@@ -323,6 +332,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 action_execution.RpcResultPolicy(
                     human_requests=("approval",),
                     authorization_requested=True,
+                    catalog=CATALOG,
                 ),
             )
 
@@ -334,19 +344,17 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
 
     def test_rpc_projects_exact_stored_input_requests_and_rejections(self) -> None:
-        request = {
-            "kind": "input:password",
-            "ordinal": 0,
-            "title": "Connect WhatsApp",
-            "description": "Provide the token once.",
-            "label": "WhatsApp token",
-            "required": True,
-            "placeholder": None,
-            "min_length": 1,
-            "max_length": 1024,
-            "stored_input": "whatsapp-token",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "input:password",
+            title="Connect WhatsApp",
+            description="Provide the token once.",
+            label="WhatsApp token",
+            required=True,
+            placeholder=None,
+            min_length=1,
+            max_length=1024,
+            stored_input="whatsapp-token",
+        )
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
             action_execution.project_rpc_result(
                 {"type": "request", "request": request},
@@ -355,6 +363,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 action_execution.RpcResultPolicy(
                     human_requests=("input:password",),
                     declared_stored_inputs=("whatsapp-token",),
+                    catalog=CATALOG,
                 ),
             )
         self.assertEqual(suspended.exception.request.stored_input, "whatsapp-token")

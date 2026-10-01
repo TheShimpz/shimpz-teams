@@ -2,35 +2,47 @@
 
 from __future__ import annotations
 
+import copy
 import time
 import unittest
 from dataclasses import replace
+
+import test_local_chat_continuations
 
 from action import challenges as action_challenges
 from action import human as action_human
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from local.chat import continuation
+from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 from protocol.http.v1 import payload as http_payload
+from tests import catalog_fixtures, human_request_fixtures
 
 HELP_URL = "https://dashboard.exa.ai/api-keys"
 PURPOSE = "To bring today's AI news, I need to search the web with Exa."
 
 
 def _request(kind: str, *, stored_input: str | None = None) -> action_human.HumanRequest:
-    descriptor: dict[str, object] = {"kind": kind, "ordinal": 0, "title": "Exa API key", "description": "Key."}
+    fields: dict[str, object] = {"title": "Exa API key", "description": "Key."}
     if kind == "input:password":
-        descriptor.update(label="Exa API key", required=True, placeholder=None, min_length=1, max_length=128)
+        fields.update(label="Exa API key", required=True, placeholder=None, min_length=1, max_length=128)
         if stored_input is not None:
-            descriptor["stored_input"] = stored_input
-    descriptor["fingerprint"] = action_human._fingerprint(descriptor)
+            fields["stored_input"] = stored_input
     stored = (stored_input,) if stored_input is not None else ()
-    return action_human.validate_request(descriptor, (kind,), stored)
+    return human_request_fixtures.request(kind, stored_inputs=stored, **fields)
 
 
 def _requirement(request: action_human.HumanRequest, **presentation) -> action_challenges.HumanRequirement:
-    return action_challenges.HumanRequirement(
-        "shimpz-exa", "Exa", "search-web", "Search the web.", "interrupt-1", request, "0.1.2", **presentation
+    if presentation.get("purpose") is not None:
+        presentation.setdefault("purpose_locale", "en")
+    return human_request_fixtures.requirement(
+        request,
+        assistant_id="shimpz-exa",
+        assistant_name="Exa",
+        action_id="search-web",
+        action_summary="Search the web.",
+        assistant_version="0.1.2",
+        **presentation,
     )
 
 
@@ -129,6 +141,68 @@ class ContinuationTests(unittest.TestCase):
                 [encoded] = continuation._requirements_payload("human", (requirement,))
                 with self.assertRaises(continuation.ContinuationCodecError):
                     continuation._human_requirement(encoded)
+
+
+class LocalizedContinuationTests(unittest.TestCase):
+    """A paused request keeps its referenced catalog entries, rendered copy, and purpose locale (ADR-0091)."""
+
+    def _encoded(self, **presentation) -> dict[str, object]:
+        request = human_request_fixtures.request(
+            "input:choice",
+            label="Mode",
+            required=True,
+            options=[
+                {"value": "safe", "label": "Safe", "description": None},
+                {"value": "fast", "label": "Fast", "description": "Use the faster path."},
+            ],
+        )
+        requirement = human_request_fixtures.requirement(request, locale="ja", **presentation)
+        [encoded] = continuation._requirements_payload("human", (requirement,))
+        self.assertEqual(continuation._human_requirement(copy.deepcopy(encoded)), requirement)
+        return encoded
+
+    def test_the_rendered_copy_and_purpose_locale_restore_exactly(self) -> None:
+        encoded = self._encoded(purpose=PURPOSE, purpose_locale="ja")
+        self.assertEqual(encoded["copy"]["locale"], "ja")
+        self.assertEqual(encoded["purpose_locale"], "ja")
+        self.assertEqual(
+            [item["msgid"] for item in encoded["messages"]],
+            sorted((item["msgid"] for item in encoded["messages"]), key=catalog_validator.message_id),
+        )
+
+    def test_a_record_whose_catalog_copy_or_purpose_locale_drifted_fails_closed(self) -> None:
+        encoded = self._encoded(purpose=PURPOSE, purpose_locale="ja")
+        undeclared = [item for item in encoded["messages"] if item["msgid"] != "Mode"]
+        extra = [*encoded["messages"], catalog_fixtures.message("Unreferenced copy.")]
+        extra.sort(key=lambda item: item["id"])
+        mutations = {
+            "messages are not a list": {"messages": {}},
+            "a message whose id is not its template hash": {
+                "messages": [{**encoded["messages"][0], "msgid": "Changed"}, *encoded["messages"][1:]]
+            },
+            "a referenced message is missing": {"messages": undeclared},
+            "an unreferenced message is kept": {"messages": extra},
+            "unknown copy locale": {"copy": {**encoded["copy"], "locale": "xx"}},
+            "malformed pack digest": {"copy": {**encoded["copy"], "pack_digest": "sha256:short"}},
+            "malformed catalog digest": {"copy": {**encoded["copy"], "catalog_digest": None}},
+            "rendered copy of another request": {"copy": {**encoded["copy"], "rendered": {"title": "Other"}}},
+            "copy with an extra field": {"copy": {**encoded["copy"], "extra": True}},
+            "purpose without its locale": {"purpose_locale": None},
+            "purpose locale without a purpose": {"purpose": None},
+            "unknown purpose locale": {"purpose_locale": "xx"},
+        }
+        for name, changes in mutations.items():
+            with self.subTest(name), self.assertRaises(continuation.ContinuationCodecError):
+                continuation._human_requirement({**copy.deepcopy(encoded), **changes})
+
+    def test_the_turn_locale_persists_with_the_pending_continuation(self) -> None:
+        pending = test_local_chat_continuations.pending()
+        for locale in (None, "ar"):
+            with self.subTest(locale=locale):
+                raw = continuation._pending_payload(replace(pending, locale=locale))
+                self.assertEqual(continuation._pending(raw).locale, locale)
+        with self.assertRaisesRegex(continuation.ContinuationCodecError, "locale"):
+            continuation._pending({**continuation._pending_payload(pending), "locale": "pt-BR"})
 
 
 class ProtocolTests(unittest.TestCase):

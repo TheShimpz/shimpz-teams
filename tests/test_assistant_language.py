@@ -13,11 +13,13 @@ from unittest import mock
 
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
+from chat import orchestrator as chat_orchestrator
+from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError
 from local.install import snapshots
 from protocol.assistant.v1 import message_catalog_validator as catalog_validator
-from tests import catalog_fixtures, local_snapshot_fixtures
+from tests import catalog_fixtures, human_request_fixtures, local_snapshot_fixtures
 
 MESSAGES = catalog_fixtures.messages()
 CONTRACT = {"version": 1, "actions": [], "messages": MESSAGES}
@@ -189,6 +191,42 @@ class LanguagePackBindingAdmissionTests(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises(ApiProblemError) as refused:
                 local_chat_state._admit_assistant_allowed_hosts(subject, container, spec)
             self.assertEqual((refused.exception.status, refused.exception.code), (status, code))
+
+    def test_local_rendering_reads_the_pack_of_the_exact_active_generation(self) -> None:
+        spec = types.SimpleNamespace(machine_contract=CONTRACT, pack_digest=DIGEST)
+        subject = types.SimpleNamespace(_assistant_language_cache=assistant_language.LanguagePackCache())
+
+        def active(container, container_id="generation"):
+            return types.SimpleNamespace(spec=spec, container=container, container_id=container_id)
+
+        good = PackContainer("generation", RAW)
+        self.assertEqual(local_chat_state._assistant_language(subject, active(good)).pack_digest, DIGEST)
+        for container, container_id, status, code in (
+            (None, "generation", HTTPStatus.CONFLICT, "assistant-language-drift"),
+            (good, "other-generation", HTTPStatus.CONFLICT, "assistant-language-drift"),
+            (PackContainer("tampered", _tampered()), "tampered", HTTPStatus.CONFLICT, "assistant-manifest-invalid"),
+            (
+                PackContainer("missing", None),
+                "missing",
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "assistant-manifest-unavailable",
+            ),
+        ):
+            with self.subTest(code=code, container_id=container_id), self.assertRaises(ApiProblemError) as refused:
+                local_chat_state._assistant_language(subject, active(container, container_id))
+            self.assertEqual((refused.exception.status, refused.exception.code), (status, code))
+
+    def test_a_local_request_whose_copy_cannot_render_from_its_binding_ends_the_turn(self) -> None:
+        request = human_request_fixtures.request("approval")
+        action = types.SimpleNamespace(summary="Approve")
+        spec = types.SimpleNamespace(assistant_id="helper", name="Helper", version="1.0.0", actions={"act": action})
+        bindings = {"helper": types.SimpleNamespace(spec=spec)}
+        action_request = types.SimpleNamespace(assistant_id="helper", action="act", interrupt_id="interrupt")
+        subject = types.SimpleNamespace(
+            _assistant_language=lambda _active: assistant_language.admit_pack(RAW, MESSAGES, DIGEST)
+        )
+        with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "copy is unavailable"):
+            local_chat_segment._human_requirement(subject, bindings, action_request, request, "de")
 
     def test_local_snapshot_admission_binds_its_self_consistent_pack(self) -> None:
         client, _image, _container = local_snapshot_fixtures.client()

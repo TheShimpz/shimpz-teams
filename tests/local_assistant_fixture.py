@@ -2,6 +2,11 @@
 
 from assistant import spec as assistant_registry
 from local.install.runtime import AssistantSpec
+from tests import human_request_fixtures
+
+SUMMARY = "Cloudflare test fixture"
+# The fixed reviewed catalog and pack every harness binding carries (ADR-0091).
+PACK = human_request_fixtures.harness_pack(SUMMARY)
 
 _PAGINATION = {
     "type": "object",
@@ -73,7 +78,7 @@ def assistant_spec(image: str) -> AssistantSpec:
         assistant_id="shimpz-cloudflare",
         version="0.4.1",
         name="Shimpz Cloudflare",
-        summary="Cloudflare test fixture",
+        summary=SUMMARY,
         image=image,
         actions=actions,
         allowed_hosts=("api.cloudflare.com",),
@@ -95,7 +100,9 @@ def assistant_spec(image: str) -> AssistantSpec:
                 }
                 for action_id, action in sorted(actions.items())
             ],
+            "messages": human_request_fixtures.harness_messages(SUMMARY),
         },
+        pack_digest=PACK.pack_digest,
     )
 
 
@@ -117,5 +124,6 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
             integrations=local.integrations,
             stored_inputs=local.stored_inputs,
             machine_contract=local.machine_contract,
+            pack_digest=local.pack_digest,
         ),
     )

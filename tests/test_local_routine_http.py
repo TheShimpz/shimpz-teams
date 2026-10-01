@@ -37,6 +37,7 @@ from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
 from routine import record
+from tests import human_request_fixtures
 
 TOKEN = "t" * 43
 EMPTY = b"{}"
@@ -244,8 +245,7 @@ class SessionRouteTests(RoutineHttpCase):
 
     def test_approving_a_frozen_authentication_request_binds_its_assurance(self) -> None:
         descriptor = {"kind": "auth:password", "ordinal": 0, "title": "Sign in", "description": "Enter the password."}
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        password = action_human.validate_request(descriptor, ("auth:password",))
+        password = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.serve(directory, Runtime(acting()))
 

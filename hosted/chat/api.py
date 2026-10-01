@@ -396,6 +396,7 @@ def _resume_chat_integrations(
                 expected_identity=pending.identity,
                 transcripts=pending.transcripts,
                 requests_used=pending.requests_used,
+                locale=pending.locale,
             )
         )
         return hosted_chat_segment._hosted_segment_response(

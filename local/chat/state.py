@@ -11,6 +11,7 @@ from docker.errors import DockerException
 from action import challenges as action_challenges
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from inference import config as inference_config
 from integrations import challenges as integration_challenges
@@ -135,6 +136,31 @@ def _active_assistant_genesis(self, active: _ActiveAssistant) -> str:
             HTTPStatus.CONFLICT,
             "installed Assistant Genesis failed its contract",
             code="assistant-genesis-invalid",
+        ) from exc
+
+
+def _assistant_language(self, active: _ActiveAssistant) -> assistant_language.LanguagePack:
+    """The verified language pack of the active container generation and its reviewed binding (ADR-0091)."""
+    container = active.container
+    if getattr(container, "id", None) != active.container_id:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "installed Assistant language pack failed its identity contract",
+            code="assistant-language-drift",
+        )
+    try:
+        return self._assistant_language_cache.get(container, active.spec.machine_contract, active.spec.pack_digest)
+    except assistant_manifest.ManifestUnavailableError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "installed Assistant manifest could not be verified",
+            code="assistant-manifest-unavailable",
+        ) from exc
+    except assistant_manifest.ManifestError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "installed Assistant manifest failed its reviewed contract",
+            code="assistant-manifest-invalid",
         ) from exc
 
 

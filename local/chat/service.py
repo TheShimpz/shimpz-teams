@@ -222,6 +222,9 @@ class ChatTurnService:
     def _active_assistant_genesis(self, active):
         return self.assistant_lifecycle._active_assistant_genesis(active)
 
+    def _assistant_language(self, active):
+        return self.assistant_lifecycle._assistant_language(active)
+
     def _admit_assistant_allowed_hosts(self, container, spec):
         return self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)
 

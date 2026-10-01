@@ -35,7 +35,10 @@ LOCAL_PACKAGE_DATA = {
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
 # The Developers Assistant protocol reference validators Team imports at run time (ADR-0091).
-ASSISTANT_PROTOCOL_RUNTIME = {"protocol/assistant/v1/message_catalog_validator.py"}
+ASSISTANT_PROTOCOL_RUNTIME = {
+    "protocol/assistant/v1/human_request_validator.py",
+    "protocol/assistant/v1/message_catalog_validator.py",
+}
 HOSTED_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/account/authority/upstream.json",

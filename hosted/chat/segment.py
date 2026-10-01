@@ -138,7 +138,8 @@ class HostedChatSegmentRequest:
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
-    # The interface language a new turn is written in; Hosted Store sends none (ADR-0090).
+    # The interface language a turn is written in; Hosted Store sends none (ADR-0090). A continuation carries the
+    # language its start pinned, so a later request of the same turn renders in it (ADR-0091).
     locale: str | None = None
 
 
@@ -323,6 +324,7 @@ def _run_hosted_chat_segment_with_metadata(
     def human_requirement(
         action_request: brain_runtime_client.ActionRequest,
         human_request: action_human.HumanRequest,
+        locale: str,
     ) -> action_challenges.HumanRequirement:
         active = bindings.get(action_request.assistant_id)
         if active is None:
@@ -330,6 +332,14 @@ def _run_hosted_chat_segment_with_metadata(
         action = active.contract.actions.get(action_request.action)
         if action is None:
             raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+        try:
+            copy = action_challenges.render_copy(
+                human_request,
+                assistant_lifecycle._assistant_language(active.contract, active.container),
+                locale,
+            )
+        except action_challenges.HumanChallengeError as exc:
+            raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
         return action_challenges.HumanRequirement(
             active.assistant_id,
             active.contract.name,
@@ -338,6 +348,7 @@ def _run_hosted_chat_segment_with_metadata(
             action_request.interrupt_id,
             human_request,
             active.version,
+            copy,
             help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
         )
 
@@ -460,6 +471,7 @@ def _run_hosted_chat_segment_with_metadata(
         outcome,
         requirements.integrations,
         requirements.human,
+        locale=request.locale,
     )
 
 
@@ -605,6 +617,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             identity=segment.identity,
             transcripts=chat_orchestrator.retain_suspension_transcripts(request.transcripts, suspension),
             requests_used=request.requests_used,
+            locale=segment.locale,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:

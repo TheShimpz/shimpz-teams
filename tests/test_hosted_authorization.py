@@ -19,8 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hosted_assistant_fixture import app, hosted_controller, hosted_resources, runtime_state
 
 from action import challenges as action_challenges
-from action import human as action_human
 from hosted import container as container_spec
+from tests import human_request_fixtures
 
 network_policy = hosted_resources.network_policy
 
@@ -250,8 +250,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             "title": "Confirm protected action",
             "description": "Use an enrolled second factor.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        human_request = action_human.validate_request(descriptor, ("auth:totp",))
+        human_request = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:totp",))
         requirement = action_challenges.HumanRequirement(
             "assistant-1",
             "Assistant One",
@@ -260,6 +259,7 @@ class HostedAuthorizationTests(unittest.TestCase):
             "interrupt-1",
             human_request,
             "0.4.1",
+            copy=human_request_fixtures.copy(human_request),
         )
         challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create(TEAM_ID, requirement, object())

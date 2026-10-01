@@ -270,6 +270,8 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         )
         config = SimpleNamespace(provider="openai", model="model", effort="low")
         identity = ("identity",)
+        pack = object()
+        rendered = object()
         request = segment.HostedChatSegmentRequest(
             "team_1",
             (),
@@ -293,15 +295,32 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
 
             missing = segment.brain_runtime_client.ActionRequest("interrupt", "missing", "action", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
-                strategy.human_requirement(missing, object())
+                strategy.human_requirement(missing, object(), "en")
             missing_action = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "missing", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
-                strategy.human_requirement(missing_action, object())
+                strategy.human_requirement(missing_action, object(), "en")
             stored_request = SimpleNamespace(kind="input:password", stored_input="key")
-            requirement = strategy.human_requirement(requested, stored_request)
+            with (
+                mock.patch.object(segment.assistant_lifecycle, "_assistant_language", return_value=pack) as language,
+                mock.patch.object(segment.action_challenges, "render_copy", return_value=rendered) as render,
+            ):
+                requirement = strategy.human_requirement(requested, stored_request, "de")
+            language.assert_called_once_with(contract, active.container)
+            render.assert_called_once_with(stored_request, pack, "de")
             self.assertEqual(requirement.action_id, "action")
             self.assertEqual(requirement.assistant_name, "Reviewed Assistant")
             self.assertEqual(requirement.help_url, help_url)
+            self.assertIs(requirement.copy, rendered)
+            with (
+                mock.patch.object(segment.assistant_lifecycle, "_assistant_language", return_value=pack),
+                mock.patch.object(
+                    segment.action_challenges,
+                    "render_copy",
+                    side_effect=segment.action_challenges.HumanChallengeError("binding"),
+                ),
+                self.assertRaisesRegex(segment.chat_orchestrator.ChatOrchestrationError, "copy"),
+            ):
+                strategy.human_requirement(requested, stored_request, "de")
             return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
 
         with (

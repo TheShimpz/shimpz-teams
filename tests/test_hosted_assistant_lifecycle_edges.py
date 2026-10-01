@@ -277,9 +277,12 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         cache = lifecycle.assistant_language.LanguagePackCache()
         with mock.patch.object(state, "_assistant_language_cache", cache):
             self.assertEqual(
-                lifecycle._assistant_language(spec, PackContainer("good", RAW)).pack_digest,
+                lifecycle._assistant_language(spec.contract, PackContainer("good", RAW)).pack_digest,
                 DIGEST,
             )
+            with self.assertRaises(state.ApiError) as drifted:
+                lifecycle._assistant_language(spec.contract, PackContainer("drifted", _tampered()))
+            self.assertEqual(drifted.exception.status, HTTPStatus.CONFLICT)
             with (
                 mock.patch.object(state, "_assistant_allowed_hosts_cache", mock.Mock()),
                 mock.patch.object(state, "_assistant_machine_contract_cache", mock.Mock()),

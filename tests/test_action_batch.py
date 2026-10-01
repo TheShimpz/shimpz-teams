@@ -20,6 +20,7 @@ from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
+from tests import human_request_fixtures
 
 
 class ActionBatchTests(unittest.TestCase):
@@ -195,9 +196,8 @@ class ActionBatchTests(unittest.TestCase):
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
         suspension = action_human.HumanRequestSuspensionError(
-            action_human.validate_request(descriptor, ("approval",)),
+            human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",)),
         )
 
         with tempfile.TemporaryDirectory() as directory:

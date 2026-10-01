@@ -49,6 +49,7 @@ def _segment_response(
             identity=segment.identity,
             transcripts=chat_orchestrator.retain_suspension_transcripts(response.transcripts, suspension),
             requests_used=response.requests_used,
+            locale=segment.locale,
         )
 
     def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
@@ -255,6 +256,7 @@ def resume_chat_integrations(
                 expected_identity=pending.identity,
                 transcripts=pending.transcripts,
                 requests_used=pending.requests_used,
+                locale=pending.locale,
                 progress=progress or chat_progress.Reporter(),
             )
         )

@@ -18,6 +18,7 @@ from inference import config as inference_config
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
+from tests import human_request_fixtures
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 LOCAL_IMAGE = "sha256:" + "c" * 64
@@ -207,8 +208,9 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         )
         for fields, declared, stored_input in shapes:
             request = {**base, **fields}
-            request["fingerprint"] = action_human._fingerprint(request)
-            admitted = action_human.validate_request(request, (request["kind"],), declared)
+            admitted = human_request_fixtures.admit(
+                human_request_fixtures.fingerprinted(request), (request["kind"],), declared
+            )
             with self.subTest(kind=request["kind"], stored_input=stored_input):
                 self._round_trip(
                     "human",
@@ -221,6 +223,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                             "action-1",
                             admitted,
                             "0.4.1",
+                            copy=human_request_fixtures.copy(admitted),
                         ),
                     ),
                 )
@@ -253,7 +256,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "max_length": 1024,
             "stored_input": "exa-api-key",
         }
-        request["fingerprint"] = action_human._fingerprint(request)
         requirement = (
             action_challenges.HumanRequirement(
                 "demo-assistant",
@@ -261,8 +263,15 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 "publish",
                 "Search the web.",
                 "action-1",
-                action_human.validate_request(request, ("input:password",), ("exa-api-key",)),
+                human_request_fixtures.admit(
+                    human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
+                ),
                 "0.4.1",
+                copy=human_request_fixtures.copy(
+                    human_request_fixtures.admit(
+                        human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
+                    )
+                ),
             ),
         )
         self._round_trip("human", requirement)
@@ -275,7 +284,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "title": "Prepare",
             "description": "Prepare the reviewed action.",
         }
-        first["fingerprint"] = action_human._fingerprint(first)
         current = {
             "kind": "input:text",
             "ordinal": 1,
@@ -287,7 +295,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 255,
         }
-        current["fingerprint"] = action_human._fingerprint(current)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -298,7 +305,12 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             (
                 action_human.ActionTranscript(
                     "action-1",
-                    (action_human.admit_response(action_human.validate_request(first, ("approval",)), True),),
+                    (
+                        action_human.admit_response(
+                            human_request_fixtures.admit(human_request_fixtures.fingerprinted(first), ("approval",)),
+                            True,
+                        ),
+                    ),
                 ),
             ),
             1,
@@ -310,8 +322,11 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 "publish",
                 "Publish a DNS record.",
                 "action-1",
-                action_human.validate_request(current, ("input:text",)),
+                human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",)),
                 "0.4.1",
+                copy=human_request_fixtures.copy(
+                    human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",))
+                ),
             ),
         )
 
@@ -335,7 +350,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 64,
         }
-        secret_request["fingerprint"] = action_human._fingerprint(secret_request)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -348,7 +362,10 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                     "action-1",
                     (
                         action_human.admit_response(
-                            action_human.validate_request(secret_request, ("input:password",)), "secret"
+                            human_request_fixtures.admit(
+                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                            ),
+                            "secret",
                         ),
                     ),
                 ),
@@ -366,8 +383,15 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                         "publish",
                         "Publish a DNS record.",
                         "action-1",
-                        action_human.validate_request(secret_request, ("input:password",)),
+                        human_request_fixtures.admit(
+                            human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                        ),
                         "0.4.1",
+                        copy=human_request_fixtures.copy(
+                            human_request_fixtures.admit(
+                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                            )
+                        ),
                     ),
                 ),
                 state,

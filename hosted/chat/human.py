@@ -79,11 +79,19 @@ def _validate_pending_context(
         container,
         owner,
     )
-    if setup[-1] != pending.identity:
+    if setup[-1] != pending.identity or not _copy_binding_current(challenge.requirement, setup[1]):
         runtime_state._human_challenges.cancel_team(team_id)
         hosted_chat_segment._purge_hosted_human_pending(pending)
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     return pending
+
+
+def _copy_binding_current(requirement: action_challenges.HumanRequirement, assistants: object) -> bool:
+    """Whether the requirement's Assistant still runs the catalog and pack its copy was rendered from (ADR-0091)."""
+    active = next((item for item in assistants if item.assistant_id == requirement.assistant_id), None)
+    return active is not None and action_challenges.copy_binding_current(
+        requirement, active.contract.machine_contract, active.contract.pack_digest
+    )
 
 
 def _admit_response(
@@ -153,6 +161,7 @@ def resume_chat_human(
                 expected_identity=pending.identity,
                 transcripts=admission.transcripts,
                 requests_used=admission.requests_used,
+                locale=pending.locale,
             )
         )
         return hosted_chat_segment._hosted_segment_response(

@@ -19,6 +19,7 @@ from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
+from tests import human_request_fixtures
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
@@ -232,18 +233,18 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_hosted_rpc_admits_a_declared_human_request_frame(self) -> None:
         turn_token = "-".join(("turn", "token"))
-        request = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Publish zone",
-            "description": "Publish this reviewed DNS zone.",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "approval", title="Publish zone", description="Publish this reviewed DNS zone."
+        )
         contract = replace(
             self.contract,
             actions={
                 action_id: replace(action, human_requests=("approval",))
                 for action_id, action in self.contract.actions.items()
+            },
+            machine_contract={
+                **self.contract.machine_contract,
+                "messages": list(human_request_fixtures.CATALOG.values()),
             },
         )
         active = hosted_assistants._ActiveAssistant(

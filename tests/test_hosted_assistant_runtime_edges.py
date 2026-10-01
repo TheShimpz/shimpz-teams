@@ -527,6 +527,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         contract = SimpleNamespace(
             actions={ACTION_ID: action},
             stored_inputs={"whatsapp-token": declaration},
+            machine_contract={"messages": []},
         )
         request = assistants.ActionInvocationRequest(
             TEAM_ID,

@@ -12,6 +12,7 @@ from types import SimpleNamespace
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from local_assistant_fixture import PACK as FIXTURE_PACK
 from local_assistant_fixture import assistant_spec
 
 from action import execution as action_execution
@@ -133,6 +134,7 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )
+        controller.assistant_lifecycle._assistant_language = lambda _active: FIXTURE_PACK
         container = SimpleNamespace(id="assistant-container", status="running", reload=lambda: None)
         network = SimpleNamespace(id="a" * 64, name="team-network")
         controller.assistant_lifecycle._network = lambda _team_id: network
@@ -182,6 +184,7 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )
+        controller.assistant_lifecycle._assistant_language = lambda _active: FIXTURE_PACK
         controller.assistant_lifecycle._read_admitted_egress_policy = lambda *_args: None
         network_name = controller.assistant_lifecycle._network_name("team_1")
         network = SimpleNamespace(name=network_name)

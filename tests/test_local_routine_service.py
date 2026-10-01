@@ -29,6 +29,7 @@ from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
 from routine import record
+from tests import human_request_fixtures
 
 KEY = "e" * 64
 API_KEY = "sk-test-0123456789"
@@ -77,8 +78,7 @@ def acting(*requests) -> brain_runtime_client.RuntimeTurn:
 
 def approval() -> action_human.HumanRequest:
     descriptor = {"kind": "approval", "ordinal": 0, "title": "List zones", "description": "Allow listing the zones."}
-    descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-    return action_human.validate_request(descriptor, ("approval",))
+    return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
 
 class RoutineServiceCase(LocalContractCase):
@@ -592,6 +592,28 @@ class FreezeTests(RoutineServiceCase):
                 service.open_routine_challenge("team_1", claim["run_id"])
             self.assertEqual(changed.exception.code, "team-context-changed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "team-context-changed")
+
+    def test_a_binding_with_another_pack_ends_the_frozen_run_on_open_or_answer(self) -> None:
+        """The frozen request's copy must still come from the binding's catalog and pack (ADR-0091)."""
+        for stage in ("open", "answer"):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as directory:
+                controller, service, claim, _frozen = self.paused(directory)
+                opened = service.open_routine_challenge("team_1", claim["run_id"]) if stage == "answer" else None
+                spec = controller.registry[ASSISTANT]
+                controller.registry[ASSISTANT] = dataclasses.replace(spec, pack_digest=f"sha256:{'9' * 64}")
+                with self.assertRaises(local_app.ApiProblem) as changed:
+                    if opened is None:
+                        service.open_routine_challenge("team_1", claim["run_id"])
+                    else:
+                        service.resume_routine_human(
+                            "team_1",
+                            claim["run_id"],
+                            {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
+                            "openai",
+                            "sk-test-0123456789",
+                        )
+                self.assertEqual(changed.exception.code, "team-context-changed")
+                self.assertEqual(self.state(service).notices[-1].detail["code"], "team-context-changed")
 
 
 class NoticeAndWatchdogTests(RoutineServiceCase):

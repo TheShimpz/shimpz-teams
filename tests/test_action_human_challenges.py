@@ -1,25 +1,18 @@
 import unittest
 from unittest import mock
 
-from action import challenges, human
+from action import challenges
+from tests import human_request_fixtures
 
 
 def requirement() -> challenges.HumanRequirement:
-    descriptor = {
-        "kind": "approval",
-        "ordinal": 0,
-        "title": "Publish record",
-        "description": "Publish the reviewed DNS record.",
-    }
-    descriptor["fingerprint"] = human._fingerprint(descriptor)
-    return challenges.HumanRequirement(
-        "cloudflare",
-        "Cloudflare",
-        "publish-record",
-        "Publish one DNS record.",
-        "interrupt-1",
-        human.validate_request(descriptor, ("approval",)),
-        "0.4.1",
+    return human_request_fixtures.requirement(
+        human_request_fixtures.request("approval", title="Publish record", description="Publish the reviewed record."),
+        assistant_id="cloudflare",
+        assistant_name="Cloudflare",
+        action_id="publish-record",
+        action_summary="Publish one DNS record.",
+        assistant_version="0.4.1",
     )
 
 

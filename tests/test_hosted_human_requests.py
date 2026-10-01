@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import unittest
 from contextlib import contextmanager
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest import mock
 
 import hosted_assistant_fixture as harness
+
+from tests import human_request_fixtures
 
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_chat_human = harness.hosted_chat_human
@@ -29,8 +32,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             "title": "Confirm action",
             "description": "Confirm this reviewed action.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        return action_human.validate_request(descriptor, (kind,))
+        return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), (kind,))
 
     @staticmethod
     def _pending(continuation, transcripts=()) -> object:
@@ -50,8 +52,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             "title": "Publish zone",
             "description": "Publish this reviewed DNS zone.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        request = action_human.validate_request(descriptor, ("approval",))
+        request = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
         action = brain_runtime_client.ActionRequest(
             "action-1",
             "shimpz-cloudflare",
@@ -78,6 +79,7 @@ class HostedHumanRequestTests(unittest.TestCase):
                     "action-1",
                     request,
                     "0.4.1",
+                    copy=human_request_fixtures.copy(request),
                 ),
             ),
         )
@@ -116,6 +118,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             "action-1",
             request,
             "0.4.1",
+            copy=human_request_fixtures.copy(request),
         )
         challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
@@ -157,7 +160,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             (),
             0,
         )
-        pending = self._pending(continuation)
+        pending = replace(self._pending(continuation), locale="es")
         requirement = action_challenges.HumanRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
@@ -166,6 +169,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             "action-1",
             request,
             "0.4.1",
+            copy=human_request_fixtures.copy(request, "es"),
         )
         challenges = action_challenges.HumanChallengeStore()
         challenge = challenges.create("team_1", requirement, pending)
@@ -199,6 +203,8 @@ class HostedHumanRequestTests(unittest.TestCase):
             )
 
         transcripts = run.call_args.args[0].transcripts
+        # The resumed segment keeps the language the turn's start pinned, so a later request renders in it.
+        self.assertEqual(run.call_args.args[0].locale, "es")
         self.assertEqual(transcripts[0].responses[0].value, True)
         self.assertNotEqual(transcripts[0].responses[0].value, "opaque-account-handle")
         response_request = respond.call_args.args[0]
@@ -217,6 +223,7 @@ class HostedHumanRequestTests(unittest.TestCase):
             "action-1",
             request,
             "0.4.1",
+            copy=human_request_fixtures.copy(request),
         )
         challenges = action_challenges.HumanChallengeStore()
         challenges.create("team_1", requirement, pending)

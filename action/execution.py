@@ -333,6 +333,8 @@ class RpcResultPolicy:
     stored_inputs_by_id: Mapping[str, str] | None = None
     declared_stored_inputs: tuple[str, ...] = ()
     supplied_stored_inputs: frozenset[str] = frozenset()
+    # The reviewed English message catalog every request copy reference must name (ADR-0091).
+    catalog: Mapping[str, Mapping[str, object]] | None = None
 
 
 _DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
@@ -367,6 +369,7 @@ def project_rpc_result(
                 raw_result["request"],
                 policy.human_requests,
                 policy.declared_stored_inputs,
+                catalog=policy.catalog or {},
             )
         except action_human.HumanRequestError as exc:
             raise RpcInvalidResultError from exc

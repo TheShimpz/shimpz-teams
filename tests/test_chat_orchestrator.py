@@ -5,6 +5,7 @@ import unittest
 from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
+from tests import human_request_fixtures
 
 
 def context(*actions: brain_runtime_client.RuntimeAction) -> brain_runtime_client.RuntimeContext:
@@ -105,8 +106,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("approval",))
+        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
         invoked = []
 
         def invoke(request):
@@ -139,8 +139,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("approval",))
+        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
         def invoke(request):
             if request.interrupt_id == "second":

@@ -89,6 +89,7 @@ class LocalLeafContractTests(unittest.TestCase):
             return strategy.human_requirement(
                 types.SimpleNamespace(assistant_id="helper", action="missing", interrupt_id="interrupt"),
                 object(),
+                "en",
             )
 
         with (

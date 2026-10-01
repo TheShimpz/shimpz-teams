@@ -26,6 +26,7 @@ def project_action_result(
     action_spec: object,
     private: action_execution.ResolvedInvocationEvidence,
     validate: Callable[[object, str, object], object],
+    spec: object,
 ) -> object:
     return action_execution.project_rpc_result(
         raw_result,
@@ -41,6 +42,7 @@ def project_action_result(
             declared_stored_inputs=action_spec.stored_inputs,
             supplied_stored_inputs=frozenset(private.stored_inputs)
             | frozenset(private.transcript.submitted_stored_inputs()),
+            catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
         ),
     )
 

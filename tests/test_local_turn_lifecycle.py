@@ -21,6 +21,7 @@ from assistant import spec as assistant_spec
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
+from tests import human_request_fixtures
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
 LOOKUP_RESULT = {
@@ -56,8 +57,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             "title": "List zones",
             "description": "Allow this Action to list the reviewed Cloudflare zones.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        return action_human.validate_request(descriptor, ("approval",))
+        return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
     def test_local_snapshot_persists_an_integration_pause(self) -> None:
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
@@ -149,6 +149,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
             self.assertEqual(paused["status"], "human-required")
             self.assertEqual(paused["purpose"], "To list your zones, I need to read them in Cloudflare.")
             self.assertNotIn("help_url", paused)
+            # The canonical request keeps its references; the copy is rendered in the turn's language (ADR-0091).
+            self.assertEqual(paused["request"], admitted.payload())
+            self.assertEqual((paused["locale"], paused["rendered"]["title"]), ("pt", "PT List zones"))
+            self.assertEqual(paused["pack_digest"], controller.registry["shimpz-cloudflare"].pack_digest)
             self.assertEqual(runtime.locales, ["pt"])
             self.assertEqual(runtime.purposes, [(request, "Shimpz Cloudflare", runtime.purposes[0][2])])
             self.assertEqual(runtime.resumes, 0)
@@ -180,7 +184,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             "max_length": 256,
             "stored_input": "exa-api-key",
         }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.fingerprinted(request)
         batch = (
             brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "search-web", {"query": "news"}),
             brain_runtime_client.ActionRequest("action-2", "shimpz-cloudflare", "search-web", {"query": "brazil"}),
@@ -415,8 +419,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     "title": "Confirm identity",
                     "description": "Confirm current identity before continuing.",
                 }
-                descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-                admitted = action_human.validate_request(descriptor, (kind,))
+                admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), (kind,))
                 controller = self._chat_controller(directory, Runtime())
                 controller.assistant_lifecycle.invoke = lambda *_args, request=admitted: (_ for _ in ()).throw(
                     action_human.HumanRequestSuspensionError(request)
@@ -461,8 +464,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             "title": "Confirm identity",
             "description": "Confirm current identity before continuing.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("auth:password",))
+        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
@@ -507,8 +509,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
             "title": "Confirm identity",
             "description": "Confirm current identity before continuing.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("auth:password",))
+        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())

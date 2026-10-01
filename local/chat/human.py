@@ -79,7 +79,7 @@ def _validate_pending_context(self, team_id: str, provider: str, challenge: obje
             code="team-context-changed",
         )
     current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
-    if self._chat_identity(*current) != pending.identity:
+    if self._chat_identity(*current) != pending.identity or not copy_binding_current(challenge.requirement, current[2]):
         self.human_challenges.cancel_team(team_id)
         self._delete_chat_continuation(team_id)
         self._purge_human_pending(pending)
@@ -89,6 +89,14 @@ def _validate_pending_context(self, team_id: str, provider: str, challenge: obje
             code="team-context-changed",
         )
     return pending
+
+
+def copy_binding_current(requirement: action_challenges.HumanRequirement, assistants: tuple[object, ...]) -> bool:
+    """Whether the requirement's Assistant still runs the catalog and pack its copy was rendered from (ADR-0091)."""
+    active = next((item for item in assistants if item.spec.assistant_id == requirement.assistant_id), None)
+    return active is not None and action_challenges.copy_binding_current(
+        requirement, active.spec.machine_contract, active.spec.pack_digest
+    )
 
 
 def _admit_human_response(
@@ -152,6 +160,7 @@ def resume_chat_human(
                 expected_identity=pending.identity,
                 transcripts=admission.transcripts,
                 requests_used=admission.requests_used,
+                locale=pending.locale,
                 progress=progress or chat_progress.Reporter(),
             )
         )
