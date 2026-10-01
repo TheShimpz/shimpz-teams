@@ -444,6 +444,1099 @@
       3
     ]
   },
+  "rendered_copy": {
+    "valid": [
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar DNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "input:text",
+          "ordinal": 0,
+          "title": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "description": {
+            "message": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+            "params": {}
+          },
+          "label": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": {
+            "message": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+            "params": {
+              "zone": "example.com"
+            }
+          },
+          "min_length": 1,
+          "max_length": 253
+        },
+        "rendered": {
+          "title": "Zona",
+          "description": "Informe a zona DNS.",
+          "label": "Zona",
+          "placeholder": "Exemplo: example.com"
+        }
+      },
+      {
+        "request": {
+          "kind": "input:password",
+          "ordinal": 0,
+          "title": {
+            "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "params": {}
+          },
+          "description": {
+            "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+            "params": {}
+          },
+          "label": {
+            "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": null,
+          "min_length": 1,
+          "max_length": 1024,
+          "stored_input": "whatsapp-token"
+        },
+        "rendered": {
+          "title": "Token do WhatsApp",
+          "description": "Informe o token usado por esta A\u00e7\u00e3o do WhatsApp.",
+          "label": "Token",
+          "placeholder": null
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar DNS",
+          "description": "Criar example.com antes do acesso ao token.",
+          "label": "Extra"
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar DNS"
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar DNS",
+          "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": " Publicar DNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar\nDNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar \u202eDNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Publicar \u200bDNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "Cafe\u0301",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": "",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": {
+          "title": null,
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "input:text",
+          "ordinal": 0,
+          "title": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "description": {
+            "message": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+            "params": {}
+          },
+          "label": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": {
+            "message": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+            "params": {
+              "zone": "example.com"
+            }
+          },
+          "min_length": 1,
+          "max_length": 253
+        },
+        "rendered": {
+          "title": "Zona",
+          "description": "Informe a zona DNS.",
+          "label": "Zona",
+          "placeholder": null
+        }
+      },
+      {
+        "request": {
+          "kind": "input:text",
+          "ordinal": 0,
+          "title": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "description": {
+            "message": "3a0131cf67a3d52a64ebb0c94147ffd581df71eba7df6c9e4edb36b5d0f1c492",
+            "params": {}
+          },
+          "label": {
+            "message": "a8a06e4a5695553c674ef4cf83caa357f4ea25167fe957b3761e7834c94f88cb",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": {
+            "message": "ae49940889b86422e1a42c3b400e3d4babc3fdb3388eb00960752131f6626628",
+            "params": {
+              "zone": "example.com"
+            }
+          },
+          "min_length": 1,
+          "max_length": 253
+        },
+        "rendered": {
+          "title": "Zona",
+          "description": "Informe a zona DNS.",
+          "label": "Zona",
+          "placeholder": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      },
+      {
+        "request": {
+          "kind": "input:password",
+          "ordinal": 0,
+          "title": {
+            "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "params": {}
+          },
+          "description": {
+            "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+            "params": {}
+          },
+          "label": {
+            "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": null,
+          "min_length": 1,
+          "max_length": 1024,
+          "stored_input": "whatsapp-token"
+        },
+        "rendered": {
+          "title": "Token do WhatsApp",
+          "description": "Informe o token usado por esta A\u00e7\u00e3o do WhatsApp.",
+          "label": "Token",
+          "placeholder": "Cole o token"
+        }
+      },
+      {
+        "request": {
+          "kind": "input:password",
+          "ordinal": 0,
+          "title": {
+            "message": "9505abf4b506c922a81264a472f1fc2e2ad027fb581dd7ede3e4c0e1122b0b5a",
+            "params": {}
+          },
+          "description": {
+            "message": "fad7962089b211a94243a5382a0b02f3563da8b08d72948a008b9f63631a4b95",
+            "params": {}
+          },
+          "label": {
+            "message": "d2089be672953d1136faa84079af1b6f3967fed8932dabffba3032d30e3c0618",
+            "params": {}
+          },
+          "required": true,
+          "placeholder": null,
+          "min_length": 1,
+          "max_length": 1024,
+          "stored_input": "whatsapp-token"
+        },
+        "rendered": {
+          "title": "Token do WhatsApp",
+          "description": "Informe o token usado por esta A\u00e7\u00e3o do WhatsApp.",
+          "label": "Token"
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002"
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002",
+              "value": "proxied"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": "Somente DNS."
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": null
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            null,
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": {
+            "label": "x"
+          }
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            null,
+            null
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9",
+          "options": [
+            {
+              "label": "\u30d7\u30ed\u30ad\u30b7",
+              "description": "Cloudflare \u7d4c\u7531\u3067\u30c8\u30e9\u30d5\u30a3\u30c3\u30af\u3092\u8ee2\u9001\u3057\u307e\u3059\u3002"
+            },
+            {
+              "label": "DNS \u306e\u307f",
+              "description": null
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "kind": "input:choice",
+          "ordinal": 1,
+          "title": {
+            "message": "46a5a743bc7cc8c8edfca0a260a342c37a694c67f75b3bbd69407424035a0ee5",
+            "params": {}
+          },
+          "description": {
+            "message": "6a766cae5f675fd34e7bd1963028c0757f06677501da8e11cb4c01a656058714",
+            "params": {}
+          },
+          "label": {
+            "message": "5e23ec6a300dc60a79641769017e16e9bf042cbd8fd0a54586a048ab9da972ff",
+            "params": {}
+          },
+          "required": true,
+          "options": [
+            {
+              "value": "proxied",
+              "label": {
+                "message": "1e5e35d7da5fcbc25537475581d8eed8985192761db525ea3280c70c1272349b",
+                "params": {}
+              },
+              "description": {
+                "message": "0fa7199fbe57638dccd43b2d3fd26679535ec6be313a2ec524b30f059c93b481",
+                "params": {}
+              }
+            },
+            {
+              "value": "dns-only",
+              "label": {
+                "message": "9f7f82a4887e3ef72406ac0f9b0806b05bd094e77e7d9a0758d250b864330f27",
+                "params": {}
+              },
+              "description": null
+            }
+          ]
+        },
+        "rendered": {
+          "title": "\u30e2\u30fc\u30c9\u3092\u9078\u629e",
+          "description": "\u30ec\u30b3\u30fc\u30c9\u306e\u516c\u958b\u65b9\u6cd5\u3092\u9078\u629e\u3057\u3066\u304f\u3060\u3055\u3044\u3002",
+          "label": "\u30e2\u30fc\u30c9"
+        }
+      },
+      {
+        "request": null,
+        "rendered": {
+          "title": "Publicar DNS",
+          "description": "Criar example.com antes do acesso ao token."
+        }
+      },
+      {
+        "request": {
+          "kind": "approval",
+          "ordinal": 0,
+          "title": {
+            "message": "70cc84bbf86b4bd267fbb448a6a2bd9b4eedee319b2cf12b9a80791daad5b517",
+            "params": {}
+          },
+          "description": {
+            "message": "2f63a0e62071e2ad687d43b24004f212f73da0018a43a0934c64e836ec3cad0d",
+            "params": {
+              "zone": "example.com"
+            }
+          }
+        },
+        "rendered": null
+      }
+    ]
+  },
+  "pack_digest": {
+    "valid": [
+      "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    ],
+    "invalid": [
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "sha256:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
+      "sha256:000000000000000000000000000000000000000000000000000000000000000",
+      "sha512:0000000000000000000000000000000000000000000000000000000000000000",
+      "",
+      null,
+      1
+    ]
+  },
+  "routine_challenge_open": {
+    "valid": [
+      {
+        "locale": "pt"
+      },
+      {
+        "locale": "en"
+      },
+      {
+        "locale": "zh"
+      }
+    ],
+    "invalid": [
+      {},
+      {
+        "locale": null
+      },
+      {
+        "locale": "pt-BR"
+      },
+      {
+        "locale": "PT"
+      },
+      {
+        "locale": [
+          "pt"
+        ]
+      },
+      {
+        "locale": "pt",
+        "purpose": "x"
+      },
+      [],
+      null
+    ]
+  },
   "chat_conversation": {
     "valid": [
       [],

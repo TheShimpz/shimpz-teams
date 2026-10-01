@@ -28,6 +28,9 @@ HELP_URL_PATTERN = (
 MAX_HELP_URL_CHARS = 2_048
 # The Brain's task-bound sentence for why an Action pauses for a person (ADR-0090).
 MAX_PURPOSE_CHARS = 280
+# The rendered copy bounds of a human request's catalog references (Assistant Spec v1, ADR-0091).
+RENDERED_FIELD_CHARS = {"title": 80, "description": 500, "label": 80, "placeholder": 120}
+RENDERED_OPTION_CHARS = {"label": 80, "description": 160}
 
 TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
 ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
@@ -162,6 +165,62 @@ def canonical_purpose(value: object) -> str | None:
     ):
         return None
     return value
+
+
+def canonical_pack_digest(value: object) -> str | None:
+    """Return one `sha256:` language-pack digest (ADR-0091), or None."""
+    return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) else None
+
+
+def canonical_rendered(value: object, request: object) -> dict[str, object] | None:
+    """Return the rendered copy of exactly the canonical request's copy fields, or None (ADR-0091).
+
+    The request keeps its catalog references, option values, and kind; this block carries only display text in the
+    challenge's interface language, in the request's field and option order, within each field's bound.
+    """
+    if not isinstance(value, dict) or not isinstance(request, dict):
+        return None
+    fields = [field for field in RENDERED_FIELD_CHARS if field in request]
+    expected = {*fields, *(("options",) if "options" in request else ())}
+    if set(value) != expected or not all(
+        _rendered(value[field], request[field], RENDERED_FIELD_CHARS[field], nullable=field == "placeholder")
+        for field in fields
+    ):
+        return None
+    if "options" in request and not _rendered_options(value["options"], request["options"]):
+        return None
+    return value
+
+
+def _rendered_options(values: object, options: object) -> bool:
+    return (
+        isinstance(values, list)
+        and isinstance(options, list)
+        and len(values) == len(options)
+        and all(
+            isinstance(item, dict)
+            and isinstance(option, dict)
+            and set(item) == {"label", "description"}
+            and _rendered(item["label"], option.get("label"), RENDERED_OPTION_CHARS["label"], nullable=False)
+            and _rendered(
+                item["description"], option.get("description"), RENDERED_OPTION_CHARS["description"], nullable=True
+            )
+            for item, option in zip(values, options, strict=True)
+        )
+    )
+
+
+def _rendered(text: object, reference: object, maximum: int, *, nullable: bool) -> bool:
+    """A nullable field renders to null exactly when its reference is null; anything else is bounded public text."""
+    if nullable and reference is None:
+        return text is None
+    return (
+        isinstance(text, str)
+        and text == text.strip()
+        and 0 < len(text) <= maximum
+        and text.isprintable()
+        and unicodedata.is_normalized("NFC", text)
+    )
 
 
 def canonical_action_label(value: object) -> str | None:

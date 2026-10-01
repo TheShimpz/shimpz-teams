@@ -25,10 +25,27 @@ resumption after Account consumes it successfully. Handle issuance, freshness, b
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
 
-A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact Assistant-authored
-`request` with its fingerprint. Beside them, never inside `request` and never part of its fingerprint, it may carry
-two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for why the user's task needs this
-Action, written in the turn's interface language from only the turn's message and the reviewed Action identity:
+A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact canonical
+Assistant `request` with its fingerprint: every copy field is a catalog reference `{"message": id, "params": {...}}`
+(Assistant Spec v1), so the fingerprint never depends on the display language. Beside it, never inside `request` and
+never part of its fingerprint, the challenge carries three required localization fields (ADR-0091): `locale`, the one
+concrete closed interface language (`payload.canonical_locale`, never `null`) the challenge was created for;
+`pack_digest`, the `sha256:` digest of the reviewed binding's language pack (`payload.canonical_pack_digest`); and
+`rendered`, the display text of exactly the request's copy fields in that locale (`payload.canonical_rendered`):
+`title` (at most 80 characters) and `description` (500); `label` (80) for an input; `placeholder` (120, `null`
+exactly when the request's placeholder is `null`) for a text, textarea, password, or phone input; and, for a choice,
+`options` in request order, each exactly `{label, description}` (80 and 160, `description` `null` exactly when the
+request option's is). Rendered text is trimmed, printable, NFC, and within its bound without truncation. Team renders
+it from the English catalog or the pack, inserting each parameter once; Admin verifies the canonical fingerprint and
+validates this projection, while request kinds, option values, and the authorization scope stay canonical. A live
+challenge binds the canonical fingerprint, the exact binding, the catalog and pack digests, and the locale; a
+different locale needs a fresh challenge. Opening a frozen Routine run's challenge carries the Admin interface
+language as exactly `{"locale": "pt"}` (`routine.canonical_challenge_open`, never `null`).
+
+The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
+why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
+so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language
+from only the turn's message and the reviewed Action identity:
 1 to 280 NFC characters with no control, format, or line-separator character, no dash punctuation other than a
 hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpose`). `help_url` appears only when
 `request.kind` is `input:password` with a `stored_input`, and is that Stored Input's reviewed key page copied from

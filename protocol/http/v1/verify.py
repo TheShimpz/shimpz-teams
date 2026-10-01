@@ -200,6 +200,8 @@ for name, admit in (
     ("chat_locale", payload.canonical_locale),
     ("help_url", payload.canonical_help_url),
     ("purpose", payload.canonical_purpose),
+    ("pack_digest", payload.canonical_pack_digest),
+    ("routine_challenge_open", routine.canonical_challenge_open),
 ):
     cases = vectors.get(name, {})
     if not cases.get("valid") or not cases.get("invalid"):
@@ -208,6 +210,15 @@ for name, admit in (
         fail(f"Team HTTP {name} positive vector differs")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"Team HTTP {name} negative vector differs")
+rendered_copy = vectors.get("rendered_copy", {})
+if not rendered_copy.get("valid") or not rendered_copy.get("invalid"):
+    fail("Team HTTP rendered copy vectors are missing")
+if any(
+    payload.canonical_rendered(case["rendered"], case["request"]) != case["rendered"] for case in rendered_copy["valid"]
+):
+    fail("Team HTTP rendered copy positive vector differs")
+if any(payload.canonical_rendered(case["rendered"], case["request"]) is not None for case in rendered_copy["invalid"]):
+    fail("Team HTTP rendered copy negative vector differs")
 if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
     fail("Team HTTP Action-label label positive vector differs")
 if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):

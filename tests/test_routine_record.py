@@ -77,6 +77,9 @@ class ContractTests(unittest.TestCase):
         )
         self.assertEqual(http_routine.ACTION_ID_RE.pattern.removesuffix(r"\Z"), http_payload.ACTION_ID_PATTERN[1:-1])
 
+    def test_the_challenge_open_locales_match_the_chat_locales(self):
+        self.assertEqual(http_routine.LOCALES, http_payload.CHAT_LOCALES)
+
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
             "done": {"reply": "Updated."},

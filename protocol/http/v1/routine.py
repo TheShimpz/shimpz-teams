@@ -23,6 +23,8 @@ OUTCOMES = frozenset(
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 ERROR_CODE_RE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
+# The interface languages: the same closed set as payload.CHAT_LOCALES, pinned equal by a Team test.
+LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SCHEDULE_KINDS = frozenset({"hourly", "daily", "weekly", "monthly"})
 ROUTINE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 # An IANA zone name such as "UTC" or "America/Argentina/Buenos_Aires"; Team also requires that it loads.
@@ -349,6 +351,12 @@ def canonical_notice_batch(value: object) -> dict[str, object] | None:
         return None
     keys = {(item["team_id"], item["notice_id"]) for item in admitted}
     return {"notices": admitted, "more": value["more"]} if len(keys) == len(admitted) else None
+
+
+def canonical_challenge_open(value: object) -> dict[str, str] | None:
+    """Opening a frozen run's challenge names the Admin interface language its request copy renders in (ADR-0091)."""
+    locale = value.get("locale") if isinstance(value, dict) and set(value) == {"locale"} else None
+    return {"locale": locale} if isinstance(locale, str) and locale in LOCALES else None
 
 
 def canonical_claim_request(value: object) -> dict[str, object] | None:
