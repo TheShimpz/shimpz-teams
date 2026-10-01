@@ -213,18 +213,36 @@ class LocalChatChallengeRelocalizationTests(LocalContractCase):
         self.assertEqual(empty, {"team_id": "team_1", "status": "none"})
 
     def test_opening_against_a_binding_with_another_pack_ends_the_paused_turn(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            controller, _first = self._paused(directory, _Runtime())
-            spec = controller.registry["shimpz-cloudflare"]
-            controller.registry["shimpz-cloudflare"] = replace(spec, pack_digest=f"sha256:{'9' * 64}")
-            with self.assertRaises(local_app.ApiProblem) as changed:
-                controller.chat_turn_service.open_chat_human("team_1", {"locale": "pt"})
-            pending = controller.chat_turn_service.human_challenges.current("team_1")
-            stored = controller.chat_continuations.current("team_1")
+        # Another language, the language the challenge is already in, and a chat in either: none keeps the challenge.
+        reopenings = {
+            "open another language": lambda service: service.open_chat_human("team_1", {"locale": "pt"}),
+            "open the same language": lambda service: service.open_chat_human("team_1", {"locale": "fr"}),
+            "chat in another language": lambda service: service.chat(
+                "team_1", {**CHAT, "locale": "pt"}, "openai", "sk-test-0123456789"
+            ),
+            "chat in the same language": lambda service: service.chat(
+                "team_1", {**CHAT, "locale": "fr"}, "openai", "sk-test-0123456789"
+            ),
+            "chat without a language": lambda service: service.chat(
+                "team_1", {**CHAT, "locale": None}, "openai", "sk-test-0123456789"
+            ),
+        }
+        for name, reopen in reopenings.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as directory:
+                controller, first = self._paused(directory, _Runtime())
+                spec = controller.registry["shimpz-cloudflare"]
+                controller.registry["shimpz-cloudflare"] = replace(spec, pack_digest=f"sha256:{'9' * 64}")
+                with self.assertRaises(local_app.ApiProblem) as changed:
+                    reopen(controller.chat_turn_service)
+                pending = controller.chat_turn_service.human_challenges.current("team_1")
+                stored = controller.chat_continuations.current("team_1")
+                with self.assertRaises(local_app.ApiProblem) as stale:
+                    self._submit(controller, first)
 
-        self.assertEqual(changed.exception.code, "team-context-changed")
-        self.assertIsNone(pending)
-        self.assertIsNone(stored)
+                self.assertEqual(changed.exception.code, "team-context-changed")
+                self.assertIsNone(pending)
+                self.assertIsNone(stored)
+                self.assertEqual(stale.exception.code, "human-request-expired")
 
     def test_a_request_that_cannot_be_reopened_keeps_or_ends_the_pending_turn_explicitly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

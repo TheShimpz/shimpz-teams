@@ -20,12 +20,15 @@ MAX_CHAT_MESSAGE_CHARS = 16_000
 
 
 def _pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
-    """The Team's pending challenge; a human one is returned in the chat's interface language when it names one."""
+    """The Team's pending challenge; a human one is returned in the chat's interface language when it names one.
+
+    Either way the human challenge is validated against the binding the turn left before it is returned.
+    """
     self._expire_human_challenges()
     existing_human = self.human_challenges.current(team_id)
     if existing_human is not None:
-        if locale is not None:
-            existing_human = self._relocalized_human(existing_human, locale)
+        # A chat without an interface language keeps the challenge's language but still validates its binding.
+        existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
         return self._human_response(existing_human)
     existing_integration = self.integration_challenges.current(team_id)
     if existing_integration is not None:

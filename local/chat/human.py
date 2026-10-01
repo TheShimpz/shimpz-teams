@@ -52,12 +52,14 @@ def relocalized(
     As with a Routine opening, the same canonical request and fingerprint are re-rendered from the same binding's
     pack under Team's lock, the earlier challenge stops answering, and the fresh one keeps its expiry and continuation.
     The turn keeps its own language and the purpose its origin locale, so a purpose is shown only in that locale.
+    Reopening in the same language still validates the binding first, so a drifted binding ends the paused turn.
     """
-    if challenge.requirement.copy.locale == locale:
-        return challenge
     team_id = challenge.team_id
     with self._lock(team_id):
+        # Even a challenge already in this language answers only while its binding is exactly as the turn left it.
         pending, assistants = _validate_pending_context(self, team_id, challenge.payload.provider, challenge)
+        if challenge.requirement.copy.locale == locale:
+            return challenge
         active = next(item for item in assistants if item.spec.assistant_id == challenge.requirement.assistant_id)
         try:
             requirement = action_challenges.relocalize(challenge.requirement, self._assistant_language(active), locale)
