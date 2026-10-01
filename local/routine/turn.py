@@ -6,6 +6,7 @@ import time
 from http import HTTPStatus
 
 from inference import client as brain_runtime_client
+from install import bindings
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import proposal as proposal_book
@@ -82,5 +83,5 @@ def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dic
             for assistant_id in assistant_ids
             if (active := active_by_id.get(assistant_id)) is not None
         }
-    except ApiProblem as exc:
+    except (ApiProblem, bindings.DynamicAssistantError) as exc:
         raise ContractsUnavailableError from exc

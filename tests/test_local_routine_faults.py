@@ -283,6 +283,25 @@ class FrozenFaultTests(RoutineServiceCase):
             self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
             self.assertEqual(service.open_routine_challenge("team_1", run_id)["run_id"], run_id)
 
+    def test_an_unreadable_or_malformed_registry_keeps_the_frozen_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.frozen(directory)
+            run_id = claim["run_id"]
+            for damage in ("unreadable", "malformed"):
+                with (
+                    self.subTest(damage=damage),
+                    self.broken_registry(service, directory, damage),
+                    self.assertRaises(local_app.ApiProblem) as unavailable,
+                ):
+                    service.open_routine_challenge("team_1", run_id)
+                self.assertEqual(
+                    (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
+                )
+            (held,) = self.state(service).runs
+            self.assertEqual((held.run_id, held.status), (run_id, "frozen"))
+            self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
+            self.assertEqual(service.open_routine_challenge("team_1", run_id)["run_id"], run_id)
+
     def test_a_removed_or_changed_model_configuration_ends_the_frozen_run(self) -> None:
         for load in (
             mock.Mock(side_effect=inference_config.InferenceConfigMissingError("unset")),

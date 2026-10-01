@@ -6,7 +6,9 @@ import dataclasses
 import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from http import HTTPStatus
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -15,9 +17,12 @@ from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
 from action import human as action_human
 from inference import client as brain_runtime_client
+from install.bindings import DynamicAssistantStore
 from local import app as local_app
 from local import audit as local_audit
 from local import authority as local_authority
+from local.install.registry import AssistantRegistry
+from local.labels import ASSISTANT_LABEL
 from local.routine import proposal as routine_proposal
 from local.routine import run as routine_run
 from local.routine import store as routine_store
@@ -123,6 +128,26 @@ class RoutineServiceCase(LocalContractCase):
 
     def state(self, service) -> record.TeamRoutines:
         return service.routine_store.load("team_1")
+
+    @contextmanager
+    def broken_registry(self, service, directory: str, damage: str):
+        """Read the Team's running Assistant through the real registry, whose store is unreadable or malformed."""
+        path = Path(directory) / f"registry-{damage}" / "bindings.json"
+        path.parent.mkdir()
+        if damage.startswith("unreadable"):
+            path.mkdir()
+        else:
+            path.write_bytes(b"not json")
+        container = SimpleNamespace(id="assistant-container", status="running", labels={ASSISTANT_LABEL: ASSISTANT})
+        docker = SimpleNamespace(containers=SimpleNamespace(list=lambda **_filters: [container]))
+        # The real scan, not the harness's fixed answer, so the registry itself is read.
+        scan = type(service)._active_chat_assistants.__get__(service)
+        with (
+            mock.patch.object(service, "_active_chat_assistants", scan),
+            mock.patch.object(service, "registry", AssistantRegistry(DynamicAssistantStore(path))),
+            mock.patch.object(service.assistant_lifecycle, "client", docker, create=True),
+        ):
+            yield
 
 
 class ConfirmationTests(RoutineServiceCase):
@@ -311,6 +336,23 @@ class RunTests(RoutineServiceCase):
             [(item.outcome, item.detail) for item in state.notices],
             [("failed", {"code": "team-context-unavailable", "actions": []})],
         )
+
+    def test_an_unreadable_or_malformed_registry_never_marks_the_routine_changed_or_strands_a_run(self) -> None:
+        for damage in ("unreadable", "malformed"):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as directory:
+                _controller, service = self.service(directory, Runtime())
+                value = self.routine(service)
+                with self.broken_registry(service, directory, damage):
+                    self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+                state = self.state(service)
+                self.assertEqual((record.routine(state, value.routine_id).needs_reconfirm, state.notices), (False, ()))
+                claim = service.claim_routine_run(("anthropic", "openai"))
+                with self.broken_registry(service, directory, f"{damage}-run"):
+                    self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+                state = self.state(service)
+                self.assertEqual(state.runs, ())
+                self.assertFalse(record.routine(state, value.routine_id).needs_reconfirm)
+                self.assertEqual(state.notices[-1].detail, {"code": "team-context-unavailable", "actions": []})
 
     def test_an_assistant_the_team_no_longer_runs_marks_the_routine_changed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -17,6 +17,7 @@ from action import human as action_human
 from chat import progress as chat_progress
 from core import strict_json
 from inference import config as inference_config
+from install import bindings
 from local.chat import continuation as local_chat_continuations
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
@@ -109,7 +110,7 @@ def _current_context(self, team_id: str, value: record.Run, pending: local_chat_
     """
     try:
         current = self._chat_setup(team_id, [], pending.provider, pending.assistant_ids)
-    except ApiProblem as exc:
+    except (ApiProblem, bindings.DynamicAssistantError) as exc:
         if not _proven_changed(self, team_id, pending):
             raise routine_turn.context_unavailable() from exc
         current = None
