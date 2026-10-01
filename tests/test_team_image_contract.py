@@ -206,6 +206,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
         modeled_destinations = {
             "./",
             "/opt/venv",
+            "/usr/local/bin/cosign",
             "./protocol/account/authority/",
             "./protocol/account/authority/v1/",
             "./protocol/http/v1/",
@@ -278,8 +279,17 @@ class StaticTeamImageContractTests(unittest.TestCase):
             HOSTED_PACKAGE_DATA,
             HOSTED_PROTOCOL_DATA,
         )
-        self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", runtime)
-        self.assertIn("source=uv.lock,target=/app/uv.lock,ro", runtime)
+        dependencies = dockerfile.split(" AS dependencies\n", 1)[1].split(" AS runtime\n", 1)[0]
+        self.assertIn(f"FROM {UV_IMAGE} AS uv", dockerfile)
+        self.assertIn("COPY --from=uv /uv /usr/local/bin/uv", dependencies)
+        self.assertIn("source=pyproject.toml,target=/app/pyproject.toml,ro", dependencies)
+        self.assertIn("source=uv.lock,target=/app/uv.lock,ro", dependencies)
+        self.assertIn('echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -', dependencies)
+        self.assertIn("COPY --from=dependencies /opt/venv /opt/venv", runtime)
+        self.assertIn("COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign", runtime)
+        for retired in ("uv-install.sh", "apt-get", "curl", "/usr/local/bin/uv", "--from=uv"):
+            with self.subTest(retired=retired):
+                self.assertNotIn(retired, runtime)
         protocol = ROOT / "protocol" / "install"
         self.assertEqual({"upstream.json", "v1"}, {path.name for path in protocol.iterdir()})
         authority_protocol = ROOT / "protocol" / "account" / "authority"
