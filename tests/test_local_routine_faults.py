@@ -525,6 +525,19 @@ class TeamIsolationTests(RoutineServiceCase):
             )
             self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
 
+    def test_a_team_whose_due_run_cannot_transition_is_audited_and_passed_over(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.routine(service)
+            # The state reads, but the record rules refuse its claim transition (e.g. an inconsistent notice).
+            refused = routine_run.record.RoutineStateError("notice-invalid")
+            with mock.patch.object(routine_run, "_claim", side_effect=refused):
+                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+            local_app.local_audit.record_request.assert_any_call(
+                "routine-claim", result="error", team_id="team_1", detail="routine-state-unavailable"
+            )
+            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+
     def test_one_overdue_run_that_cannot_be_stopped_never_keeps_another_running(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())

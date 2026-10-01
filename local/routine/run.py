@@ -116,7 +116,7 @@ def _claim_team(self, team_id: str, now: int, key: str):
     with self._lock(team_id):
         try:
             return routine_state.update(self, team_id, lambda state: _claim(self, team_id, state, now, key))
-        except ApiProblem:
+        except ApiProblem, record.RoutineStateError:
             _state_unavailable(team_id)
             return None
 
