@@ -233,7 +233,6 @@ def _egress_proxy(self):
     policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
     if (
         proxy.name != ASSISTANT_EGRESS_CONTAINER
-        or proxy.status != "running"
         or not self._labels_include(labels, expected_labels)
         or config.get("User") not in {"10005", "10005:10005"}
         or host.get("ReadonlyRootfs") is not True
@@ -249,6 +248,13 @@ def _egress_proxy(self):
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its isolation profile",
             code="egress-proxy-drift",
+        )
+    if proxy.status != "running":
+        # A proxy whose isolation profile holds is only stopped, as during a release swap or restart: retryable.
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant egress proxy is unavailable",
+            code="egress-proxy-unavailable",
         )
     return proxy
 

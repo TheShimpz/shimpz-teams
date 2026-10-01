@@ -187,6 +187,21 @@ class LocalAssistantEgressTests(unittest.TestCase):
 
                 self.assertEqual(caught.exception.code, "egress-proxy-drift")
 
+    def test_a_stopped_proxy_is_retryable_unless_its_profile_also_drifted(self) -> None:
+        for status in ("exited", "created", "restarting"):
+            with self.subTest(status=status):
+                self.proxy.status = status
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.controller.assistant_lifecycle._egress_proxy()
+                self.assertEqual(
+                    (caught.exception.status, caught.exception.code),
+                    (503, "egress-proxy-unavailable"),
+                )
+        self.proxy.attrs["HostConfig"]["Privileged"] = True
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            self.controller.assistant_lifecycle._egress_proxy()
+        self.assertEqual((caught.exception.status, caught.exception.code), (409, "egress-proxy-drift"))
+
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
         team_id = "team_1"
         self.network.attrs["Labels"] = {
