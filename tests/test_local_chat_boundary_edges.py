@@ -244,7 +244,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
                 local_chat_api.chat(
                     subject,
                     "team_1",
-                    {"message": message, "files": [], "assistant_ids": [], "conversation": []},
+                    {"message": message, "files": [], "assistant_ids": [], "conversation": [], "locale": None},
                     "openai",
                     "key",
                 )
@@ -256,7 +256,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": []},
+                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
                 "openai",
                 "key",
             ),
@@ -270,7 +270,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": []},
+                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
                 "openai",
                 "key",
             ),

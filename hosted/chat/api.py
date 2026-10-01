@@ -72,6 +72,7 @@ def _chat(
     file_ids: object,
     assistant_ids: tuple[str, ...],
     lease: hosted_resources._AuthorizationLease,
+    locale: str | None = None,
 ) -> dict:
     """Run one bounded Team turn across the explicit Controller-brokered Assistant scope."""
     pending = _pending_hosted_chat(team_id)
@@ -91,13 +92,16 @@ def _chat(
                 "Team Action execution state is unavailable",
             ) from exc
         return hosted_chat_segment._chat_in_turn(
-            team_id,
-            message,
-            file_ids,
-            assistant_ids,
-            token,
-            container,
-            lease.owner,
+            hosted_chat_segment.HostedChatSegmentRequest(
+                team_id=team_id,
+                file_ids=file_ids,
+                assistant_ids=assistant_ids,
+                token=token,
+                container=container,
+                owner=lease.owner,
+                message=message,
+                locale=locale,
+            )
         )
 
 

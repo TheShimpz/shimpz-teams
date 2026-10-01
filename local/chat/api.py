@@ -124,8 +124,15 @@ def chat(
     if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Team chat requires only message, files, assistant_ids, and conversation",
+            "Team chat requires only message, files, assistant_ids, conversation, and locale",
             code="invalid-body",
+        )
+    locale = body["locale"]
+    if locale is not None and http_payload.canonical_locale(locale) is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "locale must be one interface language or null",
+            code="invalid-locale",
         )
     message = body["message"]
     file_ids = body["files"]
@@ -161,6 +168,7 @@ def chat(
                 token=token,
                 message=message,
                 conversation=conversation,
+                locale=locale,
                 progress=progress or chat_progress.Reporter(),
             )
         )

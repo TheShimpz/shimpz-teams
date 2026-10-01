@@ -146,7 +146,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Summarize", "files": [file_id], "assistant_ids": [], "conversation": []},
+                {"message": "Summarize", "files": [file_id], "assistant_ids": [], "conversation": [], "locale": None},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -187,6 +187,7 @@ class LocalChatScopeTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["account-helper", "shimpz-cloudflare"],
                     "conversation": [],
+                    "locale": None,
                 },
                 "openai",
                 "sk-test-0123456789",
@@ -220,7 +221,7 @@ class LocalChatScopeTests(LocalContractCase):
             controller.team_names.save("team_1", "a" * 64, "Growth")
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": []},
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -245,7 +246,7 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": []},
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -267,7 +268,7 @@ class LocalChatScopeTests(LocalContractCase):
             window = [{"role": "user", "text": "List my DNS zones", "truncated": False}]
             controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": window},
+                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": window, "locale": None},
                 "openai",
                 "sk-test-0123456789",
             )
@@ -283,11 +284,21 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": [],
                         "conversation": [{"role": [], "text": "x", "truncated": False}],
+                        "locale": None,
                     },
                     "openai",
                     "sk-test-0123456789",
                 )
             self.assertEqual(caught.exception.code, "invalid-conversation")
+            for locale in ("pt-BR", "", 1):
+                with self.subTest(locale=locale), self.assertRaises(local_app.ApiProblem) as refused:
+                    controller.chat_turn_service.chat(
+                        "team_1",
+                        {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": locale},
+                        "openai",
+                        "sk-test-0123456789",
+                    )
+                self.assertEqual(refused.exception.code, "invalid-locale")
 
     def test_chat_rejects_invalid_or_unavailable_assistant_scope_before_runtime(self) -> None:
         class Runtime:
@@ -306,7 +317,13 @@ class LocalChatScopeTests(LocalContractCase):
                 with self.subTest(assistant_ids=assistant_ids), self.assertRaises(local_app.ApiProblem) as caught:
                     controller.chat_turn_service.chat(
                         "team_1",
-                        {"message": "Hello", "files": [], "assistant_ids": assistant_ids, "conversation": []},
+                        {
+                            "message": "Hello",
+                            "files": [],
+                            "assistant_ids": assistant_ids,
+                            "conversation": [],
+                            "locale": None,
+                        },
                         "openai",
                         "sk-test-0123456789",
                     )
@@ -315,7 +332,13 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as unavailable:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Hello", "files": [], "assistant_ids": ["account-helper"], "conversation": []},
+                    {
+                        "message": "Hello",
+                        "files": [],
+                        "assistant_ids": ["account-helper"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -344,7 +367,13 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Hello",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -429,7 +458,13 @@ class LocalChatScopeTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Accounts", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Accounts",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )

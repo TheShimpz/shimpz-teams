@@ -258,7 +258,9 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
 
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
         action = SimpleNamespace(summary="Action", input_schema={})
-        contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action})
+        help_url = "https://keys.example.com/api-keys"
+        stored = SimpleNamespace(help_url=help_url)
+        contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action}, stored_inputs={"key": stored})
         active = SimpleNamespace(
             assistant_id="assistant",
             container=SimpleNamespace(id="assistant-container"),
@@ -295,9 +297,11 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             missing_action = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "missing", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
                 strategy.human_requirement(missing_action, object())
-            requirement = strategy.human_requirement(requested, object())
+            stored_request = SimpleNamespace(kind="input:password", stored_input="key")
+            requirement = strategy.human_requirement(requested, stored_request)
             self.assertEqual(requirement.action_id, "action")
             self.assertEqual(requirement.assistant_name, "Reviewed Assistant")
+            self.assertEqual(requirement.help_url, help_url)
             return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
 
         with (

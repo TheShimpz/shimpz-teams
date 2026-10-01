@@ -152,15 +152,8 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             )
             for integration in document["integrations"]
         )
-        stored_input_declarations = assistant_manifest.canonical_stored_input_declarations(
-            {
-                stored_input["id"]: {
-                    "kind": stored_input["kind"],
-                    "label": stored_input["label"],
-                    "description": stored_input["description"],
-                }
-                for stored_input in document["stored_inputs"]
-            }
+        stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(
+            document["stored_inputs"]
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
             document["machine_contract"],
@@ -177,11 +170,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             for integration in declarations
         }
         stored_inputs = {
-            stored_input.id: assistant_registry.StoredInputSpec(
-                kind=stored_input.kind,
-                label=stored_input.label,
-                description=stored_input.description,
-            )
+            stored_input.id: assistant_registry.StoredInputSpec(**stored_input.metadata())
             for stored_input in stored_input_declarations
         }
         reviewed = assistant_manifest.reviewed_manifest_contract(

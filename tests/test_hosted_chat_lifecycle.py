@@ -16,6 +16,7 @@ from hosted_assistant_fixture import (
     HOSTED_SPEC,
     app,
     assistant_lifecycle,
+    chat_in_turn,
     hosted_assistants,
     hosted_chat_api,
     hosted_chat_segment,
@@ -349,7 +350,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             self.addCleanup(journal.close)
             anchor, environment = self._journal_chat_environment(journal, runtime, mock.Mock())
             with environment:
-                result = hosted_chat_segment._chat_in_turn(
+                result = chat_in_turn(
                     "team_1",
                     "Hello",
                     [],
@@ -357,9 +358,11 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     "turn-token",
                     anchor,
                     "account_1",
+                    locale="fr",
                 )
 
         self.assertEqual(runtime.context.assistants, ())
+        self.assertEqual(runtime.context.locale, "fr")
         self.assertEqual(result["reply"], "Brain only.")
 
     def test_revoked_generation_during_turn_cannot_commit_reply(self) -> None:
@@ -427,7 +430,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             ),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
-            hosted_chat_segment._chat_in_turn(
+            chat_in_turn(
                 "team_1",
                 "hello",
                 [],
@@ -468,7 +471,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                     checks,
                 )
                 with environment:
-                    hosted_chat_segment._chat_in_turn(
+                    chat_in_turn(
                         "team_1",
                         "Exercise every credential boundary",
                         [],
@@ -590,7 +593,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 ),
                 mock.patch.object(hosted_chat_segment.chat_orchestrator, "run_until_pause", side_effect=run),
             ):
-                result = hosted_chat_segment._chat_in_turn(
+                result = chat_in_turn(
                     "team_1",
                     "Find Berlin weather",
                     [],
@@ -723,7 +726,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
                         self.subTest(attempt=attempt),
                         self.assertRaises(runtime_state.ApiError) as failed,
                     ):
-                        hosted_chat_segment._chat_in_turn(
+                        chat_in_turn(
                             "team_1",
                             "Greet me",
                             [],

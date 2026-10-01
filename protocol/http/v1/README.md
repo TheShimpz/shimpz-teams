@@ -25,6 +25,16 @@ resumption after Account consumes it successfully. Handle issuance, freshness, b
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
 
+A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact Assistant-authored
+`request` with its fingerprint. Beside them, never inside `request` and never part of its fingerprint, it may carry
+two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for why the user's task needs this
+Action, written in the turn's interface language from only the turn's message and the reviewed Action identity:
+1 to 280 NFC characters with no control, format, or line-separator character, no dash punctuation other than a
+hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpose`). `help_url` appears only when
+`request.kind` is `input:password` with a `stored_input`, and is that Stored Input's reviewed key page copied from
+the exact binding's declaration (`payload.canonical_help_url`, one pattern shared with the Developers manifest and
+the Assistant-install standard). Both are inert presentation: they request and authorize nothing.
+
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
 `label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to
@@ -94,7 +104,11 @@ The browser visibly attributes the resumed objective, clears it on Team change, 
 page disposal, or consumption, and never writes it to browser storage. The retained Hosted Store backend does not
 accept `resume-task`.
 
-The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, and `conversation`.
+The exact `POST /v1/teams/:team_id/chat` body carries `message`, `files`, `assistant_ids`, `conversation`, and
+`locale`. `locale` is one closed interface language (`ar`, `de`, `en`, `es`, `fr`, `ja`, `pt`, `zh`;
+`payload.canonical_locale`) or `null`: Local Admin sends the language selected in its interface, Hosted Store and
+Routine runs send or use `null`. Team forwards it only to the Brain's turn start, which pins it for the whole logical
+turn and writes replies and clarifications in it; `null` keeps the language of the message (ADR-0090).
 `conversation` is one window of committed presentation history strictly before this turn, projected server-side
 by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role, text, truncated}` where `role` is
 `user` or `assistant`, each text 1 to 512 NFC printable characters with middle truncation, and at most 4,096
@@ -114,21 +128,23 @@ TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor ass
 to Brain's intent route, where only a confident ordinary classification skips the LLM route.
 
 The exact `POST /v1/teams/:team_id/chat/intent-route` body carries `objective`, `expected_intent`, `candidates`,
-`lifecycle_reference`, `conversation`, and `language_exemplar`. Classification requires an empty candidate list
+`lifecycle_reference`, `conversation`, and `locale`. Both classification and selection require one closed
+`locale`, the interface language every route reply is written in; it is presentation only and never changes the
+classification, candidates, or confirmation vocabulary. Classification requires an empty candidate list
 and may carry one bounded `{id,name}` reference captured from a successful explicit lifecycle together with an
 ordered window of at most eight prior user or Assistant texts. Every entry is at most 512 code points, the window
 is at most 4096 code points, and each entry explicitly states whether the producer truncated it. Selection carries
-neither reference nor conversation, may carry one bounded user-authored language exemplar, and resolves only
-against its exact bounded candidate set; an empty set can produce only unresolved clarification. Conversation and
-exemplar text is NFC-normalized and admits ordinary Unicode format characters plus CR, LF, and TAB layout. It is
-always quoted untrusted language evidence: it can resolve pronouns, ellipsis, direct answers, and response language,
+neither reference nor conversation and resolves only against its exact bounded candidate set; an empty set can
+produce only unresolved clarification. Conversation text is NFC-normalized and admits ordinary Unicode format
+characters plus CR, LF, and TAB layout. It is always quoted untrusted language evidence: it can resolve pronouns,
+ellipsis, and direct answers,
 but grants no directory membership, installation, removal, or Team authority and never becomes an instruction or
 identifier. The current objective remains the only fresh instruction.
 
 Local Admin may emit an exact terminal `assistant-guidance` event with the authenticated socket Team id, one of the
 closed `assistant-install-target-required`, `assistant-uninstall-target-required`, or
 `assistant-lifecycle-ambiguous` codes, and one bounded single-line question generated by the specialized route in
-the user's language. The browser renders that escaped presentation text; guidance never creates lifecycle
+the interface language. The browser renders that escaped presentation text; guidance never creates lifecycle
 authority or exposes the preceding structured route or bounded directory selection.
 
 Local Admin may also emit the exact `assistant-uninstall` lifecycle. Its `proposed` event
@@ -145,8 +161,8 @@ verifies the icon digest again at read time, returns exactly `image/png`, and ma
 
 Local Admin may request presentation-only labels for one installed binding from
 `POST /v1/teams/:team_id/assistants/:assistant_id/action-labels`. The exact request body is
-`{"language_exemplar":"..."}` and carries the same request-scoped model credential headers as chat.
-Team supplies Brain only the bounded exemplar and the binding's canonical Action ids, then revalidates
+`{"locale":"pt"}` with one closed interface language and carries the same request-scoped model credential headers
+as chat. Team supplies Brain only that locale and the binding's canonical Action ids, then revalidates
 the Team generation, Assistant version, Action-id set, provider, and model after the stateless model call.
 The response contains `team_id`, `assistant`, `assistant_version`, and every exact Action as an `id` plus
 an inert bounded `label`; the HTTP adapter adds `trace_id`. Labels never replace canonical ids, enter chat

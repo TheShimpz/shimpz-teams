@@ -100,7 +100,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
                 "candidates",
                 "lifecycle_reference",
                 "conversation",
-                "language_exemplar",
+                "locale",
             }
             and provider == {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.dummy_key}
             and body["objective"] == OBJECTIVE
@@ -108,7 +108,7 @@ class BrainPeer(flow_fixture.BrainLifecycleHandler):
             and body["candidates"] == []
             and body["lifecycle_reference"] is None
             and body["conversation"] == []
-            and body["language_exemplar"] is None
+            and body["locale"] == "en"
             and self.headers.get("Authorization", "").startswith("Bearer ")
         )
 

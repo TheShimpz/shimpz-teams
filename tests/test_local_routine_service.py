@@ -63,6 +63,9 @@ class Runtime:
     def delete_thread(self, _thread_id):
         return None
 
+    def purpose(self, _context, _request, _assistant_name, _summary):
+        return None
+
 
 def completed(reply: str = "Your zones are listed.") -> brain_runtime_client.RuntimeTurn:
     return brain_runtime_client.RuntimeTurn("completed", reply, ())

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import NoReturn
 
 from action import human as action_human
@@ -238,8 +238,31 @@ def drive(
             orchestration,
         )
     if isinstance(outcome, chat_orchestrator.ChatHumanSuspension):
-        requirements.human = (strategy.human_requirement(outcome.action, outcome.request),)
+        requirements.human = (_with_purpose(strategy, segment, outcome),)
     return outcome
+
+
+def _with_purpose(
+    strategy: SegmentStrategy,
+    segment: PreparedSegment,
+    suspension: chat_orchestrator.ChatHumanSuspension,
+) -> object:
+    """Attach the Brain's task-bound purpose to a new human requirement (ADR-0090).
+
+    The purpose is optional: any Brain failure leaves it absent. Stop and a changed Team context still end the turn,
+    so they are checked again after the call and before the challenge exists.
+    """
+    requirement = strategy.human_requirement(suspension.action, suspension.request)
+    purpose = strategy.runtime.purpose(
+        segment.context,
+        suspension.action,
+        requirement.assistant_name,
+        requirement.action_summary,
+    )
+    if strategy.cancelled():
+        raise chat_orchestrator.ChatStoppedError("chat turn stopped")
+    strategy.validate_context()
+    return replace(requirement, purpose=purpose)
 
 
 def suspension_gate_count(*requirements: tuple[object, ...]) -> int:

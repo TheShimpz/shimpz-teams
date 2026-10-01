@@ -23,6 +23,7 @@ from referencing.exceptions import Unresolvable
 from assistant import action_schema
 from core import strict_json
 from integrations import providers as integration_providers
+from protocol.http.v1 import payload as http_payload
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
 CONTRACT_PATH = "/opt/shimpz/shimpz.contract.json"
@@ -112,6 +113,17 @@ class StoredInputDeclaration:
     kind: str
     label: str
     description: str
+    # The page where a person creates the value, when the Assistant declared one.
+    help_url: str | None = None
+
+    def metadata(self) -> dict[str, str]:
+        """The closed declaration fields after its id, as manifests, resolutions, and records carry them."""
+        fields = {"kind": self.kind, "label": self.label, "description": self.description}
+        return fields if self.help_url is None else {**fields, "help_url": self.help_url}
+
+    def document(self) -> dict[str, str]:
+        """One declaration as a resolution or Local record lists it."""
+        return {"id": self.id, **self.metadata()}
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,10 +236,13 @@ def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDecla
     declarations: list[StoredInputDeclaration] = []
     for stored_input_id, metadata in value.items():
         identifier = _identifier(stored_input_id, kind="Stored Input", maximum=MAX_SECRET_ID_LENGTH)
-        if not isinstance(metadata, Mapping) or set(metadata) != {"kind", "label", "description"}:
+        if not isinstance(metadata, Mapping) or set(metadata) - {"help_url"} != {"kind", "label", "description"}:
             raise ManifestError("Assistant Stored Input declaration is invalid")
         if metadata["kind"] != "password":
             raise ManifestError("Assistant Stored Input kind is invalid")
+        help_url = None
+        if "help_url" in metadata and (help_url := http_payload.canonical_help_url(metadata["help_url"])) is None:
+            raise ManifestError("Assistant Stored Input help_url is invalid")
         declarations.append(
             StoredInputDeclaration(
                 id=identifier,
@@ -238,9 +253,19 @@ def canonical_stored_input_declarations(value: object) -> tuple[StoredInputDecla
                     kind="Stored Input description",
                     maximum=500,
                 ),
+                help_url=help_url,
             )
         )
     return tuple(sorted(declarations))
+
+
+def stored_input_declarations_from_documents(
+    value: Iterable[Mapping[str, object]],
+) -> tuple[StoredInputDeclaration, ...]:
+    """Canonicalize the declaration list a resolution carries, each entry its id plus its closed fields."""
+    return canonical_stored_input_declarations(
+        {document["id"]: {key: item for key, item in document.items() if key != "id"} for document in value}
+    )
 
 
 def canonical_manifest_contract(
@@ -289,6 +314,7 @@ def reviewed_manifest_contract(
                 "kind": metadata.kind,
                 "label": metadata.label,
                 "description": metadata.description,
+                **({} if metadata.help_url is None else {"help_url": metadata.help_url}),
             }
             for stored_input_id, metadata in stored_inputs.items()
         }

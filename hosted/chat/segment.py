@@ -138,6 +138,8 @@ class HostedChatSegmentRequest:
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # The interface language a new turn is written in; Hosted Store sends none (ADR-0090).
+    locale: str | None = None
 
 
 @dataclass(slots=True)
@@ -336,6 +338,7 @@ def _run_hosted_chat_segment_with_metadata(
             action_request.interrupt_id,
             human_request,
             active.version,
+            help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -375,6 +378,7 @@ def _run_hosted_chat_segment_with_metadata(
             model=config.model,
             api_key=api_key,
             effort=config.effort,
+            locale=request.locale,
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
         batch = action_execution.ActionBatch(
@@ -636,33 +640,17 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
         raise runtime_state.ApiError(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc)) from exc
 
 
-def _chat_in_turn(
-    team_id: str,
-    message: str,
-    file_ids: object,
-    assistant_ids: tuple[str, ...],
-    token: str,
-    container,
-    owner: str,
-) -> dict[str, object]:
-    segment = _run_hosted_chat_segment(
-        HostedChatSegmentRequest(
-            team_id=team_id,
-            file_ids=file_ids,
-            assistant_ids=assistant_ids,
-            token=token,
-            container=container,
-            owner=owner,
-            message=message,
-        )
-    )
+def _chat_in_turn(request: HostedChatSegmentRequest) -> dict[str, object]:
+    """Run a new turn inside the claimed chat slot and dispatch its single terminal or suspension."""
+    segment = _run_hosted_chat_segment(request)
+    file_ids = request.file_ids
     return _hosted_segment_response(
         HostedSegmentResponseRequest(
-            team_id,
-            token,
+            request.team_id,
+            request.token,
             segment,
-            assistant_ids,
+            request.assistant_ids,
             tuple(file_ids) if isinstance(file_ids, list) else (),
-            owner,
+            request.owner,
         )
     )

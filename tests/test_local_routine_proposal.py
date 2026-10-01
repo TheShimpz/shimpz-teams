@@ -96,7 +96,13 @@ class ChatProposalTests(LocalContractCase):
             controller.chat_turn_service.routine_proposals = controller.routine_proposals
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": CHANGE["quote"], "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": CHANGE["quote"],
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )

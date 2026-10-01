@@ -30,7 +30,6 @@ MAX_REPLY_CHARS = 60_000
 MAX_ACTION_REQUESTS = 64
 MAX_ACTION_LABELS = 64
 MAX_ACTION_LABEL_CHARS = 80
-MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 MAX_CAPABILITY_CANDIDATES = 8
 MAX_CAPABILITY_SELECTED = 4
 MAX_CAPABILITY_OBJECTIVE_CHARS = 16_000
@@ -102,6 +101,9 @@ class RuntimeContext:
     routines: tuple[dict[str, object], ...] | None = None
     # False in a Routine run, whose memory and skills the Brain may read but never change.
     knowledge_writable: bool = True
+    # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
+    # the start, so only a start sends it.
+    locale: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +182,8 @@ class RuntimeConversationEntry:
 class RuntimeLifecycleContext:
     reference: RuntimeLifecycleReference | None = None
     conversation: tuple[RuntimeConversationEntry, ...] = ()
-    language_exemplar: str | None = None
+    # The interface language every route reply is written in (ADR-0090); required by every route request.
+    locale: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +201,8 @@ ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
 # legitimately wait on the model provider.
 CONNECT_TIMEOUT_SECONDS = 5.0
 RESPONSE_TIMEOUT_SECONDS = 65.0
+# An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
+PURPOSE_DEADLINE_SECONDS = 15.0
 
 
 class RequestAbort:
@@ -333,17 +338,24 @@ class BrainRuntimeClient:
             "knowledge_writable": context.knowledge_writable,
         }
 
-    def _post(self, path: str, payload: Mapping[str, object]) -> object:
+    def _post(self, path: str, payload: Mapping[str, object], *, deadline: float | None = None) -> object:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
         abort = _ABORT.get()
         connection = self._connection_factory(self._host, self._port, CONNECT_TIMEOUT_SECONDS)
+        # An overall deadline shuts the socket down from a timer, like Stop, so Brain sees the disconnect.
+        expiry = RequestAbort()
+        timer = None if deadline is None else threading.Timer(deadline, expiry.abort)
         try:
+            if timer is not None:
+                expiry.attach(connection)
+                timer.start()
             if abort is not None:
                 abort.attach(connection)
             connection.connect()
             connection.sock.settimeout(RESPONSE_TIMEOUT_SECONDS)
             if abort is not None:
                 abort.check()
+            expiry.check()
             connection.request(
                 "POST",
                 path,
@@ -358,6 +370,8 @@ class BrainRuntimeClient:
         except (OSError, http.client.HTTPException) as exc:
             raise BrainRuntimeError("Brain runtime is unavailable") from exc
         finally:
+            if timer is not None:
+                timer.cancel()
             if abort is not None:
                 abort.detach()
             connection.close()
@@ -613,21 +627,13 @@ class BrainRuntimeClient:
         value: RuntimeLifecycleContext | None,
         expected_intent: LifecycleIntent | None,
     ) -> RuntimeLifecycleContext:
-        if value is None:
-            return RuntimeLifecycleContext()
-        if not isinstance(value, RuntimeLifecycleContext):
+        if not isinstance(value, RuntimeLifecycleContext) or http_payload.canonical_locale(value.locale) is None:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         reference = cls._validate_lifecycle_reference(value.reference)
         conversation = cls.validate_conversation(value.conversation)
-        exemplar = value.language_exemplar
-        if exemplar is not None:
-            exemplar = cls._capability_text(exemplar, MAX_LANGUAGE_EXEMPLAR_CHARS, allow_layout=True)
-        if expected_intent is None:
-            if exemplar is not None:
-                raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        elif reference is not None or conversation:
+        if expected_intent is not None and (reference is not None or conversation):
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
-        return RuntimeLifecycleContext(reference, conversation, exemplar)
+        return RuntimeLifecycleContext(reference, conversation, value.locale)
 
     @classmethod
     def validate_conversation(
@@ -766,8 +772,11 @@ class BrainRuntimeClient:
         conversation: tuple[RuntimeConversationEntry, ...],
     ) -> RuntimeTurn:
         """Start a turn; the Brain uses ``conversation`` only when it retains no completed exchange."""
+        if context.locale is not None and http_payload.canonical_locale(context.locale) is None:
+            raise BrainRuntimeError("Brain runtime turn locale is invalid")
         payload = self._context(context)
         payload["message"] = message
+        payload["locale"] = context.locale
         payload["conversation"] = [
             {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
             for entry in self.validate_conversation(conversation)
@@ -780,6 +789,30 @@ class BrainRuntimeClient:
         payload["results"] = dict(results)
         response = self._post("/v1/turns/resume", payload)
         return self._parse_turn(self._metered(response, "turn-resume", context.provider, context.model))
+
+    def purpose(self, context: RuntimeContext, request: ActionRequest, assistant_name: str, summary: str) -> str | None:
+        """Ask once why the user's task needs this paused Action, in the turn's language; any failure is None.
+
+        Brain reads only the pending turn's own message for this exact interrupt (ADR-0090). Stop aborts the request
+        like any other; the caller checks for Stop afterwards.
+        """
+        payload = {
+            "thread_id": context.thread_id,
+            "interrupt_id": request.interrupt_id,
+            "assistant_id": request.assistant_id,
+            "assistant_name": assistant_name,
+            "action_id": request.action,
+            "action_summary": summary,
+            "provider": {"provider": context.provider, "model": context.model, "api_key": context.api_key},
+        }
+        try:
+            response = self._post("/v1/turns/purpose", payload, deadline=PURPOSE_DEADLINE_SECONDS)
+            rest = self._metered(response, "purpose", context.provider, context.model)
+        except BrainRuntimeError:
+            return None
+        if not isinstance(rest, dict) or set(rest) != {"purpose"} or rest["purpose"] is None:
+            return None
+        return http_payload.canonical_purpose(rest["purpose"])
 
     def delete_thread(self, thread_id: str) -> None:
         if not isinstance(thread_id, str) or SAFE_ID_RE.fullmatch(thread_id) is None:
@@ -794,7 +827,7 @@ class BrainRuntimeClient:
         provider: Literal["anthropic", "openai"],
         model: str,
         api_key: str,
-        language_exemplar: str,
+        locale: str,
         action_ids: tuple[str, ...],
     ) -> tuple[RuntimeActionLabel, ...]:
         if (
@@ -805,15 +838,7 @@ class BrainRuntimeClient:
             or not api_key
             or len(api_key) > 16 * 1024
             or "\0" in api_key
-            or not isinstance(language_exemplar, str)
-            or language_exemplar.strip() != language_exemplar
-            or not 1 <= len(language_exemplar) <= MAX_LANGUAGE_EXEMPLAR_CHARS
-            or any(
-                unicodedata.category(character).startswith("C")
-                and unicodedata.category(character) != "Cf"
-                and character not in _LANGUAGE_LAYOUT_CONTROLS
-                for character in language_exemplar
-            )
+            or http_payload.canonical_locale(locale) is None
             or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
             or any(ACTION_ID_RE.fullmatch(action_id) is None for action_id in action_ids)
             or len(set(action_ids)) != len(action_ids)
@@ -823,7 +848,7 @@ class BrainRuntimeClient:
             "/v1/action-labels",
             {
                 "provider": {"provider": provider, "model": model, "api_key": api_key},
-                "language_exemplar": language_exemplar,
+                "locale": locale,
                 "actions": list(action_ids),
             },
         )
@@ -923,7 +948,7 @@ class BrainRuntimeClient:
                     {"role": entry.role, "text": entry.text, "truncated": entry.truncated}
                     for entry in admitted_context.conversation
                 ],
-                "language_exemplar": admitted_context.language_exemplar,
+                "locale": admitted_context.locale,
                 **(
                     {}
                     if decision_key is None

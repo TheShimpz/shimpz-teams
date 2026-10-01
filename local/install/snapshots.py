@@ -209,14 +209,7 @@ def validate_record(record: dict[str, Any]) -> None:
         contract = assistant_manifest.canonical_manifest_contract(
             allowed_hosts=record["allowed_hosts"],
             integration_declarations={declaration.id: list(declaration.scopes) for declaration in declarations},
-            stored_input_declarations={
-                declaration.id: {
-                    "kind": declaration.kind,
-                    "label": declaration.label,
-                    "description": declaration.description,
-                }
-                for declaration in stored_inputs
-            },
+            stored_input_declarations={declaration.id: declaration.metadata() for declaration in stored_inputs},
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
             record["machine_contract"], declarations, stored_inputs
@@ -452,15 +445,7 @@ def _record(
             {"id": value.id, "provider": value.provider, "scopes": list(value.scopes)}
             for value in manifest_contract.integrations
         ],
-        "stored_inputs": [
-            {
-                "id": value.id,
-                "kind": value.kind,
-                "label": value.label,
-                "description": value.description,
-            }
-            for value in manifest_contract.stored_inputs
-        ],
+        "stored_inputs": [value.document() for value in manifest_contract.stored_inputs],
         "machine_contract": machine_contract,
     }
 
@@ -495,9 +480,10 @@ def _stored_input_declarations(value: object) -> tuple[assistant_manifest.Stored
                 kind=item["kind"],
                 label=item["label"],
                 description=item["description"],
+                help_url=item.get("help_url"),
             )
             for item in value
-            if isinstance(item, dict) and set(item) == {"id", "kind", "label", "description"}
+            if isinstance(item, dict) and set(item) - {"help_url"} == {"id", "kind", "label", "description"}
         )
     except (KeyError, TypeError) as exc:
         raise LocalSnapshotError("the local Assistant Stored Inputs are invalid") from exc
@@ -528,16 +514,7 @@ def _validate_record_primitives(
         or stored_inputs != contract.stored_inputs
         or record["integrations"]
         != [{"id": value.id, "provider": value.provider, "scopes": list(value.scopes)} for value in declarations]
-        or record["stored_inputs"]
-        != [
-            {
-                "id": value.id,
-                "kind": value.kind,
-                "label": value.label,
-                "description": value.description,
-            }
-            for value in stored_inputs
-        ]
+        or record["stored_inputs"] != [value.document() for value in stored_inputs]
         or record["machine_contract"] != machine_contract
         or any(not isinstance(record[key], str) or _IMAGE_ID_RE.fullmatch(record[key]) is None for key in digests)
     ):

@@ -464,11 +464,14 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             _execute(HTTP / "verify.py", modules={"supervisor": fake})
 
     def test_rejects_action_label_text_vector_drift(self) -> None:
-        def wrong_exemplar(value: dict[str, object]) -> None:
-            value["action_label_text"]["exemplars"][0]["canonical"] = "different"
+        def missing_purpose(value: dict[str, object]) -> None:
+            value["purpose"] = {"valid": [], "invalid": ["x"]}
 
-        def admitted_invalid_exemplar(value: dict[str, object]) -> None:
-            value["action_label_text"]["invalid_exemplars"] = ["Valid exemplar"]
+        def rejected_help_url(value: dict[str, object]) -> None:
+            value["help_url"]["valid"] = ["https://example.com"]
+
+        def admitted_invalid_locale(value: dict[str, object]) -> None:
+            value["chat_locale"]["invalid"] = ["en"]
 
         def rejected_label(value: dict[str, object]) -> None:
             value["action_label_text"]["labels"] = [" padded "]
@@ -476,7 +479,13 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def admitted_invalid_label(value: dict[str, object]) -> None:
             value["action_label_text"]["invalid_labels"] = ["Valid label"]
 
-        for mutate in (wrong_exemplar, admitted_invalid_exemplar, rejected_label, admitted_invalid_label):
+        for mutate in (
+            missing_purpose,
+            rejected_help_url,
+            admitted_invalid_locale,
+            rejected_label,
+            admitted_invalid_label,
+        ):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py",

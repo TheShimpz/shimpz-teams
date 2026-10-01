@@ -225,7 +225,7 @@ def _declarations(value: object) -> dict[str, tuple[str, str, str]]:
             raw_label = raw_spec.label  # type: ignore[attr-defined]
             raw_description = raw_spec.description  # type: ignore[attr-defined]
         except AttributeError, TypeError:
-            if not isinstance(raw_spec, Mapping) or set(raw_spec) != {"kind", "label", "description"}:
+            if not isinstance(raw_spec, Mapping) or set(raw_spec) - {"help_url"} != {"kind", "label", "description"}:
                 raise StoredInputValidationError("Stored Input declarations are invalid") from None
             raw_kind = raw_spec.get("kind")
             raw_label = raw_spec.get("label")

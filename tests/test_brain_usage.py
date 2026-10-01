@@ -102,7 +102,7 @@ class ClientMeteringTests(RuntimeClientCase):
                     provider="openai",
                     model="gpt-6-luna",
                     api_key=self.secret,
-                    language_exemplar="Oi",
+                    locale="pt",
                     action_ids=("list-zones",),
                 ),
             ),
@@ -125,7 +125,17 @@ class ClientMeteringTests(RuntimeClientCase):
                     objective="oi",
                     expected_intent=None,
                     candidates=(),
-                    context=None,
+                    context=brain_runtime_client.RuntimeLifecycleContext(locale="pt"),
+                ),
+            ),
+            (
+                "purpose",
+                {"purpose": "To list your zones, I need Cloudflare."},
+                lambda client: client.purpose(
+                    context(self.secret),
+                    brain_runtime_client.ActionRequest("interrupt-1", "shimpz-cloudflare", "list-zones", {}),
+                    "Shimpz Cloudflare",
+                    "List zones.",
                 ),
             ),
         )
@@ -136,7 +146,7 @@ class ClientMeteringTests(RuntimeClientCase):
                 client, _connection = self.client(_Response(payload, usage=USAGE))
                 call(client)
                 [entry] = brain_usage.drain()
-                model = "gpt-test" if operation.startswith("turn") else "gpt-6-luna"
+                model = "gpt-test" if operation.startswith("turn") or operation == "purpose" else "gpt-6-luna"
                 self.assertEqual((entry["operation"], entry["provider"], entry["model"]), (operation, "openai", model))
                 self.assertEqual(entry["count"], 1)
                 self.assertEqual(entry["input_tokens"], 900)

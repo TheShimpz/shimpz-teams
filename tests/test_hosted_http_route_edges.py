@@ -335,7 +335,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
     def test_stream_checks_pending_state_before_starting_transport(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(
-            return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": []}
+            return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None}
         )
         pending = {"status": "input-required"}
         with (
@@ -350,7 +350,13 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
     def test_stream_delegates_validated_inputs_when_no_continuation_is_pending(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(
-            return_value={"message": "hello", "files": ["file"], "assistant_ids": ["assistant"], "conversation": []}
+            return_value={
+                "message": "hello",
+                "files": ["file"],
+                "assistant_ids": ["assistant"],
+                "conversation": [],
+                "locale": "ja",
+            }
         )
         handler._stream_chat = mock.Mock()
         request = _request()
@@ -367,7 +373,28 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
             ["file"],
             ("assistant",),
             request.lease,
+            "ja",
         )
+
+    def test_hosted_chat_refuses_a_locale_outside_the_closed_interface_languages(self) -> None:
+        for locale in ("pt-BR", "", 1):
+            with self.subTest(locale=locale):
+                handler = _handler()
+                handler._read_body = mock.Mock(
+                    return_value={
+                        "message": "hello",
+                        "files": [],
+                        "assistant_ids": [],
+                        "conversation": [],
+                        "locale": locale,
+                    }
+                )
+                with (
+                    mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
+                    self.assertRaises(runtime_state.ApiError) as raised,
+                ):
+                    handler._route_chat_turn(_request(), stream=False)
+                self.assertEqual(raised.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
 
     def test_hosted_chat_refuses_any_nonempty_conversation_window(self) -> None:
         handler = _handler()
@@ -377,6 +404,7 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
                 "files": [],
                 "assistant_ids": [],
                 "conversation": [{"role": "user", "text": "hi", "truncated": False}],
+                "locale": None,
             }
         )
         with self.assertRaisesRegex(server.validate.ValidationError, "empty conversation window"):
@@ -391,15 +419,22 @@ class HostedHttpChatRouteEdgeTests(unittest.TestCase):
             with self.subTest(result=result):
                 handler = _handler()
                 handler._read_body = mock.Mock(
-                    return_value={"message": "hello", "files": [], "assistant_ids": [], "conversation": []}
+                    return_value={
+                        "message": "hello",
+                        "files": [],
+                        "assistant_ids": [],
+                        "conversation": [],
+                        "locale": "de",
+                    }
                 )
                 with (
                     mock.patch.object(server.validate, "validate_chat_message", return_value="hello"),
                     mock.patch.object(server.hosted_assistants, "_chat_assistant_ids", return_value=()),
                     mock.patch.object(runtime_state, "_enforce_rate"),
-                    mock.patch.object(hosted_chat_api, "_chat", return_value=result),
+                    mock.patch.object(hosted_chat_api, "_chat", return_value=result) as chat,
                 ):
                     handler._route_chat_turn(_request(), stream=False)
+                self.assertEqual(chat.call_args.args[-1], "de")
                 handler._send_json.assert_called_once_with(
                     expected_status,
                     result,

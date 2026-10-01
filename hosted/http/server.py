@@ -99,6 +99,7 @@ class Handler(BaseHTTPRequestHandler):
         file_ids: object,
         assistant_ids: tuple[str, ...],
         lease: hosted_resources._AuthorizationLease,
+        locale: str | None = None,
     ) -> None:
         """Preserve the NDJSON transport while exposing only the validated terminal reply."""
         terminal: dict[str, object]
@@ -126,13 +127,16 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 result = hosted_chat_segment._chat_in_turn(
-                    team_id,
-                    message,
-                    file_ids,
-                    assistant_ids,
-                    token,
-                    container,
-                    lease.owner,
+                    hosted_chat_segment.HostedChatSegmentRequest(
+                        team_id=team_id,
+                        file_ids=file_ids,
+                        assistant_ids=assistant_ids,
+                        token=token,
+                        container=container,
+                        owner=lease.owner,
+                        message=message,
+                        locale=locale,
+                    )
                 )
                 paused = result.get("status") in hosted_assistants.CHAT_PAUSED_STATUSES
                 terminal = (
@@ -692,6 +696,9 @@ class Handler(BaseHTTPRequestHandler):
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team chat body fields are invalid")
         validate.validate_hosted_conversation(body["conversation"])
         message = validate.validate_chat_message(body["message"])
+        locale = body["locale"]
+        if locale is not None and team_http_contract.canonical_locale(locale) is None:
+            raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team chat locale is invalid")
         file_ids = body["files"]
         assistant_ids = hosted_assistants._chat_assistant_ids(body["assistant_ids"])
         if stream:
@@ -704,7 +711,7 @@ class Handler(BaseHTTPRequestHandler):
                     no_store=True,
                 )
                 return
-            self._stream_chat(request.team_id, message, file_ids, assistant_ids, request.lease)
+            self._stream_chat(request.team_id, message, file_ids, assistant_ids, request.lease, locale)
             return
         runtime_state._enforce_rate("chat", request.principal)
         result = hosted_chat_api._chat(
@@ -713,6 +720,7 @@ class Handler(BaseHTTPRequestHandler):
             file_ids,
             assistant_ids,
             request.lease,
+            locale,
         )
         self._audit_security(
             "chat",

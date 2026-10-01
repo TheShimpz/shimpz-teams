@@ -16,6 +16,18 @@ SOURCE_DIGEST_PATTERN = rf"^sha256:{SHA256_PATTERN[1:-1]}$"
 ASSURANCE_HANDLE_PATTERN = r"^[A-Za-z0-9_-]{43}$"
 MEDIA_TYPE_PATTERN = r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$"
 ACCOUNT_SESSION_HEADER = "X-Shimpz-Account"
+# A Stored Input's key page (Developers manifest `help_url`): one canonical public https URL that WHATWG URL
+# serialization prints unchanged, with a path, an optional query, and no port, credentials, fragment, or dot segment.
+HELP_URL_PATTERN = (
+    r"^https://(?=[^/]{1,253}/)"
+    r"(?![^/]*\.(?:arpa|example|home|internal|invalid|lan|local|localdomain|localhost|onion|test)/)"
+    r"(?:(?!xn--)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?!xn--)[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?"
+    r"(?:/(?!\.\.?(?:/|\?|(?![\s\S])))(?:[A-Za-z0-9._~!$&()*+,;=:@-]|%(?!2E)[0-9A-F]{2})*)+"
+    r"(?:\?(?:[A-Za-z0-9._~!$&()*+,;=:@/?-]|%[0-9A-F]{2})+)?(?![\s\S])"
+)
+MAX_HELP_URL_CHARS = 2_048
+# The Brain's task-bound sentence for why an Action pauses for a person (ADR-0090).
+MAX_PURPOSE_CHARS = 280
 
 TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
 ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
@@ -25,6 +37,7 @@ SHA256_RE = re.compile(SHA256_PATTERN)
 SOURCE_DIGEST_RE = re.compile(SOURCE_DIGEST_PATTERN)
 ASSURANCE_HANDLE_RE = re.compile(ASSURANCE_HANDLE_PATTERN)
 MEDIA_TYPE_RE = re.compile(MEDIA_TYPE_PATTERN)
+HELP_URL_RE = re.compile(HELP_URL_PATTERN)
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
 MAX_CHAT_FILES = 8
@@ -32,7 +45,6 @@ MAX_CHAT_ASSISTANTS = 16
 MAX_TEAM_FILES = 256
 MAX_TEAM_NAME_CHARS = 80
 MAX_ACTION_LABEL_CHARS = 80
-MAX_LANGUAGE_EXEMPLAR_CHARS = 2_000
 MAX_FILE_UPLOAD_BYTES = 25 * 1024 * 1024
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
@@ -55,7 +67,9 @@ MAX_SKILL_INPUTS = 32
 SKILL_KEY_PREFIX = "procedure-"
 SKILL_KEY_RE = re.compile(r"procedure-[0-9a-f]{12}\Z")
 SKILL_INPUT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
-CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation"})
+CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
+# The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
+CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 
 
@@ -112,20 +126,42 @@ def canonical_action_id(value: object) -> str | None:
     return value
 
 
-def canonical_language_exemplar(value: object) -> str | None:
-    if not isinstance(value, str):
+def canonical_locale(value: object) -> str | None:
+    """Return one closed interface language code, or None."""
+    return value if isinstance(value, str) and value in CHAT_LOCALES else None
+
+
+def canonical_help_url(value: object) -> str | None:
+    """Return one exact Stored Input key page, or None."""
+    if not isinstance(value, str) or len(value) > MAX_HELP_URL_CHARS or HELP_URL_RE.fullmatch(value) is None:
         return None
-    normalized = unicodedata.normalize("NFC", value.strip())
-    if not 1 <= len(normalized) <= MAX_LANGUAGE_EXEMPLAR_CHARS:
-        return None
-    if any(
-        unicodedata.category(character).startswith("C")
-        and unicodedata.category(character) != "Cf"
-        and character not in _LANGUAGE_LAYOUT_CONTROLS
-        for character in normalized
+    return value
+
+
+def canonical_purpose(value: object) -> str | None:
+    """Return one plain single-line purpose sentence, or None.
+
+    It carries no control, format, or line-separator character, no dash punctuation other than a hyphen inside a word,
+    and nothing that reads as a link, so it can only explain, never point somewhere.
+    """
+    if (
+        not isinstance(value, str)
+        or unicodedata.normalize("NFC", value) != value
+        or value.strip() != value
+        or not 1 <= len(value) <= MAX_PURPOSE_CHARS
+        or any(
+            unicodedata.category(character)[0] == "C"
+            or unicodedata.category(character) in {"Zl", "Zp"}
+            or (unicodedata.category(character) == "Pd" and character != "-")
+            for character in value
+        )
+        or " -" in value
+        or "- " in value
+        or "://" in value
+        or "www." in value.casefold()
     ):
         return None
-    return normalized
+    return value
 
 
 def canonical_action_label(value: object) -> str | None:

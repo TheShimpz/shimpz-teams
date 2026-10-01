@@ -505,7 +505,13 @@ class LocalContractTests(LocalContractCase):
     def test_private_chat_route_reads_key_from_header_not_json(self) -> None:
         key = "sk-test-0123456789"
         body = json.dumps(
-            {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []}
+            {
+                "message": "Hello",
+                "files": [],
+                "assistant_ids": ["shimpz-cloudflare"],
+                "conversation": [],
+                "locale": None,
+            }
         ).encode()
         captured: dict[str, object] = {}
 
@@ -541,7 +547,13 @@ class LocalContractTests(LocalContractCase):
         self.assertEqual(status, HTTPStatus.OK)
         self.assertEqual(
             captured["payload"],
-            {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+            {
+                "message": "Hello",
+                "files": [],
+                "assistant_ids": ["shimpz-cloudflare"],
+                "conversation": [],
+                "locale": None,
+            },
         )
         self.assertEqual(captured["provider"], "openai")
         self.assertEqual(captured["api_key"], key)

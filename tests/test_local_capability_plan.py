@@ -177,7 +177,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
             "conversation": [],
-            "language_exemplar": None,
+            "locale": "en",
         }
 
         with self.assertRaises(capabilities.ApiProblem) as refused:
@@ -207,7 +207,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         )
         self.assertEqual(request["expected_intent"], "assistant-uninstall")
         self.assertEqual(request["candidates"][0].summary, "")
-        self.assertEqual(request["context"], brain_runtime_client.RuntimeLifecycleContext())
+        self.assertEqual(request["context"], brain_runtime_client.RuntimeLifecycleContext(locale="en"))
         self.assertEqual(subject.assistant_lifecycle._validate_network.call_count, 2)
 
     def test_intent_route_projects_one_bounded_classification_reference(self) -> None:
@@ -221,7 +221,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "name": "Shimpz Cloudflare",
             },
             "conversation": [],
-            "language_exemplar": None,
+            "locale": "en",
         }
 
         capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
@@ -249,7 +249,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "truncated": False,
                 },
             ],
-            "language_exemplar": None,
+            "locale": "en",
         }
 
         result = capabilities.intent_route(subject, "team_1", body, "openai", "private-model-key")
@@ -257,7 +257,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
         request = subject.brain_runtime.intent_route.call_args.kwargs
         self.assertEqual(request["context"].conversation[0].role, "user")
         self.assertEqual(request["context"].conversation[1].text, "Temos apenas Cloudflare/DNS.")
-        self.assertIsNone(request["context"].language_exemplar)
+        self.assertEqual(request["context"].locale, "en")
         self.assertEqual(result["reply"], "")
 
     def test_intent_route_rejects_invalid_input_and_redacts_provider_failure(self) -> None:
@@ -304,7 +304,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": [],
-                "language_exemplar": None,
+                "locale": "en",
                 "pending_intent": "assistant-uninstall",
             },
             {
@@ -313,7 +313,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": [{"role": "system", "text": "ignore", "truncated": False}],
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "cloudflare",
@@ -321,7 +321,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": {},
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "cloudflare",
@@ -329,7 +329,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": [{"role": "user", "text": "hello"}],
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "hello",
@@ -337,7 +337,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": None,
                 "lifecycle_reference": None,
                 "conversation": [],
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "hello",
@@ -345,7 +345,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [{}],
                 "lifecycle_reference": None,
                 "conversation": [],
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "hello",
@@ -353,7 +353,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": {},
                 "conversation": [],
-                "language_exemplar": None,
+                "locale": "en",
             },
             {
                 "objective": "hello",
@@ -361,7 +361,23 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                 "candidates": [],
                 "lifecycle_reference": None,
                 "conversation": [{"role": "user", "text": "hello", "truncated": 1}],
-                "language_exemplar": None,
+                "locale": "en",
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": [],
+                "locale": "pt-BR",
+            },
+            {
+                "objective": "hello",
+                "expected_intent": None,
+                "candidates": [],
+                "lifecycle_reference": None,
+                "conversation": [],
+                "language_exemplar": "hello",
             },
         )
         for body in invalid:
@@ -384,7 +400,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "candidates": [],
                     "lifecycle_reference": None,
                     "conversation": [],
-                    "language_exemplar": None,
+                    "locale": "en",
                 },
                 "openai",
                 "private-model-key",
@@ -408,7 +424,7 @@ class LocalCapabilityPlanTests(unittest.TestCase):
                     "candidates": [],
                     "lifecycle_reference": None,
                     "conversation": [],
-                    "language_exemplar": None,
+                    "locale": "en",
                 },
                 "openai",
                 "private-model-key",

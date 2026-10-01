@@ -196,13 +196,18 @@ if not applied or any(
 ):
     fail("a memory application vector differs")
 action_label_text = vectors.get("action_label_text", {})
-for case in action_label_text.get("exemplars", []):
-    if payload.canonical_language_exemplar(case["input"]) != case["canonical"]:
-        fail("Team HTTP Action-label exemplar positive vector differs")
-if any(
-    payload.canonical_language_exemplar(value) is not None for value in action_label_text.get("invalid_exemplars", [])
+for name, admit in (
+    ("chat_locale", payload.canonical_locale),
+    ("help_url", payload.canonical_help_url),
+    ("purpose", payload.canonical_purpose),
 ):
-    fail("Team HTTP Action-label exemplar negative vector differs")
+    cases = vectors.get(name, {})
+    if not cases.get("valid") or not cases.get("invalid"):
+        fail(f"Team HTTP {name} vectors are missing")
+    if any(admit(value) != value for value in cases["valid"]):
+        fail(f"Team HTTP {name} positive vector differs")
+    if any(admit(value) is not None for value in cases["invalid"]):
+        fail(f"Team HTTP {name} negative vector differs")
 if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
     fail("Team HTTP Action-label label positive vector differs")
 if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):

@@ -74,7 +74,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -93,8 +99,17 @@ class LocalTurnLifecycleTests(LocalContractCase):
         class Runtime:
             resumes = 0
 
-            def start(self, _context, _message, *, conversation=()):
+            def __init__(self) -> None:
+                self.locales: list[str | None] = []
+                self.purposes: list[tuple[object, ...]] = []
+
+            def start(self, context, _message, *, conversation=()):
+                self.locales.append(context.locale)
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
+
+            def purpose(self, *args):
+                self.purposes.append(args[1:])
+                return "To list your zones, I need to read them in Cloudflare."
 
             def resume(self, _context, results):
                 self.resumes += 1
@@ -121,11 +136,21 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = invoke
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": "pt",
+                },
                 "openai",
                 "sk-test-0123456789",
             )
             self.assertEqual(paused["status"], "human-required")
+            self.assertEqual(paused["purpose"], "To list your zones, I need to read them in Cloudflare.")
+            self.assertNotIn("help_url", paused)
+            self.assertEqual(runtime.locales, ["pt"])
+            self.assertEqual(runtime.purposes, [(request, "Shimpz Cloudflare", runtime.purposes[0][2])])
             self.assertEqual(runtime.resumes, 0)
 
             completed = controller.chat_turn_service.resume_chat_human(
@@ -162,6 +187,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         )
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", batch)
 
@@ -195,7 +222,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with mock.patch.object(local_audit, "record_request", return_value="a" * 32):
                 paused = controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Search", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Search",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -214,6 +247,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -227,7 +262,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -247,6 +288,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -261,7 +304,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             paused = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -302,6 +351,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -316,7 +367,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             )
             controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -342,6 +399,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -370,6 +429,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["shimpz-cloudflare"],
                         "conversation": [],
+                        "locale": None,
                     },
                     "openai",
                     "sk-test-0123456789",
@@ -387,6 +447,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -414,6 +476,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["shimpz-cloudflare"],
                     "conversation": [],
+                    "locale": None,
                 },
                 "openai",
                 "sk-test-0123456789",
@@ -428,6 +491,8 @@ class LocalTurnLifecycleTests(LocalContractCase):
         request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
         class Runtime:
+            purpose = staticmethod(lambda *_args: None)
+
             def start(self, _context, _message, *, conversation=()):
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
@@ -464,7 +529,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = invoke
             first_pause = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -477,7 +548,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 )
             second_pause = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "List zones",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -545,7 +622,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Hello", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Hello",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
@@ -583,7 +666,13 @@ class LocalTurnLifecycleTests(LocalContractCase):
             controller.assistant_lifecycle.invoke = controller.invoke
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "Greet me",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -632,14 +721,26 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as first:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Greet me",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "Greet me",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -675,6 +776,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["shimpz-cloudflare"],
                     "conversation": [],
+                    "locale": None,
                 },
                 "openai",
                 "sk-test-0123456789",
@@ -721,14 +823,26 @@ class LocalTurnLifecycleTests(LocalContractCase):
             with self.assertRaises(local_app.ApiProblem) as first:
                 controller.chat_turn_service.chat(
                     "team_1",
-                    {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                    {
+                        "message": "Greet me",
+                        "files": [],
+                        "assistant_ids": ["shimpz-cloudflare"],
+                        "conversation": [],
+                        "locale": None,
+                    },
                     "openai",
                     "sk-test-0123456789",
                 )
             self.assertEqual(invocations, ["rpc"])
             retry = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Greet me", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []},
+                {
+                    "message": "Greet me",
+                    "files": [],
+                    "assistant_ids": ["shimpz-cloudflare"],
+                    "conversation": [],
+                    "locale": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -784,6 +898,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
                             "files": [],
                             "assistant_ids": ["shimpz-cloudflare"],
                             "conversation": [],
+                            "locale": None,
                         },
                         "openai",
                         "sk-test-0123456789",

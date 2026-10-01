@@ -226,6 +226,8 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
                 "interrupt_id": requirement.interrupt_id,
                 "request": _json_value(requirement.request.payload()),
                 "assistant_version": requirement.assistant_version,
+                "help_url": requirement.help_url,
+                "purpose": requirement.purpose,
             }
         ]
     raise ContinuationCodecError("continuation requirements are malformed")
@@ -579,6 +581,8 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
             "interrupt_id",
             "request",
             "assistant_version",
+            "help_url",
+            "purpose",
         },
         "human requirement",
     )
@@ -596,6 +600,12 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         )
     except action_human.HumanRequestError as exc:
         raise ContinuationCodecError("human requirement request is malformed") from exc
+    help_url, purpose = raw["help_url"], raw["purpose"]
+    help_url_valid = help_url is None or (
+        request.stored_input is not None and http_payload.canonical_help_url(help_url) is not None
+    )
+    if not help_url_valid or (purpose is not None and http_payload.canonical_purpose(purpose) is None):
+        raise ContinuationCodecError("human requirement presentation is malformed")
     return action_challenges.HumanRequirement(
         _component_id(raw["assistant_id"], "human Assistant"),
         str(_text(raw["assistant_name"], 80, "human Assistant name")),
@@ -604,6 +614,8 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         _interrupt_id(raw["interrupt_id"]),
         request,
         str(_text(raw["assistant_version"], 40, "human Assistant version")),
+        help_url=help_url,
+        purpose=purpose,
     )
 
 

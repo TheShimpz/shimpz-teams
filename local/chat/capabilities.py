@@ -87,18 +87,18 @@ def action_labels(
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     assistant_id = validate_assistant_id(assistant_id)
-    if not isinstance(body, dict) or set(body) != {"language_exemplar"}:
+    if not isinstance(body, dict) or set(body) != {"locale"}:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Action labels require only language_exemplar",
+            "Action labels require only locale",
             code="invalid-body",
         )
-    language_exemplar = http_payload.canonical_language_exemplar(body["language_exemplar"])
-    if language_exemplar is None:
+    locale = http_payload.canonical_locale(body["locale"])
+    if locale is None:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "language_exemplar is invalid",
-            code="invalid-language-exemplar",
+            "locale is invalid",
+            code="invalid-locale",
         )
     before = self._action_label_snapshot(team_id, assistant_id, provider)
     try:
@@ -106,7 +106,7 @@ def action_labels(
             provider=before.provider,
             model=before.model,
             api_key=api_key,
-            language_exemplar=language_exemplar,
+            locale=locale,
             action_ids=before.action_ids,
         )
     except brain_runtime_client.BrainRuntimeError as exc:
@@ -276,16 +276,13 @@ def _conversation_entry(value: object) -> brain_runtime_client.RuntimeConversati
     )
 
 
-def _lifecycle_context(body: dict[str, object]) -> brain_runtime_client.RuntimeLifecycleContext | None:
+def _lifecycle_context(body: dict[str, object]) -> brain_runtime_client.RuntimeLifecycleContext:
     reference = _lifecycle_reference(body["lifecycle_reference"])
     conversation = body["conversation"]
     if not isinstance(conversation, list):
         raise ValueError("invalid conversation window")
     projected = tuple(_conversation_entry(entry) for entry in conversation)
-    language_exemplar = body["language_exemplar"]
-    if reference is None and not projected and language_exemplar is None:
-        return None
-    return brain_runtime_client.RuntimeLifecycleContext(reference, projected, language_exemplar)
+    return brain_runtime_client.RuntimeLifecycleContext(reference, projected, body["locale"])
 
 
 def _intent_route_input(
@@ -302,7 +299,7 @@ def _intent_route_input(
         "candidates",
         "lifecycle_reference",
         "conversation",
-        "language_exemplar",
+        "locale",
     }:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,

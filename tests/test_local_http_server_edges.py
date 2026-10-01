@@ -504,7 +504,7 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
             "conversation": [],
-            "language_exemplar": None,
+            "locale": "en",
         }
         handler._body = mock.Mock(return_value=exact_body)
         handler._model_credential_headers = mock.Mock(return_value=("openai", "private-model-key"))

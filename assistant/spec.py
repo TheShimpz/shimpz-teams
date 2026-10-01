@@ -39,6 +39,7 @@ class StoredInputSpec:
     kind: str
     label: str
     description: str
+    help_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

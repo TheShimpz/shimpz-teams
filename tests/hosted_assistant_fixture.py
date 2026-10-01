@@ -287,3 +287,23 @@ for module_name in (
             setattr(parent, child_name, previous)
 
 ANCHOR_ID = "a" * 64
+
+
+def chat_in_turn(*start: object, locale: str | None = None):
+    """Start one Hosted turn inside a claimed chat slot through the request the server builds.
+
+    ``start`` is the Team id, message, file ids, Assistant ids, turn token, container, and Owner, in that order.
+    """
+    team_id, message, file_ids, assistant_ids, token, container, owner = start
+    return hosted_chat_segment._chat_in_turn(
+        hosted_chat_segment.HostedChatSegmentRequest(
+            team_id=team_id,
+            file_ids=file_ids,
+            assistant_ids=assistant_ids,
+            token=token,
+            container=container,
+            owner=owner,
+            message=message,
+            locale=locale,
+        )
+    )

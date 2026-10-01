@@ -41,15 +41,8 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             )
             for integration in resolution["integrations"]
         )
-        stored_input_declarations = assistant_manifest.canonical_stored_input_declarations(
-            {
-                stored_input["id"]: {
-                    "kind": stored_input["kind"],
-                    "label": stored_input["label"],
-                    "description": stored_input["description"],
-                }
-                for stored_input in resolution["stored_inputs"]
-            }
+        stored_input_declarations = assistant_manifest.stored_input_declarations_from_documents(
+            resolution["stored_inputs"]
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
             resolution["machine_contract"],
@@ -66,11 +59,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             for integration in declarations
         }
         stored_inputs = {
-            stored_input.id: assistant_registry.StoredInputSpec(
-                kind=stored_input.kind,
-                label=stored_input.label,
-                description=stored_input.description,
-            )
+            stored_input.id: assistant_registry.StoredInputSpec(**stored_input.metadata())
             for stored_input in stored_input_declarations
         }
         reviewed = assistant_manifest.reviewed_manifest_contract(

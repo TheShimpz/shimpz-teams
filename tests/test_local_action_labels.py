@@ -56,7 +56,7 @@ class LocalActionLabelTests(unittest.TestCase):
             subject,
             "team_1",
             "cloudflare-assistant",
-            {"language_exemplar": "  Quero listar minhas zonas DNS  "},
+            {"locale": "pt"},
             "openai",
             "private-model-key",
         )
@@ -77,7 +77,7 @@ class LocalActionLabelTests(unittest.TestCase):
             provider="openai",
             model="gpt-6.1-sol",
             api_key="private-model-key",
-            language_exemplar="Quero listar minhas zonas DNS",
+            locale="pt",
             action_ids=("get-zone", "list-zones"),
         )
         self.assertEqual(subject._active_chat_assistants.call_count, 2)
@@ -105,7 +105,7 @@ class LocalActionLabelTests(unittest.TestCase):
                 subject,
                 "team_1",
                 "cloudflare-assistant",
-                {"language_exemplar": "Liste minhas zonas"},
+                {"locale": "pt"},
                 "openai",
                 "private-model-key",
             )
@@ -115,7 +115,7 @@ class LocalActionLabelTests(unittest.TestCase):
 
     def test_invalid_input_and_brain_failure_are_bounded(self) -> None:
         subject = Subject()
-        for body in ({}, {"language_exemplar": ""}, {"language_exemplar": "hidden\0instruction"}):
+        for body in ({}, {"locale": "pt-BR"}, {"locale": None}, {"language_exemplar": "Liste minhas zonas"}):
             with self.subTest(body=body), self.assertRaises(ApiProblemError):
                 capabilities.action_labels(
                     subject,
@@ -135,7 +135,7 @@ class LocalActionLabelTests(unittest.TestCase):
                 subject,
                 "team_1",
                 "cloudflare-assistant",
-                {"language_exemplar": "Liste minhas zonas"},
+                {"locale": "pt"},
                 "openai",
                 "private-model-key",
             )

@@ -10,6 +10,8 @@ from test_brain_runtime_client import RuntimeClientCase, _Response, directory_ca
 
 from inference import client as brain_runtime_client
 
+EN = brain_runtime_client.RuntimeLifecycleContext(locale="en")
+
 
 class BrainRuntimeIntentRouteTests(RuntimeClientCase):
     def test_intent_route_uses_only_the_stateless_bounded_endpoint(self):
@@ -30,7 +32,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             objective="tire o cloudflare",
             expected_intent="assistant-uninstall",
             candidates=directory_candidates(uninstall=True),
-            context=None,
+            context=EN,
         )
 
         self.assertEqual(
@@ -92,7 +94,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             objective="oi",
             expected_intent=None,
             candidates=(),
-            context=None,
+            context=EN,
         )
         payload = json.loads(connection.requests[0][2])
         self.assertEqual(payload["decision_provider"], {"provider": "typesafe", "api_key": key})
@@ -102,7 +104,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             objective="oi",
             expected_intent=None,
             candidates=(),
-            context=None,
+            context=EN,
         )
         self.assertNotIn("decision_provider", json.loads(connection.requests[0][2]))
         for credentials, expected in (
@@ -117,11 +119,11 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                     objective="cloudflare",
                     expected_intent=expected,
                     candidates=directory_candidates(uninstall=True) if expected else (),
-                    context=None,
+                    context=EN,
                 )
             self.assertEqual(connection.requests, [])
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
-            client.intent_route(credentials=object(), objective="oi", expected_intent=None, candidates=(), context=None)
+            client.intent_route(credentials=object(), objective="oi", expected_intent=None, candidates=(), context=EN)
 
     def test_intent_route_accepts_closed_classification_and_unresolved_results(self):
         client, connection = self.client(
@@ -134,6 +136,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 expected_intent=None,
                 candidates=(),
                 context=brain_runtime_client.RuntimeLifecycleContext(
+                    locale="en",
                     reference=brain_runtime_client.RuntimeLifecycleReference(
                         "shimpz-cloudflare",
                         "Shimpz Cloudflare",
@@ -166,7 +169,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 objective="remove it",
                 expected_intent="assistant-uninstall",
                 candidates=directory_candidates(uninstall=True),
-                context=None,
+                context=EN,
             ),
             brain_runtime_client.RuntimeIntentRoute("unresolved", reply=clarification),
         )
@@ -186,7 +189,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 objective="liste minhas zonas",
                 expected_intent=None,
                 candidates=(),
-                context=None,
+                context=EN,
             )
 
     def test_intent_route_carries_bounded_conversation_context(self):
@@ -208,6 +211,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             expected_intent=None,
             candidates=(),
             context=brain_runtime_client.RuntimeLifecycleContext(
+                locale="en",
                 conversation=(
                     brain_runtime_client.RuntimeConversationEntry("user", "Quais temos?", False),
                     brain_runtime_client.RuntimeConversationEntry(
@@ -232,7 +236,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 },
             ],
         )
-        self.assertIsNone(payload["language_exemplar"])
+        self.assertEqual(payload["locale"], "en")
 
     def test_empty_directory_selection_returns_only_a_clarification(self):
         reply = "Qual Assistant instalado você quer desinstalar?"
@@ -246,7 +250,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             expected_intent="assistant-uninstall",
             candidates=(),
             context=brain_runtime_client.RuntimeLifecycleContext(
-                language_exemplar="desinstale desconhecido",
+                locale="en",
             ),
         )
 
@@ -264,7 +268,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
             expected_intent="assistant-uninstall",
             candidates=(),
             context=brain_runtime_client.RuntimeLifecycleContext(
-                language_exemplar="desinstala 👩‍💻\r\nagora",
+                locale="en",
             ),
         )
         self.assertEqual(route.reply, reply)
@@ -282,7 +286,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                     objective="désinstalle",
                     expected_intent="assistant-uninstall",
                     candidates=(),
-                    context=None,
+                    context=EN,
                 )
 
     def test_intent_route_rejects_invalid_inputs_and_outputs_without_widening(self):
@@ -335,7 +339,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                     objective="install cloudflare",
                     expected_intent="assistant-install",
                     candidates=directory_candidates(),
-                    context=None,
+                    context=EN,
                 )
 
         invalid_requests = (
@@ -365,7 +369,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                         objective="lifecycle objective",
                         expected_intent=expected,
                         candidates=shortlist,
-                        context=None,
+                        context=EN,
                     )
                 self.assertEqual(connection.requests, [])
 
@@ -394,25 +398,30 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                     objective="hello",
                     expected_intent=None,
                     candidates=(),
-                    context=None,
+                    context=EN,
                 )
 
         invalid_contexts = (
             object(),
-            brain_runtime_client.RuntimeLifecycleContext(reference=object()),
+            brain_runtime_client.RuntimeLifecycleContext(locale="en", reference=object()),
             brain_runtime_client.RuntimeLifecycleContext(
+                locale="en",
                 conversation=[],
             ),
             brain_runtime_client.RuntimeLifecycleContext(
+                locale="en",
                 conversation=(brain_runtime_client.RuntimeConversationEntry("system", "remove it", False),),
             ),
             brain_runtime_client.RuntimeLifecycleContext(
+                locale="en",
                 conversation=(brain_runtime_client.RuntimeConversationEntry("user", "remove it", 1),),
             ),
             brain_runtime_client.RuntimeLifecycleContext(
+                locale="en",
                 conversation=(brain_runtime_client.RuntimeConversationEntry("user", "x" * 513, False),),
             ),
-            brain_runtime_client.RuntimeLifecycleContext(language_exemplar="remove it"),
+            brain_runtime_client.RuntimeLifecycleContext(),
+            brain_runtime_client.RuntimeLifecycleContext(locale="pt-BR"),
         )
         for route_context in invalid_contexts:
             with self.subTest(route_context=route_context):
@@ -450,6 +459,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 expected_intent=None,
                 candidates=(),
                 context=brain_runtime_client.RuntimeLifecycleContext(
+                    locale="en",
                     conversation=(brain_runtime_client.RuntimeConversationEntry("user", "hi", False),),
                 ),
             )
@@ -466,7 +476,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 objective="install",
                 expected_intent="assistant-install",
                 candidates=[],
-                context=None,
+                context=EN,
             )
         self.assertEqual(connection.requests, [])
 
@@ -477,7 +487,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 objective="hello",
                 expected_intent=None,
                 candidates=(),
-                context=None,
+                context=EN,
             )
         self.assertEqual(connection.requests, [])
 
@@ -489,6 +499,7 @@ class BrainRuntimeIntentRouteTests(RuntimeClientCase):
                 expected_intent="assistant-uninstall",
                 candidates=directory_candidates(uninstall=True),
                 context=brain_runtime_client.RuntimeLifecycleContext(
+                    locale="en",
                     reference=brain_runtime_client.RuntimeLifecycleReference(
                         "shimpz-cloudflare",
                         "Shimpz Cloudflare",

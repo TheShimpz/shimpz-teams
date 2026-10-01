@@ -265,7 +265,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             provider="openai",
             model="gpt-6.1-sol",
             api_key=self.secret,
-            language_exemplar="Quero listar minhas zonas DNS",
+            locale="pt",
             action_ids=("list-zones", "get-zone"),
         )
 
@@ -283,7 +283,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             json.loads(raw_body),
             {
                 "provider": {"provider": "openai", "model": "gpt-6.1-sol", "api_key": self.secret},
-                "language_exemplar": "Quero listar minhas zonas DNS",
+                "locale": "pt",
                 "actions": ["list-zones", "get-zone"],
             },
         )
@@ -437,7 +437,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                     provider="openai",
                     model="gpt-6.1-sol",
                     api_key=self.secret,
-                    language_exemplar="Liste minhas zonas",
+                    locale="pt",
                     action_ids=("list-zones", "get-zone"),
                 )
 
@@ -453,7 +453,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                 provider="openai",
                 model="gpt-6.1-sol",
                 api_key=self.secret,
-                language_exemplar="Liste minhas zonas",
+                locale="pt",
                 action_ids=("list-zones", "get-zone"),
             )
 
@@ -461,9 +461,9 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             {"provider": "other"},
             {"api_key": "bad\0secret"},
             {"api_key": "x" * (16 * 1024 + 1)},
-            {"language_exemplar": ""},
-            {"language_exemplar": " surrounding "},
-            {"language_exemplar": "hidden\0instruction"},
+            {"locale": ""},
+            {"locale": "pt-BR"},
+            {"locale": None},
             {"action_ids": ()},
             {"action_ids": ("list-zones", "list-zones")},
             {"action_ids": ("../shell",)},
@@ -475,7 +475,7 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                     "provider": "openai",
                     "model": "gpt-6.1-sol",
                     "api_key": self.secret,
-                    "language_exemplar": "Liste minhas zonas",
+                    "locale": "pt",
                     "action_ids": ("list-zones", "get-zone"),
                     **update,
                 }

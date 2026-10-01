@@ -43,6 +43,8 @@ class SegmentRequest:
     message: str | None = None
     # Committed presentation history before a new turn; never set for a continuation.
     conversation: tuple[brain_runtime_client.RuntimeConversationEntry, ...] = ()
+    # The interface language a new turn is written in; a continuation keeps the one its start pinned (ADR-0090).
+    locale: str | None = None
     continuation: chat_orchestrator.ChatContinuation | None = None
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
@@ -113,6 +115,7 @@ def _run_chat_segment_with_metadata(
             action_request.interrupt_id,
             human_request,
             active.spec.version,
+            help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
         )
 
     def prepare() -> chat_turn_engine.PreparedSegment:
@@ -166,6 +169,7 @@ def _run_chat_segment_with_metadata(
             skills=chat_knowledge.turn_skills(skills, runtime_assistants),
             routines=routines,
             knowledge_writable=routine is None,
+            locale=request.locale,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         batch = (action_execution.ActionBatch if routine is None else action_execution.HeldActionBatch)(

@@ -45,7 +45,7 @@ TEAM_LIST_COUNTS = (1, 9, 33)
 PEER_DELAYS_MS = (0, 250)
 TEAM_MEMORY_MIB = 256
 TEAM_CPUS = 1
-CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": [], "conversation": []}
+CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": [], "conversation": [], "locale": "en"}
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 INVENTORY_SPAN_PREFIX = "SHIMPZ-PERF-INVENTORY "
 INVENTORY_SPAN_NAMES = (
@@ -203,7 +203,7 @@ def _sample(runner: DockerFlowTests, flow: flow_fixture.DockerFlow, delay_ms: in
             "candidates": [],
             "lifecycle_reference": None,
             "conversation": [],
-            "language_exemplar": None,
+            "locale": "en",
         },
         extra_headers={
             "X-Shimpz-Model-Provider": "openai",

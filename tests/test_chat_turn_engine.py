@@ -17,6 +17,7 @@ sys.path.insert(0, str(TESTS))
 
 import hosted_assistant_fixture as hosted_harness
 
+from action import challenges as action_challenges
 from action import human as action_human
 from action import journal as action_journal
 from assistant import spec as assistant_registry
@@ -135,7 +136,7 @@ def _context_contract(prepared) -> tuple[object, ...]:
 
 
 class SharedChatTurnEngineTest(unittest.TestCase):
-    def test_human_suspension_populates_only_the_human_gate(self) -> None:
+    def _human_segment(self, *, purpose, cancelled=lambda: False, validate_context=lambda: None):
         descriptor = {
             "kind": "approval",
             "ordinal": 0,
@@ -144,6 +145,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         }
         descriptor["fingerprint"] = action_human._fingerprint(descriptor)
         admitted = action_human.validate_request(descriptor, ("approval",))
+        asked: list[tuple[object, ...]] = []
 
         class Batch:
             @staticmethod
@@ -158,16 +160,42 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             def delivered(_requests) -> None:
                 raise AssertionError("a human-suspended batch must not be delivered")
 
+            @staticmethod
+            def abandon_uncertain() -> None:
+                return None
+
+        class Runtime(_Runtime):
+            @staticmethod
+            def purpose(*args):
+                asked.append(args)
+                return purpose()
+
+        def requirement(action, request):
+            return action_challenges.HumanRequirement(
+                "assistant", "Assistant", action.action, "Look up one value.", action.interrupt_id, request, "1.0.0"
+            )
+
+        problems: list[str] = []
+
+        def raise_problem(reason, exc):
+            problems.append(reason)
+            raise RuntimeError(reason) from exc
+
         strategy = chat_turn_engine.SegmentStrategy(
-            runtime=_Runtime(),
+            runtime=Runtime(),
             prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
             validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=lambda _requests, _requirements: False,
-            cancelled=lambda: False,
-            validate_context=lambda: None,
-            raise_problem=lambda reason, _exc: self.fail(reason),
-            human_requirement=lambda action, request: (action.interrupt_id, request.fingerprint),
+            cancelled=cancelled,
+            validate_context=validate_context,
+            raise_problem=raise_problem,
+            human_requirement=requirement,
         )
+        return strategy, asked, problems
+
+    def test_human_suspension_populates_only_the_human_gate_with_the_brain_purpose(self) -> None:
+        sentence = "To look up Ada, I need the Assistant."
+        strategy, asked, _problems = self._human_segment(purpose=lambda: sentence)
 
         result = chat_turn_engine.run_segment(
             strategy,
@@ -178,7 +206,48 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
         self.assertIsInstance(result[2], chat_orchestrator.ChatHumanSuspension)
         self.assertEqual(result[3].integrations, ())
-        self.assertEqual(result[3].human, (("interrupt-1", admitted.fingerprint),))
+        [requirement] = result[3].human
+        self.assertEqual((requirement.interrupt_id, requirement.purpose), ("interrupt-1", sentence))
+        [(context, action, assistant_name, summary)] = asked
+        self.assertEqual(context.thread_id, "thread-1")
+        self.assertEqual(
+            (action.interrupt_id, assistant_name, summary), ("interrupt-1", "Assistant", "Look up one value.")
+        )
+
+    def test_a_missing_purpose_leaves_the_requirement_without_one(self) -> None:
+        strategy, _asked, _problems = self._human_segment(purpose=lambda: None)
+        result = chat_turn_engine.run_segment(
+            strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+        )
+        self.assertIsNone(result[3].human[0].purpose)
+
+    def test_stop_or_a_changed_context_during_the_purpose_call_ends_the_turn(self) -> None:
+        stopped: list[bool] = []
+        strategy, _asked, problems = self._human_segment(
+            purpose=lambda: stopped.append(True) or None,
+            cancelled=lambda: bool(stopped),
+        )
+        with self.assertRaisesRegex(RuntimeError, "drive-error"):
+            chat_turn_engine.run_segment(
+                strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+            )
+        self.assertEqual(problems, ["drive-error"])
+
+        changed: list[bool] = []
+
+        def validate_context() -> None:
+            if changed:
+                raise chat_orchestrator.ChatOrchestrationError("Team context changed")
+
+        strategy, _asked, problems = self._human_segment(
+            purpose=lambda: changed.append(True) or "Purpose.",
+            validate_context=validate_context,
+        )
+        with self.assertRaisesRegex(RuntimeError, "drive-error"):
+            chat_turn_engine.run_segment(
+                strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+            )
+        self.assertEqual(problems, ["drive-error"])
 
     def _strategy(self, *, decisions: list[str]) -> chat_turn_engine.SegmentStrategy:
         def private_inputs(_requests, requirements) -> bool:
