@@ -227,7 +227,7 @@ def validate_request(
     stored_input = request.get("stored_input")
     if stored_input is not None and stored_input not in stored_inputs:
         raise HumanRequestError("Assistant Action Stored Input request is undeclared")
-    referenced = sorted(set(_referenced_messages(request)))
+    referenced = sorted(set(referenced_messages(request)))
     return HumanRequest(
         kind=kind,
         ordinal=int(request["ordinal"]),
@@ -243,7 +243,7 @@ def catalog_by_id(machine_contract: Mapping[str, object]) -> dict[str, Mapping[s
     return {message["id"]: message for message in machine_contract["messages"]}
 
 
-def _referenced_messages(request: Mapping[str, object]) -> list[str]:
+def referenced_messages(request: Mapping[str, object]) -> list[str]:
     """The message ids of every non-null copy reference of an already-admitted request."""
     references = [request[field] for field in COPY_FIELDS if field in request]
     for option in request.get("options", ()):

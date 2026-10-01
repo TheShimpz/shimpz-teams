@@ -71,9 +71,12 @@ def render_copy(
     """
     if http_payload.canonical_locale(locale) is None:
         raise HumanChallengeError("Action human request locale is invalid")
-    if any(pack.messages.get(message["id"]) != message for message in request.messages()):
-        raise HumanChallengeError("Action human request copy does not match its binding")
     payload = request.payload()
+    messages = request.messages()
+    if {message["id"] for message in messages} != set(human.referenced_messages(payload)) or any(
+        pack.messages.get(message["id"]) != message for message in messages
+    ):
+        raise HumanChallengeError("Action human request copy does not match its binding")
 
     def text(reference: object) -> str | None:
         if not isinstance(reference, Mapping):

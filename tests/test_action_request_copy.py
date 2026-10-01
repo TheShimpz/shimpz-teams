@@ -99,6 +99,11 @@ class RenderTests(unittest.TestCase):
         with self.assertRaisesRegex(action_challenges.HumanChallengeError, "binding"):
             action_challenges.render_copy(request, human_request_fixtures.pack_for(redeclared), "en")
 
+        # A request that does not carry exactly the catalog entries it references is never rendered.
+        detached = replace(request, catalog=b"[]")
+        with self.assertRaisesRegex(action_challenges.HumanChallengeError, "binding"):
+            action_challenges.render_copy(detached, pack, "en")
+
         label = catalog_validator.message_id("Records")
         broken = assistant_language.LanguagePack(
             pack.catalog_digest,
