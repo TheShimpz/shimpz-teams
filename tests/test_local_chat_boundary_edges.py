@@ -152,12 +152,15 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
 
 class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
     def test_pending_continuation_prefers_human_then_integration(self) -> None:
-        human = object()
+        human = types.SimpleNamespace(requirement=types.SimpleNamespace(copy=types.SimpleNamespace(locale="fr")))
         integration = object()
+        # Every reopening is validated against the binding, even one that keeps the challenge's own language.
+        relocalized = mock.Mock(side_effect=lambda challenge, _locale: challenge)
         subject = types.SimpleNamespace(
             _expire_human_challenges=mock.Mock(),
             human_challenges=types.SimpleNamespace(current=lambda _team_id: human),
             integration_challenges=types.SimpleNamespace(current=lambda _team_id: integration),
+            _relocalized_human=relocalized,
             _human_response=lambda value: {"human": value},
             _integration_response=lambda value: {"integration": value},
         )
@@ -165,6 +168,8 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api._pending_chat_continuation(subject, "team_1"),
             {"human": human},
         )
+        self.assertEqual(local_chat_api._pending_chat_continuation(subject, "team_1", "pt"), {"human": human})
+        self.assertEqual(relocalized.call_args_list, [mock.call(human, "fr"), mock.call(human, "pt")])
         subject.human_challenges.current = lambda _team_id: None
         self.assertEqual(
             local_chat_api._pending_chat_continuation(subject, "team_1"),
