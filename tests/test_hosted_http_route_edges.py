@@ -78,7 +78,7 @@ class HostedHttpStreamEdgeTests(unittest.TestCase):
         pending = {"status": "integrations-required"}
         with (
             mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),
-            mock.patch.object(hosted_chat_api, "_pending_hosted_chat", return_value=pending),
+            mock.patch.object(hosted_chat_api, "_admit_fresh_turn", return_value=pending),
         ):
             handler._stream_chat(TEAM_ID, "hello", [], (), _request().lease)
         handler._send_json.assert_called_once_with(HTTPStatus.PRECONDITION_REQUIRED, pending, no_store=True)
@@ -90,7 +90,7 @@ class HostedHttpStreamEdgeTests(unittest.TestCase):
         result = {"status": paused_status, "team_id": TEAM_ID}
         with (
             mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),
-            mock.patch.object(hosted_chat_api, "_pending_hosted_chat", return_value=None),
+            mock.patch.object(hosted_chat_api, "_admit_fresh_turn", return_value=None),
             mock.patch.object(server.hosted_chat_segment, "_chat_in_turn", return_value=result),
         ):
             handler._stream_chat(TEAM_ID, "hello", [], (), _request().lease)
@@ -115,7 +115,7 @@ class HostedHttpStreamEdgeTests(unittest.TestCase):
                 handler._send_json = server.Handler._send_json.__get__(handler)
                 with (
                     mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),
-                    mock.patch.object(hosted_chat_api, "_pending_hosted_chat", return_value=None),
+                    mock.patch.object(hosted_chat_api, "_admit_fresh_turn", return_value=None),
                     mock.patch.object(server.hosted_chat_segment, "_chat_in_turn", side_effect=error),
                 ):
                     handler._stream_chat(TEAM_ID, "hello", [], (), _request().lease)
@@ -127,7 +127,7 @@ class HostedHttpStreamEdgeTests(unittest.TestCase):
         error = server.docker.errors.DockerException("secret transport detail")
         with (
             mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),
-            mock.patch.object(hosted_chat_api, "_pending_hosted_chat", return_value=None),
+            mock.patch.object(hosted_chat_api, "_admit_fresh_turn", return_value=None),
             mock.patch.object(server.hosted_chat_segment, "_chat_in_turn", side_effect=error),
         ):
             handler._stream_chat(TEAM_ID, "hello", [], (), _request().lease)
