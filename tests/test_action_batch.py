@@ -244,11 +244,56 @@ class ActionBatchTests(unittest.TestCase):
                 batch.invoke(request)
 
             with mock.patch.object(journal, "abandon_uncertain", return_value=False):
-                self.assertFalse(batch.abandon_uncertain())
-            self.assertTrue(batch.abandon_uncertain())
-            self.assertFalse(batch.abandon_uncertain())
+                self.assertFalse(batch.terminate())
+            self.assertTrue(batch.terminate())
+            self.assertFalse(batch.terminate())
 
         journal_source.assert_called_once_with()
+
+    def test_a_completed_undelivered_batch_ends_and_admits_a_fresh_batch(self) -> None:
+        """A Brain failure or Stop after every Action completed must not strand the generation."""
+        first = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "lookup", {})
+        fresh = brain_runtime_client.ActionRequest("interrupt-2", "assistant", "lookup", {})
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        execute = mock.Mock(return_value={"ok": True})
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+
+            def attempt() -> action_execution.ActionBatch:
+                return action_execution.ActionBatch(
+                    journal,
+                    "generation-1",
+                    "thread-1",
+                    {"assistant": binding},
+                    action_execution.ActionBatchStrategy(
+                        lambda item: (item.container_id, item.spec.image),
+                        execute,
+                        lambda _request: None,
+                    ),
+                )
+
+            batch = attempt()
+            self.assertFalse(batch.terminate())
+            batch.prepare((first,))
+            self.assertEqual(batch.invoke(first), {"ok": True})
+            with mock.patch.object(journal, "end", return_value=False):
+                self.assertFalse(batch.terminate())
+            self.assertTrue(batch.terminate())
+            self.assertFalse(batch.terminate())
+
+            replay = attempt()
+            replay.prepare((first,))
+            self.assertEqual(replay.invoke(first), {"ok": True})
+            self.assertTrue(replay.terminate())
+            repeated = attempt()
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "ended Action interrupt"):
+                repeated.prepare((fresh, first))
+            following = attempt()
+            following.prepare((fresh,))
+            self.assertEqual(following.invoke(fresh), {"ok": True})
+            following.delivered((fresh,))
+        self.assertEqual(execute.call_count, 2)
 
 
 class HeldActionBatchTests(unittest.TestCase):
@@ -273,16 +318,16 @@ class HeldActionBatchTests(unittest.TestCase):
                     lambda item: (item.container_id, item.spec.image), failing, lambda _request: None
                 ),
             )
-            self.assertFalse(batch.abandon_uncertain())
+            self.assertFalse(batch.terminate())
             self.assertEqual(batch.held, "")
             batch.prepare((request,))
             with self.assertRaises(RuntimeError):
                 batch.invoke(request)
-            self.assertFalse(batch.abandon_uncertain())
+            self.assertFalse(batch.terminate())
             self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
             self.assertEqual(batch.held_actions, (("assistant", "write"),))
-            # The journal still holds the uncertain batch: its replay purge refuses to release it.
-            self.assertFalse(journal.purge_replayable("net:routine:" + "f" * 32))
+            # The journal still holds the uncertain batch: fresh-turn cleanup refuses to end it.
+            self.assertFalse(journal.end_settled("net:routine:" + "f" * 32))
             with closing(sqlite3.connect(journal.path)) as connection:
                 rows = connection.execute("SELECT generation FROM batches").fetchall()
             self.assertEqual(rows, [("net:routine:" + "f" * 32,)])

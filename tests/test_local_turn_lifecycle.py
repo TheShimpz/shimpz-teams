@@ -753,7 +753,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         self.assertEqual(response["reply"], "Done")
         self.assertEqual(pending, (0,))
 
-    def test_chat_purges_an_orphaned_paused_batch_by_network_generation(self) -> None:
+    def test_chat_ends_an_orphaned_paused_batch_by_network_generation(self) -> None:
         class Runtime:
             @staticmethod
             def start(_context, _message, *, conversation=()):
@@ -782,10 +782,10 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "sk-test-0123456789",
             )
             with closing(sqlite3.connect(controller.action_state.path)) as connection:
-                batches = connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+                batches = connection.execute("SELECT state FROM batches").fetchall()
 
         self.assertEqual(response["reply"], "Recovered")
-        self.assertEqual(batches, (0,))
+        self.assertEqual(batches, [("ended",)])
 
     def test_terminal_rpc_failure_does_not_wedge_the_next_independent_turn(self) -> None:
         request = brain_runtime_client.ActionRequest(

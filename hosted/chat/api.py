@@ -85,7 +85,7 @@ def _chat(
         if pending is not None:
             return pending
         try:
-            runtime_state._action_execution_journal().purge_replayable(container.id)
+            runtime_state._action_execution_journal().end_settled(container.id)
         except hosted_chat_segment.action_journal.ActionJournalError as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,

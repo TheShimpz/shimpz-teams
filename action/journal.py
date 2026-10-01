@@ -6,6 +6,11 @@ before its side effect starts; finding it there again is intentionally an uncert
 outcome and fails closed instead of risking a duplicate side effect. Only a
 successfully decoded human-interaction suspension may explicitly return it to
 ``prepared`` for deterministic replay.
+
+A batch whose turn ended without delivery, and with no uncertain operation, becomes
+``ended``: it keeps its completed receipts and frees its generation. Only the exact same
+batch may reopen it to replay those receipts; a fresh batch that repeats none of its
+interrupts replaces it, and any other batch is refused.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ import re
 import sqlite3
 import stat
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +44,8 @@ MAX_ACKNOWLEDGED_TRANSITIONS_AT_RISK = WAL_AUTOCHECKPOINT_PAGES - 1
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _FINGERPRINT_RE = re.compile(r"[a-f0-9]{64}\Z")
 _STATES = frozenset({"prepared", "executing", "completed"})
+_OPEN = "open"
+_ENDED = "ended"
 
 
 class ActionJournalError(RuntimeError):
@@ -263,7 +270,8 @@ class ActionJournal:
             CREATE TABLE batches (
                 generation TEXT PRIMARY KEY,
                 fingerprint TEXT NOT NULL,
-                operation_count INTEGER NOT NULL CHECK (operation_count > 0)
+                operation_count INTEGER NOT NULL CHECK (operation_count > 0),
+                state TEXT NOT NULL CHECK (state IN ('open', 'ended'))
             ) WITHOUT ROWID;
             CREATE TABLE operations (
                 generation TEXT NOT NULL,
@@ -303,7 +311,7 @@ class ActionJournal:
             or application_id != (APPLICATION_ID,)
             or version != (SCHEMA_VERSION,)
             or tables != {"batches", "operations"}
-            or batch_columns != ["generation", "fingerprint", "operation_count"]
+            or batch_columns != ["generation", "fingerprint", "operation_count", "state"]
             or operation_columns != ["generation", "ordinal", "interrupt_id", "fingerprint", "state", "result"]
             or foreign_keys
         ):
@@ -371,7 +379,7 @@ class ActionJournal:
     def _load_batch(self, batch: Batch) -> list[tuple[object, ...]]:
         try:
             row = self._connection.execute(
-                "SELECT fingerprint, operation_count FROM batches WHERE generation = ?",
+                "SELECT fingerprint, operation_count, state FROM batches WHERE generation = ?",
                 (batch.generation,),
             ).fetchone()
             operations = self._connection.execute(
@@ -383,7 +391,9 @@ class ActionJournal:
             raise ActionJournalCorruptionError("Action journal batch could not be read") from exc
         if row is None:
             raise ActionJournalConflictError("Action batch is no longer current")
-        fingerprint, operation_count = row
+        fingerprint, operation_count, state = row
+        if fingerprint == batch.fingerprint and state != _OPEN:
+            raise ActionJournalConflictError("Action batch has ended")
         expected = [(item.interrupt_id, item.fingerprint) for item in batch.operations]
         actual = [(row[1], row[2]) for row in operations]
         if (
@@ -409,7 +419,7 @@ class ActionJournal:
             expected = self._validated_batches[key]
         try:
             row = self._connection.execute(
-                """SELECT b.fingerprint, b.operation_count,
+                """SELECT b.fingerprint, b.operation_count, b.state,
                           o.ordinal, o.interrupt_id, o.fingerprint, o.state, o.result
                    FROM batches AS b
                    JOIN operations AS o ON o.generation = b.generation
@@ -422,12 +432,12 @@ class ActionJournal:
         if (
             row is None
             or identity is None
-            or row[:2] != (batch.fingerprint, len(batch.operations))
-            or row[2:5] != (identity[0], operation.interrupt_id, identity[1])
-            or row[5] not in _STATES
+            or row[:3] != (batch.fingerprint, len(batch.operations), _OPEN)
+            or row[3:6] != (identity[0], operation.interrupt_id, identity[1])
+            or row[6] not in _STATES
         ):
-            raise ActionJournalConflictError("Action operation changed or is corrupt")
-        return row[2:]
+            raise ActionJournalConflictError("Action operation changed, ended, or is corrupt")
+        return row[3:]
 
     def _forget_generation(self, generation: str) -> None:
         self._validated_batches = {key: value for key, value in self._validated_batches.items() if key[0] != generation}
@@ -445,35 +455,19 @@ class ActionJournal:
             self._transaction()
             try:
                 row = self._connection.execute(
-                    "SELECT fingerprint FROM batches WHERE generation = ?",
+                    "SELECT fingerprint, state FROM batches WHERE generation = ?",
                     (batch.generation,),
                 ).fetchone()
-                if row == (batch.fingerprint,):
-                    self._load_batch(batch)
-                elif row is not None:
+                if row is None:
+                    self._reserve_generation()
+                    self._insert_batch(batch)
+                elif row[0] == batch.fingerprint:
+                    self._reopen(batch, row[1])
+                elif row[1] == _OPEN:
                     raise ActionJournalConflictError("another Action batch is pending for this generation")
                 else:
-                    count = self._connection.execute("SELECT COUNT(*) FROM batches").fetchone()
-                    if count is None or type(count[0]) is not int:
-                        raise ActionJournalCorruptionError("Action journal capacity is invalid")
-                    if count[0] >= self.max_generations:
-                        raise ActionJournalConflictError("Action journal generation capacity is exhausted")
-                    self._connection.execute(
-                        "INSERT INTO batches VALUES (?, ?, ?)",
-                        (batch.generation, batch.fingerprint, len(batch.operations)),
-                    )
-                    self._connection.executemany(
-                        "INSERT INTO operations VALUES (?, ?, ?, ?, 'prepared', NULL)",
-                        [
-                            (
-                                batch.generation,
-                                ordinal,
-                                operation.interrupt_id,
-                                operation.fingerprint,
-                            )
-                            for ordinal, operation in enumerate(batch.operations)
-                        ],
-                    )
+                    self._retire_ended(batch)
+                    self._insert_batch(batch)
                 self._commit()
             except (sqlite3.Error, ActionJournalError) as exc:
                 self._rollback()
@@ -482,6 +476,61 @@ class ActionJournal:
                 raise ActionJournalError("Action batch could not be prepared") from exc
             else:
                 return batch
+
+    def _reserve_generation(self) -> None:
+        count = self._connection.execute("SELECT COUNT(*) FROM batches").fetchone()
+        if count is None or type(count[0]) is not int:
+            raise ActionJournalCorruptionError("Action journal capacity is invalid")
+        if count[0] >= self.max_generations:
+            raise ActionJournalConflictError("Action journal generation capacity is exhausted")
+
+    def _reopen(self, batch: Batch, state: object) -> None:
+        """Resume the exact same batch; an ended one returns to replay its kept receipts."""
+        if state == _ENDED:
+            self._connection.execute(
+                "UPDATE batches SET state = 'open' WHERE generation = ? AND fingerprint = ? AND state = 'ended'",
+                (batch.generation, batch.fingerprint),
+            )
+            if self._connection.execute("SELECT changes()").fetchone() != (1,):
+                raise ActionJournalConflictError("ended Action batch changed before replay")
+        self._load_batch(batch)
+
+    def _retire_ended(self, batch: Batch) -> None:
+        """Free an ended generation for a fresh batch; repeating one of its interrupts is a refused replay."""
+        ended = {
+            row[0]
+            for row in self._connection.execute(
+                "SELECT interrupt_id FROM operations WHERE generation = ?",
+                (batch.generation,),
+            ).fetchall()
+        }
+        if not ended.isdisjoint(operation.interrupt_id for operation in batch.operations):
+            raise ActionJournalConflictError("Action batch repeats an ended Action interrupt")
+        self._connection.execute(
+            "DELETE FROM batches WHERE generation = ? AND state = 'ended'",
+            (batch.generation,),
+        )
+        if self._connection.execute("SELECT changes()").fetchone() != (1,):
+            raise ActionJournalConflictError("ended Action batch changed before replacement")
+        self._forget_generation(batch.generation)
+
+    def _insert_batch(self, batch: Batch) -> None:
+        self._connection.execute(
+            "INSERT INTO batches VALUES (?, ?, ?, 'open')",
+            (batch.generation, batch.fingerprint, len(batch.operations)),
+        )
+        self._connection.executemany(
+            "INSERT INTO operations VALUES (?, ?, ?, ?, 'prepared', NULL)",
+            [
+                (
+                    batch.generation,
+                    ordinal,
+                    operation.interrupt_id,
+                    operation.fingerprint,
+                )
+                for ordinal, operation in enumerate(batch.operations)
+            ],
+        )
 
     def begin(self, batch: Batch, operation: Operation) -> Execution:
         batch = self._validate_handle(batch)
@@ -708,28 +757,69 @@ class ActionJournal:
                 raise ActionJournalError("Action journal state could not be read") from exc
         return None if row is None else str(row[0])
 
-    def purge_replayable(self, generation: str) -> bool:
-        """Abandon stale paused work only when no operation has an uncertain outcome."""
+    def end(self, batch: Batch) -> bool:
+        """End one exact undelivered batch at a terminal turn unless one of its operations may have acted."""
+        batch = self._validate_handle(batch)
+        with self._guard:
+            self._ensure_open()
+            self._transaction()
+            try:
+                row = self._connection.execute(
+                    "SELECT fingerprint, state FROM batches WHERE generation = ?",
+                    (batch.generation,),
+                ).fetchone()
+                if row is None or row == (batch.fingerprint, _ENDED):
+                    self._commit()
+                    return False
+                if row[0] != batch.fingerprint:
+                    raise ActionJournalConflictError("a newer Action batch replaced this ending handle")
+                ended = self._end_settled(batch.generation, (row[3] for row in self._load_batch(batch)))
+                self._commit()
+            except (sqlite3.Error, ActionJournalError) as exc:
+                self._rollback()
+                if isinstance(exc, ActionJournalError):
+                    raise
+                raise ActionJournalError("Action batch could not be ended") from exc
+            else:
+                if ended:
+                    self._forget_generation(batch.generation)
+                return ended
+
+    def end_settled(self, generation: str) -> bool:
+        """End a generation's undelivered batch before a fresh turn unless one of its operations may have acted."""
         safe_generation = _safe_id(generation, "generation")
         with self._guard:
             self._ensure_open()
             self._transaction()
             try:
-                states = self._connection.execute(
-                    "SELECT state FROM operations WHERE generation = ?",
+                operations = self._connection.execute(
+                    """SELECT o.state FROM batches AS b
+                       JOIN operations AS o ON o.generation = b.generation
+                       WHERE b.generation = ? AND b.state = 'open'""",
                     (safe_generation,),
                 ).fetchall()
-                if any(row == ("executing",) for row in states) or not any(row == ("prepared",) for row in states):
-                    self._commit()
-                    return False
-                self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
+                ended = bool(operations) and self._end_settled(safe_generation, (row[0] for row in operations))
                 self._commit()
-                self._forget_generation(safe_generation)
-            except sqlite3.Error as exc:
+            except (sqlite3.Error, ActionJournalError) as exc:
                 self._rollback()
-                raise ActionJournalError("replayable Action generation could not be purged") from exc
+                if isinstance(exc, ActionJournalError):
+                    raise
+                raise ActionJournalError("settled Action generation could not be ended") from exc
             else:
-                return bool(states)
+                if ended:
+                    self._forget_generation(safe_generation)
+                return ended
+
+    def _end_settled(self, generation: str, states: Iterable[object]) -> bool:
+        if "executing" in states:
+            return False
+        self._connection.execute(
+            "UPDATE batches SET state = 'ended' WHERE generation = ? AND state = 'open'",
+            (generation,),
+        )
+        if self._connection.execute("SELECT changes()").fetchone() != (1,):
+            raise ActionJournalConflictError("Action batch changed before it ended")
+        return True
 
     def close(self) -> None:
         with self._guard:

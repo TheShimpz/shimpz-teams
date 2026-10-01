@@ -88,7 +88,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             self.assertIs(api._chat("team_1", "hello", (), (), self.lease()), pending)
 
         journal = SimpleNamespace(
-            purge_replayable=mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
+            end_settled=mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
         )
         with (
             mock.patch.object(api, "_pending_hosted_chat", return_value=None),

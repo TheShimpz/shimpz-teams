@@ -180,7 +180,7 @@ def run_segment(
         )
     except Exception as exc:
         try:
-            segment.durable_batch.abandon_uncertain()
+            segment.durable_batch.terminate()
         except action_journal.ActionJournalError as abandonment_error:
             strategy.raise_problem("drive-error", abandonment_error)
             raise AssertionError("chat error adapter returned") from abandonment_error
