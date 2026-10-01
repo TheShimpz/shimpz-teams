@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "minimal invocation",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "invocation with an Integration and a Stored Input",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {
+          "cloudflare": "token"
+        },
+        "stored_inputs": {
+          "api-key": "secret"
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "replay with an admitted response",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "operation id with every variant nibble",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "00000000-0000-4000-b000-000000000000"
+      },
+      "valid": true
+    },
+    {
+      "name": "invocation without an operation id",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {}
+      },
+      "valid": false
+    },
+    {
+      "name": "uppercase operation id",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6F1C2B8E-3A4D-4C5E-9F60-718293A4B5C6"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id of another UUID version",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-1c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id with a non-RFC variant",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-cf60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id without hyphens",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e3a4d4c5e9f60718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id in braces",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "{6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6}"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id with trailing text",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c60"
+      },
+      "valid": false
+    },
+    {
+      "name": "operation id that is not a string",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": 7
+      },
+      "valid": false
+    },
+    {
+      "name": "invocation with an unknown member",
+      "invocation": {
+        "input": {
+          "zone": "example.com"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "attempt_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    }
+  ]
+}

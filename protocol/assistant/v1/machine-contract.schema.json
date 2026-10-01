@@ -46,7 +46,7 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests"],
+      "required": ["id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests", "effect"],
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
@@ -85,8 +85,70 @@
           },
           "minContains": 0,
           "maxContains": 1
+        },
+        "effect": {
+          "enum": ["read_only", "mutating"]
+        },
+        "verifier": {
+          "$ref": "#/$defs/verifier"
         }
       }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "input", "outcome", "result"],
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/identifier"
+        },
+        "input": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 16,
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/verifierBinding"
+          }
+        },
+        "outcome": {
+          "$ref": "#/$defs/jsonPointer"
+        },
+        "result": {
+          "$ref": "#/$defs/jsonPointer"
+        }
+      }
+    },
+    "verifierBinding": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": { "const": "operation_id" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "pointer"],
+          "properties": {
+            "from": { "const": "input" },
+            "pointer": { "$ref": "#/$defs/jsonPointer" }
+          }
+        }
+      ]
+    },
+    "jsonPointer": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 256,
+      "pattern": "^(?:/(?:[^/~]|~[01])+)+$"
     },
     "message": {
       "type": "object",

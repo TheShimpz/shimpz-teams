@@ -49,6 +49,8 @@ def _execute(
             mutate(mirror)
         output = io.StringIO()
         module_names = (
+            "action_effect_validator",
+            "failure_validator",
             "human_request_validator",
             "message_catalog_validator",
             "payload",
@@ -246,6 +248,42 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "pattern-vectors.json",
                 lambda value: value["cases"][0].update({"matches": "yes"}),
             ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
+                _execute(ASSISTANT / "verify.py", mutate)
+
+    def test_rejects_effect_operation_id_and_failure_contract_drift(self) -> None:
+        def flip_first(value: dict[str, object]) -> None:
+            value["cases"][0]["valid"] = not value["cases"][0]["valid"]
+
+        mutations = (
+            lambda root: _rewrite_json(root, "action-effect-vectors.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(
+                root, "action-effect-vectors.json", lambda value: value["cases"][0].update({"name": ""})
+            ),
+            lambda root: _rewrite_json(root, "action-effect-vectors.json", flip_first),
+            lambda root: _rewrite_json(
+                root,
+                "action-effect-vectors.json",
+                lambda value: value.update({"cases": [case for case in value["cases"] if case["valid"]]}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["$defs"]["action"]["required"].remove("effect"),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "invocation.schema.json",
+                lambda value: value["required"].remove("operation_id"),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "result.schema.json",
+                lambda value: value["$defs"]["failure"]["required"].remove("truncated"),
+            ),
+            lambda root: _rewrite_json(root, "failure-vectors.json", flip_first),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):

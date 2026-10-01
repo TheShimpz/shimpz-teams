@@ -29,9 +29,56 @@
         "type": { "const": "stored_input_rejected" },
         "stored_input": { "$ref": "#/$defs/identifier" }
       }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "failure"],
+      "properties": {
+        "type": { "const": "failure" },
+        "failure": { "$ref": "#/$defs/failure" }
+      }
     }
   ],
   "$defs": {
+    "diagnosticText": {
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]*$"
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error_type", "message", "provider", "http_status", "response_excerpt", "redacted", "truncated"],
+      "properties": {
+        "error_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[!-~]+$"
+        },
+        "message": { "$ref": "#/$defs/diagnosticText" },
+        "provider": {
+          "anyOf": [
+            { "type": "null" },
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 253,
+              "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$"
+            }
+          ]
+        },
+        "http_status": {
+          "anyOf": [{ "type": "null" }, { "type": "integer", "minimum": 100, "maximum": 599 }]
+        },
+        "response_excerpt": {
+          "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/diagnosticText" }]
+        },
+        "redacted": { "type": "boolean" },
+        "truncated": { "type": "boolean" }
+      }
+    },
     "identifier": {
       "type": "string",
       "minLength": 1,

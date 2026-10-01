@@ -34,14 +34,15 @@ Unknown fields and unsupported Spec versions fail closed.
 pre-build. `shimpz.contract.json` is build output and does not belong in an Assistant repository.
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
-capabilities and Stored Input ids declared by that Action. An undeclared capability never acquires a prompt channel.
+capabilities, Stored Input ids, effect class, and optional verifier declared by that Action. An undeclared capability
+never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
-unique, every used Stored Input is declared, every nested object schema is closed, the message catalog is valid,
-and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
+unique, every used Stored Input is declared, every nested object schema is closed, every effect and verifier is
+valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
 the Action files and `lib/**/*.py` that runs before any Creator code is imported: request copy is supplied only as a
 literal template, and a computed template, f-string, alias, or formatting expression is refused.
 
@@ -103,6 +104,55 @@ ways:
 `action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.
 
+## Effect and verification
+
+Every Action declares `effect`: `read_only` or `mutating`. `read_only` is the Creator's reviewed declaration that the
+Action has no business side effect, such as publication, deletion, or message delivery; it is not a proof that
+arbitrary code is harmless, and isolation, least privilege, and egress enforcement stay unchanged. The SDK records an
+Action without an explicit declaration as `mutating`, so the contract always carries the class and only a positive
+declaration earns `read_only`.
+
+A `mutating` Action may declare one `verifier`, which Team needs for autonomous verification but not for admitting
+the Action. A `read_only` Action never declares one:
+
+```json
+{
+  "action": "find-record",
+  "input": {
+    "zone": { "from": "input", "pointer": "/zone" },
+    "name": { "from": "input", "pointer": "/record/name" },
+    "operation": { "from": "operation_id" }
+  },
+  "outcome": "/outcome",
+  "result": "/record"
+}
+```
+
+- `action` names another Action of the same contract whose effect is `read_only`. It declares no human request, or
+  only `input:password` together with its one declared Stored Input, which Team satisfies without a person.
+- `input` has 1 to 16 members, each named by a property of the verifier's `input_schema` of 1 to 128 characters, and
+  binds every property that schema requires. A binding is closed: `{"from": "operation_id"}` copies the original
+  operation's `operation_id` into a property whose schema is exactly `{"type": "string"}`, and
+  `{"from": "input", "pointer": P}` copies one value of the original business input. There is no literal, model,
+  output, or expression source.
+- Every pointer is an RFC 6901 string of at most 256 characters with at least one reference token, no empty token,
+  and only the `~0` and `~1` escapes. Resolution follows literal `properties` members only, never `$ref`, and every
+  token must name a member that its object schema lists in `required`. An input pointer resolves in the mutating
+  Action's `input_schema` to a subschema that equals the destination property's subschema exactly, compared as JSON
+  values in which a boolean, an integer, and a number never equal one another, and annotations count.
+- `outcome` resolves in the verifier's `output_schema`, through required members only, to exactly
+  `{"type": "string", "enum": [...]}` whose three distinct members are `occurred`, `not_occurred`, and `inconclusive`
+  in any order.
+- `result` resolves in the verifier's `output_schema` through required members except its last token, which may name
+  an optional member, to a subschema exactly equal to the mutating Action's `output_schema`. It is neither the
+  `outcome` pointer nor a prefix or extension of it.
+
+The verifier is invoked as its own logical operation with its own `operation_id`. `occurred` permits an already
+authorized continuation only with a recovered result that validates under the original output schema and secret
+policy; `not_occurred` must reflect authoritative terminal absence, and `inconclusive` holds for a person. There is
+no matcher language. `action-effect-vectors.json` freezes admitted and refused declarations over complete Action
+lists, and `action_effect_validator.py` is the reference implementation.
+
 ## Message catalog
 
 Every user-visible string an Assistant authors is English catalog copy. The generated contract carries the catalog as
@@ -155,20 +205,66 @@ uses a reference that the request rules below admit for a field with one of the 
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-at most one exact Team-custodied Stored Input, and, only during deterministic logical replay, at most eight
-Team-admitted human responses. The request is
+at most one exact Team-custodied Stored Input, the logical `operation_id`, and, only during deterministic logical
+replay, at most eight Team-admitted human responses. The request is
 passed over a private bounded stdin channel; tokens and responses never enter command-line arguments,
 environment variables, logs, generated artifacts, or the Brain.
+
+`operation_id` is the canonical lowercase text of a random RFC 9562 version 4 UUID, such as
+`6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6`, exactly 36 characters. Team mints and persists it before the first
+invocation of one logical Action operation and sends the same value on every replay re-invocation, verification
+handoff, and permitted retry of that operation; a new scheduled run, a changed business input, or a verifier
+invocation is a new operation with a new value. It is distinct from Team's attempt identity and from the security
+fingerprint, carries no authority, and is not secret. The SDK exposes it as `Context.operation_id` so an Action may
+pass it to a provider as an idempotency key within that provider's documented key scope, retention, and same-payload
+rules; provider support is optional, so it never promises external exactly-once execution.
+`invocation-vectors.json` freezes admitted and refused invocations, including the `operation_id` format.
 
 `result.schema.json` describes the tagged object written to stdout. A terminal response is
 `{"type":"result","result":{...}}`; the SDK validates `result` against the reviewed Action output schema.
 A capability-declared request is `{"type":"request","request":{...}}`, with one closed request kind,
 ordinal, canonical fingerprint, and catalog copy references. Team accepts it only for the exact reviewed Action,
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
-response transcript. An Action failure returns no partial result or private diagnostic.
+response transcript.
 The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
 declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value, and
 terminates the turn with a sanitized retry instruction; generic failure never clears a value.
+
+A handled application failure is the terminal `{"type":"failure","failure":{...}}` envelope. The process writes
+exactly one such stdout frame, exits 0, and leaves stderr empty. Its closed `failure` object always has all of
+these members:
+
+| Member | Value |
+| --- | --- |
+| `error_type` | The real exception or error type, 1 to 128 printable ASCII characters without space, such as `httpx.HTTPStatusError`. |
+| `message` | The real sanitized message, at most 2,048 UTF-8 bytes; it may be empty. |
+| `provider` | The lowercase DNS host of the failed provider request, at most 253 characters, or `null`. |
+| `http_status` | The provider's HTTP status from 100 to 599, or `null`. |
+| `response_excerpt` | The sanitized beginning of the provider response body, at most 2,048 UTF-8 bytes, or `null`. |
+| `redacted` | `true` when any content was replaced or withheld as possibly secret or unsafe to disclose. |
+| `truncated` | `true` when any content was cut to its bound. |
+
+Diagnostic text may contain tab and line feed but no other control, bidi override or isolate, or zero-width
+formatting character, and it must be valid Unicode. There is no closed business error code: the text is the actual
+condition, while Team's operational states and outcomes stay closed control data. A failure envelope never carries a
+partial successful result, a stack trace, or a secret response, and it is never evidence that an effect did or did
+not occur and never authority. A `mutating` Action's handled failure stays uncertain; only Team-admitted verifier
+evidence resolves it.
+
+The Assistant sanitizes before it bounds. It replaces the exact value of every secret it holds for the invocation
+(each Integration token, Stored Input value, password response, and every derived secret the Action registers or
+acquires) and secret-shaped text such as bearer and basic credentials, provider API keys, JSON Web Tokens, private
+key blocks, `password=`, `token=`, or `api_key=` values, and URL user information, then truncates on a character
+boundary and sets the flags. Content that cannot be disclosed safely is omitted while the real type, status, and safe
+message remain. Unknown or encoded secrets cannot be detected universally in arbitrary prose, so Team independently
+re-redacts every diagnostic string with the exact values it injected and the same secret-shaped patterns. Only the
+failure branch is sanitized: a result, a request, or a Stored Input rejection that echoes a secret is still refused.
+
+Nonzero exit, any stderr output, a timeout, a malformed or oversized frame, more than one frame, and unavailable
+exit inspection are transport faults, not handled failures. Team records only the actual safe condition, such as the
+exit status or the timeout, and never reflects unverifiable raw child output. `failure-vectors.json` freezes admitted
+and refused failure envelopes, including byte and character bounds, and `failure_validator.py` is the reference
+implementation.
 
 Every copy field of a request (`title`, `description`, `label`, `placeholder`, and each option's `label` and
 `description`) is a reference `{"message": id, "params": {...}}` to the reviewed catalog, never a string; only

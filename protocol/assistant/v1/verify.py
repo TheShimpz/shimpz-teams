@@ -6,8 +6,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 
+from action_effect_validator import EFFECTS, effect_error
+from failure_validator import FAILURE_KEYS, failure_error
 from human_request_validator import reference_error
 from human_request_validator import verify_vectors as verify_human_vectors
 from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
@@ -41,6 +44,8 @@ APPLICATORS = (
 LIST_APPLICATORS = ("allOf", "anyOf", "oneOf", "prefixItems")
 MAP_APPLICATORS = ("$defs", "definitions", "dependentSchemas", "patternProperties", "properties")
 LOCAL_DEFINITION = re.compile(r"#/(\$defs|definitions)/([^/%]+)")
+# The canonical lowercase text of a random RFC 9562 version 4 UUID.
+OPERATION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 
 
 def fail(message: str) -> None:
@@ -68,6 +73,30 @@ def verify_verdict_vectors(filename: str, label: str, fields: dict[str, type], v
         names.add(case["name"])
         outcomes.add(case[verdict])
     if outcomes != {False, True}:
+        fail(f"Assistant {label} vectors require positive and negative cases")
+
+
+def verify_reference_vectors(filename: str, label: str, field: str, error: Callable[[object], str | None]) -> None:
+    """Require named positive and negative cases whose verdicts the reference validator reproduces."""
+    vectors = json.loads((HERE / filename).read_bytes())
+    cases = vectors.get("cases") if isinstance(vectors, dict) else None
+    if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
+        fail(f"Assistant {label} vectors have an invalid root")
+    names: set[str] = set()
+    for case in cases:
+        if (
+            not isinstance(case, dict)
+            or set(case) != {"name", field, "valid"}
+            or not isinstance(case["name"], str)
+            or not case["name"]
+            or case["name"] in names
+            or not isinstance(case["valid"], bool)
+        ):
+            fail(f"Assistant {label} vector case is invalid")
+        names.add(case["name"])
+        if (error(case[field]) is None) != case["valid"]:
+            fail(f"Assistant {label} vector {case['name']!r} disagrees with the reference validator")
+    if {case["valid"] for case in cases} != {False, True}:
         fail(f"Assistant {label} vectors require positive and negative cases")
 
 
@@ -151,6 +180,11 @@ if (
     or invocation.get("properties", {}).get("stored_inputs", {}).get("maxProperties") != 1
 ):
     fail("Assistant Stored Input invocation contract is invalid")
+if (
+    "operation_id" not in invocation.get("required", [])
+    or invocation.get("$defs", {}).get("operationId", {}).get("pattern") != f"^{OPERATION_ID.pattern}$"
+):
+    fail("Assistant operation_id invocation contract is invalid")
 
 result = json.loads((HERE / "result.schema.json").read_bytes())
 result_types = {
@@ -158,8 +192,12 @@ result_types = {
     for envelope in result.get("oneOf", [])
     if isinstance(envelope, dict)
 }
-if result_types != {"result", "request", "stored_input_rejected"}:
-    fail("Assistant Stored Input result contract is invalid")
+if result_types != {"result", "request", "stored_input_rejected", "failure"}:
+    fail("Assistant result envelope contract is invalid")
+failure_schema = result.get("$defs", {}).get("failure", {})
+if failure_schema.get("required") != list(FAILURE_KEYS) or failure_schema.get("additionalProperties") is not False:
+    fail("Assistant failure envelope contract is invalid")
+verify_reference_vectors("failure-vectors.json", "failure", "response", failure_error)
 
 
 verify_verdict_vectors("manifest-vectors.json", "manifest", {"manifest": str})
@@ -173,6 +211,7 @@ if not {(True, MAX_EXPANDED_SUBSCHEMAS), (False, MAX_EXPANDED_SUBSCHEMAS + 1)} <
 ):
     fail("Assistant Action schema vectors do not pin the expanded-reference bound")
 verify_verdict_vectors("pattern-vectors.json", "pattern", {"pattern": str, "subject": str}, "matches")
+verify_verdict_vectors("invocation-vectors.json", "invocation", {"invocation": dict})
 
 human = json.loads((HERE / "human-request-vectors.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())
@@ -195,6 +234,16 @@ try:
     verify_human_vectors(human, declared_capabilities)
 except KeyError, TypeError, ValueError:
     fail("Assistant human-request vectors are invalid")
+
+action_properties = machine["$defs"]["action"]["properties"]
+if (
+    "effect" not in machine["$defs"]["action"].get("required", [])
+    or action_properties.get("effect", {}).get("enum") != list(EFFECTS)
+    or "verifier" in machine["$defs"]["action"].get("required", [])
+    or machine["$defs"].get("verifier", {}).get("additionalProperties") is not False
+):
+    fail("Assistant Action effect contract is invalid")
+verify_reference_vectors("action-effect-vectors.json", "Action effect", "actions", effect_error)
 
 messages = machine.get("properties", {}).get("messages", {})
 pack = json.loads((HERE / "language-pack.schema.json").read_bytes())
