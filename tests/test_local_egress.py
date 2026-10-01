@@ -188,31 +188,42 @@ class LocalAssistantEgressTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "egress-proxy-drift")
 
     def test_a_stopped_proxy_is_retryable_unless_its_profile_or_attachment_drifted(self) -> None:
-        for status in ("exited", "created", "restarting"):
-            with self.subTest(status=status):
-                self.proxy.status = status
-                with self.assertRaises(local_app.ApiProblem) as caught:
-                    self.controller.assistant_lifecycle._egress_proxy(self.network.name)
-                self.assertEqual(
-                    (caught.exception.status, caught.exception.code),
-                    (503, "egress-proxy-unavailable"),
-                )
-        networks = self.proxy.attrs["NetworkSettings"]["Networks"]
-        networks[self.network.name] = {"Aliases": [local_egress.ASSISTANT_EGRESS_ALIAS]}
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            self.controller.assistant_lifecycle._egress_proxy(self.network.name)
-        self.assertEqual(caught.exception.code, "egress-proxy-unavailable")
-        drifts = {
-            "wrong Team alias": lambda: networks.update({self.network.name: {"Aliases": ["wrong"]}}),
-            "malformed Team attachment": lambda: networks.update({self.network.name: ["wrong"]}),
-            "privileged": lambda: self.proxy.attrs["HostConfig"].update(Privileged=True),
+        alias = local_egress.ASSISTANT_EGRESS_ALIAS
+        team = self.network.name
+
+        def attach(entry: object):
+            return lambda proxy: proxy.attrs["NetworkSettings"]["Networks"].update({team: entry})
+
+        valid = {
+            "unattached": lambda _proxy: None,
+            "attached": attach({"Aliases": ["other", alias]}),
         }
-        for name, drift in drifts.items():
-            with self.subTest(name=name):
-                drift()
-                with self.assertRaises(local_app.ApiProblem) as caught:
-                    self.controller.assistant_lifecycle._egress_proxy(self.network.name)
-                self.assertEqual((caught.exception.status, caught.exception.code), (409, "egress-proxy-drift"))
+        drifted = {
+            "wrong alias": attach({"Aliases": ["wrong"]}),
+            "absent aliases": attach({}),
+            "string aliases": attach({"Aliases": alias}),
+            "mapping aliases": attach({"Aliases": {alias: True}}),
+            "numeric aliases": attach({"Aliases": 7}),
+            "non-string alias": attach({"Aliases": [alias, 7]}),
+            "malformed attachment": attach([alias]),
+            "malformed networks": lambda proxy: proxy.attrs["NetworkSettings"].update(Networks=[team]),
+            "malformed settings": lambda proxy: proxy.attrs.update(NetworkSettings=[team]),
+            "privileged": lambda proxy: proxy.attrs["HostConfig"].update(Privileged=True),
+        }
+        for status in ("running", "exited", "created", "restarting"):
+            for name, mutate in {**valid, **drifted}.items():
+                with self.subTest(status=status, case=name):
+                    proxy = _Proxy("local-space")
+                    proxy.status = status
+                    mutate(proxy)
+                    self.controller.client.containers.proxy = proxy
+                    if status == "running" and name in valid:
+                        self.assertIs(self.controller.assistant_lifecycle._egress_proxy(team), proxy)
+                        continue
+                    with self.assertRaises(local_app.ApiProblem) as caught:
+                        self.controller.assistant_lifecycle._egress_proxy(team)
+                    expected = (503, "egress-proxy-unavailable") if name in valid else (409, "egress-proxy-drift")
+                    self.assertEqual((caught.exception.status, caught.exception.code), expected)
 
     def test_startup_reconnects_recreated_proxy_to_owned_egress_team(self) -> None:
         team_id = "team_1"

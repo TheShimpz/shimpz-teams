@@ -204,6 +204,23 @@ def _remove_egress_policy(
         _raise_egress_problem(exc)
 
 
+def _team_attachment_drifted(attrs: dict, network_name: str) -> bool:
+    """Whether the proxy's network state is malformed or its entry on one Team network lacks the exact alias."""
+    settings = attrs.get("NetworkSettings") or {}
+    networks = settings.get("Networks") or {} if isinstance(settings, dict) else None
+    if not isinstance(networks, dict):
+        return True
+    attached = networks.get(network_name)
+    if attached is None:
+        return False
+    aliases = attached.get("Aliases") if isinstance(attached, dict) else None
+    return not (
+        isinstance(aliases, list)
+        and all(isinstance(alias, str) for alias in aliases)
+        and ASSISTANT_EGRESS_ALIAS in aliases
+    )
+
+
 def _egress_proxy(self, network_name: str):
     """The proxy as one Team network sees it: any drift answers 409 before a stopped proxy answers 503."""
     if not ASSISTANT_EGRESS_CONTAINER or _CONTAINER_NAME.fullmatch(ASSISTANT_EGRESS_CONTAINER) is None:
@@ -232,7 +249,6 @@ def _egress_proxy(self, network_name: str):
     }
     mounts = attrs.get("Mounts") or []
     policy_mounts = [mount for mount in mounts if mount.get("Destination") == "/policy"]
-    attached = ((attrs.get("NetworkSettings") or {}).get("Networks") or {}).get(network_name)
     if (
         proxy.name != ASSISTANT_EGRESS_CONTAINER
         or not self._labels_include(labels, expected_labels)
@@ -251,9 +267,7 @@ def _egress_proxy(self, network_name: str):
             "Assistant egress proxy failed its isolation profile",
             code="egress-proxy-drift",
         )
-    if attached is not None and (
-        not isinstance(attached, dict) or ASSISTANT_EGRESS_ALIAS not in (attached.get("Aliases") or [])
-    ):
+    if _team_attachment_drifted(attrs, network_name):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Assistant egress proxy failed its Team attachment contract",
