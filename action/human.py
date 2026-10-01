@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -31,6 +32,8 @@ AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
 COPY_FIELDS = ("title", "description", "label", "placeholder")
 OPTION_COPY_FIELDS = ("label", "description")
 type Catalog = Mapping[str, Mapping[str, object]]
+# A fingerprint is exactly the lowercase hex SHA-256 digest; anything else fails before a constant-time comparison.
+_FINGERPRINT = re.compile(r"^[0-9a-f]{64}\Z")
 
 
 class HumanRequestError(ValueError):
@@ -217,7 +220,7 @@ def validate_request(
         or not isinstance(kind, str)
         or kind not in capabilities
         or not isinstance(fingerprint, str)
-        or len(fingerprint) != 64
+        or _FINGERPRINT.fullmatch(fingerprint) is None
     ):
         raise HumanRequestError("Assistant Action human request is invalid")
     expected = _fingerprint(request)

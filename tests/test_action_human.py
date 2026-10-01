@@ -181,6 +181,14 @@ class HumanResponseTests(unittest.TestCase):
         descriptor = {**human_request_fixtures.descriptor("approval"), "fingerprint": "0" * 64}
         with self.assertRaisesRegex(human.HumanRequestError, "fingerprint"):
             human.validate_request(descriptor, ("approval",), catalog=CATALOG)
+        # A fingerprint that is not exactly 64 lowercase ASCII hex characters fails closed before any comparison.
+        for malformed_fingerprint in ("\u00e9" * 64, "A" * 64, "0" * 63, "0" * 64 + "\n"):
+            malformed_request = {**descriptor, "fingerprint": malformed_fingerprint}
+            with (
+                self.subTest(fingerprint=malformed_fingerprint),
+                self.assertRaisesRegex(human.HumanRequestError, "invalid"),
+            ):
+                human.validate_request(malformed_request, ("approval",), catalog=CATALOG)
         with self.assertRaises(human.HumanRequestError):
             human.validate_request(human_request_fixtures.descriptor("approval"), (), catalog=CATALOG)
         with self.assertRaises(human.HumanRequestError):

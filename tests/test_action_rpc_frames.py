@@ -314,6 +314,15 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
         self.assertEqual(suspended.exception.request.payload(), request)
 
+        # A non-hex fingerprint is a controlled invalid result, never an uncaught comparison error.
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
+                {"type": "request", "request": {**request, "fingerprint": "\u00e9" * 64}},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
+            )
+
         # A reference to a message the reviewed catalog does not declare is refused (ADR-0091).
         for catalog in (None, {}):
             with self.subTest(catalog=catalog), self.assertRaises(action_execution.RpcInvalidResultError):
