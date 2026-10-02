@@ -343,6 +343,25 @@ class WatchdogRecoveryTests(CompiledRunCase):
         self.assertEqual([item.outcome for item in state.notices], ["done"])
         self.assertEqual(leftovers, ((), ()))
 
+    def test_a_completed_cursor_of_another_plan_is_held_never_finished_done(self) -> None:
+        def patch(service):
+            put = service.routine_store.put_cursor
+
+            def finished_for_another_plan(team_id, cursor):
+                put(team_id, cursor)
+                if cursor.step == 2:
+                    put(team_id, dataclasses.replace(cursor, plan="sha256:" + "0" * 64))
+                    raise Crash
+
+            return mock.patch.object(service.routine_store, "put_cursor", side_effect=finished_for_another_plan)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, run_id, actions = self.crashed(directory, patch)
+            state = self.state(service)
+        self.assertEqual((actions, state.runs), (["list-zones", "list-dns-records"], ()))
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertNotIn("done", [item.outcome for item in state.notices])
+
     def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
         def patch(_service):
             return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
@@ -535,6 +554,9 @@ class RuntimeTests(CompiledRunCase):
                 ({"cursor": dispatched}, run, "partial"),
                 ({"cursor": completed}, run, "done"),
                 ({"cursor": dataclasses.replace(completed, step=1)}, run, "partial"),
+                # A clean or complete cursor of another plan holds the run.
+                ({"cursor": dataclasses.replace(completed, plan="sha256:" + "0" * 64)}, run, "partial"),
+                ({"cursor": dataclasses.replace(compiled.cursor, plan="sha256:" + "0" * 64)}, run, "partial"),
             )
             for patched, subject, expected in cases:
                 with contextlib.ExitStack() as stack, self.subTest(patched=patched, expected=expected):

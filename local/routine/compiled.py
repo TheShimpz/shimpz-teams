@@ -224,7 +224,10 @@ def request(
 
 
 def _sealed(self, team_id: str, value: record.Run):
-    """The run's journal batch, sealed recovery snapshot, and cursor; raises when any is unreadable or not the run's."""
+    """The run's journal batch, sealed recovery snapshot, and cursor; raises when any is unreadable or not the run's.
+
+    The cursor must name exactly the snapshot's plan before its step can say anything.
+    """
     batch = self.action_state.current_batch(value.generation)
     payload = self.routine_store.recovery(team_id, value.run_id)
     if payload is None:
@@ -235,7 +238,11 @@ def _sealed(self, team_id: str, value: record.Run):
         or record.generation_for(snapshot.binding.incarnation, value.run_id) != value.generation
     ):
         raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
-    return batch, snapshot, self.routine_store.cursor(team_id, snapshot.binding)
+    cursor = self.routine_store.cursor(team_id, snapshot.binding)
+    if cursor is not None and cursor.plan != snapshot.plan_digest:
+        # A cursor of another plan proves nothing about this run's steps, whether clean or complete.
+        raise routine_store.RoutineStoreError("Routine cursor names another plan")
+    return batch, snapshot, cursor
 
 
 def progress(self, team_id: str, value: record.Run) -> str:
