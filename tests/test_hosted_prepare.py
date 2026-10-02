@@ -1,0 +1,80 @@
+"""Hosted preparation helpers: gVisor, Team accounting, and teardown (ADR-0093)."""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hosted_assistant_fixture as harness
+
+from prepare import limits
+
+# The harness loads the Hosted app with its Docker and state stubs; use the module that app loaded.
+hosted_prepare = harness.hosted_lifecycle.hosted_prepare
+resources = harness.hosted_resources
+state = harness.runtime_state
+IMAGE_ID = "sha256:" + "d" * 64
+
+
+class HostedPrepareTests(unittest.TestCase):
+    def setUp(self) -> None:
+        state._capacity_reservations.clear()
+        self.docker = SimpleNamespace(
+            containers=SimpleNamespace(
+                get=lambda _host: SimpleNamespace(image=SimpleNamespace(id=IMAGE_ID)),
+                list=mock.Mock(return_value=[]),
+                create=mock.Mock(),
+            ),
+            api=SimpleNamespace(),
+        )
+        patcher = mock.patch.object(state, "_docker", self.docker)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_hosted_helper_runs_under_gvisor_with_team_accounting_labels(self) -> None:
+        kwargs = hosted_prepare.helper_kwargs(self.docker, team_id="team_1", owner="account_1")
+        self.assertEqual(kwargs["runtime"], resources.container_spec.RUNTIME)
+        self.assertEqual(kwargs["image"], IMAGE_ID)
+        self.assertEqual(kwargs["network_mode"], "none")
+        self.assertIn("apparmor=docker-default", kwargs["security_opt"])
+        self.assertEqual(
+            kwargs["labels"], {"team.prepare.runtime": "1", "team.id": "team_1", "team.owner": "account_1"}
+        )
+        self.assertEqual(kwargs["mem_limit"], limits.HELPER_MEMORY_BYTES)
+
+    def test_the_helper_reserves_its_memory_for_its_whole_life(self) -> None:
+        with mock.patch.object(resources, "_reserve_capacity") as reserve, hosted_prepare.helper("team_1", "account_1"):
+            pass
+        reserve.assert_called_once_with("prepare:team_1", "account_1", limits.HELPER_MEMORY_BYTES, team_slot=False)
+        helper = SimpleNamespace(labels={"team.prepare.runtime": "1", "team.id": "team_1"})
+        self.assertEqual(resources._capacity_key(helper), "prepare:team_1")
+
+    def test_teardown_removes_every_helper_and_retries_on_failure(self) -> None:
+        stale = SimpleNamespace(remove=mock.Mock())
+        gone = SimpleNamespace(remove=mock.Mock(side_effect=harness._docker_errors.NotFound("gone")))
+        self.docker.containers.list.return_value = [stale, gone]
+        self.assertTrue(hosted_prepare.remove_helpers("team_1"))
+        stale.remove.assert_called_once_with(force=True)
+        self.docker.containers.list.assert_called_with(
+            all=True, filters={"label": ["team.prepare.runtime", "team.id=team_1"]}
+        )
+        failing = SimpleNamespace(remove=mock.Mock(side_effect=harness._docker_errors.DockerException("busy")))
+        self.docker.containers.list.return_value = [failing]
+        self.assertFalse(hosted_prepare.remove_helpers("team_1"))
+        self.docker.containers.list.side_effect = harness._docker_errors.DockerException("inventory")
+        self.assertFalse(hosted_prepare.remove_helpers("team_1"))
+
+    def test_prepare_attachments_uses_the_reserved_helper(self) -> None:
+        with mock.patch.object(hosted_prepare.preparation, "prepare_attachments", return_value=()) as prepare:
+            self.assertEqual(hosted_prepare.prepare_attachments([], team_id="team_1", owner="account_1"), ())
+        files, factory = prepare.call_args.args
+        self.assertEqual(files, [])
+        self.assertTrue(callable(factory))
+
+
+if __name__ == "__main__":
+    unittest.main()

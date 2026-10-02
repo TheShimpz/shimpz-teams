@@ -1,0 +1,54 @@
+"""The ADR-0093 attachment ceilings, shared by the controller and the networkless preparation helper.
+
+Every ceiling applies at the same time. A file beyond a per-file ceiling becomes opaque with a closed reason; a message
+beyond a per-message ceiling is refused before dispatch. Nothing is truncated or silently dropped.
+"""
+
+from __future__ import annotations
+
+MIB = 1024 * 1024
+KIB = 1024
+
+# Selection.
+MAX_SELECTED_FILES = 8
+MAX_SELECTED_ORIGINAL_BYTES = 32 * MIB
+
+# Text, code, CSV, JSON, and Markdown.
+MAX_TEXT_SOURCE_BYTES = 1 * MIB
+MAX_TEXT_CHARACTERS = 32_768
+MAX_TEXT_BYTES = 128 * KIB
+MAX_MESSAGE_TEXT_CHARACTERS = 131_072
+MAX_MESSAGE_TEXT_BYTES = 512 * KIB
+
+# PDF, text only.
+MAX_PDF_BYTES = 8 * MIB
+MAX_PDF_PAGES = 50
+MAX_PDF_PAGE_STREAM_BYTES = 4 * MIB
+MAX_PDF_FILE_STREAM_BYTES = 16 * MIB
+
+# Images: JPEG, PNG, and static WebP.
+MAX_IMAGE_BYTES = 8 * MIB
+MAX_IMAGE_PIXELS = 10_000_000
+MAX_IMAGE_EDGE = 8_192
+MAX_MESSAGE_IMAGES = 4
+DERIVATIVE_LONG_EDGE = 1_568
+DERIVATIVE_PIXELS = 1_200_000
+MAX_DERIVATIVE_BYTES = 512 * KIB
+
+# The complete encoded attachments field of one Brain request.
+MAX_ATTACHMENTS_FIELD_BYTES = 1536 * KIB
+
+# The networkless preparation helper: one container per preparation segment, one fresh process per file.
+HELPER_MEMORY_BYTES = 256 * MIB
+HELPER_NANO_CPUS = 500_000_000
+HELPER_PIDS = 128
+HELPER_CPU_SECONDS = 5
+HELPER_WALL_SECONDS = 10.0
+# One request frame: a bounded JSON header line and at most one 8 MiB original.
+MAX_HELPER_HEADER_BYTES = 256
+MAX_HELPER_INPUT_BYTES = MAX_HELPER_HEADER_BYTES + max(MAX_PDF_BYTES, MAX_IMAGE_BYTES)
+# The largest helper answer: a 512 KiB derivative in base64, or 128 KiB of text escaped as ASCII JSON.
+MAX_HELPER_OUTPUT_BYTES = 1 * MIB
+
+# Closed reasons an attachment is not readable by the model.
+OPAQUE_REASONS = frozenset({"unsupported", "too_large", "encrypted", "no_text", "animated", "unreadable"})

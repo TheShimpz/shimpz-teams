@@ -34,7 +34,8 @@ WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
-    local/inference.py local/labels.py local/lifecycle.py local/names.py local/token.py local/validation.py ./local/
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
+    local/validation.py ./local/
 COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/
@@ -97,6 +98,8 @@ COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/fail
 COPY action/__init__.py action/challenges.py action/execution.py action/failure.py action/human.py action/journal.py \
     action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
+    prepare/service.py prepare/worker.py ./prepare/
 
 RUN test -x /usr/bin/timeout && \
     groupadd --gid 10001 shimpzlocal && \

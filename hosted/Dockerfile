@@ -96,7 +96,7 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign
 
 COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
-     hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
+     hosted/container.py hosted/healthcheck.py hosted/prepare.py hosted/state.py hosted/token.py \
      hosted/validation.py ./hosted/
 COPY assistant/__init__.py assistant/action_schema.py assistant/effect.py assistant/genesis.py assistant/language.py \
     assistant/manifest.py \
@@ -151,6 +151,8 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
 COPY action/__init__.py action/challenges.py action/execution.py action/failure.py action/human.py action/journal.py \
      action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
+    prepare/service.py prepare/worker.py ./prepare/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's

@@ -282,7 +282,7 @@ class HostedResourceEdgeTests(unittest.TestCase):
             labels={"team.id": TEAM_ID, "team.owner": OWNER, "team.assistant.runtime": "1", "team.assistant": "a"},
         )
         team = _container(id="team")
-        state._docker.containers.list = mock.Mock(side_effect=([team, assistant], [assistant]))
+        state._docker.containers.list = mock.Mock(side_effect=([team, assistant], [assistant], []))
         self.assertEqual({item.id for item in resources._admitted_resource_containers()}, {"team", "assistant"})
 
         state._docker.containers.list = mock.Mock(side_effect=resources.docker.errors.DockerException("inventory"))

@@ -60,7 +60,10 @@ class LocalTeamDestroyTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
 
-        def list_containers(**_filters):
+        def list_containers(**filters):
+            if "com.shimpz.local.kind=prepare" in filters.get("filters", {}).get("label", []):
+                events.append("helpers-read")
+                return []
             events.append("containers-read")
             return [container]
 
@@ -132,6 +135,7 @@ class LocalTeamDestroyTests(LocalContractCase):
                 "container-validated",
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
+                "helpers-read",
                 "routines-delete",
                 "diagnostics-delete",
                 ("container-remove", True),

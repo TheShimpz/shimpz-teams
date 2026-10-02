@@ -265,6 +265,7 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         with mock.patch.multiple(
             lifecycle,
             _stop_teardown_runtime=lambda _runtime: True,
+            _teardown_preparation_helpers=lambda _team: True,
             _teardown_assistants=lambda _team: True,
             _teardown_storage=lambda _team: True,
             _teardown_inference=lambda _team: True,

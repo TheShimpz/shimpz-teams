@@ -7,8 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded"
-HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck")
-LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck")
+# The preparation helper's fixed worker runs from the same image as the controller (ADR-0093).
+HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck", "prepare.worker")
+LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck", "prepare.worker")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
     "assistant",
@@ -21,6 +22,7 @@ PRODUCTION_PACKAGES = {
     "integrations",
     "local",
     "action",
+    "prepare",
     "routine",
     "storage",
 }

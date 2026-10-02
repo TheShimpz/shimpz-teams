@@ -13,6 +13,7 @@ from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
+from hosted import prepare as hosted_prepare
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
@@ -38,6 +39,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "integration_credentials",
         "stored_inputs",
         "action_checkpoints",
+        "preparation_helpers",
         "publication_bindings",
         "runtime_state",
         "team_networks",
@@ -273,10 +275,15 @@ def _finalize_teardown(team_id: str, record: cleanup_state.Record) -> bool:
     return True
 
 
+def _teardown_preparation_helpers(team_id: str) -> bool:
+    return hosted_prepare.remove_helpers(team_id)
+
+
 def _teardown_artifacts(team_id: str, runtime) -> tuple[bool, set[str]]:
     absent: set[str] = set()
     phases = (
         (lambda: _stop_teardown_runtime(runtime), ()),
+        (lambda: _teardown_preparation_helpers(team_id), ("preparation_helpers",)),
         (
             lambda: _teardown_assistants(team_id),
             ("assistant_containers", "publication_bindings", "egress_policies"),

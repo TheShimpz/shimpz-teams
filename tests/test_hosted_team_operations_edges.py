@@ -295,6 +295,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
             mock.patch.multiple(
                 lifecycle,
                 _stop_teardown_runtime=succeed,
+                _teardown_preparation_helpers=succeed,
                 _teardown_assistants=succeed,
                 _teardown_storage=succeed,
                 _teardown_inference=succeed,

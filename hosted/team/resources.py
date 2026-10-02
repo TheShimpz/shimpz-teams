@@ -415,6 +415,8 @@ class _CleanupResult:
 
 def _capacity_key(container) -> str:
     team_id = str(container.labels.get("team.id", ""))
+    if container.labels.get("team.prepare.runtime"):
+        return f"prepare:{team_id}"
     if container.labels.get("team.assistant.runtime"):
         return f"assistant:{team_id}:{container.labels.get('team.assistant', '')}"
     return f"team:{team_id}"
@@ -425,7 +427,7 @@ def _admitted_resource_containers() -> list:
     try:
         resources = {
             container.id: container
-            for label in ("team.runtime", "team.assistant.runtime")
+            for label in ("team.runtime", "team.assistant.runtime", "team.prepare.runtime")
             for container in runtime_state._docker.containers.list(all=True, filters={"label": label})
         }
     except docker.errors.DockerException as exc:

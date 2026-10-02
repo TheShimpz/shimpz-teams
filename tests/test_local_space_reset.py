@@ -25,6 +25,7 @@ LOCAL_TEAM_RESIDUES = [
     "egress_policies",
     "inference_configuration",
     "integration_credentials",
+    "preparation_helpers",
     "publication_bindings",
     "routines",
     "runtime_state",
