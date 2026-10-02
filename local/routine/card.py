@@ -122,7 +122,7 @@ def _verifiable(self, team_id: str, incident_id: str) -> bool:
     except ApiProblem:
         return False
     proven = routine_recovery.proven(assessment)
-    if proven in {"policy", "unquiesced"}:
+    if proven in {"policy", "unquiesced", "unclassified"}:
         return False
     return proven != "uncertain" or routine_recovery.verifier_request(assessment) is not None
 

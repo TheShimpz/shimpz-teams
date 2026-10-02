@@ -52,6 +52,9 @@ VERIFY_INTERRUPT = "routine-verify"
 # What proves an operation of a mutating Action absent without a verifier: it settled without effect, or it paused
 # for a person before acting.
 _ABSENT_STATES = frozenset({"no_effect", "prepared"})
+# Team's own classifications of a failed read-only attempt that admit it had no business effect: a handled failure,
+# a transport fault after a proven fail-stop, or a refusal outside the RPC. A missing classification never does.
+_TRUSTED_FAULTS = frozenset({"handled", "transport", "other"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,8 +150,11 @@ def proven(assessment: Assessment) -> str:
     """What Team-admitted evidence proves of the held step's operation.
 
     ``none``: nothing is uncertain; ``policy``: a Team-detected policy fault holds it; ``absent``: the evidence proves
-    no business effect; else ``uncertain``. A policy fault, such as a secret echo or an invalid frame, is never
-    admitted as absence, even of a read-only Action, so it is never verified away or retried (ADR-0092 section 6).
+    no business effect; ``unclassified``: a read-only step whose failure Team never classified; else ``uncertain``.
+    Absence needs positive trusted evidence: a verifier's proof, the journal's, or Team's own classification of a
+    read-only failure. A policy fault, such as a secret echo or an invalid frame, is never admitted as absence, and a
+    classification that was never sealed holds the run as evidence, so it is never verified away or retried
+    (ADR-0092 section 6).
     """
     cursor = assessment.cursor
     if assessment.action is None or cursor.operation_id is None:
@@ -158,10 +164,10 @@ def proven(assessment: Assessment) -> str:
     if cursor.fault == "unquiesced":
         # Team could not prove the workload stopped after an ambiguous outcome: nothing may verify or retry it yet.
         return "unquiesced"
-    if cursor.absent or assessment.action.effect == "read_only":
+    if cursor.absent or (assessment.state in _ABSENT_STATES and not cursor.carried):
         return "absent"
-    if assessment.state in _ABSENT_STATES and not cursor.carried:
-        return "absent"
+    if assessment.action.effect == "read_only":
+        return "absent" if cursor.fault in _TRUSTED_FAULTS else "unclassified"
     return "uncertain"
 
 
@@ -260,7 +266,7 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     """
     assessment = assess(self, team_id, incident_id)
     verdict = proven(assessment)
-    if verdict in {"none", "policy", "unquiesced"}:
+    if verdict in {"none", "policy", "unquiesced", "unclassified"}:
         return verdict
     if verdict == "absent":
         if not assessment.cursor.absent:
@@ -409,6 +415,7 @@ _PAUSES = {
     "pause": "decided",
     "unavailable": "unavailable",
     "evidence": "evidence",
+    "unclassified": "evidence",
 }
 # Evidence that lets the already-authorized run go on.
 _GO_ON = frozenset({"occurred", "none", "retry"})
