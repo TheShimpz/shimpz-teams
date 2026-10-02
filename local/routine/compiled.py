@@ -17,13 +17,16 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from action import execution as action_execution
 from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
+from local import audit as local_audit
 from local import authority as local_authority
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import store as routine_store
@@ -45,10 +48,11 @@ class CompiledRunError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class _Seal:
-    """Where the run's cursor is sealed: its Team and the store that seals it."""
+    """Where the run's cursor is sealed, its Team, and where each failed attempt's diagnostic is kept."""
 
     team_id: str
     store: routine_store.RoutineStore
+    diagnostics: routine_diagnostics.DiagnosticStore
 
 
 class CompiledRuntime:
@@ -114,6 +118,41 @@ class CompiledRuntime:
             raise CompiledRunError(exc.code) from exc
         self.seal(dispatched)
 
+    def failed(
+        self,
+        request: brain_runtime_client.ActionRequest,
+        evidence: action_execution.ActionInvocationEvidence,
+        exc: BaseException,
+    ) -> None:
+        """Keep a failed attempt's sanitized failure or safe transport condition before the segment unwinds.
+
+        It is bound to the run's logical operation and attempt and sealed under the Team's incarnation, so the run's
+        execution details survive a restart and an archived journal. A diagnostic is never safety evidence: one that
+        cannot be kept is audited and the failure goes on unchanged.
+        """
+        found = routine_diagnostics.evidence(exc)
+        if found is None:
+            return
+        binding = self.cursor.binding
+        diagnostic = routine_diagnostics.Diagnostic(
+            binding.routine_id,
+            binding.run_id,
+            evidence.operation_id,
+            self.cursor.attempts,
+            request.assistant_id,
+            request.action,
+            int(time.time()),
+            *found,
+        )
+        try:
+            self._seal.diagnostics.record(
+                self._seal.team_id, binding.incarnation, diagnostic, routine_diagnostics.protected(evidence)
+            )
+        except routine_diagnostics.DiagnosticStoreError:
+            local_audit.record_request(
+                "routine-diagnostic", result="error", team_id=self._seal.team_id, detail=binding.run_id
+            )
+
     @staticmethod
     def purpose(_context, _request, _assistant_name, _summary) -> None:
         """A compiled run asks no model why it pauses."""
@@ -144,7 +183,9 @@ def runtime(self, team_id: str, value: record.Run, routine: record.Routine) -> C
     if cursor is not None and cursor.plan != plan.digest:
         raise CompiledRunError("cursor-plan-changed")
     started = cursor or routine_cursor.start(plan, binding, int(time.time()))
-    compiled = CompiledRuntime(_Seal(team_id, self.routine_store), plan, started, routine.name)
+    compiled = CompiledRuntime(
+        _Seal(team_id, self.routine_store, self.routine_diagnostics), plan, started, routine.name
+    )
     if cursor is None:
         compiled.seal(started)
     return compiled

@@ -16,6 +16,7 @@ from inference import config as inference_config
 from local import inference as local_inference
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
+from local.errors import ApiProblemError as ApiProblem
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
 from routine import pin as routine_pin
@@ -154,18 +155,20 @@ def _run_chat_segment_with_metadata(
         if request.routine is not None:
             # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
             request.routine.runtime.dispatching(action_request, operation_id)
-        return self._invoke_chat_action(
-            request.team_id,
-            request.token,
-            action_request,
-            active.container_id,
-            action_execution.ActionInvocationEvidence(
-                private_inputs,
-                transcript,
-                action_execution.stored_input_origin(action_request),
-                operation_id,
-            ),
+        evidence = action_execution.ActionInvocationEvidence(
+            private_inputs,
+            transcript,
+            action_execution.stored_input_origin(action_request),
+            operation_id,
         )
+        try:
+            return self._invoke_chat_action(
+                request.team_id, request.token, action_request, active.container_id, evidence
+            )
+        except ApiProblem as exc:
+            if request.routine is not None:
+                request.routine.runtime.failed(action_request, evidence, exc)
+            raise
 
     def human_requirement(
         action_request: brain_runtime_client.ActionRequest,

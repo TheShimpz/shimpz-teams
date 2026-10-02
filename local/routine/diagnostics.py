@@ -20,7 +20,7 @@ import os
 import re
 import stat
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
@@ -28,6 +28,8 @@ from pathlib import Path
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from action import execution as action_execution
+from action import failure as action_failure
 from core import strict_json
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_team_id
@@ -294,6 +296,41 @@ class DiagnosticStore:
             return
         except OSError as exc:
             raise DiagnosticStoreError("Routine diagnostics could not be removed") from exc
+
+
+def evidence(exc: BaseException) -> tuple[dict[str, object] | None, str | None] | None:
+    """The sanitized failure or safe transport condition a failed attempt's problem was raised from, or None.
+
+    Only Team's own admitted failure document or a closed transport condition is ever kept, never a message.
+    """
+    failure = action_failure.failure_of(exc)
+    if failure is not None:
+        return failure.document(), None
+    cause = exc
+    for _depth in range(8):
+        if cause is None:
+            return None
+        if isinstance(cause, action_execution.RpcExchangeError):
+            condition = cause.condition
+            return (None, condition) if http_routine.CONDITION_RE.fullmatch(condition) else None
+        cause = cause.__cause__
+    return None
+
+
+def protected(evidence_value: action_execution.ActionInvocationEvidence) -> tuple[str, ...]:
+    """Every value Team injected into one attempt, which its diagnostic must never hold."""
+    found: list[str] = list(evidence_value.transcript.protected_values().values())
+    found.extend(evidence_value.private_inputs.stored_inputs.values())
+    pending: list[object] = [evidence_value.private_inputs.integrations]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, str):
+            found.append(value)
+        elif isinstance(value, Mapping):
+            pending.extend(value.values())
+        elif isinstance(value, list | tuple):
+            pending.extend(value)
+    return tuple(found)
 
 
 def _diagnostic(match: re.Match[str], view: dict[str, object]) -> Diagnostic:

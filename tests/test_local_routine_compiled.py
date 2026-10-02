@@ -8,6 +8,7 @@ import json
 import struct
 import tempfile
 import threading
+import time
 from http import HTTPStatus
 from socket import socketpair
 from types import SimpleNamespace
@@ -16,12 +17,15 @@ from unittest import mock
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from test_local_routine_service import KEY, RoutineServiceCase, approval
 
+from action import execution as action_execution
+from action import failure as action_failure
 from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import authority as local_authority
 from local.routine import compiled as routine_compiled
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import store as routine_store
@@ -187,6 +191,87 @@ class ExecutionTests(CompiledRunCase):
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
+
+
+class DiagnosticTests(CompiledRunCase):
+    """A failed attempt's sanitized failure or transport condition outlives the segment, its archive, and a restart."""
+
+    def failing(self, directory: str, problem: BaseException):
+        def invoke(_team, _assistant, action, _payload, _evidence):
+            if action == "list-dns-records":
+                raise problem
+            return {"result": ZONES}
+
+        _controller, service, _brain, _value = self.compiled(directory, invoke)
+        claim = service.claim_routine_run(("anthropic", "openai"))
+        self.assertEqual(self.run_without_key(service, claim)["status"], "held")
+        # A restarted Team opens its diagnostics with a fresh store over the same encrypted family.
+        service.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
+            service.routine_diagnostics.root, service.routine_diagnostics.key_path
+        )
+        opened = routine_incident.open_recovery(service, "team_1", claim["run_id"])
+        return service, claim["run_id"], opened.cursor.operation_id
+
+    @staticmethod
+    def problem(cause: BaseException) -> local_app.ApiProblem:
+        try:
+            raise local_app.ApiProblem(HTTPStatus.BAD_GATEWAY, "failed", code="assistant-action-failed") from cause
+        except local_app.ApiProblem as exc:
+            return exc
+
+    def test_a_handled_failure_is_kept_for_its_operation_and_read_after_a_restart(self) -> None:
+        failure = action_failure.ActionFailure(
+            "httpx.HTTPStatusError", "Not Found", "api.cloudflare.com", 404, None, False, False
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            service, run_id, operation_id = self.failing(
+                directory, self.problem(action_failure.ActionFailedError(failure))
+            )
+            details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
+        (diagnostic,) = details["diagnostics"]
+        self.assertEqual(
+            (diagnostic["operation_id"], diagnostic["attempt"], diagnostic["action"], diagnostic["condition"]),
+            (operation_id, 1, "list-dns-records", None),
+        )
+        self.assertEqual(diagnostic["failure"], failure.document())
+
+    def test_a_transport_condition_is_kept_and_anything_else_keeps_nothing(self) -> None:
+        cases = (
+            (action_execution.RpcExchangeError("timeout"), [(None, "timeout")]),
+            (action_execution.RpcExchangeError("raw", "Traceback: secret"), []),
+            (ValueError("unexplained"), []),
+        )
+        for cause, expected in cases:
+            with tempfile.TemporaryDirectory() as directory, self.subTest(cause=cause):
+                service, run_id, _operation = self.failing(directory, self.problem(cause))
+                details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
+                self.assertEqual([(item["failure"], item["condition"]) for item in details["diagnostics"]], expected)
+
+    def test_only_a_near_cause_is_ever_read(self) -> None:
+        deep: BaseException = action_execution.RpcExchangeError("timeout")
+        for _depth in range(8):
+            deep = self.problem(deep)
+        self.assertIsNone(local_routine_diagnostics.evidence(deep))
+        self.assertEqual(local_routine_diagnostics.evidence(deep.__cause__), (None, "timeout"))
+
+    def test_a_diagnostic_that_would_hold_an_injected_value_is_never_kept(self) -> None:
+        evidence = action_execution.ActionInvocationEvidence(
+            action_execution.RpcPrivateInputs(
+                {"cloudflare": {"access_token": "tok-123", "scopes": ["a"], "expires_in": 3600}}, {"key": "k"}
+            ),
+            action_human.ActionTranscript("i-1", ()),
+            "",
+            "0" * 32,
+        )
+        self.assertEqual(set(local_routine_diagnostics.protected(evidence)), {"tok-123", "a", "k"})
+        leaked = action_failure.ActionFailure("Error", "token tok-123 refused", None, None, None, False, False)
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(local_routine_diagnostics, "protected", return_value=("tok-123",)):
+                service, run_id, _operation = self.failing(
+                    directory, self.problem(action_failure.ActionFailedError(leaked))
+                )
+            details = service.routine_run_diagnostics("team_1", run_id, int(time.time()))
+        self.assertEqual(details["diagnostics"], [])
 
 
 class Crash(BaseException):
