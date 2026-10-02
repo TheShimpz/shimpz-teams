@@ -372,7 +372,7 @@ class RpcResultPolicy:
     supplied_stored_inputs: frozenset[str] = frozenset()
     # The reviewed English message catalog every request copy reference must name (ADR-0091).
     catalog: Mapping[str, Mapping[str, object]] | None = None
-    # Capabilities Team injected into the workload, such as its egress token; only failure redaction uses them.
+    # Capabilities Team injected into the workload, such as its egress token: protected like every injected value.
     capabilities: tuple[str, ...] = ()
 
 
@@ -380,8 +380,13 @@ _DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
 
 
 def _injected_values(integrations_by_id: Mapping[str, Mapping[str, object]], policy: RpcResultPolicy) -> dict[str, str]:
-    """Every private value Team supplied to one invocation: tokens, secret responses, and Stored Inputs."""
+    """Every private value Team supplied to one invocation: tokens, secret responses, Stored Inputs, capabilities.
+
+    Every envelope branch uses this one collection: the failure branch redacts these values, and every other branch
+    refuses an echo of any of them outright.
+    """
     secrets = protected_rpc_values(integrations_by_id)
+    secrets.update({f"capability:{index}": value for index, value in enumerate(policy.capabilities)})
     if policy.protected_values is not None:
         secrets.update(policy.protected_values)
     if policy.stored_inputs_by_id is not None:
@@ -411,7 +416,7 @@ def project_rpc_result(
     """
     secrets = _injected_values(integrations_by_id, policy)
     if action_failure.is_failure(raw_result):
-        _raise_failure(raw_result, (*secrets.values(), *policy.capabilities))
+        _raise_failure(raw_result, tuple(secrets.values()))
     if contains_secret(raw_result, secrets):
         raise RpcSecretExposureError
     valid_fields = ({"type", "result"}, {"type", "request"}, {"type", "stored_input"})

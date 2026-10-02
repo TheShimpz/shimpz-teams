@@ -245,6 +245,25 @@ class FailureProjectionTests(unittest.TestCase):
                 self._project(raw)
         self.assertEqual(self._project({"type": "result", "result": {"value": "public"}}), {"value": "public"})
 
+    def test_an_echoed_egress_capability_is_refused_outside_the_failure_branch(self) -> None:
+        request = {
+            "kind": "approval",
+            "ordinal": 0,
+            "fingerprint": "a" * 64,
+            "title": {"message": CAPABILITY, "params": {}},
+            "description": {"message": "b" * 64, "params": {}},
+        }
+        for raw in (
+            {"type": "result", "result": {"proxy": f"http://{CAPABILITY}@assistant-egress:3128"}},
+            {"type": "result", "result": {CAPABILITY: True}},
+            {"type": "request", "request": request},
+        ):
+            with self.subTest(raw=raw), self.assertRaises(action_execution.RpcSecretExposureError):
+                self._project(raw, human_requests=("approval",))
+        with self.assertRaises(action_failure.ActionFailedError) as caught:
+            self._project(_envelope(message=f"proxy {CAPABILITY} refused"))
+        self.assertEqual(caught.exception.failure.message, "proxy [REDACTED] refused")
+
     def test_transport_faults_record_only_the_actual_safe_condition(self) -> None:
         stream = SimpleNamespace(_sock=SimpleNamespace(shutdown=lambda _how: None))
         frame = json.dumps(_envelope()).encode()
