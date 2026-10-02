@@ -89,6 +89,9 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     for run_id in service.routine_store.continuations(team_id):
         if run_id not in runs:
             service.routine_store.delete_continuation(team_id, run_id)
+    for run_id in service.routine_store.recoveries(team_id):
+        if run_id not in runs:
+            service.routine_store.delete_recovery(team_id, run_id)
     kept = runs | {item.incident_id for item in current.incidents if item.status == "unresolved"}
     for run_id in service.routine_store.cursors(team_id):
         if run_id not in kept:

@@ -248,6 +248,171 @@ class ResolutionTests(IncidentCase):
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
 
 
+class RecoverySnapshotTests(IncidentCase):
+    def compiled(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
+        """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
+        incarnation = generation.removesuffix(f":routine:{run_id}")
+        plan = routine_plan.admit(_document(), CONTRACTS)
+        binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
+        snapshot = routine_incident.Recovery(binding, value.quote, _document())
+        routine_incident.seal_recovery(service, "team_1", snapshot)
+        cursor = routine_cursor.dispatch(
+            routine_cursor.start(plan, binding, 1_800_000_000), plan, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "d" * 64
+        )
+        service.routine_store.put_cursor("team_1", cursor)
+        return snapshot, cursor
+
+    def test_a_deleted_routines_incident_reopens_its_cursor_after_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+            # The run executes revision 3; the Routine is updated to revision 4 while the run is held.
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    record._replace_routine(
+                        state, dataclasses.replace(record.routine(state, value.routine_id), revision=3)
+                    ),
+                    None,
+                ),
+            )
+            snapshot, cursor = self.compiled(service, value, run_id, generation, 3)
+            # A live run keeps its snapshot through every pass.
+            routine_watchdog.check(service)
+            self.assertEqual(service.routine_store.recoveries("team_1"), (run_id,))
+            self.fence(service, run_id, lease)
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    record._replace_routine(
+                        state, dataclasses.replace(record.routine(state, value.routine_id), revision=4)
+                    ),
+                    None,
+                ),
+            )
+            routine_incident.reconcile(service, "team_1", run_id)
+            self.assertEqual([item.revision for item in self.state(service).incidents], [3])
+            service.delete_routine("team_1", value.routine_id)
+            routine_watchdog.check(service)
+            self.assertEqual(self.state(service).routines, ())
+            self.assertEqual(service.routine_store.recoveries("team_1"), ())
+            # A restart reopens every store from disk; only the incident's own sealed copy names the binding.
+            service.action_state.close()
+            reopened_store = routine_store.RoutineStore(service.routine_store.root, service.routine_store.key_path)
+            reopened_journal = action_journal.ActionJournal(service.action_state.path)
+            self.addCleanup(reopened_journal.close)
+            service.routine_store, service.action_state = reopened_store, reopened_journal
+            opened = routine_incident.open_recovery(service, "team_1", run_id)
+            self.assertEqual(opened.recovery, snapshot)
+            self.assertEqual(opened.cursor, cursor)
+            self.assertEqual(opened.cursor.operation_id, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6")
+            self.assertEqual(opened.recovery.plan_digest, cursor.plan)
+            self.assertEqual(reopened_journal.current_batch(generation), (batch.fingerprint, "archived"))
+            routine_incident.skip(service, "team_1", run_id)
+            with self.assertRaises(local_app.ApiProblem) as skipped:
+                routine_incident.open_recovery(service, "team_1", run_id)
+            self.assertEqual(skipped.exception.code, "routine-incident-unavailable")
+
+    def test_recovery_fails_closed_without_a_matching_snapshot_or_cursor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            with self.assertRaises(local_app.ApiProblem) as uncompiled:
+                routine_incident.open_recovery(service, "team_1", run_id)
+            self.assertEqual(uncompiled.exception.code, "routine-incident-unverifiable")
+            with self.assertRaises(local_app.ApiProblem) as missing:
+                routine_incident.open_recovery(service, "team_1", "f" * 32)
+            self.assertEqual(missing.exception.code, "routine-incident-unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            snapshot, _cursor = self.compiled(service, value, run_id, generation, 1)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            self.assertEqual(routine_incident.open_recovery(service, "team_1", run_id).recovery, snapshot)
+            store = service.routine_store
+            original = store.incident("team_1", run_id)
+            evidence = json.loads(original)
+            failures = (
+                lambda: store.delete_cursor("team_1", run_id),
+                lambda: store.put_cursor(
+                    "team_1",
+                    routine_cursor.start(routine_plan.admit(_document(timezone="UTC"), CONTRACTS), snapshot.binding, 0),
+                ),
+                lambda: store.put_incident(
+                    "team_1",
+                    run_id,
+                    json.dumps(
+                        {
+                            **evidence,
+                            "recovery": {
+                                **evidence["recovery"],
+                                "binding": [snapshot.binding.incarnation, value.routine_id, 2, run_id],
+                            },
+                        }
+                    ).encode(),
+                ),
+                lambda: store.delete_incident("team_1", run_id),
+                lambda: mock.patch.object(store, "cursor", side_effect=routine_store.RoutineStoreError("x")).start(),
+            )
+            for damage in failures:
+                with self.subTest(damage=damage):
+                    damage()
+                    with self.assertRaises(local_app.ApiProblem) as caught:
+                        routine_incident.open_recovery(service, "team_1", run_id)
+                    self.assertEqual(caught.exception.code, "routine-state-unavailable")
+                    mock.patch.stopall()
+                    store.put_incident("team_1", run_id, original)
+                    store.put_cursor("team_1", _cursor)
+
+    def test_a_snapshot_must_belong_to_exactly_its_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
+            incarnation = generation.removesuffix(f":routine:{run_id}")
+            self.fence(service, run_id, lease)
+            for binding in (
+                routine_cursor.Binding(incarnation, "f" * 32, 1, run_id),
+                routine_cursor.Binding("f" * 64, value.routine_id, 1, run_id),
+            ):
+                with self.subTest(binding=binding):
+                    routine_incident.seal_recovery(service, "team_1", routine_incident.Recovery(binding, "Q", {}))
+                    with self.assertRaises(local_app.ApiProblem):
+                        routine_incident.reconcile(service, "team_1", run_id)
+            self.assertEqual(record.run(self.state(service), run_id).status, "held")
+            for invalid in (
+                b"not json",
+                routine_plan.canonical({"version": 2}),
+                routine_plan.canonical({"version": 1, "binding": "x", "quote": "Q", "plan": {}}),
+                routine_plan.canonical(
+                    {"version": 1, "binding": [incarnation, value.routine_id, 0, run_id], "quote": "Q", "plan": {}}
+                ),
+                routine_plan.canonical(
+                    {"version": 1, "binding": [incarnation, value.routine_id, 1, run_id], "quote": 1, "plan": {}}
+                ),
+                routine_plan.canonical(
+                    {"version": 1, "binding": [incarnation, value.routine_id, 1, "e" * 32], "quote": "Q", "plan": {}}
+                ),
+                routine_plan.canonical({"version": 1, "extra": 1}),
+            ):
+                with self.subTest(invalid=invalid), self.assertRaises(local_app.ApiProblem):
+                    routine_incident.read_recovery(invalid, run_id)
+            held = record.run(self.state(service), run_id)
+            foreign = routine_incident.Recovery(routine_cursor.Binding(incarnation, "f" * 32, 1, run_id), "Q", {})
+            with self.assertRaises(local_app.ApiProblem):
+                routine_incident.read_evidence(routine_incident.evidence(run_id, held, None, (), foreign), run_id)
+            with self.assertRaises(record.RoutineStateError):
+                record.settle_hold(self.state(service), run_id, 0, 0)
+            for payload in (b"", None, b"x" * (routine_store.MAX_RECOVERY_BYTES + 1)):
+                with self.subTest(payload=payload), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
+                    service.routine_store.put_recovery("team_1", run_id, payload)
+            # A snapshot a crash left behind, whose run is gone, is removed by the next pass.
+            orphan = routine_incident.Recovery(
+                routine_cursor.Binding(incarnation, value.routine_id, 1, "e" * 32), "Q", {}
+            )
+            routine_incident.seal_recovery(service, "team_1", orphan)
+            service.routine_store.delete_recovery("team_1", run_id)
+            routine_watchdog.check(service)
+            self.assertEqual(service.routine_store.recoveries("team_1"), ())
+            self.assertEqual([item.incident_id for item in self.state(service).incidents], [run_id])
+
+
 class SealedStateTests(IncidentCase):
     def test_cursor_and_incident_seals_bind_exactly_what_they_belong_to(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

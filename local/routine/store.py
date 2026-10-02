@@ -35,7 +35,9 @@ SCHEMA = 2
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
-MAX_INCIDENT_BYTES = 64 * 1024
+# Holds the compact evidence and the recovery snapshot it copies: a 64 KiB plan plus its binding and grant.
+MAX_INCIDENT_BYTES = 192 * 1024
+MAX_RECOVERY_BYTES = 128 * 1024
 _TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -44,6 +46,7 @@ _TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
 _DAY_RE = re.compile(r"(?:\d{4}-\d{2}-\d{2})?\Z")
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
+_RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
@@ -82,7 +85,7 @@ _RUN_FIELDS = frozenset(
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
-_INCIDENT_FIELDS = frozenset({"incident_id", "routine_id", "generation", "created_at", "status"})
+_INCIDENT_FIELDS = frozenset({"incident_id", "routine_id", "generation", "created_at", "revision", "status"})
 _STATE_FIELDS = frozenset(
     {"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts", "discards", "incidents"}
 )
@@ -316,9 +319,16 @@ def _decode_incident(value: object) -> record.Incident:
         and value["generation"] != ""
         and _generation_of(value["incident_id"], value["generation"])
         and value["status"] in ("unresolved", "skipped")
+        and type(value["revision"]) is int
+        and 1 <= value["revision"] < 2**31
     )
     return record.Incident(
-        value["incident_id"], value["routine_id"], value["generation"], _instant(value["created_at"]), value["status"]
+        value["incident_id"],
+        value["routine_id"],
+        value["generation"],
+        _instant(value["created_at"]),
+        value["revision"],
+        value["status"],
     )
 
 
@@ -387,6 +397,10 @@ def _cursor_aad(team_id: str, binding: routine_cursor.Binding) -> bytes:
         ],
         separators=(",", ":"),
     ).encode()
+
+
+def _recovery_aad(team_id: str, run_id: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-recovery-v1", team_id, run_id], separators=(",", ":")).encode()
 
 
 def _incident_aad(team_id: str, incident_id: str) -> bytes:
@@ -588,6 +602,26 @@ class RoutineStore:
 
     def delete_cursor(self, team_id: object, run_id: object) -> None:
         self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.cursor", "Routine cursor")
+
+    def put_recovery(self, team_id: object, run_id: object, payload: object) -> None:
+        """Seal one compiled run's immutable recovery snapshot before its first dispatch (ADR-0092)."""
+        team, run = _team_id(team_id), _run_id(run_id)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_RECOVERY_BYTES:
+            raise RoutineStoreError("Routine recovery snapshot is invalid")
+        self._sealed_write(team, f"{run}.recovery", payload, _recovery_aad(team, run), "Routine recovery snapshot")
+
+    def recovery(self, team_id: object, run_id: object) -> bytes | None:
+        team, run = _team_id(team_id), _run_id(run_id)
+        return self._sealed_read(
+            team, f"{run}.recovery", _recovery_aad(team, run), "Routine recovery snapshot", MAX_RECOVERY_BYTES
+        )
+
+    def delete_recovery(self, team_id: object, run_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.recovery", "Routine recovery snapshot")
+
+    def recoveries(self, team_id: object) -> tuple[str, ...]:
+        """The run ids with a stored recovery snapshot, including any a crash left unreferenced."""
+        return self._sealed_names(_team_id(team_id), _RECOVERY_NAME_RE, ".recovery", "recovery snapshots")
 
     def put_incident(self, team_id: object, incident_id: object, payload: object) -> None:
         """Seal one incident's compact safety evidence; it is durable before its batch is archived."""

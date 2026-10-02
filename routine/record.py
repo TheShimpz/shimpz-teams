@@ -120,6 +120,8 @@ class Incident:
     routine_id: str
     generation: str
     created_at: int
+    # The Routine revision the held run executed, which its cursor binding names (ADR-0092).
+    revision: int = 1
     # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown.
     status: str = "unresolved"
 
@@ -610,16 +612,20 @@ def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRouti
     return _replace_run(state, held)
 
 
-def settle_hold(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
+def settle_hold(state: TeamRoutines, run_id: str, now: int, revision: int | None = None) -> TeamRoutines:
     """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
 
     The run's live state is queued for removal like any ended run's; its archived journal marker stays with the
-    incident. A claim reserved this incident's room, so it never displaces an unresolved one.
+    incident. A claim reserved this incident's room, so it never displaces an unresolved one. ``revision`` is the one
+    the run's recovery snapshot binds; without one, the run executed the Routine's current revision.
     """
     value = run(state, run_id)
     if value.status != "held":
         raise RoutineStateError("run-not-held")
-    incident = Incident(run_id, value.routine_id, value.generation, now)
+    executed = routine(state, value.routine_id).revision if revision is None else revision
+    if type(executed) is not int or executed < 1:
+        raise RoutineStateError("incident-invalid")
+    incident = Incident(run_id, value.routine_id, value.generation, now, executed)
     kept = list(state.incidents)
     while len(kept) >= MAX_INCIDENTS:
         skipped = next((item for item in kept if item.status != "unresolved"), None)

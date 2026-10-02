@@ -193,17 +193,9 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
 
 def _checked(cursor: Cursor) -> Cursor:
     """Refuse any cursor outside its closed shape and bounds."""
-    binding = cursor.binding
     dispatched = cursor.operation_id is not None
     valid = (
-        isinstance(binding.incarnation, str)
-        and _HEX64_RE.fullmatch(binding.incarnation) is not None
-        and isinstance(binding.routine_id, str)
-        and _ID_RE.fullmatch(binding.routine_id) is not None
-        and type(binding.revision) is int
-        and binding.revision >= 1
-        and isinstance(binding.run_id, str)
-        and _ID_RE.fullmatch(binding.run_id) is not None
+        binding_valid(cursor.binding)
         and isinstance(cursor.plan, str)
         and _DIGEST_RE.fullmatch(cursor.plan) is not None
         and type(cursor.started_at) is int
@@ -226,6 +218,21 @@ def _checked(cursor: Cursor) -> Cursor:
     if len(routine_plan.canonical(_document(cursor))) > MAX_CURSOR_BYTES:
         raise CursorError("cursor-too-large")
     return cursor
+
+
+def binding_valid(binding: object) -> bool:
+    """Whether a binding names one Team incarnation, one Routine revision, and one run."""
+    return (
+        isinstance(binding, Binding)
+        and isinstance(binding.incarnation, str)
+        and _HEX64_RE.fullmatch(binding.incarnation) is not None
+        and isinstance(binding.routine_id, str)
+        and _ID_RE.fullmatch(binding.routine_id) is not None
+        and type(binding.revision) is int
+        and 1 <= binding.revision < 2**31
+        and isinstance(binding.run_id, str)
+        and _ID_RE.fullmatch(binding.run_id) is not None
+    )
 
 
 def _budgets_valid(budgets: object) -> bool:

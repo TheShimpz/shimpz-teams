@@ -192,6 +192,8 @@ def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool
                 HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"
             ) from exc
     routine_state.call(lambda: self.routine_store.delete_continuation(team_id, run_id))
+    # An incident keeps its own sealed copy of the recovery snapshot.
+    routine_state.call(lambda: self.routine_store.delete_recovery(team_id, run_id))
     if not incident:
         routine_state.call(lambda: self.routine_store.delete_cursor(team_id, run_id))
 
