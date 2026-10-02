@@ -577,6 +577,10 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
         verdict = _decide(self, team_id, incident_id, api_key, None)
     if expired():
         verdict = "exhausted"
+    elif self._chat_cancelled(run.token):
+        # A person's Stop is no failure: an aborted Brain call is not unavailable, nothing is published, and the
+        # incident stays for the card.
+        return False
     reason = _PAUSES.get(verdict)
     if reason is not None:
         routine_incident.pause(self, team_id, incident_id, reason)

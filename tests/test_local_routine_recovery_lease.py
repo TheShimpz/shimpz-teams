@@ -10,6 +10,7 @@ import routine_fixture
 from test_local_routine_automatic import AutomaticCase, Brain
 from test_local_routine_recovery import RECORD, Assistant, failed
 
+from inference import client as inference_client
 from local import app as local_app
 from local import audit as local_audit
 from local.routine import card as routine_card
@@ -133,6 +134,27 @@ class RecoveryLeaseTests(AutomaticCase):
                     routine_recovery.continue_run(service, "team_1", run_id, token)
             self.assert_still_held(service, run_id, assistant)
         self.assertEqual(caught.exception.code, "routine-recovery-stopped")
+
+    def test_a_stop_while_the_provider_call_is_blocked_publishes_no_failure_or_pause(self) -> None:
+        box: list[object] = []
+
+        class Aborted(Brain):
+            def routine_recovery(self, payload, provider, model):
+                self.asked.append(payload)
+                box[0].stop_routine("team_1", held_incident(box[0]))
+                # What the client raises once Stop aborted its request.
+                raise inference_client.BrainRuntimeError("Brain runtime request was stopped")
+
+        brain = Aborted()
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory, self.capturing(box):
+            service, value, run_id = self.run_held(directory, assistant, brain)
+            self.assert_still_held(service, run_id, assistant)
+            state = self.state(service)
+        self.assertEqual((self.status, len(brain.asked)), ("held", 1))
+        # Not unavailable, not paused: the run's notice still says it is held, for the person's card.
+        self.assertFalse(record.routine(state, value.routine_id).paused)
+        self.assertEqual(state.notices[-1].outcome, "held")
 
 
 class AtomicCardTests(AutomaticCase):
