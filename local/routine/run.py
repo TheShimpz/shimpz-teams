@@ -403,14 +403,18 @@ def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callab
     return _stop_registered(self, team_id, run_id, token, mark)
 
 
-def unstopped(self, token: str, deadline: Callable[[], bool]) -> bool:
-    """Whether an outcome may still be published for this execution: no person stopped it first.
+def unstopped(self, token: str, deadline: Callable[[], bool], commit: Callable[[], None]) -> bool:
+    """Commit an outcome for this execution only if no person stopped it first; whether it was committed.
 
-    Decided under the same guard a person's Stop cancels under, so a Stop is either before the decision, and nothing
-    is published, or after it. A cancellation the execution's own ``deadline`` caused is no person's Stop.
+    The decision and ``commit`` both run under the same guard a person's Stop cancels under, as a chat reply's commit
+    does, so a Stop is either before the decision, and nothing is committed, or after the commit. A cancellation the
+    execution's own ``deadline`` caused is no person's Stop.
     """
     with self._active_chat_guard:
-        return token not in self._cancelled_chat_tokens or deadline()
+        if token in self._cancelled_chat_tokens and not deadline():
+            return False
+        commit()
+        return True
 
 
 def _stop_registered(

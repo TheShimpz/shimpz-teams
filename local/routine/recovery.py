@@ -379,9 +379,6 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     now = int(time.time())
 
     def reopen(state: record.TeamRoutines):
-        # A Stop or deletion that reached the recovery's registration is final: nothing continues the run.
-        if self._chat_cancelled(token):
-            return state, "routine-recovery-stopped"
         try:
             reopened, lease_token = routine_hold.reopen_incident(state, incident_id, now, generation)
         except record.RoutineStateError as exc:
@@ -389,7 +386,14 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
         routine = record.routine(reopened, opened.recovery.binding.routine_id)
         return reopened, (record.run(reopened, incident_id), routine, lease_token)
 
-    reopened = routine_state.update(self, team_id, reopen)
+    # A Stop, deletion, or deadline that reached the recovery's registration is final: the reopening commits under the
+    # same guard they cancel under, so nothing continues the run once any of them landed.
+    results: list[object] = []
+    if not routine_run.unstopped(
+        self, token, lambda: False, lambda: results.append(routine_state.update(self, team_id, reopen))
+    ):
+        raise ApiProblem(409, "Routine run cannot continue", code="routine-recovery-stopped")
+    (reopened,) = results
     if isinstance(reopened, str):
         raise ApiProblem(409, "Routine run cannot continue", code=reopened)
     value, routine, lease_token = reopened
@@ -630,10 +634,13 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
 
 def _publish(self, run: routine_run._Run, reservation: _Reservation, reason: str) -> None:
     """Pause the Routine the held run belongs to and say why, once per episode, unless a person stopped it first."""
-    if not routine_run.unstopped(self, run.token, reservation.expired.is_set):
-        return
-    routine_incident.pause(self, run.team_id, run.run_id, reason)
-    reservation.published.set()
+    if routine_run.unstopped(
+        self,
+        run.token,
+        reservation.expired.is_set,
+        lambda: routine_incident.pause(self, run.team_id, run.run_id, reason),
+    ):
+        reservation.published.set()
 
 
 def _finish(self, run: routine_run._Run, reservation: _Reservation, outcome: str) -> str:

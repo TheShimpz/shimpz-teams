@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import tempfile
+import threading
 from unittest import mock
 
 import routine_fixture
@@ -357,9 +358,9 @@ class StopPrecedenceTests(AutomaticCase):
             stop(service, box[-1])
             return reserved
 
-        def publishing(service, token, deadline):
+        def publishing(service, token, deadline, commit):
             stop(service, token)
-            return real_unstopped(service, token, deadline)
+            return real_unstopped(service, token, deadline, commit)
 
         cases = {
             "reserving": (0, mock.patch.object(routine_recovery, "_reserve", side_effect=reserving)),
@@ -393,3 +394,44 @@ class StopPrecedenceTests(AutomaticCase):
                 # The person's Stop came first: neither exhaustion nor the policy pause is published.
                 self.assertEqual(state.notices[-1].outcome, "held")
                 self.assertFalse(record.routine(state, value.routine_id).paused)
+
+    def test_a_stop_after_the_decision_waits_until_the_pause_is_committed(self) -> None:
+        events: list[str] = []
+        started = threading.Event()
+        real_pause = routine_recovery.routine_incident.pause
+
+        def pausing(service, team_id, incident_id, reason):
+            def stop() -> None:
+                started.set()
+                # A person's Stop arrives once publication was decided: it takes the same guard.
+                with service._active_chat_guard:
+                    service._cancelled_chat_tokens.add(box[0])
+                events.append("stop")
+
+            stopper = threading.Thread(target=stop)
+            stopper.start()
+            started.wait(5)
+            stopper.join(0.2)
+            real_pause(service, team_id, incident_id, reason)
+            events.append("pause")
+            threads.append(stopper)
+
+        box: list[str] = []
+        threads: list[threading.Thread] = []
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, assistant)
+            with (
+                service._exclusive_chat_turn("team_1") as token,
+                mock.patch.object(routine_recovery, "verify", return_value="policy"),
+                mock.patch.object(routine_recovery.routine_incident, "pause", side_effect=pausing),
+            ):
+                box.append(token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                routine_recovery.automatic(service, run, "k")
+            for thread in threads:
+                thread.join(5)
+            state = self.state(service)
+        # The Stop could not land between the decision and the write: the pause committed first, then the Stop.
+        self.assertEqual(events, ["pause", "stop"])
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "policy"))
