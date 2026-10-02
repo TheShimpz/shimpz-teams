@@ -7,6 +7,7 @@ from typing import NoReturn
 
 from action import execution as action_execution
 from action import failure as action_failure
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -47,6 +48,8 @@ def project_action_result(
             | frozenset(private.transcript.submitted_stored_inputs()),
             catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
             capabilities=capabilities,
+            file_withheld=private.file is not None
+            and not action_files.authorized(action_spec.human_requests, private.transcript),
         ),
     )
 

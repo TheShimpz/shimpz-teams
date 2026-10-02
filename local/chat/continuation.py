@@ -8,6 +8,7 @@ import re
 from dataclasses import asdict, dataclass
 
 from action import challenges as action_challenges
+from action import files as action_files
 from action import human as action_human
 from chat import orchestrator as chat_orchestrator
 from core import strict_json
@@ -164,6 +165,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
             "seen_interrupts": list(pending.continuation.seen_interrupts),
             "invoked": [{**asdict(item), "inputs": list(item.inputs)} for item in pending.continuation.invoked],
             "round_index": pending.continuation.round_index,
+            "file_actions": pending.continuation.file_actions,
         },
         "assistant_ids": list(pending.assistant_ids),
         "file_ids": list(pending.file_ids),
@@ -290,6 +292,7 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
                 "help_url": requirement.help_url,
                 "purpose": requirement.purpose,
                 "purpose_locale": requirement.purpose_locale,
+                "file": None if requirement.file is None else _json_value(dict(requirement.file)),
             }
         ]
     raise ContinuationCodecError("continuation requirements are malformed")
@@ -394,7 +397,7 @@ def _action_request(value: object) -> brain_runtime_client.ActionRequest:
 def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
     raw = _mapping(
         value,
-        {"turn", "seen_interrupts", "invoked", "round_index"},
+        {"turn", "seen_interrupts", "invoked", "round_index", "file_actions"},
         "Brain continuation",
     )
     turn_value = _mapping(raw["turn"], {"status", "reply", "actions"}, "Brain turn")
@@ -457,7 +460,10 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
     round_index = raw["round_index"]
     if type(round_index) is not int or not 0 <= round_index < chat_orchestrator.MAX_ACTION_ROUNDS:
         raise ContinuationCodecError("continuation round is malformed")
-    return chat_orchestrator.ChatContinuation(turn, seen, tuple(invoked), round_index)
+    file_actions = raw["file_actions"]
+    if type(file_actions) is not int or not 0 <= file_actions <= action_files.MAX_FILE_ACTIONS_PER_TURN:
+        raise ContinuationCodecError("continuation file Actions are malformed")
+    return chat_orchestrator.ChatContinuation(turn, seen, tuple(invoked), round_index, file_actions)
 
 
 def _identity(value: object) -> tuple[object, ...]:
@@ -662,6 +668,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
             "help_url",
             "purpose",
             "purpose_locale",
+            "file",
         },
         "human requirement",
     )
@@ -675,7 +682,11 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         http_payload.canonical_purpose(purpose) is not None
         and http_payload.canonical_locale(purpose_locale) is not None
     )
-    if not help_url_valid or not purpose_valid:
+    file = raw["file"]
+    file_valid = file is None or (
+        request.kind in action_human.AUTHORIZATION_KINDS and http_payload.canonical_file_disclosure(file) == file
+    )
+    if not help_url_valid or not purpose_valid or not file_valid:
         raise ContinuationCodecError("human requirement presentation is malformed")
     return action_challenges.HumanRequirement(
         _component_id(raw["assistant_id"], "human Assistant"),
@@ -689,6 +700,7 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         help_url=help_url,
         purpose=purpose,
         purpose_locale=purpose_locale,
+        file=file,
     )
 
 

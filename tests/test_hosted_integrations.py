@@ -179,6 +179,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     "input": ZONE_INPUT,
                     "integrations": {"cloudflare": ACCESS_TOKEN},
                     "stored_inputs": {},
+                    "files": {},
                 }
             ],
         )

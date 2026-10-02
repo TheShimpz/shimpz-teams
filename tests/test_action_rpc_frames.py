@@ -431,11 +431,15 @@ class ActionRpcFrameTests(unittest.TestCase):
 
         self.assertEqual(
             initial,
-            b'{"input":{},"integrations":{},"stored_inputs":{},"operation_id":"' + OPERATION_ID.encode() + b'"}',
+            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
+            + OPERATION_ID.encode()
+            + b'"}',
         )
         self.assertEqual(
             replay,
-            b'{"input":{},"integrations":{},"stored_inputs":{},"operation_id":"' + OPERATION_ID.encode() + b'",'
+            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
+            + OPERATION_ID.encode()
+            + b'",'
             b'"responses":[{"kind":"approval","ordinal":0,'
             b'"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
             b'"value":true}]}',
@@ -448,7 +452,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         )
         self.assertEqual(
             with_stored_input,
-            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"},"operation_id":"'
+            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"},"files":{},"operation_id":"'
             + OPERATION_ID.encode()
             + b'"}',
         )
@@ -540,6 +544,54 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.assertEqual(caught.exception.kind, "timeout")
         self.assertLess(elapsed, 1.5)
 
+    def test_a_workload_that_answers_before_reading_its_input_never_stalls(self) -> None:
+        ours, workload = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(workload.close)
+        for current in (ours, workload):
+            current.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+            current.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+        answer = b"y" * 300_000
+        received = bytearray()
+
+        def run_workload() -> None:
+            # Writes a large answer first, as a workload may, and only then reads all of its input.
+            workload.sendall(_frame(1, answer))
+            while chunk := workload.recv(65536):
+                received.extend(chunk)
+            workload.shutdown(socket.SHUT_WR)
+
+        thread = threading.Thread(target=run_workload, daemon=True)
+        thread.start()
+        stdout, stderr = action_execution.exchange_rpc_frames(ours, b"x" * 1_000_000, time.monotonic() + 10, 512 * 1024)
+        thread.join(5)
+        self.assertEqual((stdout, stderr, len(received)), (answer, b"", 1_000_000))
+        self.assertIsNone(ours.gettimeout())
+
+    def test_a_workload_that_exits_before_reading_all_input_ends_the_exchange(self) -> None:
+        ours, workload = socket.socketpair()
+        self.addCleanup(ours.close)
+        workload.sendall(_frame(1, b'{"ok":true}'))
+        workload.close()
+        self.assertEqual(
+            action_execution.exchange_rpc_frames(ours, b"x" * 1_000_000, time.monotonic() + 5, 1024),
+            (b'{"ok":true}', b""),
+        )
+
+    def test_only_delivered_file_content_admits_the_larger_invocation_bound(self) -> None:
+        record = {"name": "a.pdf", "media_type": "application/pdf", "size": 1, "sha256": "0" * 64}
+        withheld = {"0" * 32: {**record, "content": {"type": "withheld"}}}
+        large = {"note": "x" * (600 * 1024)}
+        with self.assertRaisesRegex(ValueError, "too large"):
+            action_execution.encode_rpc_invocation(large, {}, {}, OPERATION_ID, files=withheld)
+        delivered = {"0" * 32: {**record, "content": {"type": "delivered", "base64": "x" * (8 * 1024 * 1024)}}}
+        encoded = action_execution.encode_rpc_invocation({"file": "0" * 32}, {}, {}, OPERATION_ID, files=delivered)
+        self.assertGreater(len(encoded), action_execution.MAX_RPC_REQUEST_BYTES)
+        self.assertEqual(json.loads(encoded)["files"], delivered)
+        too_large = {"0" * 32: {**record, "content": {"type": "delivered", "base64": "x" * (12 * 1024 * 1024)}}}
+        with self.assertRaisesRegex(ValueError, "too large"):
+            action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID, files=too_large)
+
     def test_rpc_exchange_classifies_attach_inspection_and_exit_failures(self) -> None:
         class TransportError(RuntimeError):
             pass
@@ -596,8 +648,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             current, fail_stop, cancelled, close = strategy(api)
             with (
                 self.subTest(expected=expected),
-                mock.patch.object(action_execution, "_write_all"),
-                mock.patch.object(action_execution, "read_rpc_frames", return_value=(b"", b"")),
+                mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"", b"")),
                 self.assertRaises(action_execution.RpcExchangeError) as caught,
             ):
                 action_execution.rpc_exchange(
@@ -624,8 +675,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         api.exec_inspect.return_value = {"ExitCode": 0}
         current, fail_stop, cancelled, close = strategy(api)
         with (
-            mock.patch.object(action_execution, "_write_all"),
-            mock.patch.object(action_execution, "read_rpc_frames", return_value=(b'{"ok":true}', b"")),
+            mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b'{"ok":true}', b"")),
         ):
             self.assertEqual(
                 action_execution.rpc_exchange("container", ["command"], b"request", current),
@@ -673,7 +723,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.addCleanup(reader.close)
         self.addCleanup(writer.close)
         with self.assertRaises(TimeoutError):
-            action_execution._read_exact(reader, 1, time.monotonic() - 1)
+            action_execution.read_rpc_frames(reader, time.monotonic() - 1, 3)
 
         response = mock.Mock()
         action_execution.close_exec_stream(SimpleNamespace(_response=response))
@@ -798,7 +848,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 },
             )
 
-        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,))
+        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
 
     def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
         response = {
@@ -831,7 +881,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         ):
             hosted_assistants._assistant_rpc_exchange(request)
 
-        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,))
+        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
 
 
 class RpcMessageParity(unittest.TestCase):

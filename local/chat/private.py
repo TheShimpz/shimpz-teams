@@ -6,6 +6,7 @@ from typing import NoReturn
 from docker.errors import DockerException
 
 from action import execution as action_execution
+from action import files as action_files
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from inference import client as brain_runtime_client
@@ -133,14 +134,27 @@ def _require_action_rpc_envelope(
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
     request: brain_runtime_client.ActionRequest,
+    selected: dict[str, action_files.ActionFile] | None = None,
 ) -> object:
     active = _required_active_assistant(bindings, request.assistant_id)
+    action_spec = active.spec.actions.get(request.action)
+    try:
+        file = action_files.action_file(
+            () if action_spec is None else action_spec.input_files, request.input, selected or {}
+        )
+    except action_files.FileDeliveryError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the attached file is unavailable for this Action; attach it again",
+            code="action-file-unavailable",
+        ) from exc
     try:
         return action_execution.require_rpc_envelope(
             active,
             request,
             lambda binding, action_id: self._resolve_action_integrations(team_id, binding.spec, action_id),
             lambda binding, action_id: self._resolve_action_stored_inputs(team_id, binding.spec, action_id),
+            file,
         )
     except ValueError as exc:
         raise ApiProblem(

@@ -451,7 +451,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
         spec = types.SimpleNamespace(actions={"action": action_spec}, stored_inputs={})
         container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         controller.assistant_lifecycle = types.SimpleNamespace(
@@ -477,7 +477,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(caught.exception.code, "action-not-declared")
 
-        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=())}
+        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())}
         with (
             mock.patch.object(
                 local_app,
@@ -564,7 +564,9 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_stored_input_is_sealed_reused_and_cleared_on_exact_rejection(self) -> None:
         controller, spec, _container = self.controller()
-        action_spec = types.SimpleNamespace(human_requests=("input:password",), stored_inputs=("whatsapp-token",))
+        action_spec = types.SimpleNamespace(
+            human_requests=("input:password",), stored_inputs=("whatsapp-token",), input_files=()
+        )
         declaration = types.SimpleNamespace(kind="password")
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
@@ -645,7 +647,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_stored_input_persistence_failure_is_redacted(self) -> None:
         controller, spec, _container = self.controller()
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
         spec.stored_inputs = {}

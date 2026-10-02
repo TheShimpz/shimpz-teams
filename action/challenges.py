@@ -57,6 +57,8 @@ class HumanRequirement:
     purpose: str | None = None
     # The concrete interface language the purpose was written in; it is shown only in a challenge of that locale.
     purpose_locale: str | None = None
+    # The one selected file an authorization of a file-taking Action discloses, and only its approval delivers.
+    file: Mapping[str, object] | None = None
 
 
 def render_copy(
@@ -159,6 +161,13 @@ def _requirement(value: object) -> bool:
             )
         )
         and _purpose(value.purpose, value.purpose_locale)
+        and (
+            value.file is None
+            or (
+                value.request.kind in human.AUTHORIZATION_KINDS
+                and http_payload.canonical_file_disclosure(value.file) == value.file
+            )
+        )
     )
 
 
@@ -219,4 +228,5 @@ def challenge_payload(challenge: PendingHumanChallenge) -> dict[str, object]:
         # A purpose is written in its turn's language, so only a challenge in that same locale shows it (ADR-0091).
         **({} if requirement.purpose_locale != requirement.copy.locale else {"purpose": requirement.purpose}),
         **({} if requirement.help_url is None else {"help_url": requirement.help_url}),
+        **({} if requirement.file is None else {"file": dict(requirement.file)}),
     }

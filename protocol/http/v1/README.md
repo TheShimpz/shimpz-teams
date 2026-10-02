@@ -68,6 +68,14 @@ hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpo
 the exact binding's declaration (`payload.canonical_help_url`, one pattern shared with the Developers manifest and
 the Assistant-install standard). Both are inert presentation: they request and authorize nothing.
 
+An authorization challenge (`approval`, `auth:password`, `auth:totp`, or `auth:passkey`) of an Action that declares a
+file input also carries `file`, the platform-controlled disclosure of the one selected file whose original bytes, with
+any metadata embedded in them, only the approved replay delivers to that Action (ADR-0093): exactly `{id, name,
+media_type, size, sha256}` with the opaque file id, the literal filename, the Team-determined media type, a size of at
+most 8 MiB, and the original lowercase SHA-256 (`payload.canonical_file_disclosure`). The filename is literal data that
+Admin renders as text, never a Creator translation parameter. Team binds the disclosed file to the challenge and
+delivers only bytes with that size and digest; any other challenge carries no `file`.
+
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
 `label` (at most 80) and a `description` (at most 160, may be empty), and a `default_index` that points to

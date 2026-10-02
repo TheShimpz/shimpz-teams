@@ -10,15 +10,18 @@ import socket
 import struct
 import time
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
 from action import failure as action_failure
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from core import strict_json
+from protocol.assistant.v1.validators import input_file as input_file_validator
 
 # A missing manifest Action is a missing resource; an unavailable connected integration is an unmet
 # request precondition. Both Controllers use these statuses so their public contracts cannot drift.
@@ -39,7 +42,7 @@ RPC_FAILURE_MESSAGES = {
 ACTION_COMMAND = "/usr/local/bin/shimpz-action"
 RPC_TIMEOUT_SECONDS = 8
 MAX_RPC_RESPONSE_BYTES = 512 * 1024
-MAX_RPC_REQUEST_BYTES = 512 * 1024
+MAX_RPC_REQUEST_BYTES = input_file_validator.MAX_INVOCATION_BYTES
 ASSISTANT_RPC_USER = "10001:10001"
 
 
@@ -88,14 +91,20 @@ def encode_rpc_invocation(
     stored_inputs: Mapping[str, str],
     operation_id: str,
     responses: tuple[Mapping[str, object], ...] = (),
+    files: Mapping[str, object] | None = None,
 ) -> bytes:
-    """Encode one bounded Spec v1 invocation of one logical operation, adding responses only for replay."""
+    """Encode one bounded Spec v1 invocation of one logical operation, adding responses only for replay.
+
+    ``files`` is always present, ``{}`` for an ordinary Action; only an invocation carrying delivered file content
+    admits the larger bound the SDK applies to it (ADR-0093).
+    """
     if not action_journal.valid_operation_id(operation_id):
         raise ValueError("Assistant Action operation id is invalid")
     invocation: dict[str, object] = {
         "input": action_input,
         "integrations": dict(integrations),
         "stored_inputs": dict(stored_inputs),
+        "files": dict(files or {}),
         "operation_id": operation_id,
     }
     if responses:
@@ -109,7 +118,8 @@ def encode_rpc_invocation(
         ).encode("ascii")
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
         raise ValueError("Assistant Action invocation is invalid") from exc
-    if len(encoded) > MAX_RPC_REQUEST_BYTES:
+    delivers = input_file_validator.delivers_content(invocation)
+    if len(encoded) > (input_file_validator.MAX_FILE_INVOCATION_BYTES if delivers else MAX_RPC_REQUEST_BYTES):
         raise ValueError("Assistant Action invocation is too large")
     return encoded
 
@@ -120,8 +130,12 @@ def action_operation(
     assistant_image: object,
     integration_generations: tuple[tuple[str, int], ...] = (),
     stored_input_generations: tuple[tuple[str, int], ...] = (),
+    files: list[dict[str, object]] | None = None,
 ) -> action_journal.Operation:
-    """Fingerprint one normalized request and every immutable private-state generation."""
+    """Fingerprint one normalized request, every immutable private-state generation, and its file commitments.
+
+    File commitments are always part of the preimage, ``[]`` for an ordinary Action (ADR-0093).
+    """
     if not isinstance(assistant_container_id, str) or not assistant_container_id:
         raise action_journal.ActionJournalConflictError("Assistant generation is invalid")
     if not isinstance(assistant_image, str) or not assistant_image:
@@ -134,6 +148,7 @@ def action_operation(
                 "assistant_image": assistant_image,
                 "integration_generations": integration_generations,
                 "stored_input_generations": stored_input_generations,
+                "files": files or [],
                 "input": request.input,
                 "action": request.action,
             },
@@ -206,6 +221,7 @@ class ActionBatch:
             image,
             self._strategy.integration_generations(request),
             self._strategy.stored_input_generations(request, origins),
+            action_files.commitments(evidence.file if isinstance(evidence, RpcPrivateInputs) else None),
         )
         return dataclasses.replace(operation, operation_id=self._strategy.operation_id(request)), evidence
 
@@ -368,6 +384,8 @@ class RpcResultPolicy:
     catalog: Mapping[str, Mapping[str, object]] | None = None
     # Capabilities Team injected into the workload, such as its egress token: protected like every injected value.
     capabilities: tuple[str, ...] = ()
+    # A file-taking Action whose file content was withheld cannot have succeeded with it (ADR-0093).
+    file_withheld: bool = False
 
 
 _DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
@@ -435,7 +453,7 @@ def project_rpc_result(
         if policy.authorization_requested and request.kind in action_human.AUTHORIZATION_KINDS:
             raise RpcInvalidResultError
         raise action_human.HumanRequestSuspensionError(request)
-    if response_type != "result" or "result" not in raw_result:
+    if response_type != "result" or "result" not in raw_result or policy.file_withheld:
         raise RpcInvalidResultError
     try:
         result = validate(raw_result["result"])
@@ -499,10 +517,9 @@ def rpc_exchange(
             raw_socket = getattr(stream, "_sock", None)
             if raw_socket is None:
                 raise OSError("Docker attach socket cannot half-close stdin")
-            deadline = time.monotonic() + strategy.timeout
-            _write_all(raw_socket, encoded, deadline)
-            raw_socket.shutdown(socket.SHUT_WR)
-            stdout, stderr = read_rpc_frames(raw_socket, deadline, strategy.maximum)
+            stdout, stderr = exchange_rpc_frames(
+                raw_socket, encoded, time.monotonic() + strategy.timeout, strategy.maximum
+            )
         finally:
             strategy.close_stream(stream)
     except TimeoutError as exc:
@@ -650,6 +667,8 @@ class RpcPrivateInputs:
 
     integrations: Mapping[str, Mapping[str, object]]
     stored_inputs: Mapping[str, str]
+    # The one selected file a file-taking Action's declared input names, as the turn bound it (ADR-0093).
+    file: action_files.ActionFile | None = None
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -671,6 +690,7 @@ class ResolvedInvocationEvidence:
     transcript: action_human.ActionTranscript
     origin: str | None
     operation_id: str
+    file: action_files.ActionFile | None = None
 
 
 def resolve_invocation_evidence(
@@ -689,6 +709,7 @@ def resolve_invocation_evidence(
             evidence.transcript,
             evidence.origin,
             evidence.operation_id,
+            evidence.private_inputs.file,
         )
     resolved = resolve_stored_inputs()
     return ResolvedInvocationEvidence(
@@ -705,8 +726,9 @@ def require_rpc_envelope(
     request: object,
     resolve_integrations: Callable[[object, str], Mapping[str, Mapping[str, object]]],
     resolve_stored_inputs: Callable[[object, str], Mapping[str, action_stored_input.StoredInputValue]],
+    file: action_files.ActionFile | None = None,
 ) -> RpcPrivateInputs:
-    """Resolve and size-check the exact Spec v1 invocation before journaling."""
+    """Resolve and size-check the exact Spec v1 invocation, with any file's content withheld, before journaling."""
     integrations = resolve_integrations(active, request.action)
     resolved_stored_inputs = resolve_stored_inputs(active, request.action)
     stored_inputs = {stored_input_id: resolved.value for stored_input_id, resolved in resolved_stored_inputs.items()}
@@ -715,8 +737,9 @@ def require_rpc_envelope(
         integration_access_tokens(integrations),
         stored_inputs,
         OPERATION_ID_PLACEHOLDER,
+        files=action_files.invocation_files(file, False, lambda _file_id: ({}, b"")),
     )
-    return RpcPrivateInputs(integrations, stored_inputs)
+    return RpcPrivateInputs(integrations, stored_inputs, file)
 
 
 def contains_secret(value: object, secrets_by_id: Mapping[str, str]) -> bool:
@@ -748,56 +771,87 @@ def protected_rpc_values(
     }
 
 
-def _read_exact(raw_socket: socket.socket, amount: int, deadline: float) -> bytes:
-    output = bytearray()
-    while len(output) < amount:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0 or not select.select([raw_socket], [], [], remaining)[0]:
-            raise TimeoutError
-        chunk = raw_socket.recv(amount - len(output))
-        if not chunk:
-            raise EOFError
-        output.extend(chunk)
-    return bytes(output)
+class _FrameReader:
+    """Parse Docker's multiplexed exec frames incrementally within one cumulative output bound."""
+
+    def __init__(self, maximum: int) -> None:
+        self._maximum = maximum
+        self._pending = bytearray()
+        self._stdout = bytearray()
+        self._stderr = bytearray()
+
+    def feed(self, data: bytes) -> None:
+        self._pending.extend(data)
+        while len(self._pending) >= _FRAME_HEADER_BYTES:
+            stream_id, length = struct.unpack(">BxxxL", self._pending[:_FRAME_HEADER_BYTES])
+            if stream_id not in {1, 2}:
+                raise ValueError("invalid Assistant RPC stream")
+            if length > self._maximum + 1:
+                raise ValueError("oversized Assistant RPC frame")
+            end = _FRAME_HEADER_BYTES + length
+            if len(self._pending) < end:
+                return
+            (self._stdout if stream_id == 1 else self._stderr).extend(self._pending[_FRAME_HEADER_BYTES:end])
+            del self._pending[:end]
+            if len(self._stdout) + len(self._stderr) > self._maximum:
+                raise ValueError("oversized Assistant RPC response")
+
+    def finish(self) -> tuple[bytes, bytes]:
+        if self._pending:
+            raise ValueError("truncated Assistant RPC frame")
+        return bytes(self._stdout), bytes(self._stderr)
 
 
-def _write_all(raw_socket: socket.socket, data: bytes, deadline: float) -> None:
+_FRAME_HEADER_BYTES = 8
+_CHUNK_BYTES = 64 * 1024
+
+
+def exchange_rpc_frames(raw_socket: socket.socket, data: bytes, deadline: float, maximum: int) -> tuple[bytes, bytes]:
+    """Write stdin while draining output, then half-close; return the bounded stdout and stderr at end of stream.
+
+    Reading and writing interleave on a non-blocking socket within one deadline, so a workload that answers before it
+    reads all of a large invocation never stalls on a full buffer (ADR-0093).
+    """
+    reader = _FrameReader(maximum)
     view = memoryview(data)
     sent = 0
-    while sent < len(view):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0 or not select.select([], [raw_socket], [], remaining)[1]:
-            raise TimeoutError
-        sent += raw_socket.send(view[sent:])
+    previous = raw_socket.gettimeout()
+    raw_socket.setblocking(False)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            writing = sent < len(view)
+            if remaining <= 0:
+                raise TimeoutError
+            readable, writable, _ = select.select([raw_socket], [raw_socket] if writing else [], [], remaining)
+            if not readable and not writable:
+                raise TimeoutError
+            if writable:
+                try:
+                    sent += raw_socket.send(view[sent : sent + _CHUNK_BYTES])
+                except BlockingIOError:
+                    pass
+                except BrokenPipeError:
+                    # The workload stopped reading its input; its output and exit status still decide the outcome.
+                    sent = len(view)
+                if sent == len(view):
+                    with suppress(OSError):
+                        raw_socket.shutdown(socket.SHUT_WR)
+            if readable:
+                try:
+                    chunk = raw_socket.recv(_CHUNK_BYTES)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    return reader.finish()
+                reader.feed(chunk)
+    finally:
+        raw_socket.settimeout(previous)
 
 
 def read_rpc_frames(raw_socket: socket.socket, deadline: float, maximum: int) -> tuple[bytes, bytes]:
-    """Read Docker's multiplexed exec frames with one shared bounded parser."""
-    stdout = bytearray()
-    stderr = bytearray()
-    while True:
-        try:
-            first = _read_exact(raw_socket, 1, deadline)
-        except EOFError:
-            break
-        try:
-            header = first + _read_exact(raw_socket, 7, deadline)
-        except EOFError as exc:
-            raise ValueError("truncated Assistant RPC frame header") from exc
-        stream_id, length = struct.unpack(">BxxxL", header)
-        if stream_id not in {1, 2}:
-            raise ValueError("invalid Assistant RPC stream")
-        if length > maximum + 1:
-            raise ValueError("oversized Assistant RPC frame")
-        try:
-            chunk = _read_exact(raw_socket, length, deadline)
-        except EOFError as exc:
-            raise ValueError("truncated Assistant RPC frame payload") from exc
-        target = stdout if stream_id == 1 else stderr
-        target.extend(chunk)
-        if len(stdout) + len(stderr) > maximum:
-            raise ValueError("oversized Assistant RPC response")
-    return bytes(stdout), bytes(stderr)
+    """Read Docker's multiplexed exec frames to end of stream with the same bounded parser."""
+    return exchange_rpc_frames(raw_socket, b"", deadline, maximum)
 
 
 def close_exec_stream(stream: object) -> None:

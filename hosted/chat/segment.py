@@ -8,6 +8,7 @@ from typing import NoReturn
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from assistant import spec as assistant_registry
@@ -276,6 +277,48 @@ def _execute_hosted_action(
     return invocation["result"]
 
 
+def _hosted_human_requirement(
+    bindings: dict[str, hosted_assistants._ActiveAssistant],
+    action_request: brain_runtime_client.ActionRequest,
+    human_request: action_human.HumanRequest,
+    locale: str,
+    selected: dict[str, action_files.ActionFile] | None = None,
+) -> action_challenges.HumanRequirement:
+    """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091).
+
+    An authorization of a file-taking Action also discloses the selected file its approval delivers (ADR-0093).
+    """
+    active = bindings.get(action_request.assistant_id)
+    if active is None:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request Assistant changed")
+    action = active.contract.actions.get(action_request.action)
+    if action is None:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+    try:
+        copy = action_challenges.render_copy(
+            human_request,
+            assistant_lifecycle._assistant_language(active.contract, active.container),
+            locale,
+        )
+        file = action_files.disclosure(action.input_files, action_request.input, selected or {}, human_request.kind)
+    except action_challenges.HumanChallengeError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
+    except action_files.FileDeliveryError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action file is unavailable") from exc
+    return action_challenges.HumanRequirement(
+        active.assistant_id,
+        active.contract.name,
+        action_request.action,
+        action.summary,
+        action_request.interrupt_id,
+        human_request,
+        active.version,
+        copy,
+        help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
+        file=file,
+    )
+
+
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
     with (
         hosted_assistants.integration_secrets_client.IntegrationSecretSession() as credential_session,
@@ -304,6 +347,7 @@ def _run_hosted_chat_segment_with_metadata(
     inspect_memo: dict[str, object] = {}
     credential_evidence = False
     validated_action_assistants: dict[str, hosted_assistants._ActiveAssistant] = {}
+    selected_files: dict[str, action_files.ActionFile] = {}
 
     def validate_action(assistant_id: str, action: str, action_input) -> object:
         return hosted_assistants._validate_assistant_action_input(bindings, assistant_id, action, action_input)
@@ -334,34 +378,10 @@ def _run_hosted_chat_segment_with_metadata(
         human_request: action_human.HumanRequest,
         locale: str,
     ) -> action_challenges.HumanRequirement:
-        active = bindings.get(action_request.assistant_id)
-        if active is None:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request Assistant changed")
-        action = active.contract.actions.get(action_request.action)
-        if action is None:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
-        try:
-            copy = action_challenges.render_copy(
-                human_request,
-                assistant_lifecycle._assistant_language(active.contract, active.container),
-                locale,
-            )
-        except action_challenges.HumanChallengeError as exc:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
-        return action_challenges.HumanRequirement(
-            active.assistant_id,
-            active.contract.name,
-            action_request.action,
-            action.summary,
-            action_request.interrupt_id,
-            human_request,
-            active.version,
-            copy,
-            help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
-        )
+        return _hosted_human_requirement(bindings, action_request, human_request, locale, selected_files)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, config, generation, initial_identity, prepared_assistants
+        nonlocal bindings, config, generation, initial_identity, prepared_assistants, selected_files
         team_name, prepared_assistants, files, config, api_key, generation, initial_identity = _hosted_chat_setup(
             team_id,
             request.file_ids,
@@ -397,6 +417,7 @@ def _run_hosted_chat_segment_with_metadata(
             attachments=hosted_attachments.turn_attachments(team_id, token, owner, files),
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
+        selected_files = action_files.selected(context.attachments)
         batch = action_execution.ActionBatch(
             runtime_state._action_execution_journal,
             container.id,
@@ -409,6 +430,7 @@ def _run_hosted_chat_segment_with_metadata(
                     team_id,
                     bindings,
                     request,
+                    selected_files,
                 ),
                 lambda request: hosted_assistants._action_integration_generations(
                     team_id, bindings[request.assistant_id], request.action

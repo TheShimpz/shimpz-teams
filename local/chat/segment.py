@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from chat import attachments as chat_attachments
@@ -95,16 +96,23 @@ def _human_requirement(
     action_request: brain_runtime_client.ActionRequest,
     human_request: action_human.HumanRequest,
     locale: str,
+    selected: dict[str, action_files.ActionFile] | None = None,
 ) -> action_challenges.HumanRequirement:
-    """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091)."""
+    """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091).
+
+    An authorization of a file-taking Action also discloses the selected file its approval delivers (ADR-0093).
+    """
     active = _required_active_assistant(bindings, action_request.assistant_id)
     action = active.spec.actions.get(action_request.action)
     if action is None:
         raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
     try:
         copy = action_challenges.render_copy(human_request, self._assistant_language(active), locale)
+        file = action_files.disclosure(action.input_files, action_request.input, selected or {}, human_request.kind)
     except action_challenges.HumanChallengeError as exc:
         raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
+    except action_files.FileDeliveryError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action file is unavailable") from exc
     return action_challenges.HumanRequirement(
         active.spec.assistant_id,
         active.spec.name,
@@ -115,6 +123,7 @@ def _human_requirement(
         active.spec.version,
         copy,
         help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
+        file=file,
     )
 
 
@@ -185,6 +194,7 @@ def _run_chat_segment_with_metadata(
     identity: tuple[object, ...] = ()
     network_id = ""
     contracts: tuple[tuple[str, str], ...] = ()
+    selected_files: dict[str, action_files.ActionFile] = {}
 
     def execute_action(
         action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
@@ -216,10 +226,10 @@ def _run_chat_segment_with_metadata(
         human_request: action_human.HumanRequest,
         locale: str,
     ) -> action_challenges.HumanRequirement:
-        return _human_requirement(self, bindings, action_request, human_request, locale)
+        return _human_requirement(self, bindings, action_request, human_request, locale, selected_files)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, identity, network_id, contracts
+        nonlocal bindings, identity, network_id, contracts, selected_files
         team_name, network_id, assistants, files, config = self._chat_setup(
             request.team_id,
             request.file_ids,
@@ -255,6 +265,7 @@ def _run_chat_segment_with_metadata(
             self, request, _TurnScope(thread_id, display_name, assistants, genesis_by_id, files, config)
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
+        selected_files = action_files.selected(context.attachments)
         held = routine is not None and routine.held
         batch = (action_execution.HeldActionBatch if held else action_execution.ActionBatch)(
             self.action_state,
@@ -268,6 +279,7 @@ def _run_chat_segment_with_metadata(
                     request.team_id,
                     bindings,
                     action_request,
+                    selected_files,
                 ),
                 lambda action_request: self._action_integration_generations(
                     request.team_id,

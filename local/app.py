@@ -24,6 +24,7 @@ from docker.errors import DockerException
 from action import challenges as action_challenges
 from action import execution as action_execution
 from action import failure as action_failure
+from action import files as action_files
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
@@ -504,6 +505,29 @@ class LocalController:
             ) from exc
         return {"status": "ok"}
 
+    def _action_files(
+        self,
+        team_id: str,
+        action_spec: object,
+        private: action_execution.ResolvedInvocationEvidence,
+        safe_payload: dict[str, object],
+    ) -> dict[str, object]:
+        """The invocation's files: the turn's selected file, with its bytes only behind the Action's authorization."""
+        try:
+            return action_files.deliver(
+                action_spec,
+                private.file,
+                private.transcript,
+                safe_payload,
+                lambda file_id: self.storage.get(team_id, file_id),
+            )
+        except (action_files.FileDeliveryError, team_storage.StorageError) as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "the attached file is unavailable for this Action; attach it again",
+                code="action-file-unavailable",
+            ) from exc
+
     def invoke(
         self,
         team_id: str,
@@ -554,6 +578,7 @@ class LocalController:
                     else {}
                 ),
             )
+            files = self._action_files(team_id, action_spec, private, safe_payload)
             local_audit.record_request(
                 "assistant-action",
                 result="ok",
@@ -561,10 +586,20 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"started:{action}",
             )
+            if (sent := action_files.delivered(files)) is not None:
+                # Audit names the opaque file and its size only, never its name or content (ADR-0093).
+                local_audit.record_request(
+                    "assistant-action",
+                    result="ok",
+                    team_id=team_id,
+                    assistant=assistant_id,
+                    detail=f"file-delivered:{action}:{sent.id}:{sent.size}",
+                )
             rpc_payload = {
                 "input": safe_payload,
                 "integrations": action_execution.integration_access_tokens(private.integrations),
                 "stored_inputs": private.stored_inputs,
+                "files": files,
                 "operation_id": private.operation_id,
             }
             if private.transcript.responses:

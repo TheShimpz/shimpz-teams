@@ -589,6 +589,7 @@ class LocalContractTests(LocalContractCase):
                         "input": LOOKUP_INPUT,
                         "integrations": {"cloudflare": TEST_ACCOUNT_ACCESS_TOKEN},
                         "stored_inputs": {},
+                        "files": {},
                     },
                 )
             ],

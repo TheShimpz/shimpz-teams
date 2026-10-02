@@ -647,6 +647,34 @@ def project_storage_usage(value: object) -> dict[str, int] | None:
     return {"used_bytes": used, "limit_bytes": limit, "remaining_bytes": remaining}
 
 
+# The largest original an Action may receive (Assistant Spec v1, ADR-0093).
+MAX_ACTION_FILE_BYTES = 8 * 1024 * 1024
+FILE_DISCLOSURE_KEYS = frozenset({"id", "name", "media_type", "size", "sha256"})
+
+
+def canonical_file_disclosure(value: object) -> dict[str, object] | None:
+    """Return the one file an authorization challenge discloses, or None (ADR-0093).
+
+    Its opaque id, literal filename, Team-determined media type, size, and original SHA-256 name exactly the selected
+    file whose original bytes, with any metadata embedded in them, the approved replay delivers to the Action.
+    """
+    if not isinstance(value, dict) or set(value) != FILE_DISCLOSURE_KEYS:
+        return None
+    size = _integer(value["size"], minimum=1)
+    if (
+        canonical_file_id(value["id"]) is None
+        or canonical_filename(value["name"]) is None
+        or not isinstance(value["media_type"], str)
+        or canonical_media_type(value["media_type"]) != value["media_type"]
+        or size is None
+        or size > MAX_ACTION_FILE_BYTES
+        or not isinstance(value["sha256"], str)
+        or SHA256_RE.fullmatch(value["sha256"]) is None
+    ):
+        return None
+    return {key: value[key] for key in ("id", "name", "media_type", "size", "sha256")}
+
+
 def project_file_metadata(value: object, *, include_usage: bool) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None

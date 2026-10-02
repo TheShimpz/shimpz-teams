@@ -434,6 +434,28 @@
       7
     ]
   },
+  "file_disclosure": {
+    "valid": [
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "photo.png", "media_type": "image/png", "size": 8388608, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+    ],
+    "invalid": [
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 8388609, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": true, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789ABCDEF0123456789ABCDEF", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": " padded.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "a/b.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "bad\u0007.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "Application/PDF", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113},
+      {"id": "0123456789abcdef0123456789abcdef", "name": "Relatório de março.pdf", "media_type": "application/pdf", "size": 482113, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "content": "withheld"},
+      null,
+      []
+    ]
+  },
   "purpose": {
     "valid": [
       "Para trazer as not\u00edcias de IA de hoje, preciso pesquisar na web com o Exa.",

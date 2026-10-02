@@ -13,6 +13,7 @@ import docker.errors
 
 from action import execution as action_execution
 from action import failure as action_failure
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -309,9 +310,6 @@ class AssistantRpcRequest:
 
 
 def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
-    team_id = request.team_id
-    container = request.container
-    token = request.token
     try:
         encoded = action_execution.encode_rpc_invocation(
             request.payload["input"],
@@ -319,9 +317,23 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
             request.payload["stored_inputs"],
             request.payload["operation_id"],
             request.payload.get("responses", ()),
+            request.payload.get("files", {}),
         )
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Action input is too large") from exc
+    try:
+        with action_files.rpc_slot(request.payload.get("files", {})) as file_timeout:
+            return _exchange_registered(request, encoded, file_timeout or action_execution.RPC_TIMEOUT_SECONDS)
+    except action_files.FileRpcBusyError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE, "another file-bearing Action is still running; retry"
+        ) from exc
+
+
+def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, timeout: float) -> object:
+    team_id = request.team_id
+    container = request.container
+    token = request.token
     _register_optional_action(team_id, token, container)
 
     def close_stream(stream: object) -> None:
@@ -338,7 +350,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
                     api=runtime_state._docker.api,
                     user=action_execution.ASSISTANT_RPC_USER,
                     workdir=container_spec.CONTAINER_TMP,
-                    timeout=action_execution.RPC_TIMEOUT_SECONDS,
+                    timeout=timeout,
                     maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                     transport_errors=(docker.errors.DockerException,),
                     fail_stop=lambda: _fail_stop_action(team_id, container),
@@ -482,16 +494,27 @@ def _require_hosted_action_rpc_envelope(
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
     request: brain_runtime_client.ActionRequest,
+    selected: dict[str, action_files.ActionFile] | None = None,
 ) -> Mapping[str, Mapping[str, object]]:
     active = bindings.get(request.assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
+    action_spec = active.contract.actions.get(request.action)
+    try:
+        file = action_files.action_file(
+            () if action_spec is None else action_spec.input_files, request.input, selected or {}
+        )
+    except action_files.FileDeliveryError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
+        ) from exc
     try:
         return action_execution.require_rpc_envelope(
             active,
             request,
             lambda binding, action_id: _resolve_action_integrations(team_id, binding, action_id),
             lambda binding, action_id: _resolve_action_stored_inputs(team_id, binding, action_id),
+            file,
         )
     except ValueError as exc:
         raise runtime_state.ApiError(
@@ -616,6 +639,8 @@ def _project_hosted_action_result(
                     else None
                 ),
                 capabilities=action_failure.capability_values(request.container),
+                file_withheld=private.file is not None
+                and not action_files.authorized(action_spec.human_requests, private.transcript),
             ),
         )
     except action_failure.ActionFailedError as exc:
@@ -695,6 +720,27 @@ def _seal_hosted_stored_inputs(
         )
 
 
+def _action_files(
+    team_id: str,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+    safe_input: dict[str, object],
+) -> dict[str, object]:
+    """The invocation's files: the turn's selected file, with its bytes only behind the Action's authorization."""
+    try:
+        return action_files.deliver(
+            action_spec,
+            private.file,
+            private.transcript,
+            safe_input,
+            lambda file_id: runtime_state._storage().get(team_id, file_id),
+        )
+    except (action_files.FileDeliveryError, team_storage.StorageError) as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
+        ) from exc
+
+
 def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, object]:
     team_id = request.team_id
     assistant_id = request.assistant_id
@@ -733,6 +779,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         lambda: _resolve_action_integrations(team_id, active, action),
         lambda: _resolve_action_stored_inputs(team_id, active, action),
     )
+    files = _action_files(team_id, contract.actions[action], private, safe_input)
     audit.log(
         "assistant_action",
         team_id,
@@ -741,10 +788,23 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         assistant=assistant_id,
         action=action,
     )
+    if (sent := action_files.delivered(files)) is not None:
+        # Audit names the opaque file and its size only, never its name or content (ADR-0093).
+        audit.log(
+            "assistant_action",
+            team_id,
+            result="ok",
+            phase="file-delivered",
+            assistant=assistant_id,
+            action=action,
+            file=sent.id,
+            size=sent.size,
+        )
     rpc_payload = {
         "input": safe_input,
         "integrations": action_execution.integration_access_tokens(private.integrations),
         "stored_inputs": private.stored_inputs,
+        "files": files,
         "operation_id": private.operation_id,
     }
     if private.transcript.responses:

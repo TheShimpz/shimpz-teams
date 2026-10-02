@@ -302,7 +302,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             assistants._require_hosted_action_rpc_envelope(
                 TEAM_ID,
                 {ASSISTANT_ID: active},
-                SimpleNamespace(assistant_id=ASSISTANT_ID),
+                SimpleNamespace(assistant_id=ASSISTANT_ID, action=ACTION_ID, input={}),
             )
         self.assertEqual(envelope.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 

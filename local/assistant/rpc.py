@@ -8,6 +8,7 @@ from pathlib import Path
 from docker.errors import DockerException, NotFound
 
 from action import execution as action_execution
+from action import files as action_files
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 
@@ -69,6 +70,7 @@ def _rpc(
             payload["stored_inputs"],
             payload["operation_id"],
             payload.get("responses", ()),
+            payload.get("files", {}),
         )
     except (KeyError, ValueError) as exc:
         raise ApiProblem(
@@ -77,6 +79,18 @@ def _rpc(
             code="body-too-large",
         ) from exc
 
+    try:
+        with action_files.rpc_slot(payload.get("files", {})) as file_timeout:
+            return _exchange(self, container, action_id, encoded, file_timeout or action_execution.RPC_TIMEOUT_SECONDS)
+    except action_files.FileRpcBusyError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "another file-bearing Action is still running; retry",
+            code="assistant-file-busy",
+        ) from exc
+
+
+def _exchange(self, container, action_id: str, encoded: bytes, timeout: float) -> object:
     def close_stream(stream: object) -> None:
         with suppress(Exception):
             self._close_exec_stream(stream)
@@ -90,7 +104,7 @@ def _rpc(
                 api=self.client.api,
                 user=action_execution.ASSISTANT_RPC_USER,
                 workdir=ASSISTANT_WORKDIR,
-                timeout=action_execution.RPC_TIMEOUT_SECONDS,
+                timeout=timeout,
                 maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                 transport_errors=(DockerException,),
                 fail_stop=lambda: self._fail_stop_action(container),

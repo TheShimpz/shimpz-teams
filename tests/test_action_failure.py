@@ -290,8 +290,7 @@ class FailureProjectionTests(unittest.TestCase):
             )
             with (
                 self.subTest(expected=expected),
-                mock.patch.object(action_execution, "_write_all"),
-                mock.patch.object(action_execution, "read_rpc_frames", return_value=(frame, stderr)),
+                mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(frame, stderr)),
                 self.assertRaises(action_execution.RpcExchangeError) as caught,
             ):
                 action_execution.rpc_exchange("container", ["command"], b"request", strategy)

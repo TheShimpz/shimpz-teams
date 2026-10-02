@@ -293,7 +293,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
 
     def test_rpc_envelope_and_inventory_errors_are_mapped(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
-        active = types.SimpleNamespace(spec=types.SimpleNamespace())
+        active = types.SimpleNamespace(spec=types.SimpleNamespace(actions={}))
         subject = types.SimpleNamespace()
         with (
             mock.patch.object(
