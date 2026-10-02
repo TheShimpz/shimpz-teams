@@ -41,7 +41,7 @@ from tests import human_request_fixtures
 
 TOKEN = "t" * 43
 EMPTY = b"{}"
-CLAIM = b'{"providers":["anthropic","openai"]}'
+CLAIM = b"{}"
 
 
 class RoutineHttpCase(RoutineServiceCase):
@@ -104,9 +104,16 @@ class RoutineHttpCase(RoutineServiceCase):
         return {"X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
 
     def routine_headers(
-        self, path: str, lease_token: str, *, key: Ed25519PrivateKey | None = None, body: bytes = EMPTY
+        self,
+        path: str,
+        lease_token: str,
+        *,
+        key: Ed25519PrivateKey | None = None,
+        body: bytes = EMPTY,
+        keyless: bool = False,
     ) -> dict[str, str]:
         now = int(time.time())
+        model = None if keyless else {"provider": "openai", "key_sha256": API_KEY_SHA256}
         claims = _claims(
             aud=contract.ROUTINE_AUDIENCE,
             authority=contract.ROUTINE_AUTHORITY,
@@ -117,12 +124,52 @@ class RoutineHttpCase(RoutineServiceCase):
             method="POST",
             path=path,
             body={"kind": "json", "length": len(body), "sha256": hashlib.sha256(body).hexdigest()},
-            model={"provider": "openai", "key_sha256": API_KEY_SHA256},
         )
+        if model is not None:
+            claims["model"] = model
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
         payload = _segment(contract.claims_json(claims, audience=contract.ROUTINE_AUDIENCE))
         signature = _segment((key or self.routine_key).sign(f"{jwt}.{payload}".encode("ascii")))
-        return {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}", **self.model()}
+        assertion = {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}"}
+        return assertion if keyless else {**assertion, **self.model()}
+
+
+class KeylessRunTests(RoutineHttpCase):
+    def test_a_healthy_run_is_claimed_and_runs_end_to_end_with_no_model_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Runtime()
+            controller, service = self.serve(directory, runtime)
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
+            self.routine(service)
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
+            claim = json.loads(raw)["run"]
+            path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            segment = json.dumps(bound).encode()
+            # No model credential travels, and the assertion binds none.
+            headers = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
+            self.assertNotIn("X-Shimpz-Model-Api-Key", headers)
+            status, _type, raw = self.request("POST", path, segment, headers)
+            state = self.state(service)
+        self.assertEqual((status, self.terminal(raw)["body"]["status"]), (200, "done"))
+        self.assertEqual((state.runs, state.notices[-1].outcome), ((), "done"))
+        self.assertEqual(runtime.contexts, [])
+
+    def test_a_model_credential_that_travels_must_still_be_whole_and_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service = self.serve(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
+            self.routine(service)
+            claim = service.claim_routine_run()
+            path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            segment = json.dumps(bound).encode()
+            keyless = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
+            # A half credential is refused, and a key the assertion does not bind is never admitted.
+            status, _type, raw = self.request("POST", path, segment, {**keyless, "X-Shimpz-Model-Provider": "openai"})
+            self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-model-credential"))
+            status, _type, raw = self.request("POST", path, segment, {**keyless, **self.model()})
+            self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
 
 
 class SchedulerRouteTests(RoutineHttpCase):
@@ -134,19 +181,10 @@ class SchedulerRouteTests(RoutineHttpCase):
             self.assertEqual(status, 401)
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            for invalid in (
-                EMPTY,
-                b'{"providers":[]}',
-                b'{"providers":["openai","anthropic"]}',
-                b'{"providers":["other"]}',
-            ):
+            # No model key gates a claim any more: the retired providers list is refused like any other body.
+            for invalid in (b'{"providers":["openai"]}', b'{"providers":[]}', b"[]"):
                 status, _type, raw = self.request("POST", "/v1/routines/claim", invalid)
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            # A Team whose model provider Admin holds no key for is never claimed.
-            status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"providers":["anthropic"]}')
-            self.assertEqual(json.loads(raw)["run"], None)
-            # Nor does its Routine wake Admin: the hint names only Routines Admin can run.
-            self.assertIsNone(json.loads(raw)["next_due_at"])
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claimed = json.loads(raw)
             claim = claimed["run"]
@@ -180,7 +218,7 @@ class RunRouteTests(RoutineHttpCase):
             controller, service = self.serve(directory, runtime)
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
             bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
             self.assertEqual(claim["mode"], "scheduled")
@@ -253,7 +291,7 @@ class SessionRouteTests(RoutineHttpCase):
                 if item["id"] == approval().payload()["title"]["message"]
             )
             value = self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
             with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
@@ -351,7 +389,7 @@ class SessionRouteTests(RoutineHttpCase):
 
             controller.assistant_lifecycle.invoke = invoke
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")

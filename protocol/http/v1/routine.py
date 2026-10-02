@@ -543,15 +543,8 @@ def canonical_challenge_open(value: object) -> dict[str, str] | None:
 
 
 def canonical_claim_request(value: object) -> dict[str, object] | None:
-    """Admin's claim: the model providers it holds a key for, sorted; only a Team using one of them is claimed."""
-    providers = value.get("providers") if isinstance(value, dict) and set(value) == {"providers"} else None
-    valid = (
-        isinstance(providers, list)
-        and 0 < len(providers) <= len(MODEL_PROVIDERS)
-        and all(item in MODEL_PROVIDERS for item in providers)
-        and providers == sorted(set(providers))
-    )
-    return {"providers": list(providers)} if valid else None
+    """Admin's claim is exactly an empty object: no model key gates it, because a healthy run needs none."""
+    return {} if value == {} else None
 
 
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")

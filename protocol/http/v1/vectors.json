@@ -1893,8 +1893,7 @@
     },
     "claim_request": {
       "valid": [
-        {"providers": ["anthropic", "openai"]},
-        {"providers": ["openai"]}
+        {}
       ],
       "invalid": [
         {"providers": []},
@@ -1902,7 +1901,10 @@
         {"providers": ["openai", "openai"]},
         {"providers": ["other"]},
         {"providers": "openai"},
-        {}
+        {"providers": ["anthropic", "openai"]},
+        {"providers": ["openai"]},
+        [],
+        null
       ]
     },
     "incident": {

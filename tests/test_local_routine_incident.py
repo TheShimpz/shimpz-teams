@@ -36,7 +36,7 @@ class IncidentCase(RoutineServiceCase):
         """One claimed run with its generation bound and, optionally, an uncertain archivable batch in it."""
         controller, service = self.service(directory, Runtime())
         value = self.routine(service)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         lease = record.lease_of(claim["lease_token"], KEY)
         network = controller.assistant_lifecycle._network("team_1").id
         service.routine_store.update(

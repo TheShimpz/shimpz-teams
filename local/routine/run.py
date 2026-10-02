@@ -81,13 +81,16 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     return record.claim(state, now, key)
 
 
-def _provider(self, team_id: str, providers: tuple[str, ...]) -> str | None:
-    """The Team's configured model provider when Admin holds its key; otherwise the Team is not claimed."""
+def team_provider(self, team_id: str) -> str | None:
+    """The Team's configured model provider, or None when it has none; a Team with none is not claimed.
+
+    No key is needed to claim or run a healthy compiled run (ADR-0092); only a held run's recovery uses the Team's
+    model, with the key Admin sends when it holds one.
+    """
     try:
-        provider = self.inference_store.load(team_id).provider
+        return self.inference_store.load(team_id).provider
     except inference_config.InferenceConfigError:
         return None
-    return provider if provider in providers else None
 
 
 def _state_unavailable(team_id: str) -> None:
@@ -117,11 +120,10 @@ def _claim_team(self, team_id: str, now: int, key: str):
             return None
 
 
-def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | None:
+def claim_routine_run(self) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
-    Only a Team whose model provider is among ``providers``, the ones Admin holds a key for, is claimed, so no lease
-    is taken for a run that could not reach its model.
+    Any Team with a configured model may be claimed, whether or not Admin holds its key: a healthy run needs none.
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -130,7 +132,7 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
     for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
-        provider = _provider(self, team_id, providers)
+        provider = team_provider(self, team_id)
         if provider is None or _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
@@ -156,11 +158,11 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     return None
 
 
-def next_routine_due(self, providers: tuple[str, ...]) -> int | None:
+def next_routine_due(self) -> int | None:
     """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
-    due = [record.next_due(state, now) for team_id, state in states.items() if _provider(self, team_id, providers)]
+    due = [record.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
     return min((item for item in due if item is not None), default=None)
 
 

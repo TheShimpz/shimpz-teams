@@ -58,12 +58,10 @@ def _run_id(route: strict_http.ControllerRouteMatch) -> str:
 def _machine(handler, operation: str) -> dict[str, object]:
     service = handler.server.controller.chat_turn_service
     if operation == "routine-claim":
-        claim = http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
-        if claim is None:
+        if http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation])) is None:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
-        providers = tuple(claim["providers"])
-        run = service.claim_routine_run(providers)
-        return {"run": run, "next_due_at": None if run is not None else service.next_routine_due(providers)}
+        run = service.claim_routine_run()
+        return {"run": run, "next_due_at": None if run is not None else service.next_routine_due()}
     if operation == "routine-notices":
         return service.routine_notices()
     return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
@@ -141,7 +139,7 @@ def stream(handler, route: strict_http.ControllerRouteMatch, request_audit: Requ
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         run_id = _run_id(route)
-        provider, api_key = handler._model_credential_headers()
+        provider, api_key = handler._model_credential(route.operation) or ("", "")
         if route.operation == "routine-human-submit":
             body = handler._body(max_bytes=BODY_LIMITS[route.operation])
             return HTTPStatus.OK, service.resume_routine_human(team_id, run_id, body, provider, api_key, reporter)
@@ -202,7 +200,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
     service = handler.server.controller.chat_turn_service
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
-        provider, api_key = handler._model_credential_headers()
+        provider, api_key = handler._model_credential(route.operation) or ("", "")
         binding = (claimed["revision"], claimed["plan_digest"], claimed["mode"])
         return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, (provider, api_key), reporter)
 

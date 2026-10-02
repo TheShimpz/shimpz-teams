@@ -58,7 +58,7 @@ class AutomaticCase(RecoveryCase):
             ("create", "create-record", {"zone_id": ZONE, "name": "www"}),
         )
         value = self.routine(service, plan=plan)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
         self.status = service.run_routine(
             "team_1",

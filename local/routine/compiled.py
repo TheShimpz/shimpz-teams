@@ -400,6 +400,8 @@ def run_routine(
     """
     team_id = validate_team_id(team_id)
     provider, api_key = credentials
+    # Without a key Admin holds, the run uses the Team's configured provider; it needs no key unless it is held.
+    provider = provider or routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
     current = (routine.revision, routine_grant.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
