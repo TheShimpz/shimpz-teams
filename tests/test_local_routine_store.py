@@ -209,6 +209,8 @@ class TamperTests(StoreCase):
             "assistant": {"assistant_id": "Bad"},
             "half a step": {"action": ""},
             "action type": {"action": 1},
+            "time beyond the run's": {"active_seconds_left": record.ACTIVE_SECONDS + 1},
+            "time type": {"active_seconds_left": True},
         }
         for name, change in mutations.items():
             with self.subTest(name=name):

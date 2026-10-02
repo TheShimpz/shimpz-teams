@@ -793,3 +793,19 @@ class CompiledChangeTests(unittest.TestCase):
             record.update(deleting, routine(), 1, NINE, RECEIPT, NINE + 900)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
             record.update(record.TeamRoutines(), routine(), 1, NINE, RECEIPT, NINE + 900)
+
+
+class HoldTimeTests(unittest.TestCase):
+    def test_a_hold_keeps_the_run_balance_and_a_continuation_restores_it(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = record.spend(state, run_id, lease, NINE, 250)
+        state = record.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        self.assertEqual(record.incident(state, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
+        reopened, _token = record.reopen_incident(state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))
+        self.assertEqual(record.run(reopened, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
+        spent = dataclasses.replace(
+            state, incidents=(dataclasses.replace(record.incident(state, run_id), active_seconds_left=0),)
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "run-time-exhausted"):
+            record.reopen_incident(spent, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))

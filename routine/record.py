@@ -153,6 +153,8 @@ class Incident:
     # The step the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
     assistant_id: str = ""
     action: str = ""
+    # The run's active time left when it was held, which its continuation goes on from; a hold never refills it.
+    active_seconds_left: int = ACTIVE_SECONDS
 
 
 @dataclass(frozen=True, slots=True)
@@ -821,6 +823,7 @@ def settle_hold(
         quote=current.quote,
         assistant_id=step[0],
         action=step[1],
+        active_seconds_left=value.active_seconds_left,
     )
     kept = list(state.incidents)
     while len(kept) >= MAX_INCIDENTS:
@@ -851,6 +854,8 @@ def reopen_incident(state: TeamRoutines, incident_id: str, now: int, generation:
     current = routine(state, value.routine_id)
     if current.deleting or current.paused or current.revision != value.revision:
         raise RoutineStateError("routine-not-resumable")
+    if value.active_seconds_left <= 0:
+        raise RoutineStateError("run-time-exhausted")
     if any(item.routine_id == value.routine_id for item in state.runs) or network_of(generation, incident_id) is None:
         raise RoutineStateError("routine-busy")
     token = secrets.token_urlsafe(32)
@@ -862,6 +867,7 @@ def reopen_incident(state: TeamRoutines, incident_id: str, now: int, generation:
         lease_sha256=lease_sha256(token),
         lease_key=HUMAN_LEASE,
         lease_expires_at=now + LEASE_SECONDS,
+        active_seconds_left=value.active_seconds_left,
         generation=generation,
         notice_version=value.notice_version,
     )

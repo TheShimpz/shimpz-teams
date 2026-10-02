@@ -101,6 +101,7 @@ _INCIDENT_FIELDS = frozenset(
         "quote",
         "assistant_id",
         "action",
+        "active_seconds_left",
     }
 )
 _STATE_FIELDS = frozenset(
@@ -341,6 +342,8 @@ def _decode_incident(value: object) -> record.Incident:
         and type(value["revision"]) is int
         and 1 <= value["revision"] < 2**31
         and http_routine.canonical_quote(value["quote"]) is not None
+        and type(value["active_seconds_left"]) is int
+        and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and isinstance(value["assistant_id"], str)
         and isinstance(value["action"], str)
         # The held step: both named, or both empty when the run sealed no cursor before it was held.
@@ -363,6 +366,7 @@ def _decode_incident(value: object) -> record.Incident:
         value["quote"],
         value["assistant_id"],
         value["action"],
+        value["active_seconds_left"],
     )
 
 

@@ -359,6 +359,9 @@ def execute(
         segment = segment_request.routine
         outcome = self._run_chat_segment(segment_request)
     except (ApiProblem, CompiledRunError) as exc:
+        # A failed segment's active time is charged under its live lease before it is fenced, so a hold carries the
+        # balance the run really has left.
+        routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
         return _ended(self, run, value, [] if segment is None else segment.batches, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):

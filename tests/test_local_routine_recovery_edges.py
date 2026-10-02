@@ -249,3 +249,64 @@ class ProofEdgeTests(RecoveryCase):
                 card = service.open_routine_card("team_1", run_id)
                 answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": "verify"})
         self.assertEqual((answered["verdict"], answered["status"]), ("absent", None))
+
+
+class RunTimeTests(RecoveryCase):
+    """A hold never refills the run's active time: a failed segment is charged, and a continuation goes on from it."""
+
+    def test_a_failed_segment_is_charged_before_its_hold_and_its_continuation_keeps_the_balance(self) -> None:
+        seen: list[int] = []
+        ticks = iter(range(0, 10_000, 100))
+        clock = SimpleNamespace(monotonic=lambda: next(ticks), time=routine_compiled.time.time)
+
+        class Watching(Assistant):
+            """Each create sees the balance of the run it belongs to."""
+
+            def __call__(self, team, assistant, action, payload, evidence):
+                if action == "create-record":
+                    seen.extend(item.active_seconds_left for item in service_box[0].routine_store.load(team).runs)
+                return super().__call__(team, assistant, action, payload, evidence)
+
+        assistant = Watching([failed(), RECORD], [{"outcome": "not_occurred"}])
+        service_box: list[object] = []
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(routine_compiled, "time", clock):
+                service, _brain, value, run_id = self.held_with(directory, assistant, service_box)
+            held = record.incident(self.state(service), run_id)
+            self.assertEqual(self.verify(service, value, run_id), "absent")
+            self.assertEqual(self.resume(service, value, run_id), "recovered")
+        # The failed segment's 100 seconds were charged before the hold, and the continuation started from the rest.
+        self.assertEqual(held.active_seconds_left, record.ACTIVE_SECONDS - 100)
+        self.assertEqual(seen[-1], record.ACTIVE_SECONDS - 100)
+
+    def held_with(self, directory, assistant, box):
+        original = self.service
+
+        def service(*args, **kwargs):
+            controller, value = original(*args, **kwargs)
+            box.append(value)
+            return controller, value
+
+        with mock.patch.object(self, "service", service):
+            return self.held(directory, assistant)
+
+    def test_a_held_run_with_no_active_time_left_never_continues(self) -> None:
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, assistant)
+            self.assertEqual(self.verify(service, value, run_id), "absent")
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    dataclasses.replace(
+                        state,
+                        incidents=tuple(dataclasses.replace(item, active_seconds_left=0) for item in state.incidents),
+                    ),
+                    None,
+                ),
+            )
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.resume(service, value, run_id)
+            state = self.state(service)
+        self.assertEqual(caught.exception.code, "run-time-exhausted")
+        self.assertEqual(([item.status for item in state.incidents], state.runs), (["unresolved"], ()))
