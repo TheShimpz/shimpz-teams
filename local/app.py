@@ -69,6 +69,7 @@ from local.install.registry import AssistantRegistry
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
+from local.routine import card as local_routine_card
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import lineage as local_routine_lineage
@@ -319,6 +320,8 @@ class LocalController:
         self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
         self.routine_lineage = local_routine_lineage.LineageBook()
+        # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
+        self.routine_cards = local_routine_card.CardBook()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -397,6 +400,7 @@ class LocalController:
                 human_challenges=getattr(self, "human_challenges", None),
                 routine_human_challenges=getattr(self, "routine_human_challenges", None),
                 routine_lineage=getattr(self, "routine_lineage", None),
+                routine_cards=getattr(self, "routine_cards", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
                 chat_continuations=getattr(self, "chat_continuations", None),

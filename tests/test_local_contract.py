@@ -323,6 +323,10 @@ class LocalContractTests(LocalContractCase):
         self.assertIsNot(controller.assistant_lifecycle.__dict__, controller.chat_turn_service.__dict__)
         self.assertIs(controller.assistant_lifecycle.chat_turn_service, controller.chat_turn_service)
         self.assertIs(controller.chat_turn_service.assistant_lifecycle, controller.assistant_lifecycle)
+        # Team destroy and Space reset drop the Routine books chat opens and answers on: they are the same objects.
+        for book in ("routine_cards", "routine_lineage", "routine_human_challenges"):
+            with self.subTest(book=book):
+                self.assertIs(getattr(controller, book), getattr(controller.chat_turn_service, book))
         explicit_registry = object()
         explicit_storage = object()
         standalone_lifecycle = local_app.AssistantLifecycle(
