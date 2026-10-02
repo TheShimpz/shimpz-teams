@@ -417,7 +417,8 @@ The root holds the five JSON Schemas, this README, `verify.py`, and `contract-fi
 golden conformance vectors and `validators/` the reference validators; each validator is a standalone module with no
 import of another. Every path in `contract-files.sha256` is relative to this directory, and nothing else may exist
 at any depth: `verify.py` refuses an unlisted file, a symbolic link, or any other directory, including `__pycache__`,
-before it imports a validator, and it writes no bytecode into the tree.
+before it imports a validator, reads the manifest and every artifact only as a regular file, and writes no bytecode
+into the tree.
 
 Validate the artifact set and vector shape from this directory:
 

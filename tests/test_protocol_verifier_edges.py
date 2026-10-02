@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
 import runpy
 import shutil
@@ -230,6 +231,19 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as raised:
             _execute(ASSISTANT / "verify.py", file_input_contract)
         self.assertIn("file input contract", str(raised.exception.code))
+
+        def manifest_fifo(root: Path) -> None:
+            (root / "contract-files.sha256").unlink()
+            os.mkfifo(root / "contract-files.sha256")
+
+        for mutate, reason in (
+            (manifest_fifo, "unexpected entry"),
+            (lambda root: (root / "contract-files.sha256").unlink(), "unreadable"),
+            (lambda root: (root / "contract-files.sha256").write_bytes(b"\xff"), "manifest is invalid"),
+        ):
+            with self.subTest(reason=reason), self.assertRaises(SystemExit) as raised:
+                _execute(ASSISTANT / "verify.py", mutate)
+            self.assertIn(reason, str(raised.exception.code))
 
     def test_rejects_manifest_and_human_vector_drift(self) -> None:
         mutations = (

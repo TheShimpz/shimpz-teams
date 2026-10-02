@@ -8,6 +8,7 @@ import importlib
 import json
 import os
 import re
+import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -161,8 +162,25 @@ def layout_files() -> set[str]:
     return found - {MANIFEST.name}
 
 
+def regular_bytes(path: Path) -> bytes:
+    """Read one regular file without following a link or blocking on a FIFO or device that took its place."""
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            fail(f"Assistant protocol layout has an unexpected entry: {path.relative_to(HERE).as_posix()}")
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        fail(f"Assistant protocol artifact is unreadable: {path.relative_to(HERE).as_posix()}")
+    # A FIFO swapped in after the check opens without blocking and reads empty, which no manifest row admits.
+    with os.fdopen(descriptor, "rb") as handle:
+        return handle.read()
+
+
+try:
+    manifest_lines = regular_bytes(MANIFEST).decode("ascii").splitlines()
+except UnicodeDecodeError:
+    fail("Assistant protocol checksum manifest is invalid")
 rows: dict[str, str] = {}
-for line in MANIFEST.read_text(encoding="ascii").splitlines():
+for line in manifest_lines:
     match = ROW.fullmatch(line)
     if match is None or match[2] in rows:
         fail("Assistant protocol checksum manifest is invalid")
@@ -171,7 +189,7 @@ for line in MANIFEST.read_text(encoding="ascii").splitlines():
 if set(rows) != layout_files():
     fail("Assistant protocol artifact set differs from its checksum manifest")
 for filename, expected in rows.items():
-    digest = hashlib.sha256((HERE / filename).read_bytes()).hexdigest()
+    digest = hashlib.sha256(regular_bytes(HERE / filename)).hexdigest()
     if digest != expected:
         fail(f"{filename} SHA-256 is {digest}, expected {expected}")
 
