@@ -221,14 +221,14 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
 
 
 def reconcile_team(self, team_id: str) -> None:
-    """Finish every held run's hold, then release what every skipped incident still keeps."""
+    """Release what every skipped incident still keeps, so its record may give way, then finish every held run."""
     state = routine_state.load(self, team_id)
-    for value in state.runs:
-        if value.status == "held":
-            reconcile(self, team_id, value.run_id)
     for item in state.incidents:
         if item.status == "skipped":
             _release(self, team_id, item)
+    for value in state.runs:
+        if value.status == "held":
+            reconcile(self, team_id, value.run_id)
 
 
 def skip(self, team_id: str, incident_id: str) -> None:
@@ -252,7 +252,10 @@ def skip(self, team_id: str, incident_id: str) -> None:
 
 
 def _release(self, team_id: str, item: record.Incident) -> None:
-    """Remove what a skipped incident no longer needs; each removal is idempotent, so a crash is retried."""
+    """Remove what a skipped incident no longer needs, then mark it released.
+
+    Each step is idempotent, so a crash leaves the incident skipped and the next pass retries it.
+    """
     sealed = routine_state.call(lambda: self.routine_store.incident(team_id, item.incident_id))
     if sealed is not None:
         fingerprint = read_evidence(sealed, item.incident_id)["fingerprint"]
@@ -263,6 +266,7 @@ def _release(self, team_id: str, item: record.Incident) -> None:
                 raise _journal_unavailable() from exc
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.incident_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
+    routine_state.update(self, team_id, lambda state: (record.release_incident(state, item.incident_id), None))
 
 
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:

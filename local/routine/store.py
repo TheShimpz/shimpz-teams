@@ -318,7 +318,7 @@ def _decode_incident(value: object) -> record.Incident:
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
         and value["generation"] != ""
         and _generation_of(value["incident_id"], value["generation"])
-        and value["status"] in ("unresolved", "skipped")
+        and value["status"] in ("unresolved", "skipped", "released")
         and type(value["revision"]) is int
         and 1 <= value["revision"] < 2**31
     )

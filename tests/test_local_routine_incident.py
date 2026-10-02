@@ -172,7 +172,7 @@ class ResolutionTests(IncidentCase):
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
             routine_incident.skip(service, "team_1", run_id)
             state = self.state(service)
-            self.assertEqual([item.status for item in state.incidents], ["skipped"])
+            self.assertEqual([item.status for item in state.incidents], ["released"])
             self.assertNotIn(value.routine_id, record.held_routines(state))
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.cursor("team_1", binding))
@@ -413,6 +413,80 @@ class RecoverySnapshotTests(IncidentCase):
             self.assertEqual([item.incident_id for item in self.state(service).incidents], [run_id])
 
 
+class CapacityTests(IncidentCase):
+    def test_an_interrupted_release_at_capacity_is_never_evicted_or_orphaned(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            # Pular commits, then its cleanup crashes before the archive marker is released.
+            with (
+                mock.patch.object(
+                    service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
+                ),
+                self.assertRaises(local_app.ApiProblem),
+            ):
+                routine_incident.skip(service, "team_1", run_id)
+            self.assertEqual([item.status for item in self.state(service).incidents], ["skipped"])
+            # Fill the index to its bound with released records and give the Team a second held run.
+            filler = tuple(
+                record.Incident(
+                    f"{index:032x}", value.routine_id, f"{'f' * 64}:routine:{index:032x}", index, 1, "released"
+                )
+                for index in range(1, record.MAX_INCIDENTS)
+            )
+            second = "e" * 32
+            held = record.Run(second, value.routine_id, "held", 0, generation=record.generation_for("f" * 64, second))
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    dataclasses.replace(state, incidents=(*state.incidents, *filler), runs=(held,)),
+                    None,
+                ),
+            )
+            self.assertTrue(routine_incident.reconcile(service, "team_1", second))
+            incidents = {item.incident_id: item.status for item in self.state(service).incidents}
+            self.assertEqual(len(incidents), record.MAX_INCIDENTS)
+            self.assertEqual(incidents[run_id], "skipped")
+            self.assertEqual(incidents[second], "unresolved")
+            self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
+            # A restart's pass finishes the interrupted cleanup; only then may that record give way.
+            service.action_state.close()
+            controller.action_state = service.action_state = action_journal.ActionJournal(service.action_state.path)
+            self.addCleanup(service.action_state.close)
+            routine_watchdog.check(service, startup=True)
+            self.assertEqual(
+                {item.incident_id: item.status for item in self.state(service).incidents}[run_id], "released"
+            )
+            self.assertIsNone(service.action_state.current_batch(generation))
+            routine_lifecycle._delete_team_routines(controller, "team_1")
+            self.assertEqual(service.routine_store.load("team_1"), record.TeamRoutines())
+
+    def test_a_release_that_crashed_after_removing_the_evidence_is_finished(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _value, run_id, lease, generation, batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id), None))
+            service.action_state.release_archive(generation, batch.fingerprint)
+            service.routine_store.delete_incident("team_1", run_id)
+            routine_incident.reconcile_team(service, "team_1")
+            self.assertEqual([item.status for item in self.state(service).incidents], ["released"])
+
+    def test_deleting_the_team_purges_a_pending_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
+            routine_incident.hold(service, "team_1", run_id, lease)
+            with (
+                mock.patch.object(
+                    service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
+                ),
+                self.assertRaises(local_app.ApiProblem),
+            ):
+                routine_incident.skip(service, "team_1", run_id)
+            routine_lifecycle._delete_team_routines(controller, "team_1")
+            self.assertIsNone(service.action_state.current_batch(generation))
+            self.assertIsNone(service.routine_store.incident("team_1", run_id))
+
+
 class SealedStateTests(IncidentCase):
     def test_cursor_and_incident_seals_bind_exactly_what_they_belong_to(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -532,13 +606,31 @@ class IncidentRecordTests(IncidentCase):
         held = record.Run("c" * 32, "a" * 32, "held", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
         with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
             record.settle_hold(dataclasses.replace(full, runs=(held,), incidents=unresolved * 2), "c" * 32, 1)
-        skipped = tuple(dataclasses.replace(item, status="skipped") for item in unresolved) * 2
-        renamed = tuple(
-            dataclasses.replace(item, incident_id=f"{index + 100:032x}") for index, item in enumerate(skipped)
+
+        def renamed(status: str) -> tuple[record.Incident, ...]:
+            return tuple(
+                dataclasses.replace(item, incident_id=f"{index + 100:032x}", status=status)
+                for index, item in enumerate(unresolved * 2)
+            )
+
+        # A skipped incident whose cleanup is pending never gives way; a released one does, oldest first.
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
+            record.settle_hold(dataclasses.replace(full, runs=(held,), incidents=renamed("skipped")), "c" * 32, 1)
+        settled = record.settle_hold(
+            dataclasses.replace(full, runs=(held,), incidents=renamed("released")), "c" * 32, 1
         )
-        settled = record.settle_hold(dataclasses.replace(full, runs=(held,), incidents=renamed), "c" * 32, 1)
         self.assertEqual(len(settled.incidents), record.MAX_INCIDENTS)
         self.assertEqual(settled.incidents[-1].incident_id, "c" * 32)
+        self.assertNotIn(f"{100:032x}", {item.incident_id for item in settled.incidents})
+        pending = dataclasses.replace(base, routines=(routine,), incidents=renamed("skipped"))
+        self.assertFalse(record.incident_capacity(pending))
+        self.assertTrue(record.incident_capacity(dataclasses.replace(pending, incidents=renamed("released"))))
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
+            record.release_incident(full, unresolved[0].incident_id)
+        released = record.release_incident(
+            record.skip_incident(full, unresolved[0].incident_id), unresolved[0].incident_id
+        )
+        self.assertEqual(record.release_incident(released, unresolved[0].incident_id), released)
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
             record.settle_hold(
                 dataclasses.replace(full, runs=(dataclasses.replace(held, status="frozen"),)), "c" * 32, 1

@@ -39,7 +39,8 @@ _RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
 MAX_UNRESOLVED_INCIDENTS = 32
-# Incident records kept in all; a skipped one gives way, oldest first, but an unresolved one never does.
+# Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
+# cleanup is still pending, never does.
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
 
 
@@ -122,7 +123,8 @@ class Incident:
     created_at: int
     # The Routine revision the held run executed, which its cursor binding names (ADR-0092).
     revision: int = 1
-    # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown.
+    # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown
+    # and its archive marker, cursor, and evidence are still being released; "released" has nothing left to release.
     status: str = "unresolved"
 
 
@@ -390,9 +392,15 @@ def held_routines(state: TeamRoutines) -> set[str]:
 
 
 def incident_capacity(state: TeamRoutines) -> bool:
-    """Whether one more run may start: each unresolved incident, and each run that could still be held, holds one."""
+    """Whether one more run may start, reserving the room its incident would need.
+
+    Each run that could still be held reserves an unresolved incident's room and a record's room, so a hold never has
+    to displace an unresolved incident or one whose cleanup is still pending.
+    """
     unresolved = sum(item.status == "unresolved" for item in state.incidents)
-    return unresolved + len(state.runs) < MAX_UNRESOLVED_INCIDENTS
+    retained = sum(item.status != "released" for item in state.incidents)
+    runs = len(state.runs) + 1
+    return unresolved + runs <= MAX_UNRESOLVED_INCIDENTS and retained + runs <= MAX_INCIDENTS
 
 
 def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRoutines, Claim | None]:
@@ -628,10 +636,10 @@ def settle_hold(state: TeamRoutines, run_id: str, now: int, revision: int | None
     incident = Incident(run_id, value.routine_id, value.generation, now, executed)
     kept = list(state.incidents)
     while len(kept) >= MAX_INCIDENTS:
-        skipped = next((item for item in kept if item.status != "unresolved"), None)
-        if skipped is None:
+        released = next((item for item in kept if item.status == "released"), None)
+        if released is None:
             raise RoutineStateError("incident-limit")
-        kept.remove(skipped)
+        kept.remove(released)
     return _without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id)
 
 
@@ -650,6 +658,19 @@ def skip_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:
     skipped = dataclasses.replace(value, status="skipped")
     return dataclasses.replace(
         state, incidents=tuple(skipped if item.incident_id == incident_id else item for item in state.incidents)
+    )
+
+
+def release_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:
+    """A skipped incident's archive marker, cursor, and evidence are gone: only now may its record give way."""
+    value = incident(state, incident_id)
+    if value.status == "released":
+        return state
+    if value.status != "skipped":
+        raise RoutineStateError("incident-not-skipped")
+    released = dataclasses.replace(value, status="released")
+    return dataclasses.replace(
+        state, incidents=tuple(released if item.incident_id == incident_id else item for item in state.incidents)
     )
 
 
