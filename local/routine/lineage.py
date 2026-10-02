@@ -1,91 +1,122 @@
-"""The Team-bound lineage of a chat clarification: which words of an answer are the model's (ADR-0092 section 2).
+"""The Team-bound lineage of a Routine question: a pending candidate and the one field it asks about (ADR-0092 §2).
 
-Answering a multiple-choice clarification sends one new message that composes the original request, the question,
-and the answer (ADR-0081). Only the original request and the chosen answer are the user's own words: the model's
-question and the interface labels around it never become a Routine grant. Team remembers, for a short time, the last
-question it returned to each Team's Supervisor, and marks those spans of a composed answer as not the user's. Without
-that memory, after a restart, every composed-looking question line is marked instead, so lineage fails closed.
+When the Routine planner is unsure of exactly one field, the turn ends with an ordinary multiple-choice clarification
+and Team keeps, for a short time, a canonical pending candidate: the question's identity, its option labels, and one
+complete admitted Routine per option that differs from the others only in that field. Answering sends one new message
+that composes the original request, the question, and the chosen label (ADR-0081). Only an answer that composes exactly
+this question for the same principal, with one of its own labels, binds; the Routine of that option is then committed
+as it was admitted, so the selection changes only the bound field, and neither the model's question text nor an
+unselected option ever becomes the user's grant. The candidate stays until its Routine commits, so a failed or stopped
+answer may be retried, and expires after 15 minutes. Every other message that composes a clarification answer cannot
+change a Routine at all, so a restart, an expired or mismatched lineage, or a free-text answer fails closed.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from routine.request import Request
+from routine import record
 
 LINEAGE_SECONDS = 900
 # One composed answer: a blank line, then "<question label>: <question>", then "<answer label>: <answer>".
 _LABEL_CHARS = 40
-_COMPOSED_RE = re.compile(r"\n\n([^\n:]{1,40}): [^\n]*\n([^\n:]{1,40}): ")
-
-Spans = tuple[tuple[int, int], ...]
+_COMPOSED_RE = re.compile(r"\n\n[^\n:]{1,40}: [^\n]*\n[^\n:]{1,40}: [^\n]*\Z")
 
 
 @dataclass(frozen=True, slots=True)
-class Lineage:
+class Question:
+    """One pending Routine question: who was asked about which request, and the Routine each option commits."""
+
     principal: str
     message: str
-    excluded: Spans
     question: str
-    expires_at: float
+    labels: tuple[str, ...]
+    op: str
+    expected_revision: int | None
+    routines: tuple[record.Routine, ...]
+    reply: str
+    expires_at: float = 0.0
 
 
-def _answer(lineage: Lineage, message: str) -> Spans | None:
-    """The spans of a composed answer to exactly this question that are not the user's, or None for another message."""
-    prefix = lineage.message + "\n\n"
+@dataclass(frozen=True, slots=True)
+class Answer:
+    """A message bound to a pending question: the question and the index of the option it selects."""
+
+    question: Question
+    index: int
+
+    @property
+    def routine(self) -> record.Routine:
+        return self.question.routines[self.index]
+
+
+def composed(message: str) -> bool:
+    """Whether a message ends as a composed clarification answer, bound or not."""
+    return _COMPOSED_RE.search(message) is not None
+
+
+def _label(value: str) -> bool:
+    return 0 < len(value) <= _LABEL_CHARS and ":" not in value and "\n" not in value
+
+
+def _selected(question: Question, message: str) -> int | None:
+    """The option a composed answer to exactly this question selects, or None for any other message."""
+    prefix = question.message + "\n\n"
     if not message.startswith(prefix):
         return None
-    start = len(prefix)
-    end = message.find("\n", start)
-    if end < 0 or not message[start:end].endswith(": " + lineage.question):
+    lines = message[len(prefix) :].split("\n")
+    if len(lines) != 2:
         return None
-    label = message.find(": ", end + 1)
-    if label < 0 or not 0 < label - end - 1 <= _LABEL_CHARS or "\n" in message[end + 1 : label]:
+    asked, answered = lines
+    if not asked.endswith(": " + question.question) or not _label(asked[: -len(question.question) - 2]):
         return None
-    return (*lineage.excluded, (start, end), (end + 1, label + 2))
-
-
-def unbound(message: str) -> Spans:
-    """Every composed-looking question line and answer label, marked when no lineage is known."""
-    spans: list[tuple[int, int]] = []
-    for match in _COMPOSED_RE.finditer(message):
-        question_end = message.index("\n", match.start() + 2)
-        spans.extend(((match.start() + 2, question_end), (question_end + 1, match.end())))
-    return tuple(spans)
+    label, separator, answer = answered.partition(": ")
+    if not separator or not _label(label) or answer not in question.labels:
+        return None
+    return question.labels.index(answer)
 
 
 class LineageBook:
-    """At most one live lineage per Team: the last question its Supervisor was asked, for 15 minutes."""
+    """At most one pending Routine question per Team, for 15 minutes or until its Routine commits."""
 
     def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
         self._now = now
         self._lock = threading.Lock()
-        self._lineages: dict[str, Lineage] = {}
+        self._questions: dict[str, Question] = {}
 
-    def record(self, team_id: str, request: Request, question: str) -> None:
-        """Remember that this request's turn ended with a question."""
-        lineage = Lineage(request.principal, request.message, request.excluded, question, self._now() + LINEAGE_SECONDS)
+    def record(self, team_id: str, question: Question) -> None:
+        """Keep the question a turn of this Team just asked; it replaces any earlier one."""
+        kept = dataclasses.replace(question, expires_at=self._now() + LINEAGE_SECONDS)
         with self._lock:
-            self._lineages[team_id] = lineage
+            self._questions[team_id] = kept
 
-    def take(self, team_id: str, principal: str, message: str) -> Spans:
-        """Consume the Team's lineage and return the spans of ``message`` that are not the principal's own words."""
+    def bound(self, team_id: str, principal: str, message: str) -> Answer | None:
+        """The Team's pending question this message answers for the same principal, or None; nothing is consumed."""
         with self._lock:
-            lineage = self._lineages.pop(team_id, None)
-        if lineage is not None and lineage.principal == principal and lineage.expires_at > self._now():
-            spans = _answer(lineage, message)
-            if spans is not None:
-                return spans
-        return unbound(message)
+            question = self._questions.get(team_id)
+            if question is not None and question.expires_at <= self._now():
+                del self._questions[team_id]
+                question = None
+        if question is None or question.principal != principal:
+            return None
+        index = _selected(question, message)
+        return None if index is None else Answer(question, index)
+
+    def settle(self, team_id: str, question: Question) -> None:
+        """Remove exactly this question once the Routine an answer selected committed."""
+        with self._lock:
+            if self._questions.get(team_id) is question:
+                del self._questions[team_id]
 
     def drop(self, team_id: str) -> None:
         with self._lock:
-            self._lineages.pop(team_id, None)
+            self._questions.pop(team_id, None)
 
     def clear(self) -> None:
         with self._lock:
-            self._lineages.clear()
+            self._questions.clear()

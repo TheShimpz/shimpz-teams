@@ -410,11 +410,18 @@ class BrainRuntimeClient:
 
     @staticmethod
     def _parse_routine(value: dict[str, object]) -> dict[str, object] | None:
-        """A completed turn's one compiled Routine change, never beside a question; Local Team admits its shape."""
+        """A completed turn's one compiled Routine change, or the Routine question beside exactly its clarification.
+
+        Local Team admits its shape.
+        """
         routine = value["routine"]
         if routine is None:
             return None
-        if not isinstance(routine, dict) or value["status"] != "completed" or value["clarification"] is not None:
+        if (
+            not isinstance(routine, dict)
+            or value["status"] != "completed"
+            or (value["clarification"] is None) == ("question" in routine)
+        ):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
         return routine
 

@@ -202,7 +202,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api._segment_response(subject, response)
 
         def conflicting_terminal(_outcome, _groups, _pending, _pauses, complete):
-            return complete(types.SimpleNamespace(reply="reply", routine={"op": "propose"}))
+            return complete(types.SimpleNamespace(reply="reply", routine={"op": "propose"}, clarification=None))
 
         with (
             mock.patch.object(

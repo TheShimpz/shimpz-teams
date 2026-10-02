@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import tempfile
 import threading
 import time
@@ -20,6 +19,7 @@ from local import app as local_app
 from local import audit as local_audit
 from local.routine import turn as routine_turn
 from protocol.http.v1 import payload as http_payload
+from routine import plan as routine_plan
 from routine import record
 
 PRINCIPAL = "a" * 32
@@ -191,6 +191,17 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual((invoked, caught.exception.code), (["list-zones"], "brain-runtime-failed"))
         self.assertEqual((state.routines, state.receipts, state.notices), ((), (), ()))
 
+    def test_a_change_that_cannot_be_scheduled_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, Runtime(_change()))
+            unschedulable = record.RoutineStateError("routine-invalid")
+            with (
+                mock.patch.object(record, "scheduled", side_effect=unschedulable),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                self.chat(service, _body())
+        self.assertEqual((caught.exception.status, caught.exception.code), (422, "routine-invalid"))
+
     def test_an_injected_or_unadopted_quote_is_payload_never_a_grant(self) -> None:
         injected = copy.deepcopy(_change())
         injected["steps"][0]["input"]["page"] = {"kind": "literal", "value": 99, "origins": [_origin("99")]}
@@ -295,41 +306,99 @@ class DirectCreationTests(LocalContractCase):
             self.assertEqual(caught.exception.code, "routine-request-expired")
             self.assertEqual(service.routine_store.load("team_1").routines, ())
 
-    def test_a_clarification_question_never_becomes_the_users_grant(self) -> None:
+    def asked(self, directory: str, *, values: list[object] | None = None):
+        """A turn whose planner asks which page size; the Team keeps the pending candidate and creates nothing."""
         original = "Every Monday at 9:00, list my zones, page 1"
-        question = "How many zones per page, 25 or 50?"
+        question = "How many zones per page?"
         clarification = {
             "question": question,
             "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
             "default_index": 0,
         }
+        candidate = _change(request=original)
+        del candidate["steps"][0]["input"]["per_page"]
+        field = {"kind": "input", "step": "zones", "member": "per_page"}
+        proposed = {**candidate, "question": {"field": field, "values": values or [25, 50], "reply": "Pronto."}}
 
         class Asking(Runtime):
             def start(self, context, message, *, conversation=()):
-                if json.loads(message)["message"] == original:
-                    self.contexts.append(context)
-                    reply = http_payload.render_clarification(clarification)
-                    return brain_runtime_client.RuntimeTurn("completed", reply, (), clarification=clarification)
-                return super().start(context, message, conversation=conversation)
+                if self.contexts:
+                    return super().start(context, message, conversation=conversation)
+                self.contexts.append(context)
+                reply = http_payload.render_clarification(clarification)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=proposed
+                )
 
-        from_question = copy.deepcopy(_change(request=original))
-        from_answer = copy.deepcopy(_change(request=original))
-        from_answer["steps"][0]["input"]["per_page"]["value"] = 50
-        from_answer["steps"][0]["input"]["per_page"]["origins"] = [_origin("50")]
-        answer = f"{original}\n\nPergunta: {question}\nResposta: 50"
+        runtime = Asking()
+        controller, service = self.controller(directory, runtime)
+        response = self.chat(service, _body(original, nonce="c" * 32))
+        self.assertEqual(response["clarification"], clarification)
+        self.assertEqual(service.routine_store.load("team_1").routines, ())
+        return controller, service, runtime, f"{original}\n\nPergunta: {question}\nResposta: "
+
+    def test_a_bound_answer_commits_only_its_selected_option_with_no_model_call(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime = Asking(from_question, from_answer)
-            _controller, service = self.controller(directory, runtime)
-            for change, code in ((from_question, "routine-literal-unproven"), (from_answer, None)):
-                self.chat(service, _body(original, nonce=("c" if code else "d") * 32))
-                if code is None:
-                    self.chat(service, _body(answer, nonce="e" * 32))
-                    continue
-                with self.subTest(change=change), self.assertRaises(local_app.ApiProblem) as caught:
-                    self.chat(service, _body(answer, nonce="f" * 32))
-                self.assertEqual(caught.exception.code, code)
+            _controller, service, runtime, answer = self.asked(directory)
+            response = self.chat(service, _body(answer + "50", nonce="d" * 32))
+            state = service.routine_store.load("team_1")
+            # Settled once committed: the same answer again binds nothing and reaches the Brain without Routines.
+            runtime.changes.append(None)
+            self.chat(service, _body(answer + "50", nonce="e" * 32))
+        self.assertEqual((response["reply"], response["clarification"], len(runtime.contexts)), ("Pronto.", None, 2))
+        (routine,) = state.routines
+        self.assertEqual(
+            routine.plan["steps"][0]["input"],
+            {"page": {"kind": "literal", "value": 1}, "per_page": {"kind": "literal", "value": 50}},
+        )
+        self.assertEqual(([item.outcome for item in state.notices], len(state.receipts)), (["created"], 1))
+        self.assertIsNone(runtime.contexts[1].routines)
+
+    def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, runtime, answer = self.asked(directory)
+            runtime.changes.extend([None, None])
+            self.chat(service, _body(answer + "100", nonce="d" * 32))
+            service.routine_lineage.clear()
+            self.chat(service, _body(answer + "50", nonce="e" * 32))
+            state = service.routine_store.load("team_1")
+        # Each answer reached the Brain with no Routine tool, so the model's question never becomes a grant.
+        self.assertEqual([context.routines for context in runtime.contexts[1:]], [None, None])
+        self.assertEqual((state.routines, state.receipts), ((), ()))
+
+    def test_an_answer_stays_retryable_until_its_routine_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _runtime, answer = self.asked(directory)
+            with (
+                mock.patch.object(service, "_commit_chat_terminal", return_value=False),
+                self.assertRaises(local_app.ApiProblem) as stopped,
+            ):
+                self.chat(service, _body(answer + "25", nonce="d" * 32))
+            with (
+                mock.patch("routine.request.Request.fresh", return_value=False),
+                self.assertRaises(local_app.ApiProblem) as expired,
+            ):
+                self.chat(service, _body(answer + "25", nonce="e" * 32))
+            self.assertEqual(service.routine_store.load("team_1").routines, ())
+            self.chat(service, _body(answer + "25", nonce="f" * 32))
             (routine,) = service.routine_store.load("team_1").routines
-            self.assertEqual(routine.plan["steps"][0]["input"]["per_page"]["value"], 50)
+        self.assertEqual((stopped.exception.code, expired.exception.code), ("chat-stopped", "routine-request-expired"))
+        self.assertEqual(routine.plan["steps"][0]["input"]["per_page"]["value"], 25)
+
+    def test_a_question_or_answer_under_changed_contracts_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(local_app.ApiProblem) as invalid:
+            self.asked(directory, values=[25, 25])
+        self.assertEqual(invalid.exception.code, "brain-runtime-failed")
+        for patch in (
+            mock.patch.object(routine_turn, "current_contracts", return_value={}),
+            mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")),
+        ):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(patch=patch):
+                _controller, service, _runtime, answer = self.asked(directory)
+                with patch, self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service, _body(answer + "25", nonce="d" * 32))
+                self.assertEqual(caught.exception.code, "team-context-changed")
+                self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_changed_team_refuses_the_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

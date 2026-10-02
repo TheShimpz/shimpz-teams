@@ -14,6 +14,8 @@ from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import lineage as routine_lineage
+from local.routine import question as routine_question
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
 from routine import schedule as routine_schedule
@@ -80,7 +82,8 @@ def _segment_response(
             ) from exc
 
     def commit(terminal: chat_orchestrator.ChatOutcome) -> bool:
-        if terminal.routine is None:
+        if terminal.routine is None or terminal.clarification is not None:
+            # A Routine question changes nothing until a bound answer selects one of its options.
             return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
         # A compiled Routine change commits with the reply, in one write under the lifecycle lock and the Stop guard;
         # when Stop wins, nothing is created (ADR-0092).
@@ -90,11 +93,14 @@ def _segment_response(
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
+        question = None
+        if terminal.routine is not None and terminal.clarification is not None:
+            # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
+            question = self._routine_question(response, terminal.routine, terminal.clarification)
         if not commit(terminal):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
-        if terminal.clarification is not None and response.routine_request is not None:
-            # The answer will quote this question; the lineage keeps it from ever counting as the user's words.
-            self.routine_lineage.record(team_id, response.routine_request, terminal.clarification["question"])
+        if question is not None:
+            self.routine_lineage.record(team_id, question)
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
@@ -193,19 +199,15 @@ def chat(
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
         principal = local_audit.human_principal()
+        bound = None if principal is None or file_ids else self.routine_lineage.bound(team_id, principal, message)
+        # A message that answers a clarification may change a Routine only through the question it is bound to.
         routine_request = (
             None
-            if principal is None
-            else RoutineRequest(
-                principal,
-                message,
-                identity["issued_at"],
-                identity["nonce"],
-                timezone,
-                locale,
-                self.routine_lineage.take(team_id, principal, message),
-            )
+            if principal is None or (bound is None and routine_lineage.composed(message))
+            else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale)
         )
+        if bound is not None:
+            return routine_question.answer(self, team_id, token, routine_request, bound)
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,

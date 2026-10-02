@@ -7,11 +7,12 @@ provenance, a run-clock token, an earlier step's output selected by an RFC 6901 
 relate the two, or, in an update, the member's source kept exactly as the current revision has it.
 
 Team recomputes everything against the committed message. The user's own words are the text outside quoted, fenced,
-and block-quoted regions and outside any span the Team's clarification lineage marks as not the user's. Every scalar
-of a literal must equal text cited from those words, or from one quoted region that unquoted words adopt, or the whole
-literal must equal its destination's declared schema default. Mechanical provenance proves where a value came from,
-never that the user meant it; the compiled plan is then admitted against the exact current Action contracts, which
-derive every pin, so no field of the change can assert approval or elevate authority.
+and block-quoted regions. Every scalar of a literal must equal text cited from those words, or from one quoted region
+that unquoted words adopt, or the whole literal must equal its destination's declared schema default; only the one
+field a Routine question leaves open is instead filled from the option the user selects (``Question``). Mechanical
+provenance proves where a value came from, never that the user meant it; the compiled plan is then admitted against the
+exact current Action contracts, which derive every pin, so no field of the change can assert approval or elevate
+authority.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import unicodedata
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
@@ -45,6 +47,11 @@ _SOURCE_FIELDS = {
     "kept": frozenset({"kind"}),
 }
 _ORIGIN_FIELDS = frozenset({"at", "from", "text", "region", "instruction"})
+_QUESTION_FIELDS = frozenset({"field", "values", "reply"})
+MAX_REPLY_CHARS = 280
+_UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
+# The origin of the one value a bound Routine question's selected option fills; nothing else may claim it.
+ANSWER = {"at": "", "from": "answer", "text": None, "region": None, "instruction": None}
 
 
 class ChangeError(ValueError):
@@ -107,6 +114,7 @@ def _origin(value: object) -> bool:
         "message": _text(text) and region is None and instruction is None,
         "quote": _text(text) and type(region) is int and region >= 0 and _text(instruction),
         "default": value["at"] == "" and text is None and region is None and instruction is None,
+        "answer": value == ANSWER,
     }
     return routine_plan.pointer_tokens(value["at"]) is not None and shapes.get(kind, False)
 
@@ -176,22 +184,17 @@ def parse(value: object) -> Change:
 class Words:
     """Where a message's text may come from: the user's own words, and its numbered quoted regions."""
 
-    def __init__(self, message: str, excluded: tuple[tuple[int, int], ...] = ()) -> None:
+    def __init__(self, message: str) -> None:
         self.message = message
-        regions = [(match.start(), match.end()) for match in _QUOTED_RE.finditer(message)]
-        blocked = sorted([*regions, *excluded])
+        self.quoted = [(match.start(), match.end()) for match in _QUOTED_RE.finditer(message)]
         self.own: list[tuple[int, int]] = []
         cursor = 0
-        for start, end in blocked:
+        for start, end in self.quoted:
             if start > cursor:
                 self.own.append((cursor, start))
             cursor = max(cursor, end)
         if cursor < len(message):
             self.own.append((cursor, len(message)))
-        # A quoted region that a lineage span overlaps is not the user's either.
-        self.quoted = [
-            (start, end) for start, end in regions if not any(start < stop and begin < end for begin, stop in excluded)
-        ]
 
     def mine(self, text: str) -> bool:
         """Whether the text is the user's own words, inside one stretch of them."""
@@ -238,9 +241,18 @@ def _cited(origin: Mapping[str, object], target: object, words: Words) -> bool:
     return type(parsed) is type(target) and parsed == target
 
 
-def _literal(source: Mapping[str, object], member: Mapping[str, object], words: Words) -> dict[str, object]:
-    """A literal whose every scalar has exactly one origin, or whose whole value is its destination's default."""
+def _literal(
+    source: Mapping[str, object], member: Mapping[str, object], words: Words, *, selected: bool = False
+) -> dict[str, object]:
+    """A literal whose every scalar has exactly one origin, or whose whole value is its destination's default.
+
+    Only the member a bound Routine question leaves open, ``selected``, holds the value of the option the user picks.
+    """
     value = source["value"]
+    if selected or any(origin["from"] == "answer" for origin in source["origins"]):
+        if not selected or source["origins"] != [ANSWER]:
+            raise ChangeError("routine-literal-unproven")
+        return {"kind": "literal", "value": copy.deepcopy(value)}
     leaves = list(_leaves(value))
     covered: list[str] = []
     for origin in source["origins"]:
@@ -270,12 +282,15 @@ def _plan_source(
     schema: Mapping[str, object],
     kept: Mapping[str, object] | None,
     words: Words,
+    selected: bool,
 ) -> dict[str, object]:
     kind = source["kind"]
+    if selected and kind != "literal":
+        raise ChangeError("routine-change-invalid")
     if kind == "literal":
         properties = schema.get("properties", {})
         member = properties.get(name) if isinstance(properties, dict) else None
-        return _literal(source, member if isinstance(member, dict) else {}, words)
+        return _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
     if kind == "run_clock":
         return {"kind": "run_clock", "format": source["format"]}
     if kind == "step_output":
@@ -293,10 +308,12 @@ def compile_change(
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
     current: Mapping[str, object] | None,
     default_timezone: str,
+    selected: tuple[str, str] | None = None,
 ) -> Compiled:
     """Admit a parsed change against the committed message and the exact current contracts; refuse anything unproven.
 
     An update also names the current revision's plan document, whose sources a ``kept`` member copies exactly.
+    ``selected`` names the one step input a bound Routine question fills from the option the user selects.
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
@@ -317,7 +334,7 @@ def compile_change(
         same = before is not None and (before["assistant"], before["action"]) == (raw["assistant"], raw["action"])
         kept = before["input"] if same else None
         inputs = {
-            name: _plan_source(name, source, contract.input_schema, kept, words)
+            name: _plan_source(name, source, contract.input_schema, kept, words, selected == (raw["id"], name))
             for name, source in raw["input"].items()
         }
         identity = {"id": raw["id"], "assistant": raw["assistant"], "action": raw["action"]}
@@ -328,3 +345,81 @@ def compile_change(
     except routine_plan.PlanError as exc:
         raise ChangeError(exc.code) from exc
     return Compiled(change.name, change.request, dict(change.schedule), timezone, document, plan)
+
+
+@dataclass(frozen=True, slots=True)
+class Question:
+    """A Routine question: the candidate change with exactly one field left open, one complete change per option.
+
+    ``field`` is ``("schedule",)``, ``("timezone",)``, or ``("input", step_id, member)``. Each change differs from the
+    candidate only in that field, which holds its option's value; ``reply`` is what the user is told once the change
+    their selected option completes commits.
+    """
+
+    field: tuple[str, ...]
+    changes: tuple[Change, ...]
+    reply: str
+
+    @property
+    def selected(self) -> tuple[str, str] | None:
+        return (self.field[1], self.field[2]) if self.field[0] == "input" else None
+
+
+def _field(value: object) -> tuple[str, ...] | None:
+    if value in ({"kind": "schedule"}, {"kind": "timezone"}):
+        return (value["kind"],)
+    if not isinstance(value, dict) or set(value) != {"kind", "step", "member"} or value["kind"] != "input":
+        return None
+    step, member = value["step"], value["member"]
+    if not isinstance(step, str) or routine_plan.STEP_ID_RE.fullmatch(step) is None or not _text(member):
+        return None
+    return ("input", step, member)
+
+
+def _filled(candidate: dict[str, object], field: tuple[str, ...], value: object) -> dict[str, object]:
+    """The candidate with its one open field set to one option's value; the field must be open in the candidate."""
+    filled = copy.deepcopy(candidate)
+    if field[0] == "input":
+        step = next((item for item in filled["steps"] if isinstance(item, dict) and item.get("id") == field[1]), None)
+        if step is None or not isinstance(step.get("input"), dict) or field[2] in step["input"]:
+            raise ChangeError("routine-question-invalid")
+        step["input"][field[2]] = {"kind": "literal", "value": copy.deepcopy(value), "origins": [dict(ANSWER)]}
+        return filled
+    if filled[field[0]] is not None:
+        raise ChangeError("routine-question-invalid")
+    filled[field[0]] = value
+    return filled
+
+
+def _reply(value: object) -> bool:
+    """One NFC line of at most 280 characters with no control, format, private, or unassigned character."""
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= MAX_REPLY_CHARS
+        and unicodedata.normalize("NFC", value).strip() == value
+        and not any(unicodedata.category(item) in _UNSAFE_CATEGORIES for item in value)
+    )
+
+
+def parse_question(value: object, options: int) -> Question:
+    """Admit one Routine question whose ``options`` visible choices each carry exactly one value of its open field."""
+    if not isinstance(value, dict) or set(value) != {*_FIELDS, "question"}:
+        raise ChangeError("routine-question-invalid")
+    question = value["question"]
+    if not isinstance(question, dict) or set(question) != _QUESTION_FIELDS:
+        raise ChangeError("routine-question-invalid")
+    field, values = _field(question["field"]), question["values"]
+    if field is None or not isinstance(values, list) or len(values) != options or not _reply(question["reply"]):
+        raise ChangeError("routine-question-invalid")
+    try:
+        distinct = len({routine_plan.canonical(item) for item in values}) == len(values)
+    except (TypeError, ValueError) as exc:
+        raise ChangeError("routine-question-invalid") from exc
+    if not distinct:
+        raise ChangeError("routine-question-invalid")
+    candidate = {key: value[key] for key in _FIELDS}
+    try:
+        changes = tuple(parse(_filled(candidate, field, item)) for item in values)
+    except ChangeError as exc:
+        raise ChangeError("routine-question-invalid") from exc
+    return Question(field, changes, question["reply"])

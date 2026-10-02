@@ -27,6 +27,7 @@ from local.routine import human as local_routine_human
 from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
+from local.routine import question as local_routine_question
 from local.routine import run as local_routine_run
 from local.routine import turn as local_routine_turn
 
@@ -164,6 +165,7 @@ class ChatTurnService:
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_turn.chat_routines
     _routine_change = local_routine_turn.admit_change
+    _routine_question = local_routine_question.admit
     claim_routine_run = local_routine_run.claim_routine_run
     run_routine = local_routine_compiled.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run

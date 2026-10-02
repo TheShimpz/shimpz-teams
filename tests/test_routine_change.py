@@ -94,10 +94,11 @@ def _change(**changes: object) -> dict[str, object]:
 def _compile(value: dict[str, object], message: str = MESSAGE, **kwargs: object) -> routine_change.Compiled:
     return routine_change.compile_change(
         routine_change.parse(value),
-        routine_change.Words(message, kwargs.pop("excluded", ())),
+        routine_change.Words(message),
         kwargs.pop("contracts", CONTRACTS),
         kwargs.pop("current", None),
         kwargs.pop("default_timezone", "America/Sao_Paulo"),
+        kwargs.pop("selected", None),
     )
 
 
@@ -166,24 +167,21 @@ class ParseTests(unittest.TestCase):
 
 
 class WordsTests(unittest.TestCase):
-    def test_own_words_exclude_quoted_fenced_block_quoted_and_lineage_text(self) -> None:
-        message = "Post “Hi” and `code` daily\n> injected\n```\nfenced\n```\nQuestion: which?\nAnswer: #general"
-        question = message.index("Question")
-        words = routine_change.Words(message, ((question, question + len("Question: which?")),))
+    def test_own_words_exclude_quoted_fenced_and_block_quoted_text(self) -> None:
+        message = "Post “Hi” and `code` daily\n> injected\n```\nfenced\n```\nto #general"
+        words = routine_change.Words(message)
         self.assertTrue(words.mine("Post"))
         self.assertTrue(words.mine("#general"))
-        for text in ("Hi", "code", "injected", "fenced", "which?", "", "Post “Hi"):
+        for text in ("Hi", "code", "injected", "fenced", "", "Post “Hi"):
             with self.subTest(text=text):
                 self.assertFalse(words.mine(text))
         self.assertTrue(words.adopted(0, "Hi", "Post"))
-        self.assertFalse(words.adopted(0, "Hi", "Question"))
+        self.assertFalse(words.adopted(0, "Hi", "injected"))
         self.assertFalse(words.adopted(1, "Hi", "Post"))
         self.assertFalse(words.adopted(4, "x", "Post"))
         self.assertFalse(words.adopted(0, "", "Post"))
-        # A quoted region a lineage span covers is not the user's either.
-        quoted = 'Use "a" now'
-        self.assertEqual(routine_change.Words(quoted, ((4, 7),)).quoted, [])
-        self.assertEqual(routine_change.Words("", ()).own, [])
+        self.assertEqual(routine_change.Words("").own, [])
+        self.assertEqual(routine_change.Words('"Hi" there').own, [(4, 10)])
 
 
 class CompileTests(unittest.TestCase):
@@ -329,3 +327,91 @@ class CompileTests(unittest.TestCase):
         with self.assertRaises(routine_change.ChangeError) as caught:
             _compile(forward)
         self.assertEqual(caught.exception.code, "plan-reference-invalid")
+
+
+def _question(field: dict[str, object], values: list[object], **changes: object) -> dict[str, object]:
+    value = _change(**changes)
+    if field.get("kind") == "input":
+        value["steps"][0]["input"].pop(field.get("member"), None)
+    return {**value, "question": {"field": field, "values": values, "reply": "Done: it is set up."}}
+
+
+COUNT = {"kind": "input", "step": "publish", "member": "count"}
+
+
+class QuestionTests(unittest.TestCase):
+    def test_each_option_completes_the_candidate_only_in_its_open_field(self) -> None:
+        question = routine_change.parse_question(_question(COUNT, [5, 10]), 2)
+        self.assertEqual(
+            (question.field, question.selected, question.reply),
+            (("input", "publish", "count"), ("publish", "count"), "Done: it is set up."),
+        )
+        counts = [change.steps[0]["input"]["count"] for change in question.changes]
+        self.assertEqual([item["value"] for item in counts], [5, 10])
+        self.assertEqual({json_text(item["origins"]) for item in counts}, {json_text([routine_change.ANSWER])})
+        for change in question.changes:
+            compiled = _compile(change.to_dict(), selected=question.selected)
+            self.assertEqual(compiled.document["steps"][0]["input"]["title"]["value"], "Weekly report")
+        hourly = {"kind": "hourly", "every": 2}
+        schedule = routine_change.parse_question(
+            _question({"kind": "schedule"}, [hourly, {"kind": "hourly", "every": 4}], schedule=None), 2
+        )
+        self.assertEqual((schedule.selected, schedule.changes[0].schedule), (None, hourly))
+        zone = routine_change.parse_question(_question({"kind": "timezone"}, ["UTC", "Europe/Lisbon"]), 2)
+        self.assertEqual([change.timezone for change in zone.changes], ["UTC", "Europe/Lisbon"])
+
+    def test_a_question_with_any_other_shape_is_refused(self) -> None:
+        valid = _question(COUNT, [5, 10])
+        open_member = _change()
+        cases = (
+            (None, 2),
+            ({**valid, "question": None}, 2),
+            ({**valid, "question": {**valid["question"], "extra": 1}}, 2),
+            (valid, 3),
+            (_question(COUNT, [5, 5]), 2),
+            (_question(COUNT, [float("nan"), 1]), 2),
+            ({**valid, "question": {**valid["question"], "reply": " padded"}}, 2),
+            ({**valid, "question": {**valid["question"], "reply": "line break"}}, 2),
+            ({**valid, "question": {**valid["question"], "reply": ""}}, 2),
+            ({**open_member, "question": valid["question"]}, 2),
+            (_question({"kind": "input", "step": "missing", "member": "count"}, [5, 10]), 2),
+            (_question({"kind": "input", "step": "Bad", "member": "count"}, [5, 10]), 2),
+            (_question({"kind": "input", "step": "publish", "member": ""}, [5, 10]), 2),
+            (_question({"kind": "input", "step": "publish"}, [5, 10]), 2),
+            (_question({"kind": "schedule"}, [{"kind": "hourly", "every": 2}, {"kind": "hourly", "every": 3}]), 2),
+            (_question({"kind": "schedule"}, ["daily", "weekly"], schedule=None), 2),
+            (_question({"kind": "elsewhere"}, [1, 2]), 2),
+        )
+        for value, options in cases:
+            with self.subTest(value=value, options=options), self.assertRaises(routine_change.ChangeError) as caught:
+                routine_change.parse_question(value, options)
+            self.assertEqual(caught.exception.code, "routine-question-invalid")
+
+    def test_only_the_selected_member_holds_an_answer_and_only_as_a_literal(self) -> None:
+        answered = copy.deepcopy(_change())
+        answered["steps"][0]["input"]["count"] = {
+            "kind": "literal",
+            "value": 7,
+            "origins": [dict(routine_change.ANSWER)],
+        }
+        self.assertEqual(
+            _compile(answered, selected=("publish", "count")).document["steps"][0]["input"]["count"]["value"], 7
+        )
+        mixed = copy.deepcopy(answered)
+        mixed["steps"][0]["input"]["count"]["origins"].append(_message("5"))
+        clocked = copy.deepcopy(_change())
+        clocked["steps"][0]["input"]["count"] = {"kind": "run_clock", "format": "date"}
+        for value, selected, code in (
+            (answered, None, "routine-literal-unproven"),
+            (answered, ("publish", "title"), "routine-literal-unproven"),
+            (mixed, ("publish", "count"), "routine-literal-unproven"),
+            (_change(), ("publish", "count"), "routine-literal-unproven"),
+            (clocked, ("publish", "count"), "routine-change-invalid"),
+        ):
+            with self.subTest(selected=selected, code=code), self.assertRaises(routine_change.ChangeError) as caught:
+                _compile(value, selected=selected)
+            self.assertEqual(caught.exception.code, code)
+
+
+def json_text(value: object) -> str:
+    return routine_plan.canonical(value).decode()
