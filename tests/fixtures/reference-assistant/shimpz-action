@@ -10,6 +10,7 @@ import sys
 MAX_BODY = 512 * 1024
 ACTIONS = {"list-zones", "list-dns-records"}
 ZONE_ID = re.compile(r"[0-9a-f]{32}\Z")
+OPERATION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 
 
 def _invocation(action: str) -> dict[str, object]:
@@ -17,7 +18,11 @@ def _invocation(action: str) -> dict[str, object]:
     if not 0 < len(raw) <= MAX_BODY:
         raise ValueError
     payload = json.loads(raw)
-    if not isinstance(payload, dict) or set(payload) != {"input", "integrations"}:
+    if not isinstance(payload, dict) or set(payload) != {"input", "integrations", "stored_inputs", "operation_id"}:
+        raise ValueError
+    if payload["stored_inputs"] != {} or not isinstance(payload["operation_id"], str):
+        raise ValueError
+    if OPERATION_ID.fullmatch(payload["operation_id"]) is None:
         raise ValueError
     integrations = payload["integrations"]
     if not isinstance(integrations, dict) or set(integrations) != {"cloudflare"}:
@@ -65,7 +70,7 @@ def main() -> int:
         result = _result(sys.argv[1], _invocation(sys.argv[1]))
     except OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError:
         return 3
-    sys.stdout.write(json.dumps(result, allow_nan=False, separators=(",", ":")))
+    sys.stdout.write(json.dumps({"type": "result", "result": result}, allow_nan=False, separators=(",", ":")))
     return 0
 
 
