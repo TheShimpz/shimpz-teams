@@ -176,31 +176,43 @@ def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object
     return outcome
 
 
-def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
-    """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead."""
-    now = int(time.time())
+def _finish(self, run: _Run, outcome: str, detail: dict[str, object], skill: dict[str, object] | None) -> str:
+    """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead.
+
+    The skill the run learned is saved, its attempt audited first, only once its live lease and active time are proven
+    under the Routine lock, and before its notice persists (ADR-0085, ADR-0086): an expired worker changes no knowledge.
+    It never changes memory.
+    """
 
     def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
+        now = int(time.time())
         try:
-            return record.finish(state, run.run_id, run.lease, now, outcome, detail), outcome
+            finished = record.finish(state, run.run_id, run.lease, now, outcome, detail)
         except record.RoutineStateError:
             return record.end(state, run.run_id, now, "failed", {"code": "lease-expired", "actions": []}), "failed"
+        local_chat_api.save_knowledge(self, run.team_id, (), skill)
+        return finished, outcome
 
     return routine_state.update(self, run.team_id, finish)
 
 
-def _save_skill(self, team_id: str, terminal: chat_orchestrator.ChatOutcome) -> None:
-    """A completed run teaches its procedure like a chat turn, its attempt audited first (ADR-0085); never memory."""
-    local_chat_api.save_knowledge(self, team_id, (), chat_knowledge.learned_skill(terminal.actions))
+def _ending(terminal: chat_orchestrator.ChatOutcome) -> tuple[str, dict[str, object]]:
+    if terminal.clarification is not None:
+        return "needs-input", {"question": terminal.clarification["question"]}
+    reply = terminal.reply.strip()[: http_routine.MAX_NOTICE_REPLY_CHARS].strip() or "Done."
+    return "done", {"reply": reply}
 
 
 def _complete(self, run: _Run, terminal: chat_orchestrator.ChatOutcome) -> str:
-    if not self._commit_chat_terminal(run.team_id, run.token, lambda: _save_skill(self, run.team_id, terminal)):
+    """End a completed segment under the Stop guard: Stop wins, or the run finishes with its skill in one step."""
+    outcome, detail = _ending(terminal)
+    skill = chat_knowledge.learned_skill(terminal.actions)
+    ended: list[str] = []
+    if not self._commit_chat_terminal(
+        run.team_id, run.token, lambda: ended.append(_finish(self, run, outcome, detail, skill))
+    ):
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": _names(terminal.actions)})
-    if terminal.clarification is not None:
-        return _finish(self, run, "needs-input", {"question": terminal.clarification["question"]})
-    reply = terminal.reply.strip()[: http_routine.MAX_NOTICE_REPLY_CHARS].strip() or "Done."
-    return _finish(self, run, "done", {"reply": reply})
+    return ended[0]
 
 
 def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:

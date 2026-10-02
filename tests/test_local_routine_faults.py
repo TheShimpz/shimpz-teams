@@ -189,6 +189,28 @@ class RunFaultTests(RoutineServiceCase):
                 "chat-memory", result="ok", team_id="team_1", detail="attempt:memory=0,skill=1"
             )
 
+    def test_a_worker_whose_lease_or_active_time_ran_out_learns_no_skill(self) -> None:
+        for spent in ({"active_seconds_left": 0}, {"lease_expires_at": int(time.time()) - 1}):
+            with self.subTest(spent=spent), tempfile.TemporaryDirectory() as directory:
+                controller, service, claim = self.learning(directory)
+                before = service.inference_store.load_knowledge("team_1")
+
+                def invoke(*_args, spent=spent, service=service, run_id=claim["run_id"]):
+                    # The run's budget or lease runs out while its Action executes, before its segment completes.
+                    service.routine_store.update(
+                        "team_1",
+                        lambda state: (
+                            record._replace_run(state, dataclasses.replace(record.run(state, run_id), **spent)),
+                            None,
+                        ),
+                    )
+                    return {"result": {"zones": []}}
+
+                controller.assistant_lifecycle.invoke = invoke
+                self.assertEqual(self.run_claim(service, claim)["status"], "failed")
+                self.assertEqual(self.state(service).notices[-1].detail["code"], "lease-expired")
+                self.assertEqual(service.inference_store.load_knowledge("team_1"), before)
+
     def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
