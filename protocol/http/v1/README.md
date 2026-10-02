@@ -177,11 +177,14 @@ forwards it only to the Brain's turn start; the Brain uses it only when it retai
 Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
 A Local chat body also carries `request` and `timezone` (`payload.LOCAL_CHAT_BODY_FIELDS`, ADR-0092); Hosted keeps
 the exact body above. `request` is the identity Local Admin issues once per sent message
-(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. Admin keeps
-the same identity across a transport retry and an ADR-0081 resend of that message. Team binds it to the Supervisor
+(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. The browser
+names each sent message with one nonce and keeps it across a transport retry, a reconnect, and an ADR-0081 resend of
+that message; Admin issues `issued_at` once per nonce, keeps it for a resend, and refuses a resend that the same
+predicate no longer admits, so an expired retry is never a new grant. Team binds it to the Supervisor
 principal, the Team incarnation, and the canonical message, and a Routine change carried by the request commits at most
-once with it: only while `issued_at` is at most 900 seconds old and at most 60 seconds ahead of Team's clock, and only
-while the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
+once with it: only while `issued_at` is less than 900 seconds old and at most 60 seconds ahead of Team's clock
+(`payload.request_identity_fresh`, exclusive at 900 s, the same second the receipt stops being live), and only while
+the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
 receipt. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
 default zone of a Routine the message creates.
 

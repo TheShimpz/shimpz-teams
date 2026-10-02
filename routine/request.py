@@ -30,12 +30,8 @@ class Request:
     excluded: tuple[tuple[int, int], ...] = ()
 
     def fresh(self, now: int) -> bool:
-        """Whether the identity may still change a Routine: issued at most 900 s ago and not far ahead of Team."""
-        return (
-            now - http_payload.REQUEST_IDENTITY_SECONDS
-            <= self.issued_at
-            <= now + http_payload.REQUEST_IDENTITY_SKEW_SECONDS
-        )
+        """Whether the identity may still change a Routine: issued under 900 s ago and not far ahead of Team."""
+        return http_payload.request_identity_fresh(self.issued_at, now)
 
     @property
     def expires_at(self) -> int:

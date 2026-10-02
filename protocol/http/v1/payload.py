@@ -150,6 +150,16 @@ def canonical_locale(value: object) -> str | None:
     return value if isinstance(value, str) and value in CHAT_LOCALES else None
 
 
+def request_identity_fresh(issued_at: int, now: int) -> bool:
+    """Whether an identity issued at ``issued_at`` may still change a Routine at ``now``.
+
+    The window is exclusive at its end: an identity issued at ``t`` is fresh through ``t + 899`` and expired from
+    ``t + 900``, the same second its receipt stops being live, and it may be at most 60 s ahead of the clock judging it.
+    Admin and Team judge a resend with this one predicate.
+    """
+    return now - REQUEST_IDENTITY_SECONDS < issued_at <= now + REQUEST_IDENTITY_SKEW_SECONDS
+
+
 def canonical_request_identity(value: object) -> dict[str, object] | None:
     """Return one exact chat request identity, or None: a whole-second issue instant and a 32-hex nonce.
 

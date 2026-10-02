@@ -45,8 +45,10 @@ class RequestIdentityTests(unittest.TestCase):
     def test_an_identity_is_fresh_only_inside_its_window(self) -> None:
         request = Request(PRINCIPAL, "hello", 1_000_000, NONCE)
         self.assertTrue(request.fresh(1_000_000))
-        self.assertTrue(request.fresh(1_000_000 + http_payload.REQUEST_IDENTITY_SECONDS))
-        self.assertFalse(request.fresh(1_000_001 + http_payload.REQUEST_IDENTITY_SECONDS))
+        # Exclusive at its end: fresh through 899 s, expired from the second its receipt stops being live.
+        self.assertTrue(request.fresh(1_000_899))
+        self.assertFalse(request.fresh(1_000_900))
+        self.assertFalse(request.fresh(1_000_901))
         self.assertTrue(request.fresh(1_000_000 - http_payload.REQUEST_IDENTITY_SKEW_SECONDS))
         self.assertFalse(request.fresh(999_999 - http_payload.REQUEST_IDENTITY_SKEW_SECONDS))
         self.assertEqual(request.expires_at, 1_000_000 + http_payload.REQUEST_IDENTITY_SECONDS)

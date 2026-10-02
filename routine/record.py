@@ -269,6 +269,9 @@ def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tu
     """
     if _FINGERPRINT_RE.fullmatch(receipt) is None or type(expires_at) is not int:
         raise RoutineStateError("routine-receipt-invalid")
+    if expires_at <= now:
+        # An expired request can no longer be told apart from a replay once its receipt is gone: it never acts.
+        raise RoutineStateError("routine-request-expired")
     live = tuple(item for item in state.receipts if item[1] > now)
     if any(key == receipt for key, _expires in live):
         return dataclasses.replace(state, receipts=live), False

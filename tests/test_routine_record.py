@@ -601,6 +601,11 @@ class CompiledChangeTests(unittest.TestCase):
         full = dataclasses.replace(record.TeamRoutines(), receipts=live)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-receipts-full"):
             record.create(full, routine(), NINE, RECEIPT, NINE + 900)
+        # A request whose identity expired this very second never acts, though no receipt of it is live any more.
+        for moment in (NINE + 900, NINE + 901):
+            with self.subTest(moment=moment), self.assertRaisesRegex(record.RoutineStateError, "request-expired"):
+                record.create(record.TeamRoutines(), routine(), moment, RECEIPT, NINE + 900)
+        self.assertTrue(record.create(record.TeamRoutines(), routine(), NINE + 899, RECEIPT, NINE + 900)[1])
         for receipt, expires_at in (("E" * 64, NINE + 900), (RECEIPT, float(NINE))):
             with self.subTest(receipt=receipt), self.assertRaisesRegex(record.RoutineStateError, "receipt-invalid"):
                 record.create(record.TeamRoutines(), routine(), NINE, receipt, expires_at)

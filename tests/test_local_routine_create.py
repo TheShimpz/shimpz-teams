@@ -153,6 +153,7 @@ class DirectCreationTests(LocalContractCase):
             service.stop_chat("team_1")
 
         cases = (
+            (Runtime(_change()), _body(issued_at=int(time.time()) - 900), "routine-request-expired"),
             (Runtime(_change()), _body(issued_at=int(time.time()) - 901), "routine-request-expired"),
             (Runtime(_change(), before=stop), _body(), "chat-stopped"),
             (Runtime({"op": "create"}), _body(), "brain-runtime-failed"),
