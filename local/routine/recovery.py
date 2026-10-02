@@ -552,7 +552,8 @@ def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Re
         except ApiProblem:
             local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
 
-    timer = threading.Timer(reservation.seconds, expire)
+    # The absolute deadline, not a fresh delay: the time since the reservation was taken is already gone.
+    timer = threading.Timer(max(0.0, reservation.deadline - _clock()), expire)
     timer.daemon = True
     timer.start()
     try:
@@ -569,11 +570,12 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
     or a decision that could not be made pauses it, with that reason on the notice.
     """
     team_id, incident_id = run.team_id, run.run_id
-    verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
 
     def expired() -> bool:
         return reservation.expired.is_set() or _clock() >= reservation.deadline
 
+    # Nothing is dispatched once the reservation has run out, not even the verifier.
+    verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, budgeted=True)
     if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
         verdict = _decide(self, team_id, incident_id, api_key, None)
     if expired():
@@ -615,6 +617,10 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
                     return "held"
                 # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
                 left = max(0, math.floor(reservation.deadline - _clock()))
+                if not left:
+                    # No time is left for the retry: it is never dispatched.
+                    routine_incident.pause(self, team_id, incident_id, "exhausted")
+                    return "held"
                 outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
                 if outcome == "held" and reservation.expired.is_set():
                     # The deadline cut the continuation, even between steps: its partial evidence is held again, and

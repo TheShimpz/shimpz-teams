@@ -237,7 +237,8 @@ class AutomaticEdgeTests(AutomaticCase):
 
     def test_time_running_out_after_evidence_or_a_failing_assessment_holds_the_run(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
-        ticks = iter([0.0])
+        # Still in time when the verifier is dispatched; out of time once it answered.
+        ticks = iter([0.0, 0.0, 0.0])
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 61.0)):
                 service, _value, run_id = self.run_held(directory, assistant, Brain())
@@ -325,8 +326,9 @@ class DecisionClientTests(unittest.TestCase):
 
 
 class BalanceCase(AutomaticCase):
-    def held_with_balance(self, directory: str, seconds: int, assistant: Assistant):
-        service, _brain, value, run_id = self.held(directory, assistant)
+    def held_with_balance(self, directory: str, seconds: int, assistant: Assistant, brain: Brain | None = None):
+        """A held run, without its automatic episode yet, whose remaining active time is ``seconds``."""
+        service, _brain, value, run_id = self.held(directory, assistant, brain or Brain())
         service.routine_store.update(
             "team_1",
             lambda state: (
@@ -373,7 +375,7 @@ class RunBalanceTests(BalanceCase):
         brain = Brain("retry")
         assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 0, assistant)
+            service, _value, run_id = self.held_with_balance(directory, 0, assistant, brain)
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             outcome = routine_recovery.automatic(service, run, API_KEY)
             state = self.state(service)
@@ -416,7 +418,7 @@ class DeadlineTests(BalanceCase):
         brain = Brain("retry")
         assistant = Blocking([failed()], [{"outcome": "not_occurred"}])
         with tempfile.TemporaryDirectory() as directory:
-            service, _value, run_id = self.held_with_balance(directory, 1, assistant)
+            service, _value, run_id = self.held_with_balance(directory, 1, assistant, brain)
             service.assistant_lifecycle._fail_stop_action = mock.Mock(side_effect=lambda _container: released.set())
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             started = time.monotonic()
@@ -437,7 +439,7 @@ class DeadlineTests(BalanceCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.held_with_balance(directory, 30, assistant)
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
-            ticks = iter([0.0])
+            ticks = iter([0.0, 0.0, 0.0])
             with mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 31.0)):
                 outcome = routine_recovery.automatic(service, run, API_KEY)
             state = self.state(service)
@@ -510,3 +512,54 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
+
+    def test_the_timer_is_set_for_what_is_left_and_nothing_starts_once_it_ran_out(self) -> None:
+        delays: list[float] = []
+
+        class Captured:
+            def __init__(self, seconds, _function) -> None:
+                self.daemon = False
+                delays.append(seconds)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        brain = Brain("retry")
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_with_balance(directory, 30, assistant, brain)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            # Taken at 0, armed at 12, and already past its deadline when the episode would start work.
+            ticks = iter([0.0, 12.0])
+            with (
+                mock.patch.object(routine_recovery.threading, "Timer", Captured),
+                mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 30.0)),
+            ):
+                outcome = routine_recovery.automatic(service, run, API_KEY)
+            state = self.state(service)
+        self.assertEqual(delays, [18.0])
+        self.assertEqual((outcome, brain.asked), ("held", []))
+        self.assertNotIn("find-record", [action for action, _id in assistant.calls])
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+
+    def test_a_retry_with_no_time_left_is_never_dispatched(self) -> None:
+        brain = Brain("retry")
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_with_balance(directory, 30, assistant, brain)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            # In time through the decision, with less than a second left for the retry.
+            ticks = iter([0.0, 0.0, 0.0, 0.0, 29.5])
+            with (
+                service._exclusive_chat_turn("team_1") as token,
+                mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 29.5)),
+            ):
+                run.token = token
+                outcome = routine_recovery.automatic(service, run, API_KEY)
+            state = self.state(service)
+        self.assertEqual((outcome, len(brain.asked)), ("held", 1))
+        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
