@@ -73,8 +73,12 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen_container_id,
-                    action_human.ActionTranscript(""),
-                    local_app.action_execution.RpcPrivateInputs({}, {}),
+                    local_app.action_execution.ActionInvocationEvidence(
+                        local_app.action_execution.RpcPrivateInputs({}, {}),
+                        action_human.ActionTranscript(""),
+                        "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                    ),
                 )
                 try:
                     self.assertTrue(started.wait(timeout=1))
@@ -411,8 +415,12 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen.id,
-                    action_human.ActionTranscript(""),
-                    local_app.action_execution.RpcPrivateInputs({}, {}),
+                    local_app.action_execution.ActionInvocationEvidence(
+                        local_app.action_execution.RpcPrivateInputs({}, {}),
+                        action_human.ActionTranscript(""),
+                        "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                    ),
                 )
 
         self.assertEqual(lookups, [frozen.id, replacement.id])

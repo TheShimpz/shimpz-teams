@@ -561,6 +561,7 @@ class LocalController:
                 "input": safe_payload,
                 "integrations": action_execution.integration_access_tokens(private.integrations),
                 "stored_inputs": private.stored_inputs,
+                "operation_id": private.operation_id,
             }
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()

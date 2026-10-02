@@ -383,8 +383,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "different",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
         self.assertEqual(caught.exception.code, "team-context-changed")
 
@@ -396,8 +400,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
         subject = self._invocation_subject()
@@ -414,8 +422,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             ),
             "ok",
         )
@@ -435,8 +447,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
         subject = self._invocation_subject()
@@ -448,8 +464,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
     def test_problem_mapping_covers_every_closed_failure_family(self) -> None:
@@ -519,7 +539,9 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         spec = types.SimpleNamespace(stored_inputs={"token": types.SimpleNamespace(kind="password")})
         action_spec = types.SimpleNamespace(stored_inputs=("token",))
-        missing_origin = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        missing_origin = local_app.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
             local_chat_execution.seal_stored_inputs(
                 mock.Mock(),
@@ -530,7 +552,9 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 missing_origin,
             )
 
-        evidence = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "b" * 64)
+        evidence = local_app.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, "b" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaises(KeyError):
             local_chat_execution.seal_stored_inputs(
                 mock.Mock(),

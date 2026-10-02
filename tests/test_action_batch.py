@@ -98,7 +98,9 @@ class ActionBatchTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True})
         self.assertEqual(evidence, [{"sequence": 1}, {"sequence": 2}])
-        execute.assert_called_once_with(request, evidence[1])
+        (called_request, called_evidence, operation_id), _kwargs = execute.call_args
+        self.assertEqual((called_request, called_evidence), (request, evidence[1]))
+        self.assertTrue(action_journal.valid_operation_id(operation_id))
 
     def test_action_batch_excuses_only_a_stored_input_newly_sealed_by_a_sibling(self) -> None:
         first = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "search", {"q": "a"})
@@ -127,7 +129,7 @@ class ActionBatchTests(unittest.TestCase):
                     {"assistant": binding},
                     action_execution.ActionBatchStrategy(
                         lambda item: (item.container_id, item.spec.image),
-                        lambda _request, _evidence: {"ok": True},
+                        lambda _request, _evidence, _operation_id: {"ok": True},
                         lambda _request: None,
                         stored_input_generations=generations,
                     ),
@@ -169,7 +171,7 @@ class ActionBatchTests(unittest.TestCase):
                 {"assistant": binding},
                 action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence: {"ok": True},
+                    lambda _request, _evidence, _operation_id: {"ok": True},
                     lambda _request: None,
                 ),
             )
@@ -235,7 +237,7 @@ class ActionBatchTests(unittest.TestCase):
                 {"assistant": binding},
                 action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence: (_ for _ in ()).throw(RuntimeError("terminal failure")),
+                    lambda _request, _evidence, _operation_id: (_ for _ in ()).throw(RuntimeError("terminal failure")),
                     lambda _request: None,
                 ),
             )
@@ -303,7 +305,7 @@ class HeldActionBatchTests(unittest.TestCase):
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
 
-        def failing(_request, _evidence):
+        def failing(_request, _evidence, _operation_id):
             raise RuntimeError("the Assistant failed mid-write")
 
         with tempfile.TemporaryDirectory() as directory:

@@ -177,12 +177,15 @@ def list_routines(self, team_id: str) -> dict[str, object]:
 
 
 def _discard(self, team_id: str, run_id: str, generation: str) -> None:
-    """Remove one ended run's Brain thread, journal generation, and continuation; each removal is idempotent."""
+    """Remove one ended run's Brain thread, live journal batch, and continuation; each removal is idempotent.
+
+    An archive marker its unresolved evidence still needs stays in the journal (ADR-0092).
+    """
     if generation:
         network_id = generation.removesuffix(f":routine:{run_id}")
         try:
             self.brain_runtime.delete_thread(routine_thread_id(self.space_id, team_id, network_id, run_id))
-            self.action_state.purge(generation)
+            self.action_state.discard(generation)
         except (brain_runtime_client.BrainRuntimeError, action_journal.ActionJournalError) as exc:
             raise _problem(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"

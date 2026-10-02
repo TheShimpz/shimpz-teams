@@ -317,6 +317,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
             request.payload["input"],
             request.payload["integrations"],
             request.payload["stored_inputs"],
+            request.payload["operation_id"],
             request.payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:
@@ -744,6 +745,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         "input": safe_input,
         "integrations": action_execution.integration_access_tokens(private.integrations),
         "stored_inputs": private.stored_inputs,
+        "operation_id": private.operation_id,
     }
     if private.transcript.responses:
         rpc_payload["responses"] = private.transcript.payloads()

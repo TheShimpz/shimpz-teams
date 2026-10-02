@@ -575,6 +575,7 @@ class LocalContractTests(LocalContractCase):
             with mock.patch.object(local_app.local_audit, "record_request", return_value="trace"):
                 response = controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
+        self.assertTrue(local_app.action_journal.valid_operation_id(captured[0][1].pop("operation_id")))
         self.assertEqual(
             captured,
             [

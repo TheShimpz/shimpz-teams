@@ -111,6 +111,7 @@ class LocalLeafContractTests(unittest.TestCase):
             return prepared.durable_batch._strategy.execute(
                 types.SimpleNamespace(assistant_id="helper", interrupt_id="interrupt"),
                 object(),
+                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             )
 
         with (

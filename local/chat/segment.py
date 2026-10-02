@@ -123,7 +123,9 @@ def _run_chat_segment_with_metadata(
     network_id = ""
     contracts: tuple[tuple[str, str], ...] = ()
 
-    def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
+    def execute_action(
+        action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
+    ) -> object:
         active = _required_active_assistant(bindings, action_request.assistant_id)
         transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
         if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
@@ -133,8 +135,12 @@ def _run_chat_segment_with_metadata(
             request.token,
             action_request,
             active.container_id,
-            transcript,
-            private_inputs,
+            action_execution.ActionInvocationEvidence(
+                private_inputs,
+                transcript,
+                action_execution.stored_input_origin(action_request),
+                operation_id,
+            ),
         )
 
     def human_requirement(
@@ -224,6 +230,11 @@ def _run_chat_segment_with_metadata(
                     _required_active_assistant(bindings, action_request.assistant_id),
                     action_request,
                     origins,
+                ),
+                lambda action_request: (
+                    _required_active_assistant(bindings, action_request.assistant_id)
+                    .spec.actions[action_request.action]
+                    .effect
                 ),
             ),
         )

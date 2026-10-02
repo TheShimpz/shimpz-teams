@@ -245,6 +245,7 @@ def _execute_hosted_action(
     validated_assistant: hosted_assistants._ActiveAssistant,
     private_inputs: object,
     transcript: action_human.ActionTranscript,
+    operation_id: str,
 ) -> object:
     active = execution.bindings.get(request.assistant_id)
     if active is None:
@@ -266,6 +267,7 @@ def _execute_hosted_action(
                 private_inputs,
                 transcript,
                 action_execution.stored_input_origin(request),
+                operation_id,
             ),
         )
     )
@@ -304,7 +306,9 @@ def _run_hosted_chat_segment_with_metadata(
     def validate_action(assistant_id: str, action: str, action_input) -> object:
         return hosted_assistants._validate_assistant_action_input(bindings, assistant_id, action, action_input)
 
-    def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
+    def execute_action(
+        action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
+    ) -> object:
         nonlocal credential_evidence, validated_action_assistants
         if not credential_evidence:
             raise AssertionError("hosted Action lacks fresh credential evidence")
@@ -320,6 +324,7 @@ def _run_hosted_chat_segment_with_metadata(
             validated_assistant,
             private_inputs,
             transcript,
+            operation_id,
         )
 
     def human_requirement(
@@ -415,6 +420,7 @@ def _run_hosted_chat_segment_with_metadata(
                     request,
                     origins,
                 ),
+                lambda request: bindings[request.assistant_id].contract.actions[request.action].effect,
             ),
         )
         return chat_turn_engine.PreparedSegment(team_name, initial_identity, context, files, batch)

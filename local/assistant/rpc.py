@@ -67,6 +67,7 @@ def _rpc(
             payload["input"],
             payload["integrations"],
             payload["stored_inputs"],
+            payload["operation_id"],
             payload.get("responses", ()),
         )
     except (KeyError, ValueError) as exc:

@@ -77,17 +77,25 @@ def integration_access_tokens(integrations: Mapping[str, Mapping[str, object]]) 
     return tokens
 
 
+# Sizes an invocation before its journal mints the real id, which always has this exact length.
+OPERATION_ID_PLACEHOLDER = "00000000-0000-4000-8000-000000000000"
+
+
 def encode_rpc_invocation(
     action_input: object,
     integrations: Mapping[str, str],
     stored_inputs: Mapping[str, str],
+    operation_id: str,
     responses: tuple[Mapping[str, object], ...] = (),
 ) -> bytes:
-    """Encode one bounded Spec v1 invocation, adding responses only for replay."""
+    """Encode one bounded Spec v1 invocation of one logical operation, adding responses only for replay."""
+    if not action_journal.valid_operation_id(operation_id):
+        raise ValueError("Assistant Action operation id is invalid")
     invocation: dict[str, object] = {
         "input": action_input,
         "integrations": dict(integrations),
         "stored_inputs": dict(stored_inputs),
+        "operation_id": operation_id,
     }
     if responses:
         invocation["responses"] = [dict(response) for response in responses]
@@ -141,16 +149,22 @@ def action_operation(
 @dataclass(frozen=True, slots=True)
 class ActionBatchStrategy:
     binding_identity: Callable[[object], tuple[object, object]]
-    execute: Callable[[object, object], object]
+    # Runs one request with its preflight evidence under the logical operation id its journal minted.
+    execute: Callable[[object, object, str], object]
     preflight: Callable[[object], object]
     integration_generations: Callable[[object], tuple[tuple[str, int], ...]] = lambda _request: ()
     stored_input_generations: Callable[[object, frozenset[str]], tuple[tuple[str, int], ...]] = (
         lambda _request, _origins: ()
     )
+    # The pinned reviewed effect class of a request's Action; anything not declared read_only is mutating.
+    effect: Callable[[object], str] = lambda _request: "mutating"
 
 
 class ActionBatch:
     """Bind a Brain suspension to one durable journal batch and immutable workload identities."""
+
+    # A Routine batch reserves the archive marker its incident may need before any of its Actions runs.
+    archivable = False
 
     def __init__(
         self,
@@ -222,7 +236,9 @@ class ActionBatch:
         }
         if self._journal is None:
             self._journal = self._journal_source()
-        self._batch = self._journal.prepare_batch(self._generation, self._thread_id, operations)
+        self._batch = self._journal.prepare_batch(
+            self._generation, self._thread_id, operations, archivable=self.archivable
+        )
         self._operations = {operation.interrupt_id: operation for operation in operations}
 
     def invoke(self, request: object) -> object:
@@ -241,10 +257,17 @@ class ActionBatch:
             return decision.result
         self._executing_here.add(operation.interrupt_id)
         try:
-            result = self._strategy.execute(request, evidence)
+            result = self._strategy.execute(request, evidence, decision.operation_id)
         except action_human.HumanRequestSuspensionError:
             self._journal.suspend(self._batch, operation)
             self._executing_here.discard(operation.interrupt_id)
+            raise
+        except Exception as exc:
+            # A handled failure of a reviewed read-only Action had no business effect; every other failure, and any
+            # failure of a mutating Action, stays uncertain in the journal (ADR-0092).
+            if action_failure.failure_of(exc) is not None and self._strategy.effect(request) == "read_only":
+                self._journal.fail_without_effect(self._batch, operation)
+                self._executing_here.discard(operation.interrupt_id)
             raise
         self._journal.complete(self._batch, operation, result)
         self._executing_here.discard(operation.interrupt_id)
@@ -292,6 +315,8 @@ class HeldActionBatch(ActionBatch):
     ``held`` is the fingerprint of the batch left uncertain, so the run can record exactly which batch a Supervisor must
     later resolve.
     """
+
+    archivable = True
 
     held: str = ""
     held_actions: tuple[tuple[str, str], ...] = ()
@@ -628,11 +653,12 @@ class RpcPrivateInputs:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ActionInvocationEvidence:
-    """Invoke-time private evidence plus the memory-only replay transcript."""
+    """Invoke-time private evidence, the memory-only replay transcript, and the journaled logical operation id."""
 
     private_inputs: RpcPrivateInputs
     transcript: action_human.ActionTranscript
     origin: str
+    operation_id: str
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -643,6 +669,7 @@ class ResolvedInvocationEvidence:
     stored_inputs: Mapping[str, str]
     transcript: action_human.ActionTranscript
     origin: str | None
+    operation_id: str
 
 
 def resolve_invocation_evidence(
@@ -650,13 +677,17 @@ def resolve_invocation_evidence(
     resolve_integrations: Callable[[], Mapping[str, Mapping[str, object]]],
     resolve_stored_inputs: Callable[[], Mapping[str, action_stored_input.StoredInputValue]],
 ) -> ResolvedInvocationEvidence:
-    """Use frozen chat evidence or resolve exact private values for a direct invocation."""
+    """Use frozen chat evidence or resolve exact private values for a direct invocation.
+
+    A direct invocation is not journaled and never replayed, so it is one fresh logical operation.
+    """
     if evidence is not None:
         return ResolvedInvocationEvidence(
             evidence.private_inputs.integrations,
             evidence.private_inputs.stored_inputs,
             evidence.transcript,
             evidence.origin,
+            evidence.operation_id,
         )
     resolved = resolve_stored_inputs()
     return ResolvedInvocationEvidence(
@@ -664,6 +695,7 @@ def resolve_invocation_evidence(
         {stored_input_id: value.value for stored_input_id, value in resolved.items()},
         action_human.ActionTranscript(""),
         None,
+        action_journal.new_operation_id(),
     )
 
 
@@ -681,6 +713,7 @@ def require_rpc_envelope(
         request.input,
         integration_access_tokens(integrations),
         stored_inputs,
+        OPERATION_ID_PLACEHOLDER,
     )
     return RpcPrivateInputs(integrations, stored_inputs)
 

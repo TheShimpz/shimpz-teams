@@ -611,6 +611,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 local_app.action_execution.RpcPrivateInputs({}, {}),
                 transcript,
                 "b" * 64,
+                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             )
             with (
                 mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),

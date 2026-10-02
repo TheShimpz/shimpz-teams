@@ -11,6 +11,7 @@ from http import HTTPStatus
 from pathlib import Path
 from unittest import mock
 
+from action import journal as action_journal
 from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
@@ -169,6 +170,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
         self.assertEqual(len(inspected), 1)
         self.assertIs(inspected[0], inspect_memo)
+        # A direct invocation is one fresh logical operation; its id is the protocol's random version 4 UUID.
+        self.assertTrue(action_journal.valid_operation_id(captured[0].pop("operation_id")))
         self.assertEqual(
             captured,
             [
@@ -224,6 +227,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                         hosted_assistants.action_execution.RpcPrivateInputs(integration_values, {}),
                         action_human.ActionTranscript("interrupt"),
                         "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
             )
@@ -276,6 +280,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                         hosted_assistants.action_execution.RpcPrivateInputs({}, {}),
                         action_human.ActionTranscript("interrupt"),
                         "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
             )

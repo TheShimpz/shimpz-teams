@@ -177,8 +177,7 @@ def _invoke_chat_action(
     token: str,
     action_request: brain_runtime_client.ActionRequest,
     frozen_container_id: str,
-    transcript: action_human.ActionTranscript,
-    private_inputs: action_execution.RpcPrivateInputs,
+    evidence: action_execution.ActionInvocationEvidence,
 ) -> object:
     assistant_id = action_request.assistant_id
     with self._lock(team_id):
@@ -206,11 +205,7 @@ def _invoke_chat_action(
             assistant_id,
             action_request.action,
             action_request.input,
-            action_execution.ActionInvocationEvidence(
-                private_inputs,
-                transcript,
-                action_execution.stored_input_origin(action_request),
-            ),
+            evidence,
         )
     except ApiProblem:
         if self._chat_cancelled(token):

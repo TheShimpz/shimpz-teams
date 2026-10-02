@@ -407,6 +407,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants.action_execution.RpcPrivateInputs({}, {}),
                 assistants.action_human.ActionTranscript("interrupt"),
                 "a" * 64,
+                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             ),
         }
         for action in (None, "INVALID", "missing"):
@@ -495,6 +496,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                                 assistants.action_execution.RpcPrivateInputs({}, {}),
                                 transcript,
                                 "a" * 64,
+                                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                             )
                         }
                     )
@@ -553,7 +555,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             "whatsapp-token",
         )
         transcript = assistants.action_human.ActionTranscript("interrupt", (response,))
-        private = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "a" * 64)
+        private = assistants.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, "a" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
 
         with (
             mock.patch.object(
@@ -573,7 +577,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(rejected.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-token", rejected.exception.message)
 
-        without_origin = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        without_origin = assistants.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
             assistants._seal_hosted_stored_inputs(request, without_origin)
 
