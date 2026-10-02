@@ -491,6 +491,8 @@ class _Reservation:
     expired: threading.Event = dataclasses.field(default_factory=threading.Event)
     # Set once the time left was handed to the continuation, which then accounts for it as the run's own.
     transferred: threading.Event = dataclasses.field(default_factory=threading.Event)
+    # Set once the episode published why it paused the Routine, so its ending never publishes a second reason.
+    published: threading.Event = dataclasses.field(default_factory=threading.Event)
 
     @property
     def deadline(self) -> float:
@@ -596,7 +598,7 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
         verdict = "exhausted"
     reason = _PAUSES.get(verdict)
     if reason is not None:
-        routine_incident.pause(self, team_id, incident_id, reason)
+        _publish(self, run, reservation, reason)
     return verdict in _GO_ON and not self._chat_cancelled(run.token)
 
 
@@ -613,7 +615,7 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
     if _stopped(self, run.token, reservation):
         return "held"
     if not left:
-        routine_incident.pause(self, team_id, incident_id, "exhausted")
+        _publish(self, run, reservation, "exhausted")
         return "held"
     # The time left is handed to the held run durably, so its continuation may start: never more than was reserved,
     # and never back to either budget.
@@ -623,9 +625,23 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
         lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, left), None),
     )
     reservation.transferred.set()
-    outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
-    if outcome == "held" and reservation.expired.is_set():
-        routine_incident.pause(self, team_id, incident_id, "exhausted")
+    return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
+
+
+def _publish(self, run: routine_run._Run, reservation: _Reservation, reason: str) -> None:
+    """Pause the Routine the held run belongs to and say why, once per episode."""
+    routine_incident.pause(self, run.team_id, run.run_id, reason)
+    reservation.published.set()
+
+
+def _finish(self, run: routine_run._Run, reservation: _Reservation, outcome: str) -> str:
+    """End the episode: a held run its deadline cut, however it got there, pauses the Routine as exhausted.
+
+    Its evidence stays held either way. A failure to publish leaves the incident for the card.
+    """
+    if outcome == "held" and reservation.expired.is_set() and not reservation.published.is_set():
+        with contextlib.suppress(ApiProblem):
+            _publish(self, run, reservation, "exhausted")
     return outcome
 
 
@@ -653,8 +669,15 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
             _deadline(self, team_id, incident_id, run.token, reservation),
         ):
             try:
-                return _go_on(self, run, reservation, progress) if _episode(self, run, api_key, reservation) else "held"
+                outcome = (
+                    _go_on(self, run, reservation, progress) if _episode(self, run, api_key, reservation) else "held"
+                )
+            except ApiProblem:
+                # A refusal on the way, such as a continuation the deadline cancelled before it reopened, still ends
+                # the episode as held, with its evidence.
+                outcome = "held"
             finally:
                 _release(self, team_id, incident_id, reservation)
+            return _finish(self, run, reservation, outcome)
     except ApiProblem:
         return "held"

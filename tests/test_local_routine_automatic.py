@@ -641,3 +641,51 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
+
+    def test_a_deadline_that_cancels_the_continuation_before_it_reopens_still_pauses_as_exhausted(self) -> None:
+        fired: list[object] = []
+
+        class Captured:
+            def __init__(self, _seconds, function) -> None:
+                self.daemon = False
+                fired.append(function)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        real_continued = routine_recovery.routine_cursor.continued
+
+        def continued(cursor):
+            # The deadline passes while the continuation is being prepared, before the run reopens.
+            fired[-1]()
+            return real_continued(cursor)
+
+        brain = Brain("retry")
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.routine_cursor, "continued", side_effect=continued),
+        ):
+            service, value, run_id = self.run_held(directory, assistant, brain)
+            state = self.state(service)
+        # The refused continuation is no plain hold: the incident and its evidence stay, and the Routine pauses.
+        self.assertEqual(self.status, "held")
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+        self.assertTrue(record.routine(state, value.routine_id).paused)
+        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
+
+    def test_an_episode_that_cannot_register_holds_the_run(self) -> None:
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _value, run_id = self.held_with_balance(directory, 30, assistant)
+            with service._active_chat_guard:
+                # A Stop found the run unregistered and fenced it out.
+                service._routine_halting.add(run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            self.assertEqual(routine_recovery.automatic(service, run, API_KEY), "held")
+        self.assertNotIn("find-record", [action for action, _id in assistant.calls])
