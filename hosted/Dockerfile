@@ -135,7 +135,7 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      ./protocol/account/authority/v1/
 COPY protocol/http/v1/payload.py ./protocol/http/v1/
 COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/failure_validator.py \
-    protocol/assistant/v1/human_request_validator.py \
+    protocol/assistant/v1/human_request_validator.py protocol/assistant/v1/input_file_validator.py \
     protocol/assistant/v1/message_catalog_validator.py \
     ./protocol/assistant/v1/
 COPY core/__init__.py core/strict_json.py ./core/

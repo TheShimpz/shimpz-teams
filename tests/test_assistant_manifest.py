@@ -173,6 +173,7 @@ class AssistantManifestTests(unittest.TestCase):
                     "output_schema": {"type": "object", "additionalProperties": False},
                     "integrations": [],
                     "stored_inputs": ["whatsapp-token"],
+                    "input_files": [],
                     "human_requests": ["input:password"],
                     "effect": "mutating",
                 }
@@ -435,7 +436,16 @@ class AssistantManifestTests(unittest.TestCase):
         )
         self.assertEqual(
             set(reviewed.machine_contract["actions"][0]),
-            {"id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests", "effect"},
+            {
+                "id",
+                "input_schema",
+                "output_schema",
+                "integrations",
+                "stored_inputs",
+                "input_files",
+                "human_requests",
+                "effect",
+            },
         )
 
         foreign = json.loads(raw)
@@ -646,6 +656,7 @@ class AssistantManifestTests(unittest.TestCase):
                         "output_schema": schema(output_nodes),
                         "integrations": [],
                         "stored_inputs": [],
+                        "input_files": [],
                         "human_requests": [],
                         "effect": "read_only",
                     }
@@ -677,14 +688,12 @@ class AssistantManifestTests(unittest.TestCase):
             assistant_manifest._machine_schema(invalid, kind="input")
         check_schema.assert_not_called()
 
-        # Eight Actions of two schemas each: four contract values, five values of the one summary message, six values
-        # per Action, nine schemas of 2,044 values, and seven of 2,045 make 32,768 values, with every schema below its
+        # Eight Actions of two schemas each: four contract values, five values of the one summary message, seven values
+        # per Action, fifteen schemas of 2,044 values, and one of 2,043 make 32,768 values, with every schema below its
         # own bound.
-        whole = contract(2045, 2045, actions=8)
-        for action in whole["actions"]:
-            action["input_schema"] = schema(2044)
-        whole["actions"][1]["output_schema"] = schema(2044)
-        self.assertEqual(4 + 5 + 8 * 6 + 9 * 2044 + 7 * 2045, 32_768)
+        whole = contract(2044, 2044, actions=8)
+        whole["actions"][1]["output_schema"] = schema(2043)
+        self.assertEqual(4 + 5 + 8 * 7 + 15 * 2044 + 2043, 32_768)
         self.assertEqual(
             len(assistant_manifest.canonical_machine_contract(whole, (), summary=summary, allowed_hosts=())["actions"]),
             8,

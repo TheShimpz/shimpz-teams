@@ -39,6 +39,7 @@ ASSISTANT_PROTOCOL_RUNTIME = {
     "protocol/assistant/v1/action_effect_validator.py",
     "protocol/assistant/v1/failure_validator.py",
     "protocol/assistant/v1/human_request_validator.py",
+    "protocol/assistant/v1/input_file_validator.py",
     "protocol/assistant/v1/message_catalog_validator.py",
 }
 HOSTED_PROTOCOL_DATA = {

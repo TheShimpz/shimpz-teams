@@ -9,6 +9,8 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
+from protocol.assistant.v1 import input_file_validator
+
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 DEFINITIONS = "definitions.schema.json"
 ENTRY_POINTS = {
@@ -122,6 +124,12 @@ def _validate_resolve(value: dict[str, object]) -> None:
     contract = value.get("machine_contract")
     if not isinstance(intents, list) or not isinstance(contract, dict):
         return
+    if any(
+        action.get("input_files") and input_file_validator.declaration_error(action) is not None
+        for action in contract.get("actions", [])
+        if isinstance(action, dict)
+    ):
+        raise ContractValidationError("resolve_input_file_mismatch")
     intent_ids = _intent_ids(intents)
     required_ids = _required_integration_ids(contract)
     if len(intent_ids) != len(intents) or len(set(intent_ids)) != len(intent_ids):

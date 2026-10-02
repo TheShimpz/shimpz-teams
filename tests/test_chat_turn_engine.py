@@ -568,6 +568,7 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                         "output_schema": dict(declared_action.output_schema),
                         "integrations": [],
                         "stored_inputs": [],
+                        "input_files": [],
                         "human_requests": [],
                         "effect": "read_only",
                     }

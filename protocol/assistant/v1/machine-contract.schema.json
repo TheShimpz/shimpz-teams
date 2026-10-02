@@ -46,7 +46,16 @@
     "action": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests", "effect"],
+      "required": [
+        "id",
+        "input_schema",
+        "output_schema",
+        "integrations",
+        "stored_inputs",
+        "input_files",
+        "human_requests",
+        "effect"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/identifier"
@@ -71,6 +80,16 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/identifier"
+          }
+        },
+        "input_files": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         },
         "human_requests": {

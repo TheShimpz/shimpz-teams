@@ -98,6 +98,7 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "output_schema": dict(action.output_schema),
                     "integrations": list(action.integrations),
                     "stored_inputs": list(action.stored_inputs),
+                    "input_files": [],
                     "human_requests": list(action.human_requests),
                     "effect": action.effect,
                 }
@@ -191,6 +192,7 @@ def mutating_spec(image: str) -> AssistantSpec:
             "output_schema": dict(action.output_schema),
             "integrations": list(action.integrations),
             "stored_inputs": list(action.stored_inputs),
+            "input_files": [],
             "human_requests": list(action.human_requests),
             "effect": action.effect,
             **({} if action.verifier is None else {"verifier": dict(action.verifier)}),

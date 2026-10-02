@@ -24,6 +24,7 @@ from assistant import action_schema
 from assistant import effect as action_effect
 from core import strict_json
 from integrations import providers as integration_providers
+from protocol.assistant.v1 import input_file_validator
 from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
@@ -357,7 +358,9 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
         raise ManifestError(f"Assistant Action {kind} schema {exc}") from exc.__cause__
 
 
-_ACTION_FIELDS = frozenset({"id", "input_schema", "output_schema", "integrations", "stored_inputs", "human_requests"})
+_ACTION_FIELDS = frozenset(
+    {"id", "input_schema", "output_schema", "integrations", "stored_inputs", "input_files", "human_requests"}
+)
 _ACTION_REQUIRED = _ACTION_FIELDS | {"effect"}
 _ACTION_OPTIONAL = frozenset({"verifier", "idempotency"})
 
@@ -443,12 +446,16 @@ def _canonical_action(
         raise ManifestError("Assistant machine contract Action human requests are invalid")
     if stored_inputs and "input:password" not in human_requests:
         raise ManifestError("Assistant machine contract Action Stored Input request is undeclared")
+    # A file input is one required direct file-id property behind exactly one authorization request (ADR-0093).
+    if input_file_validator.declaration_error(raw_action) is not None:
+        raise ManifestError("Assistant machine contract Action file input is invalid")
     return {
         "id": action_id,
         "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
         "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
         "integrations": sorted(integrations),
         "stored_inputs": sorted(stored_inputs),
+        "input_files": list(raw_action["input_files"]),
         "human_requests": sorted(human_requests),
         # The effect class and its optional declarations, closed by the effect validator; copied, never aliased.
         **{key: copy.deepcopy(raw_action[key]) for key in sorted(raw_action.keys() - _ACTION_FIELDS)},

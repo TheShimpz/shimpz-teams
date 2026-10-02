@@ -31,6 +31,7 @@ MACHINE_CONTRACT = {
             "output_schema": {"type": "object", "properties": {}, "additionalProperties": False},
             "integrations": [],
             "stored_inputs": [],
+            "input_files": [],
             "human_requests": [],
             "effect": "read_only",
         }

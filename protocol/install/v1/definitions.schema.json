@@ -220,6 +220,7 @@
         "output_schema",
         "integrations",
         "stored_inputs",
+        "input_files",
         "human_requests",
         "effect"
       ],
@@ -247,6 +248,16 @@
           "uniqueItems": true,
           "items": {
             "$ref": "#/$defs/componentIdentifier"
+          }
+        },
+        "input_files": {
+          "type": "array",
+          "maxItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
           }
         },
         "human_requests": {

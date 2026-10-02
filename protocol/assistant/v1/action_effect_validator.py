@@ -3,7 +3,7 @@
 Every Action declares ``effect``. A ``mutating`` Action may declare how its provider honors the logical
 ``operation_id`` as an idempotency key, and may name one ``read_only`` Action of the same contract as its verifier,
 with fixed typed input bindings correlated to the exact operation and the output positions of its outcome and
-recovered result.
+recovered result. A binding never names a declared file input property (ADR-0093).
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ def _verifier_error(verifier: object, action: dict[str, object], by_id: dict[obj
     target = by_id.get(verifier["action"])
     return (
         _target_error(target, action)
-        or _bindings_error(verifier["input"], action.get("input_schema"), target.get("input_schema"))
+        or _bindings_error(verifier["input"], action, target.get("input_schema"))
         or _outcome_error(verifier["outcome"], target.get("output_schema"))
         or _result_error(verifier, target.get("output_schema"), action.get("output_schema"))
     )
@@ -111,7 +111,7 @@ def _non_interactive(target: dict[str, object]) -> bool:
     return requests == [] or (requests == ["input:password"] and bool(target.get("stored_inputs")))
 
 
-def _bindings_error(bindings: object, source: object, destination: object) -> str | None:
+def _bindings_error(bindings: object, action: dict[str, object], destination: object) -> str | None:
     if (
         not isinstance(bindings, dict)
         or not 1 <= len(bindings) <= MAX_BINDINGS
@@ -124,11 +124,20 @@ def _bindings_error(bindings: object, source: object, destination: object) -> st
         return "verifier_input_mismatch"
     if not set(bindings) <= set(properties) or not set(required) <= set(bindings):
         return "verifier_input_mismatch"
+    source = action.get("input_schema")
+    files = action.get("input_files")
     for name, binding in bindings.items():
         error = _binding_error(binding, source, properties[name])
         if error is not None:
             return error
+        if isinstance(files, list) and binding != {"from": "operation_id"} and _names_file(binding, files):
+            return "verifier_binding_file"
     return None if _correlated(bindings, source) else "verifier_uncorrelated"
+
+
+def _names_file(binding: dict[str, object], files: list[object]) -> bool:
+    """A file id reaches an Action only through that Action's own declared file input."""
+    return pointer_tokens(binding["pointer"])[0] in files
 
 
 def _correlated(bindings: dict[str, object], source: object) -> bool:

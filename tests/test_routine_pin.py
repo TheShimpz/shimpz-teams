@@ -52,6 +52,7 @@ def _contract() -> dict[str, object]:
                 "output_schema": CREATED,
                 "integrations": ["cloudflare"],
                 "stored_inputs": [],
+                "input_files": [],
                 "human_requests": ["approval"],
                 "effect": "mutating",
                 "idempotency": {
@@ -74,6 +75,7 @@ def _contract() -> dict[str, object]:
                 "output_schema": FIND_OUTPUT,
                 "integrations": [],
                 "stored_inputs": ["api-key"],
+                "input_files": [],
                 "human_requests": ["input:password"],
                 "effect": "read_only",
             },
@@ -83,6 +85,7 @@ def _contract() -> dict[str, object]:
                 "output_schema": CREATED,
                 "integrations": [],
                 "stored_inputs": [],
+                "input_files": [],
                 "human_requests": [],
                 "effect": "read_only",
             },

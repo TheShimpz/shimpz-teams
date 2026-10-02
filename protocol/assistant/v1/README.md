@@ -34,15 +34,16 @@ Unknown fields and unsupported Spec versions fail closed.
 pre-build. `shimpz.contract.json` is build output and does not belong in an Assistant repository.
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
-capabilities, Stored Input ids, effect class, and optional idempotency and verifier declared by that Action. An undeclared capability
+capabilities, Stored Input ids, file inputs, effect class, and optional idempotency and verifier declared by that
+Action. An undeclared capability
 never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
-unique, every used Stored Input is declared, every nested object schema is closed, every effect, idempotency, and
-verifier declaration is valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
+unique, every used Stored Input is declared, every nested object schema is closed, every file input, effect,
+idempotency, and verifier declaration is valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
 the Action files and `lib/**/*.py` that runs before any Creator code is imported: request copy is supplied only as a
 literal template, and a computed template, f-string, alias, or formatting expression is refused.
 
@@ -187,6 +188,42 @@ scheduled runs. The declaration is a reviewed Creator statement about the provid
 exactly-once execution. `action-effect-vectors.json` freezes admitted and refused declarations over complete Action
 lists, and `action_effect_validator.py` is the reference implementation.
 
+## File inputs
+
+Every Action declares `input_files`, the input properties that carry one Team file (ADR-0093). It is `[]` for an
+ordinary Action, and in v1 it names at most one property:
+
+```json
+{
+  "input_files": ["document"],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "document": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$" }
+    },
+    "required": ["document"],
+    "additionalProperties": false
+  },
+  "human_requests": ["approval"]
+}
+```
+
+- A declared name of 1 to 128 characters is a direct member of the input schema's literal `properties` that is
+  listed in its `required`, and that property's subschema is exactly the file-id schema above, compared as JSON
+  values in which annotations count and an integer never equals a number. Nested, array, reference, and combinator
+  positions, optional properties, and more than one file are refused, and there are no output files.
+- The declaration, not the string shape, makes a property a file: a 32-hex string property that is not declared is an
+  ordinary string and never receives a file.
+- An Action that declares a file input declares exactly one authorization capability (`approval`, `auth:password`,
+  `auth:totp`, or `auth:passkey`), because its bytes are delivered only after that authorization.
+- A verifier binding never names a declared file input property, so a file id reaches an Action only through that
+  Action's own declaration. A file-taking Action needs authorization and therefore is never a verifier.
+
+The model argument carries only the opaque file id. Team admits only an id that the current logical turn selected,
+determines the media type from the bytes, and records the file in the invocation's `files` object, described below.
+`input-file-vectors.json` freezes admitted and refused declarations over complete Action lists, and
+`input_file_validator.py` is the reference implementation.
+
 ## Message catalog
 
 Every user-visible string an Assistant authors is English catalog copy. The generated contract carries the catalog as
@@ -239,10 +276,50 @@ uses a reference that the request rules below admit for a field with one of the 
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-at most one exact Team-custodied Stored Input, the logical `operation_id`, and, only during deterministic logical
-replay, at most eight Team-admitted human responses. The request is
-passed over a private bounded stdin channel; tokens and responses never enter command-line arguments,
-environment variables, logs, generated artifacts, or the Brain.
+at most one exact Team-custodied Stored Input, the selected `files`, the logical `operation_id`, and, only during
+deterministic logical replay, at most eight Team-admitted human responses. The request is
+passed over a private bounded stdin channel; tokens, file bytes, and responses never enter command-line arguments,
+environment variables, logs, generated artifacts, or the Brain. An invocation is at most 524,288 bytes of UTF-8 JSON,
+or 12,582,912 bytes when it carries delivered file content.
+
+`files` is `{}` for an Action without a file input. For a file-taking Action it holds exactly the file named by the
+declared input property, keyed by that id:
+
+```json
+{
+  "0123456789abcdef0123456789abcdef": {
+    "name": "invoices.csv",
+    "media_type": "text/csv",
+    "size": 24,
+    "sha256": "<lowercase SHA-256 of the original bytes>",
+    "content": { "type": "withheld" }
+  }
+}
+```
+
+- `name` is the literal Team filename: trimmed, 1 to 255 UTF-8 bytes, without control characters, `/`, or `\`, and
+  never `.` or `..`. It is data, never a path, an instruction, or a catalog parameter.
+- `media_type` is the lowercase `type/subtype`, at most 127 characters without parameters, that Team determined from
+  the bytes; it is `application/octet-stream` when Team does not recognize them. An uploaded type, extension, or name
+  grants nothing.
+- `size` is 1 to 8,388,608 and `sha256` is the lowercase digest of the original bytes.
+- `content` is closed: `{"type": "withheld"}`, or `{"type": "delivered", "base64": B}` where `B` is canonical padded
+  standard base64 without whitespace whose decoding has exactly `size` bytes and hashes to `sha256`.
+
+Delivery uses the Action's one authorization ceremony in two phases. Before any file is bound, the response
+transcript must be well formed for the Action: every response closed, its ordinal equal to its position, its
+fingerprint a lowercase SHA-256, its kind one the Action declares, its value of that kind's type and bound, and at most
+one authorization response. Content is `withheld` until that transcript holds a response of exactly the Action's
+declared authorization kind, and `delivered` on every invocation whose transcript holds it; any other combination is
+refused. The runtime still matches each response's fingerprint to the request the Action makes during replay, and
+exposes the bytes only once the authorization response has matched. The first invocation therefore receives metadata only, the Action
+requests its declared authorization, Team adds a platform-rendered disclosure of the file to that card, and only the
+approved replay receives the original bytes, including any metadata they embed. An Action that never requests
+authorization never receives bytes. Reading withheld content is an error in the SDK, never an empty file.
+`file-invocation-vectors.json` freezes admitted and refused pairs of an Action and its invocation, and
+`input_file_validator.py` is the reference implementation. Its `files_shape_error` checks the `files` member before
+the Action's declaration is known, so a runtime can refuse a malformed invocation frame before it loads any Action;
+`invocation_files_error` adds the declaration, authorization, and content rules.
 
 `operation_id` is the canonical lowercase text of a random RFC 9562 version 4 UUID, such as
 `6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6`, exactly 36 characters. Team mints and persists it before the first

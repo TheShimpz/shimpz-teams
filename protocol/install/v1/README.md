@@ -59,6 +59,14 @@ may also carry one closed `idempotency` declaration: the provider host, the key 
 the provider's retention in seconds, and whether a reused key requires the same payload. These schemas fix
 the shape only; Developers Assistant Spec v1 owns the semantics, and Developers and Team each enforce them.
 
+Every machine-contract Action also carries `input_files`, the input properties that hold a Team file (ADR-0093):
+`[]` for an ordinary Action and at most one property name in v1. A declared name must be a required direct property
+of the Action's `input_schema` whose subschema is exactly
+`{"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}`, compared as JSON values, and an
+Action that declares one must declare exactly one authorization capability; otherwise resolve fails with
+`resolve_input_file_mismatch`. The declaration, not the string shape, makes a property a file. The invocation that
+delivers the file and every further rule belong to Developers Assistant Spec v1.
+
 Language packs travel with the artifact. Each final image holds the canonical pack for that catalog at the fixed
 read-only `/opt/shimpz/shimpz.pack.json` (`language_pack` in the runtime), and resolve carries its `pack_digest`:
 `sha256:` over the exact pack bytes. The signed provenance binds the same digest beside the manifest and machine

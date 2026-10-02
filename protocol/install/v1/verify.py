@@ -27,6 +27,9 @@ SCHEMAS = (
 )
 AUTHORITY_FILES = (*SCHEMAS, "README.md", "schema_validator.py", "vectors.json", "verify.py")
 SCHEMA_ORIGIN = "https://schemas.shimpz.com/assistant-install/v1/"
+AUTHORIZATION_REQUESTS = frozenset({"approval", "auth:password", "auth:totp", "auth:passkey"})
+# The exact schema of a declared file input: one opaque Team file id (ADR-0093).
+FILE_ID_SCHEMA = {"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}
 
 
 class ContractViolationError(ValueError):
@@ -128,6 +131,8 @@ def validate_resolve(value: dict[str, object]) -> None:
     actions = contract.get("actions")
     if not isinstance(actions, list):
         return
+    if not all(input_files_admitted(action) for action in actions if isinstance(action, dict)):
+        raise ContractViolationError("resolve_input_file_mismatch")
     required_ids = {
         integration
         for action in actions
@@ -165,6 +170,30 @@ def validate_resolve(value: dict[str, object]) -> None:
         if isinstance(action, dict)
     ):
         raise ContractViolationError("resolve_stored_input_mismatch")
+
+
+def input_files_admitted(action: dict[str, object]) -> bool:
+    """Each declared file input is a required direct property with the exact file-id schema behind one authorization."""
+    declared = action.get("input_files")
+    if not declared:
+        return True
+    schema = action.get("input_schema")
+    properties = schema.get("properties") if isinstance(schema, dict) else None
+    required = schema.get("required", []) if isinstance(schema, dict) else None
+    requests = action.get("human_requests")
+    return (
+        isinstance(declared, list)
+        and isinstance(properties, dict)
+        and isinstance(required, list)
+        and isinstance(requests, list)
+        and all(name in required and same_json(properties.get(name), FILE_ID_SCHEMA) for name in declared)
+        and sum(request in AUTHORIZATION_REQUESTS for request in requests) == 1
+    )
+
+
+def same_json(left: object, right: object) -> bool:
+    """Compare JSON values exactly: booleans, integers, and floats never compare equal to one another."""
+    return json.dumps(left, sort_keys=True) == json.dumps(right, sort_keys=True)
 
 
 def validate_catalog(value: dict[str, object]) -> None:

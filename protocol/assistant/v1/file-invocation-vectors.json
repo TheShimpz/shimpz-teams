@@ -1,0 +1,3068 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "an ordinary Action receives no file",
+      "action": {
+        "id": "list-folders",
+        "input_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [],
+        "human_requests": [],
+        "effect": "read_only"
+      },
+      "invocation": {
+        "input": {},
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "the first invocation receives metadata only",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "the approved replay receives the bytes",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "a name with spaces and Unicode is literal data",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "Relat\u00f3rio de mar\u00e7o.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "the file must match the input id",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "fedcba9876543210fedcba9876543210": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "the selected file must be present",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an ordinary Action refuses a file",
+      "action": {
+        "id": "list-folders",
+        "input_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [],
+        "human_requests": [],
+        "effect": "read_only"
+      },
+      "invocation": {
+        "input": {},
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a missing files member is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "bytes before authorization are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a denied response is not authorization",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "input:text",
+            "value": "yes"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "withheld bytes after authorization are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "bytes that differ from the digest are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHg="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "bytes that differ from the size are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 24,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "unpadded base64 is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 2,
+            "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+            "content": {
+              "type": "delivered",
+              "base64": "YWI"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "URL-safe base64 is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 2,
+            "sha256": "db8fed54159afe40ace5b49d702259fd88c9c4009307181824487baab5c6bdea",
+            "content": {
+              "type": "delivered",
+              "base64": "-_8="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "base64 with whitespace is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFt\nZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "non-canonical trailing bits are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 2,
+            "sha256": "fb8e20fc2e4c3f248c60c39bd652f3c1347298bb977b8b4d5903b85055620603",
+            "content": {
+              "type": "delivered",
+              "base64": "YWJ="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "an empty file is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 0,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a file over 8 MiB is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 8388609,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a path in the name is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "../invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a dot name is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "..",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an untrimmed name is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": " invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a control character in the name is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "a\tb.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a name over 255 UTF-8 bytes is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an uppercase media type is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "Text/CSV",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "a media type with parameters is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv; charset=utf-8",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an uppercase digest is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3B55B560D9B94670E7BBEEE1FC9C0D0CFEBB0E8CFAD4510F38AFDEDF46F42BEB",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an unknown content branch is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "url",
+              "url": "https://example.com"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "withheld content carries no bytes",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "an unknown file member is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            },
+            "path": "/tmp/x"
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "the declared passkey authorizes delivery",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "auth:passkey"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": "auth:passkey",
+            "value": true
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "an input answer before the authorization keeps its place",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval",
+          "input:text"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "kind": "input:text",
+            "value": "Invoices"
+          },
+          {
+            "ordinal": 1,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "an approval response does not authorize a passkey Action",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "auth:passkey"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a passkey response does not authorize an approval Action",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": "auth:passkey",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a passkey response without ordinal and fingerprint is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "auth:passkey"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "kind": "auth:passkey",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a passkey response with an invalid fingerprint is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "auth:passkey"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "kind": "auth:passkey",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a passkey response with an extra member is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "auth:passkey"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "kind": "auth:passkey",
+            "value": true,
+            "scope": "all"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a false authorization value is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": false
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate authorization responses are refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          },
+          {
+            "ordinal": 1,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "duplicate authorization responses are refused while withheld",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          },
+          {
+            "ordinal": 1,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a response ordinal out of position is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval",
+          "input:text"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 1,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "an undeclared response kind is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "kind": "input:text",
+            "value": "Invoices"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "name": "a response that is not an object is refused",
+      "action": {
+        "id": "upload-document",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "document": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 32,
+              "pattern": "^[0-9a-f]{32}$"
+            },
+            "folder": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "document",
+            "folder"
+          ],
+          "additionalProperties": false
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "integrations": [],
+        "stored_inputs": [],
+        "input_files": [
+          "document"
+        ],
+        "human_requests": [
+          "approval"
+        ],
+        "effect": "mutating"
+      },
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          "approval"
+        ]
+      },
+      "valid": false
+    }
+  ]
+}

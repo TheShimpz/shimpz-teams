@@ -26,6 +26,8 @@ class ActionSpec:
     integrations: tuple[str, ...] = ()
     stored_inputs: tuple[str, ...] = ()
     human_requests: tuple[str, ...] = ()
+    # The input properties that carry one Team file each (ADR-0093); empty for an ordinary Action.
+    input_files: tuple[str, ...] = ()
     # The reviewed effect class and optional verifier and idempotency declarations (ADR-0092); absent means mutating.
     effect: str = "mutating"
     verifier: Mapping[str, object] | None = None
@@ -41,6 +43,7 @@ def action_spec(action: Mapping[str, Any]) -> ActionSpec:
         integrations=tuple(action["integrations"]),
         stored_inputs=tuple(action["stored_inputs"]),
         human_requests=tuple(action["human_requests"]),
+        input_files=tuple(action["input_files"]),
         effect=action["effect"],
         verifier=action.get("verifier"),
         idempotency=action.get("idempotency"),

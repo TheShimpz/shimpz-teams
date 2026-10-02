@@ -13,6 +13,14 @@ from action_effect_validator import EFFECTS, effect_error
 from failure_validator import FAILURE_KEYS, failure_error
 from human_request_validator import reference_error
 from human_request_validator import verify_vectors as verify_human_vectors
+from input_file_validator import (
+    FILE_ID_SCHEMA,
+    MAX_BASE64_CHARACTERS,
+    MAX_FILE_BYTES,
+    MAX_INPUT_FILES,
+    input_files_error,
+    invocation_files_error,
+)
 from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
 from message_catalog_validator import verify_vectors as verify_catalog_vectors
 
@@ -76,8 +84,11 @@ def verify_verdict_vectors(filename: str, label: str, fields: dict[str, type], v
         fail(f"Assistant {label} vectors require positive and negative cases")
 
 
-def verify_reference_vectors(filename: str, label: str, field: str, error: Callable[[object], str | None]) -> None:
+def verify_reference_vectors(
+    filename: str, label: str, field: str | tuple[str, ...], error: Callable[..., str | None]
+) -> None:
     """Require named positive and negative cases whose verdicts the reference validator reproduces."""
+    fields = (field,) if isinstance(field, str) else field
     vectors = json.loads((HERE / filename).read_bytes())
     cases = vectors.get("cases") if isinstance(vectors, dict) else None
     if not isinstance(vectors, dict) or vectors.get("version") != 1 or not isinstance(cases, list) or not cases:
@@ -86,7 +97,7 @@ def verify_reference_vectors(filename: str, label: str, field: str, error: Calla
     for case in cases:
         if (
             not isinstance(case, dict)
-            or set(case) != {"name", field, "valid"}
+            or set(case) != {"name", *fields, "valid"}
             or not isinstance(case["name"], str)
             or not case["name"]
             or case["name"] in names
@@ -94,7 +105,7 @@ def verify_reference_vectors(filename: str, label: str, field: str, error: Calla
         ):
             fail(f"Assistant {label} vector case is invalid")
         names.add(case["name"])
-        if (error(case[field]) is None) != case["valid"]:
+        if (error(*(case[name] for name in fields)) is None) != case["valid"]:
             fail(f"Assistant {label} vector {case['name']!r} disagrees with the reference validator")
     if {case["valid"] for case in cases} != {False, True}:
         fail(f"Assistant {label} vectors require positive and negative cases")
@@ -246,6 +257,24 @@ if (
 ):
     fail("Assistant Action effect contract is invalid")
 verify_reference_vectors("action-effect-vectors.json", "Action effect", "actions", effect_error)
+
+file_schema = invocation.get("$defs", {}).get("file", {})
+file_content = file_schema.get("properties", {}).get("content", {}).get("oneOf", [{}, {}])
+if (
+    "files" not in invocation.get("required", [])
+    or invocation.get("properties", {}).get("files", {}).get("maxProperties") != MAX_INPUT_FILES
+    or invocation.get("$defs", {}).get("fileId", {}).get("pattern") != FILE_ID_SCHEMA["pattern"]
+    or file_schema.get("additionalProperties") is not False
+    or file_schema.get("properties", {}).get("size", {}).get("maximum") != MAX_FILE_BYTES
+    or file_content[-1].get("properties", {}).get("base64", {}).get("maxLength") != MAX_BASE64_CHARACTERS
+    or "input_files" not in machine["$defs"]["action"].get("required", [])
+    or action_properties.get("input_files", {}).get("maxItems") != MAX_INPUT_FILES
+):
+    fail("Assistant Action file input contract is invalid")
+verify_reference_vectors("input-file-vectors.json", "Action file input", "actions", input_files_error)
+verify_reference_vectors(
+    "file-invocation-vectors.json", "file invocation", ("action", "invocation"), invocation_files_error
+)
 
 messages = machine.get("properties", {}).get("messages", {})
 pack = json.loads((HERE / "language-pack.schema.json").read_bytes())

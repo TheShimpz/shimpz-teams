@@ -9,6 +9,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": true
@@ -25,6 +26,7 @@
         "stored_inputs": {
           "api-key": "secret"
         },
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": true
@@ -37,6 +39,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         "responses": [
           {
@@ -57,6 +60,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "00000000-0000-4000-b000-000000000000"
       },
       "valid": true
@@ -68,7 +72,8 @@
           "zone": "example.com"
         },
         "integrations": {},
-        "stored_inputs": {}
+        "stored_inputs": {},
+        "files": {}
       },
       "valid": false
     },
@@ -80,6 +85,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6F1C2B8E-3A4D-4C5E-9F60-718293A4B5C6"
       },
       "valid": false
@@ -92,6 +98,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-1c5e-9f60-718293a4b5c6"
       },
       "valid": false
@@ -104,6 +111,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-cf60-718293a4b5c6"
       },
       "valid": false
@@ -116,6 +124,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e3a4d4c5e9f60718293a4b5c6"
       },
       "valid": false
@@ -128,6 +137,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "{6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6}"
       },
       "valid": false
@@ -140,6 +150,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c60"
       },
       "valid": false
@@ -152,6 +163,7 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": 7
       },
       "valid": false
@@ -164,8 +176,303 @@
         },
         "integrations": {},
         "stored_inputs": {},
+        "files": {},
         "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
         "attempt_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "metadata-only file",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": true
+    },
+    {
+      "name": "delivered file",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        "responses": [
+          {
+            "ordinal": 0,
+            "fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "kind": "approval",
+            "value": true
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "name": "invocation without files",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "two files",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          },
+          "fedcba9876543210fedcba9876543210": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "uppercase file id",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789ABCDEF0123456789ABCDEF": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "file without content",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb"
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "delivered file without bytes",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "delivered"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "withheld file with bytes",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld",
+              "base64": "bmFtZSxhbW91bnQKZXhhbXBsZSw0Mgo="
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "empty file",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 0,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "file over 8 MiB",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 8388609,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "file name with a slash",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "a/b.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            }
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+      },
+      "valid": false
+    },
+    {
+      "name": "file with an unknown member",
+      "invocation": {
+        "input": {
+          "document": "0123456789abcdef0123456789abcdef",
+          "folder": "invoices"
+        },
+        "integrations": {},
+        "stored_inputs": {},
+        "files": {
+          "0123456789abcdef0123456789abcdef": {
+            "name": "invoices.csv",
+            "media_type": "text/csv",
+            "size": 23,
+            "sha256": "3b55b560d9b94670e7bbeee1fc9c0d0cfebb0e8cfad4510f38afdedf46f42beb",
+            "content": {
+              "type": "withheld"
+            },
+            "url": "https://example.com"
+          }
+        },
+        "operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
       },
       "valid": false
     }

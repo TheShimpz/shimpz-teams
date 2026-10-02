@@ -4,7 +4,7 @@
   "title": "Shimpz Action invocation v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["input", "integrations", "stored_inputs", "operation_id"],
+  "required": ["input", "integrations", "stored_inputs", "files", "operation_id"],
   "properties": {
     "input": {
       "type": "object"
@@ -36,6 +36,16 @@
         "maxLength": 1024
       }
     },
+    "files": {
+      "type": "object",
+      "maxProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/fileId"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/file"
+      }
+    },
     "responses": {
       "type": "array",
       "maxItems": 8,
@@ -45,6 +55,61 @@
     }
   },
   "$defs": {
+    "fileId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "media_type", "size", "sha256", "content"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^[^\\u0000-\\u001f\\u007f/\\\\]+$"
+        },
+        "media_type": {
+          "type": "string",
+          "maxLength": 127,
+          "pattern": "^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8388608
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "content": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type"],
+              "properties": {
+                "type": { "const": "withheld" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "base64"],
+              "properties": {
+                "type": { "const": "delivered" },
+                "base64": {
+                  "type": "string",
+                  "maxLength": 11184812
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
     "operationId": {
       "type": "string",
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"

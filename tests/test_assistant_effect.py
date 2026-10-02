@@ -66,6 +66,7 @@ def _action(action_id: str, effect: str, **members: object) -> dict[str, object]
         "output_schema": copy.deepcopy(CLOSED),
         "integrations": [],
         "stored_inputs": [],
+        "input_files": [],
         "human_requests": [],
         "effect": effect,
         **members,
