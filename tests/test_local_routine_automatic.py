@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import tempfile
+import time
 import unittest
 from typing import ClassVar
 from unittest import mock
@@ -141,8 +142,50 @@ class AutomaticTests(AutomaticCase):
             cursor = self.cursor(service, run_id)
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             again = routine_recovery.automatic(service, run, API_KEY)
+            state = self.state(service)
         self.assertEqual((self.status, brain.asked, again), ("held", [], "held"))
         self.assertEqual(cursor.remaining("recovery_seconds"), 0)
+        # Running out of recovery time publishes the pause and its reason, not a plain hold.
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+
+    def test_the_episode_time_is_reserved_durably_first_and_runs_under_a_cancellable_deadline(self) -> None:
+        brain = Brain("ask")
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        observed: list[tuple[int, float]] = []
+        real_verify = routine_recovery.verify
+
+        def watching(service, team_id, incident_id, token, *, budgeted):
+            # While the episode works, its whole time is already spent durably and it is registered to its deadline.
+            cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
+            registration = service._routine_runs[incident_id]
+            observed.append((cursor.remaining("recovery_seconds"), registration.deadline - time.monotonic()))
+            return real_verify(service, team_id, incident_id, token, budgeted=budgeted)
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery, "verify", side_effect=watching),
+        ):
+            service, _value, run_id = self.run_held(directory, assistant, brain)
+            cursor = self.cursor(service, run_id)
+            registered = run_id in service._routine_runs
+        ((remaining, left),) = observed
+        self.assertEqual(remaining, 0)
+        self.assertTrue(55 < left <= 60)
+        # The unused part comes back when the episode ends; at least a second is always charged.
+        self.assertTrue(0 < cursor.remaining("recovery_seconds") <= 59)
+        self.assertFalse(registered)
+
+    def test_a_crash_inside_the_episode_never_refills_its_time(self) -> None:
+        brain = Brain("ask")
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery, "_release"),
+        ):
+            # The process dies before the unused time is returned: the reservation stays spent.
+            service, _value, run_id = self.run_held(directory, assistant, brain)
+            cursor = self.cursor(service, run_id)
+        self.assertEqual((cursor.remaining("recovery_seconds"), cursor.remaining("episodes")), (0, 0))
 
 
 class AutomaticEdgeTests(AutomaticCase):
@@ -194,11 +237,14 @@ class AutomaticEdgeTests(AutomaticCase):
         ):
             self.run_held(directory, assistant, Brain())
         self.assertEqual(self.status, "held")
-        with mock.patch.object(routine_recovery.routine_incident, "open_recovery", side_effect=drift):
-            self.assertFalse(routine_recovery._within(None, "team_1", "a" * 32, 0.0))
-            self.assertIsNone(routine_recovery._spend_time(None, "team_1", "a" * 32, 0.0))
+        with (
+            mock.patch.object(routine_recovery.routine_incident, "open_recovery", side_effect=drift),
+            mock.patch.object(routine_recovery, "_clock", return_value=1.0),
+        ):
+            self.assertIsNone(routine_recovery._reserve(None, "team_1", "a" * 32))
+            self.assertIsNone(routine_recovery._release(None, "team_1", "a" * 32, 60, 0.0))
 
-    def test_an_episode_with_no_time_left_charges_nothing_more(self) -> None:
+    def test_an_episode_that_used_all_its_time_returns_nothing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _value, run_id = self.run_held(
                 directory, Assistant([failed()], [{"outcome": "inconclusive"}]), Brain()
@@ -208,8 +254,13 @@ class AutomaticEdgeTests(AutomaticCase):
                 cursor, "recovery_seconds", cursor.remaining("recovery_seconds")
             )
             service.routine_store.put_cursor("team_1", spent)
-            routine_recovery._spend_time(service, "team_1", run_id, 0.0)
+            with mock.patch.object(routine_recovery, "_clock", return_value=100.0):
+                routine_recovery._release(service, "team_1", run_id, 60, 0.0)
             self.assertEqual(self.cursor(service, run_id).remaining("recovery_seconds"), 0)
+            with self.assertRaisesRegex(routine_recovery.routine_cursor.CursorError, "cursor-budget-invalid"):
+                routine_recovery.routine_cursor.refund(spent, "recovery_seconds", 0)
+            with self.assertRaisesRegex(routine_recovery.routine_cursor.CursorError, "cursor-invalid"):
+                routine_recovery.routine_cursor.refund(cursor, "recovery_seconds", 61)
 
 
 _REAL_SPEND = routine_recovery.routine_cursor.spend

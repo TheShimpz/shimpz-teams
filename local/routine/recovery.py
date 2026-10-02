@@ -17,6 +17,7 @@ passed: it is retried only after proven absence, or the run is held again.
 from __future__ import annotations
 
 import contextlib
+import math
 import time
 from dataclasses import dataclass
 
@@ -387,61 +388,78 @@ def _routine_name(self, team_id: str, routine_id: str) -> str:
     return "Routine" if found is None else found.name
 
 
+# What pauses the Routine when the episode ends on it, and the reason its notice gives.
+_PAUSES = {"policy": "policy", "exhausted": "exhausted", "pause": "decided", "unavailable": "unavailable"}
+# Evidence that lets the already-authorized run go on.
+_GO_ON = frozenset({"occurred", "none", "retry"})
+
+
+def _reserve(self, team_id: str, incident_id: str) -> int | None:
+    """Spend the run's one episode and reserve all its remaining active time, durably, before any work.
+
+    None when no episode may open. Whatever a crash leaves reserved stays spent, so a restart never refills it.
+    """
+    try:
+        cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
+        reserved = cursor.remaining("recovery_seconds")
+        cursor = routine_cursor.spend(routine_cursor.spend(cursor, "episodes", 1), "recovery_seconds", reserved)
+        _seal(self, team_id, cursor)
+    except ApiProblem, routine_cursor.CursorError:
+        return None
+    return reserved
+
+
+def _release(self, team_id: str, incident_id: str, reserved: int, started: float) -> None:
+    """Return the reserved time the episode did not use; at least one second is always charged."""
+    unused = reserved - min(reserved, max(1, math.ceil(_clock() - started)))
+    if unused <= 0:
+        return
+    try:
+        cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
+        _seal(self, team_id, routine_cursor.refund(cursor, "recovery_seconds", unused))
+    except ApiProblem, routine_cursor.CursorError:
+        return
+
+
+def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool:
+    """Verify first, and ask the Brain only on proven absence; True when the run may go on.
+
+    Past its deadline, the episode stops asking and pauses the Routine as exhausted; a policy fault, an exhausted
+    budget, a pause decision, or a decision that could not be made pauses it too, with that reason on the notice.
+    """
+    team_id, incident_id = run.team_id, run.run_id
+    verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
+    if verdict == "absent":
+        verdict = _decide(self, team_id, incident_id, api_key, None) if _clock() < deadline else "exhausted"
+    if verdict in _GO_ON and _clock() >= deadline:
+        verdict = "exhausted"
+    reason = _PAUSES.get(verdict)
+    if reason is not None:
+        routine_incident.pause(self, team_id, incident_id, reason)
+    return verdict in _GO_ON and not self._chat_cancelled(run.token)
+
+
 def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
-    Linked verification comes first and needs no model. Only a proven absence asks the Brain, once, whether the same
-    step should be retried; any other evidence, an exhausted budget, or an unavailable decision leaves the run held
-    for its recovery card, and a pause decision also pauses the Routine. Its active time is bounded and persisted.
+    The episode and its whole time budget are reserved durably first, and it runs registered with that deadline, so
+    Stop, deletion, and the watchdog reach it and a restart never refills it. Linked verification comes first and
+    needs no model; only a proven absence asks the Brain, once, whether the same step should be retried. The unused
+    time is returned before the already-authorized run goes on under its own active time.
     """
     team_id, incident_id = run.team_id, run.run_id
+    reserved = _reserve(self, team_id, incident_id)
+    if reserved is None:
+        return "held"
     started = _clock()
     try:
-        opened = routine_incident.open_recovery(self, team_id, incident_id)
-        _seal(self, team_id, routine_cursor.spend(opened.cursor, "episodes", 1))
-    except ApiProblem, routine_cursor.CursorError:
-        return "held"
-    try:
-        verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
-        if verdict == "policy":
-            # A policy fault pauses at once; no model is asked about it.
-            routine_incident.pause(self, team_id, incident_id, "policy")
-            return "held"
-        if verdict == "absent" and _within(self, team_id, incident_id, started):
-            decision = _decide(self, team_id, incident_id, api_key, None)
-            reason = {"pause": "decided", "unavailable": "unavailable", "exhausted": "exhausted"}.get(decision)
-            if reason is not None:
-                # A pause decision, a missing or failed model call, or an exhausted budget pauses the Routine, and the
-                # run's notice says which.
-                routine_incident.pause(self, team_id, incident_id, reason)
-            verdict = "retry" if decision == "retry" else decision
-        opened = routine_incident.open_recovery(self, team_id, incident_id)
-        if verdict not in {"occurred", "none", "retry"} or refusal(opened.cursor) is not None:
-            return "held"
-        if not _within(self, team_id, incident_id, started):
-            return "held"
-        return continue_run(self, team_id, incident_id, run.token, progress)
+        with routine_run.registered(self, team_id, incident_id, run.token, reserved):
+            try:
+                go_on = _episode(self, run, api_key, started + reserved)
+            finally:
+                _release(self, team_id, incident_id, reserved, started)
+            if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor) is not None:
+                return "held"
+            return continue_run(self, team_id, incident_id, run.token, progress)
     except ApiProblem:
         return "held"
-    finally:
-        _spend_time(self, team_id, incident_id, started)
-
-
-def _within(self, team_id: str, incident_id: str, started: float) -> bool:
-    """Whether the episode is still inside its persisted active-time budget."""
-    try:
-        remaining = routine_incident.open_recovery(self, team_id, incident_id).cursor.remaining("recovery_seconds")
-    except ApiProblem:
-        return False
-    return _clock() - started < remaining
-
-
-def _spend_time(self, team_id: str, incident_id: str, started: float) -> None:
-    """Charge the episode's active time to the run's persisted budget; a restart never refills it."""
-    try:
-        cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
-    except ApiProblem:
-        return
-    elapsed = min(max(1, int(_clock() - started)), cursor.remaining("recovery_seconds"))
-    if elapsed:
-        _seal(self, team_id, routine_cursor.spend(cursor, "recovery_seconds", elapsed))

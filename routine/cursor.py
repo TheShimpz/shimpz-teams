@@ -196,6 +196,15 @@ def spend(cursor: Cursor, budget: str, amount: int) -> Cursor:
     return _checked(dataclasses.replace(cursor, budgets=tuple(sorted(remaining.items()))))
 
 
+def refund(cursor: Cursor, budget: str, amount: int) -> Cursor:
+    """Return part of a reservation that was not used; never beyond the budget's initial bound."""
+    remaining = dict(cursor.budgets)
+    if budget not in remaining or type(amount) is not int or amount <= 0:
+        raise CursorError("cursor-budget-invalid")
+    remaining[budget] += amount
+    return _checked(dataclasses.replace(cursor, budgets=tuple(sorted(remaining.items()))))
+
+
 def _same_plan(cursor: Cursor, plan: routine_plan.Plan) -> None:
     if cursor.plan != plan.digest:
         raise CursorError("cursor-plan-changed")
