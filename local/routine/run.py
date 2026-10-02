@@ -191,9 +191,32 @@ def finished(self, run: _Run, value: record.Run, sealed_done: Callable[[], bool]
     """
     if not self._commit_chat_terminal(run.team_id, run.token):
         if _deadline_cut(self, run) and sealed_done():
-            return complete(self, run, value)
+            return complete_sealed(self, run)
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     return complete(self, run, value)
+
+
+def complete_sealed(self, run: _Run) -> str:
+    """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
+
+    It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
+    on it, because a deadline exhausts both: the run is done or recovered, names its Actions, and resets the failure
+    streak. The caller has proven sealed completion; a run whose lease changed since is never touched.
+    """
+    now = int(time.time())
+
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
+        current = next((item for item in state.runs if item.run_id == run.run_id), None)
+        try:
+            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now)
+        except record.RoutineStateError:
+            return state, None
+        return completed, record.completed(current)
+
+    outcome = routine_state.update(self, run.team_id, change)
+    if outcome is None:
+        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+    return outcome
 
 
 def complete(self, run: _Run, value: record.Run) -> str:

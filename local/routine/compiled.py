@@ -352,7 +352,7 @@ def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: A
             code = "active-time-exceeded"
             if progress(self, run.team_id, value) == "done":
                 # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
-                return routine_run.complete(self, run, value)
+                return routine_run.complete_sealed(self, run)
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and progress(self, run.team_id, value) == "none":

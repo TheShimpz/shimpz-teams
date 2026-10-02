@@ -690,7 +690,7 @@ class ContinuationDeadlineTests(BalanceCase):
             self.assertEqual(routine_recovery.automatic(service, run, API_KEY), "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
 
-    def cut_after_the_last_step(self, cause: str):
+    def cut_after_the_last_step(self, cause: str, exhaust: str = ""):
         """Run a retried continuation and cancel it, by its deadline or a person, once every step is sealed complete."""
         fired: list[object] = []
         box: list[object] = []
@@ -711,6 +711,17 @@ class ContinuationDeadlineTests(BalanceCase):
         def resume(runtime, context, results):
             turn = real_resume(runtime, context, results)
             if runtime.cursor.segment and runtime.cursor.step == 2:
+                if exhaust:
+                    # The deadline also spent the run's active time, or let its lease lapse.
+                    changes = {"time": {"active_seconds_left": 0}, "lease": {"lease_expires_at": 1}}[exhaust]
+                    run_id = runtime.cursor.binding.run_id
+                    box[0].routine_store.update(
+                        "team_1",
+                        lambda state: (
+                            record._replace_run(state, dataclasses.replace(record.run(state, run_id), **changes)),
+                            None,
+                        ),
+                    )
                 # Every step is sealed complete; the cancellation lands before the run's end is recorded.
                 if cause == "deadline":
                     fired[-1]()
@@ -782,3 +793,23 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual(
             (self.status, state.notices[-1].outcome, routine_value.failures), ("recovered", "recovered", 0)
         )
+
+    def test_a_deadline_completion_with_no_time_or_lease_left_is_still_recorded_complete(self) -> None:
+        for cause in ("deadline", "commit"):
+            for exhaust in ("time", "lease"):
+                with self.subTest(cause=cause, exhaust=exhaust):
+                    state, routine_value = self.cut_after_the_last_step(cause, exhaust)
+                    # Not failed with no Actions: the sealed completion is recorded and the streak reset.
+                    self.assertEqual((self.status, state.notices[-1].outcome), ("recovered", "recovered"))
+                    self.assertEqual(state.notices[-1].detail["actions"][-1], ["shimpz-cloudflare", "create-record"])
+                    self.assertEqual((state.runs, routine_value.failures), ((), 0))
+
+    def test_a_sealed_completion_never_touches_a_run_whose_lease_changed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            run = routine_recovery.routine_run._Run(
+                "team_1", run_id, record.Lease("0" * 64, "k"), "token", "openai", value
+            )
+            with self.assertRaises(routine_recovery.ApiProblem) as caught:
+                routine_recovery.routine_run.complete_sealed(service, run)
+        self.assertEqual(caught.exception.code, "routine-lease-invalid")
