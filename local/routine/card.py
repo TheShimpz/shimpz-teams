@@ -22,12 +22,15 @@ from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import record
 
 CARD_SECONDS = http_routine.CARD_SECONDS
+# A manual verification's registered deadline, after which the watchdog stops it like an overdue run.
+VERIFY_SECONDS = 60
 CHOICES = http_routine.CARD_CHOICES
 
 
@@ -172,10 +175,14 @@ def _bound(self, team_id: str, card: Card) -> None:
 
 def _verify(self, team_id: str, card: Card) -> dict[str, object]:
     """Verificar: the fixed verifier with no model, then the already-authorized continuation when evidence allows."""
-    with self._exclusive_chat_turn(team_id, card.routine_id) as token:
+    with (
+        self._exclusive_chat_turn(team_id, card.routine_id) as token,
+        # A registered, cancellable recovery lease: Stop and deletion reach the verification and fence the continuation.
+        routine_run.registered(self, team_id, card.incident_id, token, VERIFY_SECONDS),
+    ):
         verdict = routine_recovery.verify(self, team_id, card.incident_id, token, budgeted=False)
         status = None
-        if verdict in {"occurred", "absent", "none"}:
+        if verdict in {"occurred", "absent", "none"} and not self._chat_cancelled(token):
             opened = routine_incident.open_recovery(self, team_id, card.incident_id)
             if routine_recovery.refusal(opened.cursor) is None and _continuable(self, team_id, card.routine_id):
                 status = routine_recovery.continue_run(self, team_id, card.incident_id, token)

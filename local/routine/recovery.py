@@ -314,6 +314,9 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     now = int(time.time())
 
     def reopen(state: record.TeamRoutines):
+        # A Stop or deletion that reached the recovery's registration is final: nothing continues the run.
+        if self._chat_cancelled(token):
+            return state, "routine-recovery-stopped"
         try:
             reopened, lease_token = record.reopen_incident(state, incident_id, now, generation)
         except record.RoutineStateError as exc:

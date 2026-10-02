@@ -173,6 +173,10 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
             self._cancel_routine_challenge(team_id, value.run_id)
             end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
         # A held run settles into its incident, which outlives the Routine; that ending completes the deletion.
+    # A held run's verification or automatic episode in progress is stopped too; its incident and evidence stay.
+    for item in routine_state.load(self, team_id).incidents:
+        if item.routine_id == routine_id and item.status == "unresolved":
+            self._stop_routine_run(team_id, item.incident_id)
     return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
 
 

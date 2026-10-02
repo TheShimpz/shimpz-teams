@@ -92,9 +92,28 @@ def _run(self, team_id: str, run_id: object) -> record.Run:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", "routine-run-not-found") from exc
 
 
+def _stop_recovery(self, team_id: str, run_id: object) -> dict[str, object] | None:
+    """Stop the verification or automatic episode of a held run's unresolved incident, keeping its evidence.
+
+    Its registration is cancelled, so the verifier stops and no continuation of the run may start; the incident stays
+    for the person to settle.
+    """
+    state = routine_state.load(self, team_id)
+    found = any(item.incident_id == run_id and item.status == "unresolved" for item in state.incidents)
+    if not found:
+        return None
+    return {"team_id": team_id, "run_id": run_id, "stopped": routine_run.stop_routine_run(self, team_id, run_id)}
+
+
 def stop_routine(self, team_id: str, run_id: str) -> dict[str, object]:
-    """Stop exactly one run: a running one ends itself once stopped; a frozen one ends now."""
+    """Stop exactly one run: a running one ends itself once stopped; a frozen one ends now.
+
+    A held run's recovery in progress stops, while its incident stays.
+    """
     team_id = validate_team_id(team_id)
+    recovering = _stop_recovery(self, team_id, run_id)
+    if recovering is not None:
+        return recovering
     value = _run(self, team_id, run_id)
     if value.status == "leased":
         return {
