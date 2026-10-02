@@ -200,6 +200,37 @@ class InferenceConfigTests(unittest.TestCase):
             self.store.load("team_1")
         self.assertNotIsInstance(caught.exception, inference_config.InferenceConfigMissingError)
 
+    def test_deletions_commit_their_directory_entries_and_an_absent_store_is_already_deleted(self) -> None:
+        self.store.delete("team_1")
+        self.store.delete_all()
+        self.assertFalse(self.root.exists())
+        self.store.save("team_1", inference_config.normalize())
+        real_fsync = os.fsync
+        synced: list[bool] = []
+
+        def observe(descriptor: int) -> None:
+            real_fsync(descriptor)
+            synced.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
+
+        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+            self.store.delete("team_1")
+        self.assertEqual(synced, [True, True])
+        self.store.save("team_1", inference_config.normalize())
+        synced.clear()
+        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+            self.store.delete_all()
+        self.assertEqual(synced, [True])
+        self.assertEqual(list(self.root.iterdir()), [])
+        self.store.save("team_1", inference_config.normalize())
+        for operation in (lambda: self.store.delete("team_1"), self.store.delete_all):
+            with (
+                self.subTest(operation=operation),
+                mock.patch.object(inference_config.os, "fsync", side_effect=OSError("directory sync")),
+                self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
+            ):
+                operation()
+            self.store.save("team_1", inference_config.normalize())
+
     def test_delete_wraps_filesystem_failure(self) -> None:
         with (
             mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),

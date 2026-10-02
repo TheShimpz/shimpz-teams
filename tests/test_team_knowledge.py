@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -144,6 +146,33 @@ class StoreTests(unittest.TestCase):
         forget = [{"op": "forget", "topic": topic, "preference": ""} for topic in ("format", "language", SKILL["key"])]
         self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
         self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
+
+    def test_forgetting_the_last_entry_commits_the_removal_or_reports_failure(self):
+        real_fsync = inference_config.os.fsync
+        synced: list[bool] = []
+
+        def observe(descriptor: int) -> None:
+            real_fsync(descriptor)
+            synced.append(stat.S_ISDIR(os.fstat(descriptor).st_mode))
+
+        forget = [{"op": "forget", "topic": "language", "preference": ""}]
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+            self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+        self.assertEqual(synced, [True])
+        self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
+
+        self.store.apply_knowledge("team_1", [REMEMBER_LANGUAGE], None)
+        with (
+            mock.patch.object(inference_config.os, "fsync", side_effect=OSError("directory sync")),
+            self.assertRaisesRegex(inference_config.InferenceConfigError, "could not be removed"),
+        ):
+            self.store.apply_knowledge("team_1", forget, None)
+        # A retry of the unconfirmed forget finds the record gone and still commits its directory entry.
+        synced.clear()
+        with mock.patch.object(inference_config.os, "fsync", side_effect=observe):
+            self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+        self.assertEqual(synced, [True])
 
     def test_invalid_changes_skills_and_team_ids_are_refused(self):
         for team_id, changes, skill in (

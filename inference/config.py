@@ -189,7 +189,20 @@ class InferenceConfigStore:
 
     @staticmethod
     def _unlink(path: Path) -> None:
+        """Durably remove one owned record: a returned removal survives power loss; an absent one already succeeded.
+
+        The parent directory is fsynced even when the record was already absent, so a retry after a failed sync
+        still commits the earlier removal; an absent store has nothing to commit.
+        """
         try:
             path.unlink(missing_ok=True)
+            try:
+                directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            except FileNotFoundError:
+                return
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         except OSError as exc:
             raise InferenceConfigError("Team inference configuration could not be removed") from exc
