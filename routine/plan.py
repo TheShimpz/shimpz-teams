@@ -147,8 +147,15 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
     properties = schema.get("properties", {})
     if not set(inputs) <= set(properties) or not set(schema.get("required", ())) <= set(inputs):
         raise PlanError("plan-input-mismatch")
+    for source in inputs.values():
+        _source(source, earlier)
+    # The whole input is the first position, so the root's own applicators and annotations derive every member's
+    # destinations; a member that is not a literal counts only for presence and is never itself checked.
+    supplied = {name: source.get("value", _NOT_LITERAL) for name, source in inputs.items()}
+    if _secret_literal(schema, "", supplied, schema, 0):
+        raise PlanError("plan-secret-literal")
     for name, source in inputs.items():
-        _source(name, source, schema, earlier)
+        _typed(name, source, schema)
     return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs))
 
 
@@ -156,44 +163,48 @@ def _matches(value: object, pattern: re.Pattern[str]) -> bool:
     return isinstance(value, str) and pattern.fullmatch(value) is not None
 
 
-def _source(name: str, source: object, schema: Mapping[str, Any], earlier: tuple[str, ...]) -> None:
+def _source(source: object, earlier: tuple[str, ...]) -> None:
+    """One value source's closed shape: a literal, a run-clock format, or a reference to an earlier step."""
     kind = source.get("kind") if isinstance(source, dict) else None
     fields = {"literal": {"kind", "value"}, "run_clock": {"kind", "format"}, "step_output": {"kind", "step", "pointer"}}
     if kind not in fields or set(source) != fields[kind]:
         raise PlanError("plan-input-invalid")
-    if kind == "literal":
-        if _secret_literal(schema, name, source["value"], schema["properties"][name], 0) or _holds_credential(
-            source["value"]
-        ):
-            raise PlanError("plan-secret-literal")
-        _admit_member(schema, name, source["value"])
-    elif kind == "run_clock":
-        if source["format"] not in CLOCK_FORMATS:
-            raise PlanError("plan-input-invalid")
-        _admit_member(schema, name, clock_value(source["format"], _SAMPLE_INSTANT, "UTC"))
-    elif source["step"] not in earlier or pointer_tokens(source["pointer"]) is None:
+    if kind == "literal" and _holds_credential(source["value"]):
+        raise PlanError("plan-secret-literal")
+    if kind == "run_clock" and source["format"] not in CLOCK_FORMATS:
+        raise PlanError("plan-input-invalid")
+    if kind == "step_output" and (source["step"] not in earlier or pointer_tokens(source["pointer"]) is None):
         raise PlanError("plan-reference-invalid")
+
+
+def _typed(name: str, source: Mapping[str, object], schema: Mapping[str, Any]) -> None:
+    """A literal or run-clock value must fit its destination; an output reference is typed when it resolves."""
+    if source["kind"] == "literal":
+        _admit_member(schema, name, source["value"])
+    elif source["kind"] == "run_clock":
+        _admit_member(schema, name, clock_value(source["format"], _SAMPLE_INSTANT, "UTC"))
 
 
 def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema: object, depth: int) -> bool:
     """Whether a literal reaches a secret destination anywhere inside it.
 
-    Every position of the value is checked against every subschema that applies there. Applicators whose effect is
-    exact are followed position by position: local ``$ref``, ``allOf``, ``anyOf``, ``oneOf``, ``dependentSchemas`` of
-    a present member, object ``properties``, ``patternProperties`` (matched by the linear-time matcher), and
-    ``additionalProperties``, and array ``prefixItems`` and ``items``. A member whose name marks a secret, or a
-    destination annotated ``writeOnly`` or ``format: password``, refuses the whole literal. Every other applicator
-    (``if``, ``then``, ``else``, ``not``, ``contains``, ``unevaluatedItems``, ``contentSchema``, ``propertyNames``)
-    is not modelled, so a literal is refused when anything that one reaches could hold a secret. A value nested deeper
-    than the bound is refused rather than left unchecked.
+    The whole step input is the first position, checked against the input schema root, so the root's own applicators
+    derive each member's destinations exactly as nested ones do. Every position of the value is checked against
+    every subschema that applies there. Applicators whose effect is exact are followed position by position: local
+    ``$ref``, ``allOf``, ``anyOf``, ``oneOf``, ``dependentSchemas`` of a present member, object ``properties``,
+    ``patternProperties`` (matched by the linear-time matcher), and ``additionalProperties``, and array
+    ``prefixItems`` and ``items``. A member whose name marks a secret, or a destination annotated ``writeOnly`` or
+    ``format: password``, refuses the whole literal. Every other applicator (``if``, ``then``, ``else``, ``not``,
+    ``contains``, ``unevaluatedItems``, ``contentSchema``, ``propertyNames``) is not modelled, so a literal is
+    refused when anything that one reaches could hold a secret. A value nested deeper than the bound is refused
+    rather than left unchecked.
     """
+    if value is _NOT_LITERAL:
+        return False
     if depth > MAX_SECRET_DEPTH:
         return True
     candidates = _applicable(root, subschema, 0, value)
-    lowered = name.lower().replace("-", "_")
-    if _secret_name(lowered) or any(_marked(item) for item in candidates):
-        return True
-    if any(_could_hold_secret(root, item[keyword], 0) for item in candidates for keyword in _UNMODELLED & item.keys()):
+    if _secret_position(root, name, candidates):
         return True
     if isinstance(value, dict):
         return any(_secret_literal(root, key, item, _member(candidates, key), depth + 1) for key, item in value.items())
@@ -204,6 +215,19 @@ def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema
     return False
 
 
+def _secret_position(root: Mapping[str, Any], name: str, candidates: list[Mapping[str, Any]]) -> bool:
+    """Whether one position itself is a secret destination, or an unmodelled applicator there could reach one."""
+    return (
+        _secret_name(name.lower().replace("-", "_"))
+        or any(_marked(item) for item in candidates)
+        or any(
+            _could_hold_secret(root, item[keyword], 0) for item in candidates for keyword in _UNMODELLED & item.keys()
+        )
+    )
+
+
+# Stands for an input member that a run fills, not a literal: it counts for presence and is never checked as a secret.
+_NOT_LITERAL = object()
 # Applicators whose effect at a position is not modelled; anything they reach that could hold a secret refuses.
 _UNMODELLED = frozenset({"if", "then", "else", "not", "contains", "unevaluatedItems", "contentSchema", "propertyNames"})
 

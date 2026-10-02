@@ -381,6 +381,60 @@ class PlanAdmissionTests(unittest.TestCase):
             deep = {"not": deep}
         self.assertTrue(routine_plan._could_hold_secret({}, deep, 0))
         self.assertFalse(routine_plan._could_hold_secret({}, None, 0))
+
+    def test_the_input_schema_root_is_the_first_position_of_the_secret_check(self) -> None:
+        sealed = {"type": "string", "writeOnly": True}
+        plain = {"type": "string"}
+
+        def root(**members: object) -> dict[str, object]:
+            schema = {
+                "type": "object",
+                "properties": {"value": plain, "mode": plain},
+                "required": ["value"],
+                "additionalProperties": False,
+                **members,
+            }
+            # Each regression schema is one normal Action admission accepts.
+            return action_schema.admitted(schema)
+
+        def admit(schema: dict[str, object], inputs: dict[str, object]) -> routine_plan.Plan:
+            document = _document()
+            document["steps"] = [
+                {"id": "publish", "assistant": "shimpz-blog", "action": "publish-post", "pin": PIN, "input": inputs}
+            ]
+            return routine_plan.admit(
+                document, {("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, schema)}
+            )
+
+        def closed(**properties: object) -> dict[str, object]:
+            return {"type": "object", "properties": properties, "additionalProperties": False}
+
+        literal = {"value": {"kind": "literal", "value": "hunter2"}}
+        with_mode = {**literal, "mode": {"kind": "literal", "value": "a"}}
+        cases = (
+            (root(allOf=[closed(value=sealed, mode=plain)]), literal),
+            (root(anyOf=[closed(value=sealed, mode=plain)]), literal),
+            (root(patternProperties={"^val": sealed}), literal),
+            (root(dependentSchemas={"mode": closed(value=sealed, mode=plain)}), with_mode),
+            (root(**{"if": closed(mode={"const": "a"}), "then": closed(value=sealed, mode=plain)}), literal),
+            (
+                root(
+                    **{"$ref": "#/$defs/sealed_value"}, **{"$defs": {"sealed_value": closed(value=sealed, mode=plain)}}
+                ),
+                literal,
+            ),
+        )
+        for schema, inputs in cases:
+            with self.subTest(schema=sorted(schema)), self.assertRaises(routine_plan.PlanError) as caught:
+                admit(schema, inputs)
+            self.assertEqual(caught.exception.code, "plan-secret-literal")
+        dependent = cases[3][0]
+        self.assertEqual(admit(dependent, literal).steps[0].inputs, literal)
+        # A member filled at run time counts for presence: it triggers the dependent schema but is never a literal.
+        step_output = {"value": {"kind": "run_clock", "format": "date"}, "mode": {"kind": "literal", "value": "a"}}
+        self.assertEqual(admit(dependent, step_output).steps[0].inputs["value"]["kind"], "run_clock")
+        harmless = root(allOf=[closed(value={"maxLength": 40}, mode=plain)])
+        self.assertEqual(admit(harmless, literal).steps[0].inputs, literal)
         self.assertTrue(routine_plan._holds_credential({"password=abc": "v"}))
 
 
