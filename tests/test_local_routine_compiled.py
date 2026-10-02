@@ -23,7 +23,9 @@ from local import app as local_app
 from local import authority as local_authority
 from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
+from local.routine import run as routine_run
 from local.routine import store as routine_store
+from local.routine import watchdog as routine_watchdog
 from routine import cursor as routine_cursor
 from routine import plan as routine_plan
 from routine import record
@@ -185,6 +187,86 @@ class ExecutionTests(CompiledRunCase):
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
+
+
+class Crash(BaseException):
+    """The Team process dies here: nothing after this point of the segment runs, and its run stays leased."""
+
+
+class WatchdogRecoveryTests(CompiledRunCase):
+    """After a crash, the watchdog ends a leased run exactly as its sealed cursor, snapshot, and journal show."""
+
+    def crashed(self, directory: str, patch) -> tuple[object, str, list[str]]:
+        actions: list[str] = []
+
+        def invoke(_team, _assistant, action, _payload, _evidence):
+            actions.append(action)
+            return {"result": ZONES if action == "list-zones" else RECORDS}
+
+        _controller, service, brain, _value = self.compiled(directory, invoke)
+        claim = service.claim_routine_run(("anthropic", "openai"))
+        with patch(service), self.assertRaises(Crash):
+            self.run_without_key(service, claim)
+        self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
+        routine_watchdog.check(service, startup=True)
+        self.assertEqual(brain.calls, [])
+        return service, claim["run_id"], actions
+
+    def test_a_crash_after_an_actions_receipt_holds_the_run_with_its_dispatch(self) -> None:
+        def patch(_service):
+            return mock.patch.object(routine_cursor, "complete", side_effect=Crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, run_id, actions = self.crashed(directory, patch)
+            state = self.state(service)
+            opened = routine_incident.open_recovery(service, "team_1", run_id)
+            archived = service.action_state.current_batch(state.incidents[0].generation)
+        self.assertEqual((actions, state.runs), (["list-zones"], ()))
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((opened.cursor.step, archived[1]), (0, "archived"))
+        self.assertIsNotNone(opened.cursor.operation_id)
+
+    def test_a_crash_after_the_cursor_advanced_holds_the_run_with_its_completed_prefix(self) -> None:
+        def patch(service):
+            put = service.routine_store.put_cursor
+
+            def sealed_then_crash(team_id, cursor):
+                put(team_id, cursor)
+                if cursor.step == 1:
+                    raise Crash
+
+            return mock.patch.object(service.routine_store, "put_cursor", side_effect=sealed_then_crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, run_id, actions = self.crashed(directory, patch)
+            state = self.state(service)
+            opened = routine_incident.open_recovery(service, "team_1", run_id)
+        self.assertEqual((actions, state.runs), (["list-zones"], ()))
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((opened.cursor.step, opened.cursor.operation_id), (1, None))
+        self.assertEqual(opened.cursor.selections(), {("zones", "/zones/0/id"): ZONE})
+
+    def test_a_crash_before_the_terminal_commit_finishes_a_completed_run_done(self) -> None:
+        def patch(_service):
+            return mock.patch.object(routine_run, "finished", side_effect=Crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _run_id, actions = self.crashed(directory, patch)
+            state = self.state(service)
+            leftovers = (service.routine_store.cursors("team_1"), service.routine_store.recoveries("team_1"))
+        self.assertEqual((actions, state.runs, state.incidents), (["list-zones", "list-dns-records"], (), ()))
+        self.assertEqual([item.outcome for item in state.notices], ["done"])
+        self.assertEqual(leftovers, ((), ()))
+
+    def test_a_crash_before_any_dispatch_fails_the_run_interrupted(self) -> None:
+        def patch(_service):
+            return mock.patch.object(routine_compiled.CompiledRuntime, "dispatching", side_effect=Crash)
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, _run_id, actions = self.crashed(directory, patch)
+            state = self.state(service)
+        self.assertEqual((actions, state.incidents), ([], ()))
+        self.assertEqual([item.detail for item in state.notices], [{"code": "interrupted", "actions": []}])
 
 
 class AssistantProcess:
@@ -360,7 +442,8 @@ class RuntimeTests(CompiledRunCase):
                 ({}, run, "none"),
                 ({}, dataclasses.replace(run, generation=""), "none"),
                 ({}, dataclasses.replace(run, routine_id="0" * 32), "partial"),
-                ({"current_batch": batch}, run, "partial"),
+                ({"current_batch": batch}, run, "none"),
+                ({"cursor": None, "current_batch": batch}, run, "partial"),
                 ({"recovery": None}, run, "none"),
                 ({"recovery": None, "current_batch": batch}, run, "partial"),
                 ({"cursor": None}, run, "none"),

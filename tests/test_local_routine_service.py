@@ -543,7 +543,7 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             self.assertIn("token", service._cancelled_chat_tokens)
         self.assertIsNotNone(orphan)
 
-    def test_a_recovered_run_whose_batch_may_have_acted_is_held_uncertain(self) -> None:
+    def test_a_recovered_run_whose_batch_may_have_acted_is_held_as_an_incident(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
             self.routine(service)
@@ -556,11 +556,15 @@ class NoticeAndWatchdogTests(RoutineServiceCase):
             )
             generation = record.generation_for(network, claim["run_id"])
             operation = local_app.action_journal.Operation("action-1", "b" * 64)
-            batch = controller.action_state.prepare_batch(generation, "thread", (operation,))
+            batch = controller.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
             controller.action_state.begin(batch, operation)
             routine_watchdog.check(service, startup=True)
-            held = record.run(self.state(service), claim["run_id"])
-        self.assertEqual((held.status, held.batch[1]), ("uncertain", batch.fingerprint))
+            state = self.state(service)
+            archived = controller.action_state.current_batch(generation)
+        # Never the legacy uncertain state: the run's incident keeps the evidence and its batch is archived.
+        self.assertEqual(state.runs, ())
+        self.assertEqual([item.incident_id for item in state.incidents], [claim["run_id"]])
+        self.assertEqual(archived, (batch.fingerprint, "archived"))
 
     def test_the_watchdog_survives_a_failed_audit_and_runs_its_next_pass(self) -> None:
         second_pass = threading.Event()

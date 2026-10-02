@@ -723,6 +723,30 @@ def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRouti
     return _replace_run(state, held)
 
 
+def hold_recovered(state: TeamRoutines, run_id: str, lease_sha256: str) -> TeamRoutines:
+    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted.
+
+    Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
+    """
+    value = _leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise RoutineStateError("run-changed")
+    if not value.generation:
+        raise RoutineStateError("generation-invalid")
+    return _replace_run(
+        state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    )
+
+
+def complete_recovered(state: TeamRoutines, run_id: str, lease_sha256: str, now: int) -> TeamRoutines:
+    """Team's watchdog ends done a leased run whose sealed cursor completed every step before its end was recorded."""
+    value = _leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise RoutineStateError("run-changed")
+    state, _value = _run_notice(state, value, "done", now, {"reply": routine(state, value.routine_id).name})
+    return _without_run(state, run_id)
+
+
 def settle_hold(state: TeamRoutines, run_id: str, now: int, revision: int | None = None) -> TeamRoutines:
     """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
 

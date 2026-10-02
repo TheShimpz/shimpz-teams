@@ -171,7 +171,8 @@ class ExecutionBoundTests(RoutineServiceCase):
             lease = record.lease_of(claim["lease_token"], KEY)
             run = routine_run._Run("team_1", claim["run_id"], lease, "token", "openai", self.state(service).routines[0])
             # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
-            outcome = routine_compiled._ended(service, run, None, [], stopped)
+            value = record.run(self.state(service), claim["run_id"])
+            outcome = routine_compiled._ended(service, run, value, [], stopped)
             self.assertEqual(outcome, "failed")
             self.assertEqual(self.state(service).notices[-1].detail, {"code": "active-time-exceeded", "actions": []})
 
@@ -200,7 +201,7 @@ class WatchdogRaceTests(RoutineServiceCase):
             self.routine(service)
             claim, worker_finishes = self.bound(controller, service)
             snapshot = record.run(self.state(service), claim["run_id"])
-            with mock.patch.object(service.action_state, "uncertain_fingerprint", side_effect=worker_finishes):
+            with mock.patch.object(service.action_state, "current_batch", side_effect=worker_finishes):
                 self.assertIsNone(routine_watchdog._recover(service, "team_1", snapshot))
             self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
 
@@ -212,7 +213,7 @@ class WatchdogRaceTests(RoutineServiceCase):
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             self.assertFalse(service.delete_routine("team_1", value.routine_id)["deleted"])
             routine_run.unregister_routine_run(service, claim["run_id"])
-            with mock.patch.object(service.action_state, "uncertain_fingerprint", side_effect=worker_finishes):
+            with mock.patch.object(service.action_state, "current_batch", side_effect=worker_finishes):
                 routine_watchdog.check(service, startup=True)
             self.assertEqual(self.state(service).routines, ())
             self.assertEqual(self.state(service).discards, ())

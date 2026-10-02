@@ -519,6 +519,34 @@ def _replace(value, path, replaced):
     return copied
 
 
+class RecoveredRunTests(unittest.TestCase):
+    """The watchdog's lease-less endings touch only the exact leased run it read."""
+
+    def test_a_recovered_run_is_held_or_done_only_under_the_lease_the_watchdog_read(self):
+        state, claim, _lease = bound()
+        run_id, lease_sha256 = claim.run.run_id, claim.run.lease_sha256
+        held = record.run(record.hold_recovered(state, run_id, lease_sha256), run_id)
+        self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
+        done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
+        self.assertEqual(done.runs, ())
+        self.assertEqual((done.notices[-1].outcome, done.notices[-1].detail), ("done", {"reply": routine().name}))
+        unbound, unclaimed, _lease = claimed()
+        for transition, code in (
+            (lambda: record.hold_recovered(state, run_id, "0" * 64), "run-changed"),
+            (lambda: record.complete_recovered(state, run_id, "0" * 64, NINE), "run-changed"),
+            (
+                lambda: record.hold_recovered(unbound, unclaimed.run.run_id, unclaimed.run.lease_sha256),
+                "generation-invalid",
+            ),
+            (
+                lambda: record.hold_recovered(record.hold_recovered(state, run_id, lease_sha256), run_id, lease_sha256),
+                "run-not-running",
+            ),
+        ):
+            with self.subTest(code=code), self.assertRaisesRegex(record.RoutineStateError, code):
+                transition()
+
+
 class RoutineViewContractTests(unittest.TestCase):
     """Admin admits every Routine response only in its closed view; the golden vectors pin each one."""
 

@@ -200,8 +200,8 @@ def _sealed(self, team_id: str, value: record.Run):
 def progress(self, team_id: str, value: record.Run) -> str:
     """What durable state proves about one compiled run, never what a segment remembers in memory.
 
-    ``none``: nothing of it can have been dispatched, because every dispatch is sealed in its cursor before the RPC and
-    its journal holds no batch. ``done``: its sealed cursor completed every step of its sealed plan. ``partial``:
+    ``none``: nothing of it can have been dispatched, because every dispatch is sealed in its cursor before the RPC, and
+    its cursor names none. ``done``: its sealed cursor completed every step of its sealed plan. ``partial``:
     anything else, including state that cannot be read, so evidence of an effect is never cleaned up as a failure.
     """
     if not value.generation:
@@ -211,8 +211,11 @@ def progress(self, team_id: str, value: record.Run) -> str:
         batch, snapshot, cursor = _sealed(self, team_id, value)
     except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
         return "partial"
-    if cursor is None or (cursor.step == 0 and cursor.operation_id is None):
+    if cursor is None:
         return "none" if batch is None else "partial"
+    if cursor.step == 0 and cursor.operation_id is None:
+        # Every dispatch is sealed in the cursor before its RPC: whatever the journal began never reached an Assistant.
+        return "none"
     finished = cursor.operation_id is None and cursor.step == len(snapshot.plan["steps"])
     return "done" if finished else "partial"
 
@@ -221,6 +224,8 @@ def _uncertain(self, value: record.Run, batches: list) -> bool:
     """Whether a dispatch of the run may have acted without its outcome being known; unreadable counts as yes."""
     if batches and batches[-1].held:
         return True
+    if not value.generation:
+        return False
     try:
         return self.action_state.uncertain_fingerprint(value.generation) is not None
     except action_journal.ActionJournalError:
