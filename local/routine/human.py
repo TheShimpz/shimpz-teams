@@ -187,7 +187,7 @@ def resume_routine_human(
     run_id: str,
     body: object,
     provider: str,
-    _api_key: str,
+    api_key: str,
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     """Consume one exact answer to a frozen run's challenge, then replay the run from its continuation."""
@@ -227,12 +227,12 @@ def resume_routine_human(
         ) from exc
     self.routine_human_challenges.claim(team_id, challenge.id)
     return _replay(
-        self, _Frozen(team_id, value, routine, pending, challenge.requirement), provider, admission, progress
+        self, _Frozen(team_id, value, routine, pending, challenge.requirement), (provider, api_key), admission, progress
     )
 
 
 def resume_routine_integrations(
-    self, team_id: str, run_id: str, provider: str, _api_key: str, progress: chat_progress.Reporter | None = None
+    self, team_id: str, run_id: str, provider: str, api_key: str, progress: chat_progress.Reporter | None = None
 ) -> dict[str, object]:
     """After the person connected the Integration, replay the run; a still-missing one freezes it again."""
     team_id = validate_team_id(team_id)
@@ -242,7 +242,7 @@ def resume_routine_integrations(
     pending = _decoded(self, team_id, value.run_id).pending
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
-    return _replay(self, _Frozen(team_id, value, routine, pending), provider, None, progress)
+    return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), None, progress)
 
 
 def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.TeamRoutines, str | None]:
@@ -253,8 +253,12 @@ def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.Tea
         return state, None
 
 
-def _replay(self, frozen: _Frozen, provider: str, admission, progress) -> dict[str, object]:
-    """Thaw the run under an internal lease and continue it, with no model, in its own generation."""
+def _replay(self, frozen: _Frozen, credentials: tuple[str, str], admission, progress) -> dict[str, object]:
+    """Thaw the run under an internal lease and continue it, with no model, in its own generation.
+
+    Only a hold of the replayed run may use the model key, for its one automatic recovery.
+    """
+    provider, api_key = credentials
     team_id, value, routine, pending = frozen.team_id, frozen.value, frozen.routine, frozen.pending
     transcripts = pending.transcripts if admission is None else admission.transcripts
     requests_used = pending.requests_used if admission is None else admission.requests_used
@@ -272,5 +276,7 @@ def _replay(self, frozen: _Frozen, provider: str, admission, progress) -> dict[s
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
         outcome = routine_compiled.execute(self, run, value, progress, pending)
+        if outcome == "held":
+            outcome = self._recover_routine_run(run, api_key, progress)
     routine_run._after_run(self, team_id, value.run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": value.run_id, "status": outcome}

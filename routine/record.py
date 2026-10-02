@@ -841,7 +841,8 @@ def reopen_incident(state: TeamRoutines, incident_id: str, now: int, generation:
             state,
             incidents=tuple(item for item in state.incidents if item.incident_id != incident_id),
             runs=(*state.runs, resumed),
-            discards=(*state.discards, (incident_id, value.generation)),
+            # The hold queued its generation already unless that removal has run since.
+            discards=tuple(dict.fromkeys((*state.discards, (incident_id, value.generation)))),
         ),
         token,
     )

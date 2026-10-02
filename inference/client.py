@@ -839,6 +839,10 @@ class BrainRuntimeClient:
             return None
         return http_payload.canonical_purpose(rest["purpose"])
 
+    def routine_recovery(self, payload: Mapping[str, object], provider: str, model: str) -> object:
+        """Send one Routine recovery request ``inference.recovery`` admitted; return its metered answer."""
+        return self._metered(self._post("/v1/routine-recovery", dict(payload)), "routine-recovery", provider, model)
+
     def delete_thread(self, thread_id: str) -> None:
         if not isinstance(thread_id, str) or SAFE_ID_RE.fullmatch(thread_id) is None:
             raise BrainRuntimeError("Brain runtime thread ID is invalid")

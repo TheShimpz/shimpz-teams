@@ -58,9 +58,12 @@ class Assistant:
 
 
 class RecoveryCase(CompiledRunCase):
-    def held(self, directory: str, assistant: Assistant):
-        brain = Brain()
+    def held(self, directory: str, assistant: Assistant, brain=None, *, automatic: bool = False):
+        brain = brain or Brain()
         controller, service = self.service(directory, brain)
+        if not automatic:
+            # These tests drive verification by hand; the automatic episode has its own tests.
+            service._recover_routine_run = lambda _run, _key, _progress=None: "held"
         current = controller.registry[ASSISTANT]
         controller.registry[ASSISTANT] = dataclasses.replace(
             mutating_spec(current.image), provenance=current.provenance, platform=current.platform

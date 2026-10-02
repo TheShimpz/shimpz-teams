@@ -69,6 +69,11 @@ class Runtime:
     def purpose(self, _context, _request, _assistant_name, _summary):
         return None
 
+    @staticmethod
+    def routine_recovery(_payload, _provider, _model):
+        # A held run's automatic recovery asks the person unless a test scripts another decision.
+        return {"decision": "ask"}
+
 
 def completed(reply: str = "Your zones are listed.") -> brain_runtime_client.RuntimeTurn:
     return brain_runtime_client.RuntimeTurn("completed", reply, ())

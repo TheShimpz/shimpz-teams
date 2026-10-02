@@ -338,10 +338,13 @@ def run_routine(
     run_id: str,
     evidence: local_authority.RoutineEvidence,
     provider: str,
-    _api_key: str,
+    api_key: str,
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
-    """Run one segment of a leased compiled run in the Team's execution slot; the model key is never used."""
+    """Run one segment of a leased compiled run in the Team's execution slot.
+
+    A healthy run never uses the model key; only a held run's one automatic recovery may ask the Brain with it.
+    """
     team_id = validate_team_id(team_id)
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
@@ -358,5 +361,7 @@ def run_routine(
             bound = dataclasses.replace(value, generation=generation)
             run = routine_run._Run(team_id, run_id, lease, token, provider, routine)
             outcome = execute(self, run, bound, progress)
+            if outcome == "held":
+                outcome = self._recover_routine_run(run, api_key, progress)
     routine_run._after_run(self, team_id, run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": run_id, "status": outcome}

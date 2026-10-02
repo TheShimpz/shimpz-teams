@@ -20,14 +20,17 @@ import contextlib
 import time
 from dataclasses import dataclass
 
+from action import journal as action_journal
 from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import recovery as inference_recovery
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import state as routine_state
@@ -39,6 +42,10 @@ from routine import plan as routine_plan
 from routine import record
 
 VERIFY_SUFFIX = "v1"
+# Each recovery call's output cap, charged in full before the call (ADR-0092 section 6).
+MAX_OUTPUT_TOKENS = 1024
+# The episode's active-time clock.
+_clock = time.monotonic
 VERIFY_INTERRUPT = "routine-verify"
 # What proves an operation of a mutating Action absent without a verifier: it settled without effect, or it paused
 # for a person before acting.
@@ -205,7 +212,7 @@ def _call_verifier(self, team_id: str, token: str, assessment: Assessment, reque
     except ApiProblem, routine_compiled.CompiledRunError:
         return None
     finally:
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(action_journal.ActionJournalError):
             self.action_state.discard(generation)
     return runtime.result if isinstance(result.outcome, chat_orchestrator.ChatOutcome) else None
 
@@ -311,3 +318,110 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
         outcome = routine_compiled.execute(self, run, value, progress)
     routine_run._after_run(self, team_id, incident_id, routine.routine_id, outcome)
     return outcome
+
+
+def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, object]]:
+    """The failed step's sanitized failure evidence, as untrusted data; unreadable diagnostics are simply absent."""
+    try:
+        found = self.routine_diagnostics.read(
+            team_id, assessment.network_id, assessment.cursor.binding.run_id, int(time.time())
+        )
+    except routine_diagnostics.DiagnosticStoreError:
+        return []
+    operation = assessment.cursor.operation_id
+    return [{"failure": item.failure, "condition": item.condition} for item in found if item.operation_id == operation][
+        -inference_recovery.MAX_DIAGNOSTICS :
+    ]
+
+
+def _decide(self, team_id: str, incident_id: str, api_key: str, locale: str | None) -> str:
+    """Ask the Brain once whether to retry, ask, or pause; its call and output are paid for before it is made."""
+    assessment = assess(self, team_id, incident_id)
+    try:
+        spent = routine_cursor.spend(assessment.cursor, "model_calls", 1)
+        spent = routine_cursor.spend(spent, "output_tokens", MAX_OUTPUT_TOKENS)
+    except routine_cursor.CursorError:
+        return "exhausted"
+    _seal(self, team_id, spent)
+    try:
+        config = self.inference_store.load(team_id)
+    except inference_config.InferenceConfigError:
+        return "unavailable"
+    routine = assessment.opened.recovery
+    settled = assessment.action.effect == "read_only" or assessment.state == "no_effect"
+    proof = "no_effect" if settled else "not_occurred"
+    subject = {
+        "routine": {"name": _routine_name(self, team_id, routine.binding.routine_id), "request": routine.quote},
+        "step": {"assistant": assessment.step.assistant_id, "action": assessment.step.action},
+        "proof": proof,
+    }
+    try:
+        return inference_recovery.decide(
+            self.brain_runtime,
+            (config.provider, config.model, api_key),
+            locale,
+            subject,
+            _diagnostics(self, team_id, assessment),
+        )
+    except brain_runtime_client.BrainRuntimeError:
+        return "unavailable"
+
+
+def _routine_name(self, team_id: str, routine_id: str) -> str:
+    state = routine_state.load(self, team_id)
+    found = next((item for item in state.routines if item.routine_id == routine_id), None)
+    return "Routine" if found is None else found.name
+
+
+def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
+    """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
+
+    Linked verification comes first and needs no model. Only a proven absence asks the Brain, once, whether the same
+    step should be retried; any other evidence, an exhausted budget, or an unavailable decision leaves the run held
+    for its recovery card, and a pause decision also pauses the Routine. Its active time is bounded and persisted.
+    """
+    team_id, incident_id = run.team_id, run.run_id
+    started = _clock()
+    try:
+        opened = routine_incident.open_recovery(self, team_id, incident_id)
+        _seal(self, team_id, routine_cursor.spend(opened.cursor, "episodes", 1))
+    except ApiProblem, routine_cursor.CursorError:
+        return "held"
+    try:
+        verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
+        if verdict == "absent" and _within(self, team_id, incident_id, started):
+            decision = _decide(self, team_id, incident_id, api_key, None)
+            if decision in {"pause", "unavailable", "exhausted"}:
+                # A pause decision, a missing or failed model call, or an exhausted budget pauses the Routine.
+                routine_incident.set_paused(self, team_id, run.routine.routine_id, True)
+            verdict = "retry" if decision == "retry" else decision
+        opened = routine_incident.open_recovery(self, team_id, incident_id)
+        if verdict not in {"occurred", "none", "retry"} or refusal(opened.cursor) is not None:
+            return "held"
+        if not _within(self, team_id, incident_id, started):
+            return "held"
+        return continue_run(self, team_id, incident_id, run.token, progress)
+    except ApiProblem:
+        return "held"
+    finally:
+        _spend_time(self, team_id, incident_id, started)
+
+
+def _within(self, team_id: str, incident_id: str, started: float) -> bool:
+    """Whether the episode is still inside its persisted active-time budget."""
+    try:
+        remaining = routine_incident.open_recovery(self, team_id, incident_id).cursor.remaining("recovery_seconds")
+    except ApiProblem:
+        return False
+    return _clock() - started < remaining
+
+
+def _spend_time(self, team_id: str, incident_id: str, started: float) -> None:
+    """Charge the episode's active time to the run's persisted budget; a restart never refills it."""
+    try:
+        cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
+    except ApiProblem:
+        return
+    elapsed = min(max(1, int(_clock() - started)), cursor.remaining("recovery_seconds"))
+    if elapsed:
+        _seal(self, team_id, routine_cursor.spend(cursor, "recovery_seconds", elapsed))
