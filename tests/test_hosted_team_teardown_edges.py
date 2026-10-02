@@ -35,9 +35,11 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         storage.put.return_value = {"id": "file"}
         storage.list.return_value = {"files": []}
         storage.delete.return_value = {"deleted": True}
+        storage.metadata.return_value = [{"id": "file"}]
         with (
             mock.patch.object(resources, "_require_current_authorization"),
             mock.patch.object(state, "_storage", return_value=storage),
+            mock.patch.object(lifecycle.hosted_chat_lifecycle, "forget_file"),
         ):
             self.assertEqual(
                 lifecycle._put_inbox_file(TEAM_ID, "file", b"x", "text/plain", lease)["file"]["id"], "file"
@@ -79,13 +81,24 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         )
         for method, error, invoke in operations:
             failed = mock.Mock()
+            failed.metadata.return_value = [{"id": "f"}]
             setattr(failed, method, mock.Mock(side_effect=error))
             with (
                 mock.patch.object(resources, "_require_current_authorization"),
                 mock.patch.object(state, "_storage", return_value=failed),
+                mock.patch.object(lifecycle.hosted_chat_lifecycle, "forget_file"),
                 self.assertRaises(state.ApiError),
             ):
                 invoke()
+        failed = mock.Mock()
+        failed.metadata.side_effect = lifecycle.team_storage.StorageInputError("input")
+        with (
+            mock.patch.object(resources, "_require_current_authorization"),
+            mock.patch.object(state, "_storage", return_value=failed),
+            self.assertRaises(state.ApiError) as invalid,
+        ):
+            lifecycle._delete_team_file(TEAM_ID, "f", lease)
+        self.assertEqual(invalid.exception.status, 400)
 
     def test_volume_and_runtime_ownership_are_exact_and_retry_safe(self) -> None:
         volume = mock.Mock(attrs={})

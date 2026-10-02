@@ -13,6 +13,7 @@ from http import HTTPStatus
 from action import challenges as action_challenges
 from inference import abort as request_abort
 from local.chat import api as local_chat_api
+from local.chat import attachments as local_chat_attachments
 from local.chat import capabilities as local_chat_capabilities
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
@@ -81,6 +82,9 @@ class ChatTurnService:
         # A person who found the Team's slot held by a Routine: chat goes first at the next boundary. Infinite while
         # that Routine still holds the slot; its bounded grace starts only when the segment frees it.
         self._chat_demand: dict[str, float] = {}
+        # The selected files each Team's Brain thread may still reference; absent means unknown, as after a restart,
+        # so a file's deletion then purges that thread (ADR-0093).
+        self._brain_files: dict[str, frozenset[str] | None] = {}
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -167,6 +171,10 @@ class ChatTurnService:
             lock.release()
 
     _pending_chat_continuation = local_chat_api._pending_chat_continuation
+    _turn_started = local_chat_attachments.turn_started
+    _turn_completed = local_chat_attachments.turn_completed
+    _file_deletion_slot = local_chat_attachments.deletion_slot
+    _forget_file = local_chat_attachments.forget_file
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
     action_labels = local_chat_capabilities.action_labels

@@ -161,6 +161,10 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             put=mock.Mock(return_value={"id": "file"}),
             list=mock.Mock(return_value={"files": []}),
             delete=mock.Mock(return_value={"deleted": True}),
+            metadata=mock.Mock(return_value=[{"id": "a" * 32}]),
+        )
+        controller.chat_turn_service = types.SimpleNamespace(
+            _file_deletion_slot=lambda _team_id: nullcontext(), _forget_file=mock.Mock()
         )
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),

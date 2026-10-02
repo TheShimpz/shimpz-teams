@@ -471,10 +471,14 @@ class LocalController:
         return {"team_id": team_id, **listing}
 
     def delete_file(self, team_id: str, file_id: object) -> dict[str, object]:
+        """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093)."""
         team_id = validate_team_id(team_id)
-        with self._lock(team_id):
-            self.assistant_lifecycle._network(team_id)
+        service = self.chat_turn_service
+        with service._file_deletion_slot(team_id), self._lock(team_id):
+            network = self.assistant_lifecycle._network(team_id)
             try:
+                (stored,) = self.storage.metadata(team_id, [file_id])
+                service._forget_file(team_id, stored["id"], network)
                 result = self.storage.delete(team_id, file_id)
             except team_storage.StorageError as exc:
                 self._raise_storage_problem(exc)

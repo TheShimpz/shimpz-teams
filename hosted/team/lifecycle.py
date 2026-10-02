@@ -89,10 +89,29 @@ def _list_team_files(team_id: str, lease: hosted_resources._AuthorizationLease) 
 
 
 def _delete_team_file(team_id: str, file_id: object, lease: hosted_resources._AuthorizationLease) -> dict:
+    """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093).
+
+    The Team's execution slot is held throughout, so no turn delivers or reads the file while it is deleted.
+    """
+    slot = runtime_state._chat_lock_for(team_id)
+    if not slot.acquire(blocking=False):
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team files cannot be deleted during an active chat turn")
+    try:
+        return _delete_unused_team_file(team_id, file_id, lease)
+    finally:
+        slot.release()
+
+
+def _delete_unused_team_file(team_id: str, file_id: object, lease: hosted_resources._AuthorizationLease) -> dict:
     with runtime_state._lock_for(team_id):
-        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
-            result = runtime_state._storage().delete(team_id, file_id)
+            storage = runtime_state._storage()
+            (stored,) = storage.metadata(team_id, [file_id])
+            hosted_chat_lifecycle.forget_file(team_id, stored["id"], container.id)
+            result = storage.delete(team_id, file_id)
+        except team_storage.StorageInputError as exc:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
         except team_storage.StorageNotFoundError as exc:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "file not found") from exc
         except team_storage.StorageError as exc:

@@ -23,6 +23,7 @@ from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import attachments as hosted_attachments
+from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -346,6 +347,16 @@ def _admitted_delivery(
 
 
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
+    if request.continuation is None:
+        # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.
+        hosted_chat_lifecycle.turn_started(request.team_id, request.file_ids or ())
+    result = _run_metadata_segment(request)
+    if isinstance(result.outcome, chat_orchestrator.ChatOutcome):
+        hosted_chat_lifecycle.turn_completed(request.team_id, request.file_ids or ())
+    return result
+
+
+def _run_metadata_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
     with (
         hosted_assistants.integration_secrets_client.IntegrationSecretSession() as credential_session,
         hosted_assistants._chat_file_metadata_connection(request.team_id, request.file_ids) as metadata_connection,
