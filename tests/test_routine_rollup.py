@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import routine_fixture
 import test_routine_record as base
 
+from local.routine import notices as routine_notices
+from local.routine import store as routine_store
 from protocol.http.v1 import routine as http_routine
 from routine import record
 
@@ -28,6 +33,55 @@ def run_once(state: record.TeamRoutines, start: int, end: int, outcome: str = "d
     lease = record.lease_of(claim.lease_token, base.KEY)
     detail = routine_fixture.DONE if outcome == "done" else {"code": "assistant-rpc-failed", "actions": []}
     return record.finish(state, claim.run.run_id, lease, end, outcome, detail)
+
+
+def delivery(state: record.TeamRoutines) -> list[dict[str, object]]:
+    """The healthy rollups Admin receives in one delivery, exactly as Team serves them."""
+    return [routine_notices._notice("team_1", item) for item in state.notices if item.outcome == "healthy"]
+
+
+def acknowledged(state: record.TeamRoutines, batch: list[dict[str, object]]) -> record.TeamRoutines:
+    return record.acknowledge(state, frozenset((item["notice_id"], item["version"]) for item in batch))
+
+
+def restarted(state: record.TeamRoutines) -> record.TeamRoutines:
+    """The state as a restarted Team reads it back from its encrypted store."""
+    with tempfile.TemporaryDirectory() as directory:
+        store = routine_store.RoutineStore(Path(directory) / "state", Path(directory) / "key" / "aes256.key")
+        store.update("team_1", lambda _before: (state, None))
+        return store.load("team_1")
+
+
+def same_minute_change() -> tuple[list[list[dict[str, object]]], record.TeamRoutines]:
+    """A minute whose rollup is delivered, grows, survives a restart and a change, and is acknowledged late."""
+    state = run_once(continuous(), MINUTE, MINUTE + 1)
+    first = delivery(state)
+    deliveries = [first]
+    state = restarted(run_once(state, MINUTE + 10, MINUTE + 11))
+    changed = record.scheduled(base.routine(schedule={"kind": "continuous", "gap": 6, "cap": 1000}), MINUTE + 20)
+    state, _updated = record.update(state, changed, 1, MINUTE + 20, base.RECEIPT, MINUTE + 900)
+    state = run_once(state, MINUTE + 30, MINUTE + 31)
+    # The first delivery's acknowledgment arrives only now, after the minute's count grew twice.
+    state = acknowledged(state, first)
+    batch = delivery(state)
+    deliveries.append(batch)
+    return deliveries, acknowledged(state, batch)
+
+
+# The exact rollup deliveries Team makes in these cases; Admin replays them through its real transcript.
+DELIVERY = json.loads((Path(http_routine.__file__).parent / "vectors.json").read_text()).get(
+    "routine_rollup_delivery", {}
+)
+
+
+class DeliveryTests(unittest.TestCase):
+    def test_a_change_restart_and_late_acknowledgment_in_one_minute_keep_counting_one_notice(self):
+        deliveries, state = same_minute_change()
+        self.assertEqual(deliveries, DELIVERY["same_minute_change"]["deliveries"])
+        (first,), (last,) = deliveries
+        self.assertEqual((last["notice_id"], last["version"], last["detail"]), (first["notice_id"], 3, {"runs": 3}))
+        self.assertEqual(record.routine(state, ROUTINE_ID).revision, 2)
+        self.assertEqual([item.outcome for item in state.notices], ["changed"])
 
 
 class RollupTests(unittest.TestCase):

@@ -335,7 +335,8 @@ def update(
     """Replace a Routine's definition as its next revision, with its changed notice and the request's receipt.
 
     Only the revision the request saw changes, never while one of its runs is live or it is being deleted; an
-    authenticated change clears a scope hold and keeps a pause. Its schedule restarts from the change.
+    authenticated change clears a scope hold and keeps a pause and the minute rollup. Its schedule restarts from the
+    change.
     """
     state, fresh = _receipt(state, receipt, expires_at, now)
     if not fresh:
@@ -353,7 +354,11 @@ def update(
     others = tuple(item for item in state.routines if item.routine_id != current.routine_id)
     if not daily_rate_allows(others, admitted.schedule):
         raise RoutineStateError("routine-rate-limit")
-    changed = dataclasses.replace(admitted, paused=current.paused)
+    # The minute rollup outlives a change: its notice id is the Routine's and the minute's, so a count restarted at 1
+    # would reuse a delivered version of the same notice.
+    changed = dataclasses.replace(
+        admitted, paused=current.paused, rollup_minute=current.rollup_minute, rollup_runs=current.rollup_runs
+    )
     state = _replace_routine(state, changed)
     return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, definition(changed))), True
 
