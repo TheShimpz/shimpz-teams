@@ -501,6 +501,47 @@ class TeamIsolationTests(RoutineServiceCase):
             with self.assertRaises(routine_store.RoutineStoreError):
                 routine_watchdog.check(service)
 
+    def test_notices_skip_an_unreadable_team_and_deliver_the_healthy_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime(completed()))
+            self.routine(service)
+            self.run_claim(service, service.claim_routine_run(("anthropic", "openai")))
+            self.break_team(service)
+            damaged = service.routine_store._team_dir("team_2") / "state.json"
+            before = damaged.read_bytes()
+
+            batch = service.routine_notices()
+
+            self.assertEqual(
+                ([(item["team_id"], item["outcome"]) for item in batch["notices"]], batch["more"]),
+                ([("team_1", "done")], False),
+            )
+            local_app.local_audit.record_request.assert_any_call(
+                "routine-notices", result="error", team_id="team_2", detail="routine-state-unavailable"
+            )
+            service.acknowledge_routine_notices(
+                {"deliveries": [{"team_id": "team_1", "notice_id": batch["notices"][0]["notice_id"], "version": 1}]}
+            )
+            self.assertEqual(service.routine_notices()["notices"], [])
+            # The damaged Team is never acknowledged: a delivery naming it fails closed and its state stays as written.
+            with self.assertRaises(local_app.ApiProblem) as refused:
+                service.acknowledge_routine_notices(
+                    {"deliveries": [{"team_id": "team_2", "notice_id": "0" * 32, "version": 1}]}
+                )
+            self.assertEqual((refused.exception.status, refused.exception.code), (503, "routine-state-unavailable"))
+            self.assertEqual(damaged.read_bytes(), before)
+
+    def test_notices_fail_closed_when_teams_cannot_be_enumerated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime(completed()))
+            self.routine(service)
+            self.run_claim(service, service.claim_routine_run(("anthropic", "openai")))
+            path = service.routine_store._team_dir("team_2") / "state.json"
+            routine_store._PRIVATE.atomic_write(path, b'{"team_id":"Team 2"}', "Routine state")
+            with self.assertRaises(local_app.ApiProblem) as unavailable:
+                service.routine_notices()
+            self.assertEqual(unavailable.exception.code, "routine-state-unavailable")
+
     def test_claims_skip_an_unreadable_team_and_serve_the_healthy_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())

@@ -42,16 +42,31 @@ def _notice(team_id: str, notice: record.Notice) -> dict[str, object]:
     }
 
 
+def _team_notices(self, team_id: str) -> tuple[record.Notice, ...]:
+    """One identified Team's notices; a Team whose state cannot be read is audited and left out, never blocking others.
+
+    Its notices stay undelivered and unacknowledged in its state until it reads again.
+    """
+    try:
+        return routine_state.load(self, team_id).notices
+    except ApiProblem:
+        local_audit.record_request(
+            "routine-notices", result="error", team_id=team_id, detail="routine-state-unavailable"
+        )
+        return ()
+
+
 def routine_notices(self) -> dict[str, object]:
-    """A bounded batch of every Team's undelivered notices, for Admin to write to each Team's transcript.
+    """A bounded batch of every readable Team's undelivered notices, for Admin to write to each Team's transcript.
 
     A batch's encoded notice list stays within the protocol's byte bound and always holds at least one notice, which
     fits even at its bound, so Admin drains any backlog by acknowledging each batch and asking again while ``more``.
+    Teams that cannot be enumerated fail the whole batch; one identified Team's damaged state is only skipped.
     """
     notices: list[dict[str, object]] = []
     size = 2  # the list's brackets
     for team_id in routine_state.call(self.routine_store.teams):
-        for notice in routine_state.load(self, team_id).notices:
+        for notice in _team_notices(self, team_id):
             item = _notice(team_id, notice)
             cost = http_routine.encoded_bytes(item) + (1 if notices else 0)
             if notices and size + cost > http_routine.MAX_NOTICE_BATCH_BYTES:
