@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any
 
 from action import human as action_human
+from action import journal as action_journal
 from chat import attachments as chat_attachments
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
@@ -115,10 +116,13 @@ def _validate_batch(
     requests: tuple[brain_runtime_client.ActionRequest, ...],
     declared: Mapping[tuple[str, str], brain_runtime_client.RuntimeAction],
     validate_action: ActionValidator,
+    capacity: int,
 ) -> tuple[brain_runtime_client.ActionRequest, ...]:
     """Validate a complete suspension before allowing its first side effect."""
     if not requests:
         raise ChatOrchestrationError("Brain suspended without an Action request")
+    if len(requests) > capacity:
+        raise ChatOrchestrationError("Action batch results could exceed the Brain request")
 
     seen_interrupts: set[str] = set()
     contracts: list[tuple[brain_runtime_client.ActionRequest, brain_runtime_client.RuntimeAction]] = []
@@ -185,7 +189,10 @@ def _drive(
 
         with strategy.progress.span("action-preparation"):
             strategy.validate_context()
-            batch = _validate_batch(turn.actions, declared, strategy.validate_action)
+            # Every result must fit the one resume that returns them, so the batch is bounded before any side effect
+            # by the exact serialized turn context and each result's worst case (ADR-0093).
+            capacity = brain_runtime_client.resume_capacity(context, action_journal.MAX_RESULT_BYTES)
+            batch = _validate_batch(turn.actions, declared, strategy.validate_action, capacity)
             batch_interrupts = {request.interrupt_id for request in batch}
             if not seen_interrupts.isdisjoint(batch_interrupts):
                 raise ChatOrchestrationError("Brain repeated an Action interrupt across rounds")

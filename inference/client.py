@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
-import contextvars
 import hashlib
 import http.client
 import json
 import os
 import re
-import socket
 import threading
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 from core import strict_json
+from inference import abort as brain_abort
 from inference import usage as brain_usage
+from inference.errors import BrainRuntimeError
 from protocol.http.v1 import payload as http_payload
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
@@ -49,10 +48,6 @@ _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
-
-
-class BrainRuntimeError(RuntimeError):
-    """The private runtime was unavailable or violated its closed response contract."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,69 +206,27 @@ ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
 
 # Brain shares a local network with Team, so a connection is established quickly or not at all; a turn then may
 # legitimately wait on the model provider.
+# The Brain refuses a request body above this many bytes (brain/runtime_api.py MAX_REQUEST_BYTES).
+MAX_REQUEST_BYTES = 4 * 1024 * 1024
+# A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma.
+_RESULT_KEY_BYTES = 256 + 4
 CONNECT_TIMEOUT_SECONDS = 5.0
 RESPONSE_TIMEOUT_SECONDS = 65.0
 # An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
 PURPOSE_DEADLINE_SECONDS = 15.0
 
 
-class RequestAbort:
-    """Stop's handle on the Brain request a Local chat turn is waiting for (ADR-0079).
+def resume_capacity(context: RuntimeContext, result_bytes: int) -> int:
+    """How many Action results of at most ``result_bytes`` each one resume of this turn can carry to the Brain.
 
-    ``abort`` shuts down the attached connection's socket, which wakes the blocked read and makes Brain see the
-    disconnect and cancel the turn's provider call. A request attached after the abort fails before connecting, and
-    one still connecting fails as soon as its bounded connect returns. The connected socket is pinned, because a
-    response that closes the connection detaches it from the connection while its body is still being read.
+    The fixed part is the exact serialized turn context, attachments included; each result reserves its worst case.
     """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._aborted = False
-        self._connection: http.client.HTTPConnection | None = None
-        self._socket: socket.socket | None = None
-
-    def abort(self) -> None:
-        # Shutting down under the lock keeps the request from detaching and closing the connection meanwhile.
-        with self._lock:
-            self._aborted = True
-            sock = self._socket or getattr(self._connection, "sock", None)
-            if sock is not None:
-                with suppress(OSError):
-                    sock.shutdown(socket.SHUT_RDWR)
-
-    def pin(self, sock: socket.socket) -> None:
-        """Keep the connected socket abortable for the whole response, even after the connection releases it."""
-        with self._lock:
-            self._socket = sock
-        self.check()
-
-    def attach(self, connection: http.client.HTTPConnection) -> None:
-        with self._lock:
-            self._connection = connection
-        self.check()
-
-    def check(self) -> None:
-        with self._lock:
-            if self._aborted:
-                raise BrainRuntimeError("Brain runtime request was stopped")
-
-    def detach(self) -> None:
-        with self._lock:
-            self._connection = None
-            self._socket = None
+    fixed = len(_body({**BrainRuntimeClient._context(context), "results": {}}))
+    return max(0, (MAX_REQUEST_BYTES - fixed) // (result_bytes + _RESULT_KEY_BYTES))
 
 
-_ABORT: contextvars.ContextVar[RequestAbort | None] = contextvars.ContextVar("brain_request_abort", default=None)
-
-
-@contextmanager
-def abortable(handle: RequestAbort) -> Iterator[None]:
-    """Let ``handle`` abort every Brain request this thread makes inside the block."""
-    token = _ABORT.set(handle)
-    try:
-        yield
-    finally:
-        _ABORT.reset(token)
+def _body(payload: Mapping[str, object]) -> bytes:
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def _connection(host: str, port: int, timeout: float) -> http.client.HTTPConnection:
@@ -354,11 +307,11 @@ class BrainRuntimeClient:
         }
 
     def _post(self, path: str, payload: Mapping[str, object], *, deadline: float | None = None) -> object:
-        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
-        abort = _ABORT.get()
+        body = _body(payload)
+        abort = brain_abort.current()
         connection = self._connection_factory(self._host, self._port, CONNECT_TIMEOUT_SECONDS)
         # An overall deadline shuts the socket down from a timer, like Stop, so Brain sees the disconnect.
-        expiry = RequestAbort()
+        expiry = brain_abort.RequestAbort()
         timer = None if deadline is None else threading.Timer(deadline, expiry.abort)
         try:
             if timer is not None:

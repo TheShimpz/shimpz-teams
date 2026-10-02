@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from http import HTTPStatus
 
 from action import challenges as action_challenges
-from inference import client as brain_runtime_client
+from inference import abort as request_abort
 from local.chat import api as local_chat_api
 from local.chat import capabilities as local_chat_capabilities
 from local.chat import execution as local_chat_execution
@@ -69,7 +69,7 @@ class ChatTurnService:
         self._active_chat_tokens: dict[str, str] = {}
         self._active_action_containers: dict[str, tuple[str, object]] = {}
         self._cancelled_chat_tokens: set[str] = set()
-        self._brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
+        self._brain_aborts: dict[str, request_abort.RequestAbort] = {}
         # The Routine whose run segment holds the Team's execution slot, so a chat message is told why it waits.
         self._routine_holders: dict[str, str] = {}
         # Each running Routine run's Team, execution-slot token, and active-time deadline, for its exact Stop.
@@ -132,14 +132,14 @@ class ChatTurnService:
             )
         token = secrets.token_hex(16)
         # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
-        brain_abort = brain_runtime_client.RequestAbort()
+        brain_abort = request_abort.RequestAbort()
         with self._active_chat_guard:
             self._active_chat_tokens[team_id] = token
             self._brain_aborts[token] = brain_abort
             if routine_id is not None:
                 self._routine_holders[team_id] = routine_id
         try:
-            with brain_runtime_client.abortable(brain_abort):
+            with request_abort.abortable(brain_abort):
                 yield token
         finally:
             with self._active_chat_guard:

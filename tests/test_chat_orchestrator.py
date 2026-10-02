@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import unittest
 
 from action import human as action_human
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from tests import human_request_fixtures
@@ -335,6 +337,24 @@ class ChatOrchestratorTests(unittest.TestCase):
         self.assertEqual(invoked, [("hello-pulse", "hello", {"name": "Ada"})])
         self.assertEqual(len(runtime.resumes), 1)
 
+    def test_a_batch_whose_worst_case_results_cannot_fit_one_resume_fails_before_any_invocation(self):
+        invoked = []
+        capacity = brain_runtime_client.resume_capacity(context(), action_journal.MAX_RESULT_BYTES)
+        self.assertEqual(capacity, 7)
+        with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "exceed the Brain request"):
+            chat_orchestrator.run(
+                FakeRuntime([action_batch(0, capacity + 1)]),
+                context(),
+                "Do it",
+                strategy(accept_input, lambda request: invoked.append(request.interrupt_id)),
+            )
+        self.assertEqual(invoked, [])
+        # The serialized turn context counts too: large attachments leave room for fewer results.
+        heavy = dataclasses.replace(
+            context(), attachments=({"id": "a" * 32, "content": {"type": "opaque", "pad": "x" * 1_400_000}},)
+        )
+        self.assertEqual(brain_runtime_client.resume_capacity(heavy, action_journal.MAX_RESULT_BYTES), 5)
+
     def test_undeclared_action_fails_before_invocation(self):
         invoked = []
         with self.assertRaises(chat_orchestrator.ChatOrchestrationError):
@@ -438,7 +458,7 @@ class ChatOrchestratorTests(unittest.TestCase):
             ("one Action", (1,), False, 5),
             ("four Actions in one batch", (4,), False, 8),
             ("four single-Action rounds", (1, 1, 1, 1), False, 14),
-            ("eight Actions in one batch", (8,), False, 12),
+            ("seven Actions in one batch", (7,), False, 11),
             ("eight single-Action rounds", (1, 1, 1, 1, 1, 1, 1, 1), False, 26),
             ("one Action with one pause", (1,), True, 6),
         )

@@ -12,6 +12,7 @@ from unittest import mock
 
 from test_brain_runtime_client import RuntimeClientCase, _Connection, _Response, context
 
+from inference import abort as brain_abort
 from inference import client as brain_runtime_client
 
 REQUEST = brain_runtime_client.ActionRequest("interrupt-1", "shimpz-exa", "search-web", {"query": "AI news"})
@@ -114,10 +115,10 @@ class PurposeTests(RuntimeClientCase):
         self.assertTrue(connection.closed)
 
     def test_a_request_attached_after_its_deadline_fails_before_sending(self):
-        expired = brain_runtime_client.RequestAbort()
+        expired = brain_abort.RequestAbort()
         expired.abort()
         client, connection = self.client(_Response({"purpose": PURPOSE}))
-        with mock.patch.object(brain_runtime_client, "RequestAbort", return_value=expired):
+        with mock.patch.object(brain_abort, "RequestAbort", return_value=expired):
             self.assertIsNone(client.purpose(context(self.secret), REQUEST, "Exa", "Search the web."))
         self.assertEqual(connection.requests, [])
 
@@ -181,11 +182,11 @@ class RealSocketAbortTests(RuntimeClientCase):
     def test_stop_ends_a_hanging_closing_response(self):
         brain = _PartialBodyBrain()
         self.addCleanup(brain.close)
-        stop = brain_runtime_client.RequestAbort()
+        stop = brain_abort.RequestAbort()
         threading.Timer(0.3, stop.abort).start()
         started = time.monotonic()
         with (
-            brain_runtime_client.abortable(stop),
+            brain_abort.abortable(stop),
             self.assertRaises(brain_runtime_client.BrainRuntimeError),
         ):
             self._client(brain).delete_thread("thread-1")

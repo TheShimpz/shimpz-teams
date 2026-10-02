@@ -386,7 +386,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             ("one Action", (1,), 5),
             ("four Actions in one batch", (4,), 8),
             ("four single-Action rounds", (1, 1, 1, 1), 14),
-            ("eight Actions in one batch", (8,), 12),
+            ("seven Actions in one batch", (7,), 11),
             ("eight single-Action rounds", (1, 1, 1, 1, 1, 1, 1, 1), 26),
         )
         action_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}

@@ -16,6 +16,7 @@ from unittest import mock
 from test_brain_runtime_client import context
 
 from chat import orchestrator as chat_orchestrator
+from inference import abort as brain_abort
 from inference import client as brain_runtime_client
 from local import app as local_app
 
@@ -115,10 +116,10 @@ class RequestAbortTests(unittest.TestCase):
 
     def test_an_abort_before_the_request_never_connects(self):
         connection = mock.Mock()
-        handle = brain_runtime_client.RequestAbort()
+        handle = brain_abort.RequestAbort()
         handle.abort()
         with (
-            brain_runtime_client.abortable(handle),
+            brain_abort.abortable(handle),
             self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "stopped"),
         ):
             self._client(connection).delete_thread("team-thread")
@@ -127,7 +128,7 @@ class RequestAbortTests(unittest.TestCase):
 
     def test_an_abort_during_the_bounded_connect_fails_before_sending(self):
         connection = mock.Mock(sock=None)
-        handle = brain_runtime_client.RequestAbort()
+        handle = brain_abort.RequestAbort()
 
         def connect() -> None:
             handle.abort()
@@ -135,7 +136,7 @@ class RequestAbortTests(unittest.TestCase):
 
         connection.connect.side_effect = connect
         with (
-            brain_runtime_client.abortable(handle),
+            brain_abort.abortable(handle),
             self.assertRaisesRegex(brain_runtime_client.BrainRuntimeError, "stopped"),
         ):
             self._client(connection).delete_thread("team-thread")
@@ -143,7 +144,7 @@ class RequestAbortTests(unittest.TestCase):
         connection.sock.settimeout.assert_called_once_with(brain_runtime_client.RESPONSE_TIMEOUT_SECONDS)
 
     def test_the_abort_shuts_down_only_an_attached_socket_and_tolerates_a_closed_one(self):
-        handle = brain_runtime_client.RequestAbort()
+        handle = brain_abort.RequestAbort()
         connection = mock.Mock()
         connection.sock.shutdown.side_effect = OSError("already closed")
         handle.attach(connection)

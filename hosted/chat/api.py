@@ -18,7 +18,7 @@ from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import human as hosted_chat_human
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
-from inference import client as brain_runtime_client
+from inference import abort as request_abort
 from integrations import challenges as integration_challenges
 from integrations import pkce as integration_pkce
 from integrations import service as integration_service
@@ -43,7 +43,7 @@ def _exclusive_chat_turn(team_id: str, lease: hosted_resources._AuthorizationLea
         raise
     token = secrets.token_hex(16)
     # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
-    brain_abort = brain_runtime_client.RequestAbort()
+    brain_abort = request_abort.RequestAbort()
     with runtime_state._active_chat_guard:
         draining = team_id in runtime_state._draining_chats
         if not draining:
@@ -54,7 +54,7 @@ def _exclusive_chat_turn(team_id: str, lease: hosted_resources._AuthorizationLea
         lock.release()
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, f"team {team_id!r} is being destroyed")
     try:
-        with brain_runtime_client.abortable(brain_abort):
+        with request_abort.abortable(brain_abort):
             yield token, container
     finally:
         with runtime_state._active_chat_guard:

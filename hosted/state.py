@@ -24,6 +24,7 @@ from assistant import manifest as assistant_manifest
 from hosted import container as container_spec
 from hosted import token as token_store
 from hosted.install import developers_client, developers_delegation
+from inference import abort as request_abort
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import artifact_trust, registry_auth
@@ -151,7 +152,7 @@ _active_action_container_ids: dict[str, tuple[str, str]] = {}
 _blocked_action_workloads: set[tuple[str, str]] = set()
 _cancelled_chat_tokens: set[str] = set()
 # The abort handle of each active turn's in-flight Brain request, keyed by chat token (ADR-0079).
-_brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
+_brain_aborts: dict[str, request_abort.RequestAbort] = {}
 # Teams being destroyed: no new chat turn may register until destruction ends.
 _draining_chats: set[str] = set()
 # Docker inventory and slow provisioning run outside this lock. The generation detects snapshot churn.

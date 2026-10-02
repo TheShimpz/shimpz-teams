@@ -142,7 +142,8 @@ COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
-COPY inference/__init__.py inference/client.py inference/config.py inference/integration_secrets.py \
+COPY inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
+     inference/integration_secrets.py \
      inference/model_catalog.json inference/token.py inference/usage.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
      integrations/challenges.py integrations/flow.py integrations/http.py \
