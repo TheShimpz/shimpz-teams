@@ -160,12 +160,28 @@ class EndingRaceTests(FrozenCase):
     def test_an_ending_decided_on_a_frozen_read_never_lands_on_a_resumed_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
+            opened = service.open_routine_challenge("team_1", claim["run_id"])
             snapshot = record.run(self.state(service), claim["run_id"])
             now = int(time.time())
             service.routine_store.update("team_1", lambda state: record.thaw(state, claim["run_id"], now))
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                routine_human._end_changed(service, "team_1", snapshot, "denied", "denied")
-            self.assertEqual(caught.exception.code, "routine-run-not-frozen")
+            with self.assertRaises(local_app.ApiProblem) as changed:
+                routine_human._end_changed(service, "team_1", snapshot)
+            with (
+                mock.patch.object(
+                    routine_human,
+                    "_frozen",
+                    return_value=(snapshot, record.routine(self.state(service), claim["routine_id"])),
+                ),
+                self.assertRaises(local_app.ApiProblem) as denied,
+            ):
+                service.resume_routine_human(
+                    "team_1",
+                    claim["run_id"],
+                    {"challenge_id": opened["challenge_id"], "decision": "deny"},
+                    "openai",
+                    API_KEY,
+                )
+            self.assertEqual((changed.exception.code, denied.exception.code), ("routine-run-not-frozen",) * 2)
             resumed = record.run(self.state(service), claim["run_id"])
             self.assertEqual((resumed.status, resumed.generation), ("leased", snapshot.generation))
             self.assertEqual(self.state(service).discards, ())
@@ -299,6 +315,7 @@ class StopBeforeRegistrationTests(FrozenCase):
                     "openai",
                     API_KEY,
                 )
-            self.assertEqual(caught.exception.code, "routine-run-not-frozen")
+            # Stop withdrew the challenge with the run, so the answer finds nothing to consume and nothing resumes.
+            self.assertEqual(caught.exception.code, "human-request-expired")
             self.assertEqual(self.state(service).runs, ())
             self.assertEqual(self.state(service).notices[-1].outcome, "stopped")

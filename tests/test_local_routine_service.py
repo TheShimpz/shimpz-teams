@@ -525,6 +525,46 @@ class FreezeTests(RoutineServiceCase):
             )
         self.assertEqual(resumed["status"], "done")
 
+    def test_an_answer_refused_while_a_chat_holds_the_team_stays_answerable(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim, _frozen = self.paused(directory, completed("Approved and listed."))
+            run_id = claim["run_id"]
+            opened = service.open_routine_challenge("team_1", run_id)
+            holding, release = threading.Event(), threading.Event()
+
+            def chat() -> None:
+                with service._exclusive_chat_turn("team_1"):
+                    holding.set()
+                    release.wait(10)
+
+            worker = threading.Thread(target=chat)
+            worker.start()
+            try:
+                self.assertTrue(holding.wait(10))
+                for answer in ({"decision": "deny"}, {"decision": "submit", "value": True}):
+                    with self.subTest(answer=answer), self.assertRaises(local_app.ApiProblem) as busy:
+                        service.resume_routine_human(
+                            "team_1", run_id, {"challenge_id": opened["challenge_id"], **answer}, "openai", API_KEY
+                        )
+                    self.assertEqual(busy.exception.code, "chat-active")
+                    # Nothing was consumed: the run, its continuation, and its challenge wait for the same answer.
+                    self.assertEqual(record.run(self.state(service), run_id).status, "frozen")
+                    self.assertEqual(service.routine_store.continuations("team_1"), (run_id,))
+                    self.assertEqual(service.current_routine_challenge("team_1").id, opened["challenge_id"])
+            finally:
+                release.set()
+                worker.join()
+            resumed = service.resume_routine_human(
+                "team_1",
+                run_id,
+                {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True},
+                "openai",
+                API_KEY,
+            )
+            self.assertEqual(resumed["status"], "done")
+            self.assertIsNone(service.current_routine_challenge("team_1"))
+            self.assertEqual(self.state(service).runs, ())
+
     def test_a_denied_or_stopped_frozen_run_ends_and_an_expired_challenge_leaves_it_frozen(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim, _frozen = self.paused(directory)
