@@ -74,22 +74,21 @@ class RuntimeAssistant:
     actions: tuple[RuntimeAction, ...]
 
 
+def _action_wire(action: RuntimeAction) -> dict[str, object]:
+    """One Action exactly as the private Brain request carries it."""
+    return {
+        "id": action.id,
+        "summary": action.summary,
+        "input_schema": dict(action.input_schema),
+        "authorization": action.authorization,
+        "input_files": list(action.input_files),
+    }
+
+
 def contract_digest(assistant: RuntimeAssistant) -> str:
     """The `sha256:` fingerprint of one Assistant contract as Brain receives it; a changed contract changes it."""
-    contract = {
-        "id": assistant.id,
-        "genesis": assistant.genesis,
-        "actions": [
-            {
-                "id": action.id,
-                "summary": action.summary,
-                "input_schema": dict(action.input_schema),
-                "authorization": action.authorization,
-                "input_files": list(action.input_files),
-            }
-            for action in assistant.actions
-        ],
-    }
+    actions = [_action_wire(action) for action in assistant.actions]
+    contract = {"id": assistant.id, "genesis": assistant.genesis, "actions": actions}
     body = json.dumps(contract, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
 
@@ -337,16 +336,7 @@ class BrainRuntimeClient:
                 {
                     "id": assistant.id,
                     "genesis": assistant.genesis,
-                    "actions": [
-                        {
-                            "id": action.id,
-                            "summary": action.summary,
-                            "input_schema": dict(action.input_schema),
-                            "authorization": action.authorization,
-                            "input_files": list(action.input_files),
-                        }
-                        for action in assistant.actions
-                    ],
+                    "actions": [_action_wire(action) for action in assistant.actions],
                 }
                 for assistant in context.assistants
             ],
