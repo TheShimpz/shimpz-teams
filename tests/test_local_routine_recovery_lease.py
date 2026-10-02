@@ -16,6 +16,7 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from local.routine import run as routine_run
 from routine import hold as routine_hold
 from routine import record
 
@@ -224,3 +225,20 @@ class AtomicCardTests(AutomaticCase):
         self.assertEqual(busy.exception.code, "chat-active")
         self.assertEqual(answered["status"], "skipped")
         self.assertIsNotNone(value)
+
+
+class DeadlineBindingTests(AutomaticCase):
+    def test_a_late_deadline_never_stops_a_later_execution_of_the_same_incident(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            service.assistant_lifecycle._fail_stop_action = mock.Mock()
+            routine_run.register_routine_run(service, "team_1", run_id, "later-execution", 60)
+            # The first execution's deadline fires late, after a new registration of the same incident.
+            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "first-execution"))
+            self.assertNotIn("later-execution", service._cancelled_chat_tokens)
+            self.assertFalse(routine_run.expire_routine_run(service, "team_2", run_id, "later-execution"))
+            self.assertTrue(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution"))
+            self.assertIn("later-execution", service._cancelled_chat_tokens)
+            routine_run.unregister_routine_run(service, run_id)
+            # Once it ended, nothing is left for a deadline to stop.
+            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution"))

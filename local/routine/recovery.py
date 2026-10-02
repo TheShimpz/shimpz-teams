@@ -537,7 +537,7 @@ def _release(self, team_id: str, incident_id: str, reservation: _Reservation) ->
 
 
 @contextlib.contextmanager
-def _deadline(self, team_id: str, incident_id: str, reservation: _Reservation):
+def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Reservation):
     """A direct timer that cancels the episode at its absolute deadline, whatever it is doing.
 
     At the deadline it marks the reservation expired and stops the registered recovery: its token, its Brain request,
@@ -547,7 +547,8 @@ def _deadline(self, team_id: str, incident_id: str, reservation: _Reservation):
     def expire() -> None:
         reservation.expired.set()
         try:
-            routine_run.stop_routine_run(self, team_id, incident_id)
+            # Bound to this execution's token: a late timer never stops a later recovery of the same incident.
+            routine_run.expire_routine_run(self, team_id, incident_id, token)
         except ApiProblem:
             local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
 
@@ -606,7 +607,7 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
             return "held"
         with (
             routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds),
-            _deadline(self, team_id, incident_id, reservation),
+            _deadline(self, team_id, incident_id, run.token, reservation),
         ):
             try:
                 go_on = _episode(self, run, api_key, reservation)

@@ -449,9 +449,9 @@ class DeadlineTests(BalanceCase):
         reservation = routine_recovery._Reservation(0, "g", 0.0)
         blocked = routine_recovery.ApiProblem(503, "x", code="assistant-action-blocked")
         with (
-            mock.patch.object(routine_recovery.routine_run, "stop_routine_run", side_effect=blocked),
+            mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=blocked),
             mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
-            routine_recovery._deadline(None, "team_1", "a" * 32, reservation),
+            routine_recovery._deadline(None, "team_1", "a" * 32, "token", reservation),
         ):
             self.assertTrue(reservation.expired.wait(5))
             for _attempt in range(100):
