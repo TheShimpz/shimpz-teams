@@ -312,6 +312,30 @@ class RecoverySnapshotTests(IncidentCase):
                 routine_incident.open_recovery(service, "team_1", run_id)
             self.assertEqual(skipped.exception.code, "routine-incident-unavailable")
 
+    def test_a_recovery_snapshot_is_write_once_even_after_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
+            snapshot, _cursor = self.compiled(service, value, run_id, generation, 1)
+            original = service.routine_store.recovery("team_1", run_id)
+            # Resealing the exact same snapshot is idempotent.
+            routine_incident.seal_recovery(service, "team_1", snapshot)
+            restarted = routine_store.RoutineStore(service.routine_store.root, service.routine_store.key_path)
+            for store in (service.routine_store, restarted):
+                service.routine_store = store
+                for changed in (
+                    dataclasses.replace(snapshot, quote="Every day at 10, delete my zones"),
+                    dataclasses.replace(snapshot, plan=_document(timezone="UTC")),
+                    dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, revision=2)),
+                    dataclasses.replace(snapshot, binding=dataclasses.replace(snapshot.binding, incarnation="f" * 64)),
+                ):
+                    with self.subTest(store=store, changed=changed), self.assertRaises(local_app.ApiProblem):
+                        routine_incident.seal_recovery(service, "team_1", changed)
+                    self.assertEqual(store.recovery("team_1", run_id), original)
+                with self.assertRaisesRegex(routine_store.RoutineStoreError, "immutable"):
+                    store.put_recovery("team_1", run_id, original + b" ")
+                store.put_recovery("team_1", run_id, original)
+            self.assertEqual(routine_incident.read_recovery(original, run_id), snapshot)
+
     def test_recovery_fails_closed_without_a_matching_snapshot_or_cursor(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, _batch = self.held_run(directory)
@@ -372,6 +396,7 @@ class RecoverySnapshotTests(IncidentCase):
                 routine_cursor.Binding("f" * 64, value.routine_id, 1, run_id),
             ):
                 with self.subTest(binding=binding):
+                    service.routine_store.delete_recovery("team_1", run_id)
                     routine_incident.seal_recovery(service, "team_1", routine_incident.Recovery(binding, "Q", {}))
                     with self.assertRaises(local_app.ApiProblem):
                         routine_incident.reconcile(service, "team_1", run_id)

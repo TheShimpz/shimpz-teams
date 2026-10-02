@@ -507,10 +507,21 @@ class RoutineStore:
             raise RoutineStoreError("Routine continuation is invalid")
         self._sealed_write(team, f"{run}.continuation", payload, _aad(team, run), "Routine continuation")
 
-    def _sealed_write(self, team: str, name: str, payload: bytes, aad: bytes, label: str) -> None:
+    def _sealed_write(self, team: str, name: str, payload: bytes, aad: bytes, label: str, *, maximum: int = 0) -> None:
+        """Seal one record under the Team lock; with ``maximum``, it is write-once.
+
+        A write-once record accepts only its exact first bytes again, idempotently; different bytes are refused and
+        the sealed record is left as it was.
+        """
         epoch = self._current_epoch()
         with self.lock(team):
             self._writable(epoch)
+            if maximum:
+                sealed = self._sealed_read(team, name, aad, label, maximum)
+                if sealed is not None:
+                    if sealed != payload:
+                        raise RoutineStoreError(f"{label} is immutable")
+                    return
             nonce = os.urandom(12)
             # One keyring for every Team: concurrent first writers must not each create a different key.
             with self._key_lock:
@@ -604,11 +615,21 @@ class RoutineStore:
         self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.cursor", "Routine cursor")
 
     def put_recovery(self, team_id: object, run_id: object, payload: object) -> None:
-        """Seal one compiled run's immutable recovery snapshot before its first dispatch (ADR-0092)."""
+        """Seal one compiled run's immutable recovery snapshot before its first dispatch (ADR-0092).
+
+        It is write-once: resealing the exact canonical bytes succeeds, and any other snapshot for the run is refused.
+        """
         team, run = _team_id(team_id), _run_id(run_id)
         if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_RECOVERY_BYTES:
             raise RoutineStoreError("Routine recovery snapshot is invalid")
-        self._sealed_write(team, f"{run}.recovery", payload, _recovery_aad(team, run), "Routine recovery snapshot")
+        self._sealed_write(
+            team,
+            f"{run}.recovery",
+            payload,
+            _recovery_aad(team, run),
+            "Routine recovery snapshot",
+            maximum=MAX_RECOVERY_BYTES,
+        )
 
     def recovery(self, team_id: object, run_id: object) -> bytes | None:
         team, run = _team_id(team_id), _run_id(run_id)
