@@ -273,6 +273,76 @@ class BrokeredOAuthIntegrationServiceTests(unittest.TestCase):
 
         self.assertEqual(self.transport.requests, [])
 
+    def test_claimed_lifetime_is_anchored_to_delivery_and_refreshed_within_the_margin(self) -> None:
+        now = [1_000_000_000]
+        root = Path(self.temporary.name)
+        store = integration_store.OAuthIntegrationStore(
+            root / "lifetime-state" / "integrations.json",
+            root / "lifetime-key" / "aes256.key",
+            clock=lambda: now[0],
+        )
+        rotated = "rotated-access-private-123456789"
+        lifetimes = [3499, 3600, 45, 3600]
+
+        class LifetimeTransport(Transport):
+            def request(self, **request) -> integration_broker.BrokerHTTPResponse:
+                self.requests.append(request)
+                operation = urlsplit(str(request["url"])).path.rsplit("/", 1)[-1]
+                payload = (
+                    {"revoked": True}
+                    if operation == "revoke"
+                    else {
+                        "access_token": ACCESS if operation == "claim" else rotated,
+                        "refresh_token": REFRESH,
+                        "expires_in": lifetimes.pop(0),
+                        "scopes": list(SCOPES),
+                        "broker_lease": LEASE,
+                    }
+                )
+                return integration_broker.BrokerHTTPResponse(
+                    200,
+                    "application/json",
+                    json.dumps(payload, separators=(",", ":")).encode(),
+                )
+
+        transport = LifetimeTransport()
+        service = integration_service.BrokeredOAuthIntegrationService(
+            challenge=integration_pkce.OAuthPKCEChallengeStore(),
+            store=store,
+            broker=integration_broker.OAuthBrokerClient(transport),
+        )
+
+        def resolve() -> str:
+            return store.resolve(
+                "team_1",
+                "shimpz-cloudflare",
+                "cloudflare",
+                "cloudflare",
+                SCOPES,
+                lambda refresh, lease: service.refresh("cloudflare", SCOPES, refresh, lease),
+            )
+
+        def claim_then_resolve(advance: int) -> str:
+            url = authorization(service, pending(), SESSION, callback_mode="hosted")
+            state = parse_qs(urlsplit(url).query, strict_parsing=True)["state"][0]
+            service.complete(state, CLAIM, SESSION, lambda _team, _assistant, _integration: DECLARATION)
+            now[0] += advance
+            return resolve()
+
+        # The Store delivered 3,499 remaining seconds; the token stays usable until the refresh margin.
+        self.assertEqual(claim_then_resolve(3499 - integration_store.REFRESH_WINDOW_SECONDS - 1), ACCESS)
+        now[0] += 1
+        self.assertEqual(resolve(), rotated)
+        self.assertTrue(service.disconnect("team_1", "shimpz-cloudflare", "cloudflare"))
+
+        # A grant delivered inside the refresh margin is never returned as-is.
+        self.assertEqual(claim_then_resolve(0), rotated)
+        self.assertEqual(
+            [urlsplit(str(item["url"])).path.rsplit("/", 1)[-1] for item in transport.requests],
+            ["claim", "refresh", "revoke", "claim", "refresh"],
+        )
+        self.assertEqual(lifetimes, [])
+
     def test_configuration_repr_and_broker_failures_are_closed(self) -> None:
         self.assertEqual(repr(self.service), "<BrokeredOAuthIntegrationService shimpz.com>")
         with self.assertRaisesRegex(integration_service.OAuthIntegrationServiceError, "configuration"):
