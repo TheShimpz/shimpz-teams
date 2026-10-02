@@ -17,6 +17,7 @@ from chat import progress as chat_progress
 from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
+from local.chat import api as local_chat_api
 from local.chat import continuation as local_chat_continuations
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.chat.types import PendingLocalChat
@@ -189,14 +190,8 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
 
 
 def _save_skill(self, team_id: str, terminal: chat_orchestrator.ChatOutcome) -> None:
-    """A completed run teaches its procedure like a chat turn (ADR-0085); it never changes memory."""
-    skill = chat_knowledge.learned_skill(terminal.actions)
-    if skill is None:
-        return
-    try:
-        self.inference_store.apply_knowledge(team_id, [], skill)
-    except inference_config.InferenceConfigError as exc:
-        raise _problem(HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", "memory-store-failed") from exc
+    """A completed run teaches its procedure like a chat turn, its attempt audited first (ADR-0085); never memory."""
+    local_chat_api.save_knowledge(self, team_id, (), chat_knowledge.learned_skill(terminal.actions))
 
 
 def _complete(self, run: _Run, terminal: chat_orchestrator.ChatOutcome) -> str:

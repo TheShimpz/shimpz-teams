@@ -31,6 +31,25 @@ def _pending_chat_continuation(self, team_id: str) -> dict[str, object] | None:
     return None
 
 
+def save_knowledge(self, team_id: str, memory: tuple[dict[str, str], ...], skill: dict[str, object] | None) -> None:
+    """Save a turn's knowledge in one write; the caller holds the Stop guard, and a failed save fails the turn.
+
+    The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
+    nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
+    """
+    if not memory and skill is None:
+        return
+    detail = f"attempt:memory={len(memory)},skill={int(skill is not None)}"
+    local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
+    try:
+        self.inference_store.apply_knowledge(team_id, list(memory), skill)
+    except inference_config.InferenceConfigError as exc:
+        local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
+        ) from exc
+
+
 def _segment_response(
     self,
     response: _ResponseRequest,
@@ -53,30 +72,17 @@ def _segment_response(
             usage=None if response.usage is None else response.usage.joined(),
         )
 
-    def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
-        # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
-        skill = chat_knowledge.learned_skill(terminal.actions)
-        if not terminal.memory and skill is None:
-            return
-        # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
-        # nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
-        detail = f"attempt:memory={len(terminal.memory)},skill={int(skill is not None)}"
-        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
-        try:
-            self.inference_store.apply_knowledge(team_id, list(terminal.memory), skill)
-        except inference_config.InferenceConfigError as exc:
-            local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
-            ) from exc
-
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
         # A proposed Routine is only an offer: a Local Supervisor must confirm it before anything is scheduled. It is
         # bound before the reply commits, and withdrawn when Stop wins the commit.
         proposal = self._routine_proposal(response, terminal.routine)
         try:
-            committed = self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
+            committed = self._commit_chat_terminal(
+                team_id,
+                token,
+                lambda: save_knowledge(self, team_id, terminal.memory, chat_knowledge.learned_skill(terminal.actions)),
+            )
         except BaseException:
             self._withdraw_routine_proposal(team_id, proposal)
             raise

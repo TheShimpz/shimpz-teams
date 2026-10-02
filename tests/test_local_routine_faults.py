@@ -23,15 +23,19 @@ from test_local_routine_service import (
 )
 
 from action import human as action_human
+from chat import knowledge as chat_knowledge
+from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import app as local_app
+from local import audit as local_audit
 from local import authority as local_authority
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
+from protocol.http.v1 import payload as http_payload
 from routine import record
 
 
@@ -155,6 +159,35 @@ class RunFaultTests(RoutineServiceCase):
             self.assertEqual(lost.exception.code, "routine-lease-invalid")
             with mock.patch.object(record, "spend", side_effect=record.RoutineStateError("run-not-running")):
                 routine_run._spend(service, "team_1", claim["run_id"], record.lease_of(claim["lease_token"], KEY), 1)
+
+    def learning(self, directory: str):
+        """A due run whose two Actions teach a skill, claimed while the Team already keeps its most skills."""
+        second = dataclasses.replace(LIST, interrupt_id="action-2")
+        controller, service = self.service(directory, Runtime(acting(), acting(second), completed()))
+        controller.assistant_lifecycle.invoke = lambda *_args: {"result": {"zones": []}}
+        for index in range(http_payload.MAX_SKILLS):
+            steps = (f"step-{index}", "read-pages")
+            invoked = tuple(
+                chat_orchestrator.InvokedAction("shimpz-exa", step, (), "sha256:" + "e" * 64) for step in steps
+            )
+            service.inference_store.apply_knowledge("team_1", [], chat_knowledge.learned_skill(invoked))
+        self.routine(service)
+        return controller, service, service.claim_routine_run(("anthropic", "openai"))
+
+    def test_a_skill_whose_attempt_cannot_be_audited_is_never_saved(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, claim = self.learning(directory)
+            before = service.inference_store.load_knowledge("team_1")
+            local_audit.record_request.side_effect = RuntimeError("audit down")
+            with self.assertRaisesRegex(RuntimeError, "audit down"):
+                self.run_claim(service, claim)
+            # Nothing was learned, so no older skill gave way, and no completed notice was recorded unaudited.
+            self.assertEqual(service.inference_store.load_knowledge("team_1"), before)
+            self.assertEqual(self.state(service).notices, ())
+            self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
+            local_audit.record_request.assert_called_with(
+                "chat-memory", result="ok", team_id="team_1", detail="attempt:memory=0,skill=1"
+            )
 
     def test_a_team_without_a_model_configuration_is_never_claimed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
