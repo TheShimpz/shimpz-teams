@@ -836,7 +836,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         controller.assistant_lifecycle._egress_token = mock.Mock(return_value="token")
         controller.assistant_lifecycle._team_has_egress_assistant = mock.Mock(return_value=False)
         controller.assistant_lifecycle._release_assistant_egress = mock.Mock()
-        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.icons = types.SimpleNamespace(discard_retiring=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
 
         result = controller.assistant_lifecycle.uninstall_assistant(
@@ -846,14 +846,14 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
         controller.assistant_lifecycle._release_assistant_egress.assert_called_once()
-        controller.icons.discard_binding.assert_called_once_with(binding, controller.registry.bindings)
+        controller.icons.discard_retiring.assert_called_once_with(binding, controller.registry.bindings)
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
         binding = types.SimpleNamespace(provenance="published")
         controller.registry.binding = lambda *_args: binding
         controller.registry.bindings = lambda: ()
-        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.icons = types.SimpleNamespace(discard_retiring=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
 
         result = controller.assistant_lifecycle.uninstall_assistant(
@@ -862,7 +862,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         )
 
         self.assertTrue(result["uninstalled"])
-        controller.icons.discard_binding.assert_called_once_with(binding, controller.registry.bindings)
+        controller.icons.discard_retiring.assert_called_once_with(binding, controller.registry.bindings)
 
     def test_uninstall_local_binding_preserves_exact_staged_image(self) -> None:
         controller, _container, events = self._lifecycle_controller()
@@ -876,7 +876,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         controller.registry.bindings = lambda: ()
         controller.assistant_lifecycle._queue_residue = mock.Mock()
         controller.assistant_lifecycle.sweep_residues = mock.Mock()
-        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.icons = types.SimpleNamespace(discard_retiring=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
 
         result = controller.assistant_lifecycle.uninstall_assistant(
@@ -902,7 +902,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         controller.assistant_lifecycle._egress_token = mock.Mock(return_value=None)
         controller.assistant_lifecycle._queue_residue = mock.Mock()
         controller.assistant_lifecycle.sweep_residues = mock.Mock()
-        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.icons = types.SimpleNamespace(discard_retiring=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
 
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
@@ -925,7 +925,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
             add=mock.Mock(side_effect=bindings.DynamicAssistantError("unavailable")),
         )
         controller.assistant_lifecycle.sweep_residues = mock.Mock()
-        controller.icons = types.SimpleNamespace(discard_binding=mock.Mock())
+        controller.icons = types.SimpleNamespace(discard_retiring=mock.Mock())
         controller.assistant_lifecycle.icons = controller.icons
 
         result = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")

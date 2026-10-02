@@ -11,7 +11,7 @@ from docker.types import LogConfig, Ulimit
 
 from action import execution as action_execution
 from assistant import manifest as assistant_manifest
-from install import bindings
+from install import bindings, icons
 from local.assistant import isolation as local_container_policy
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
@@ -733,9 +733,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 )
             self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
             self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
-            self.registry.delete(team_id, assistant_id)
-            if binding is not None:
-                self.icons.discard_binding(binding, self.registry.bindings)
+            _retire_binding(self, team_id, assistant_id, binding)
             self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": False}
         spec = self.registry.get(team_id, assistant_id)
@@ -774,11 +772,23 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
             )
         self.chat_turn_service._delete_assistant_integration_state(team_id, assistant_id)
         self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
-        self.registry.delete(team_id, assistant_id)
-        if binding is not None:
-            self.icons.discard_binding(binding, self.registry.bindings)
+        _retire_binding(self, team_id, assistant_id, binding)
         self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": True}
+
+
+def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
+    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
+    if binding is not None:
+        try:
+            self.icons.discard_retiring(binding, self.registry.bindings)
+        except icons.AssistantIconError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant icon storage is unavailable",
+                code="assistant-icon-unavailable",
+            ) from exc
+    self.registry.delete(team_id, assistant_id)
 
 
 @_serialize_against_local_team_chat

@@ -238,6 +238,40 @@ class LocalLifecycleTeardownTests(LocalContractCase):
             local_team_lifecycle._remove_team_assistants(controller, "team_1", [])
             self.assertEqual(icon_store.read(shared), ICON)
 
+    def test_uninstall_discards_the_icon_before_the_binding_and_retries_both_after_a_failure(self) -> None:
+        controller, _container, _events = self._lifecycle_controller()
+        resolution = _runtime_resolution()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry = AssistantRegistry(DynamicAssistantStore(root / "bindings.json"))
+            registry.put("team_1", resolution)
+            icon_store = AssistantIconStore(root / "icons")
+            with icon_store.retained(resolution, ICON, registry.bindings):
+                pass
+            lifecycle = controller.assistant_lifecycle
+            lifecycle.registry = registry
+            lifecycle.icons = icon_store
+            lifecycle._assistant_container = lambda *_args, **_kwargs: None
+            lifecycle._egress_token = lambda *_args, **_kwargs: None
+            assistant_id = str(resolution["assistant_id"])
+
+            with (
+                mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                lifecycle.uninstall_assistant("team_1", assistant_id)
+            self.assertEqual(caught.exception.code, "assistant-icon-unavailable")
+            self.assertIsNotNone(registry.binding("team_1", assistant_id))
+            self.assertEqual(icon_store.read(resolution), ICON)
+
+            self.assertEqual(
+                lifecycle.uninstall_assistant("team_1", assistant_id),
+                {"assistant": assistant_id, "uninstalled": False},
+            )
+            self.assertIsNone(registry.binding("team_1", assistant_id))
+            with self.assertRaises(AssistantIconError):
+                icon_store.read(resolution)
+
     def test_team_teardown_does_not_require_a_retiring_egress_policy(self) -> None:
         controller, container, events = self._lifecycle_controller()
         controller.registry["shimpz-cloudflare"].allowed_hosts = ("api.example.com",)

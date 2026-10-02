@@ -695,7 +695,6 @@ def _uninstall_assistant(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant metadata is unavailable",
             ) from exc
-        source_digest = None if binding is None else str(binding.resolution["source_digest"])
         hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
         runtime_state._integration_challenges.cancel_team(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
@@ -710,13 +709,10 @@ def _uninstall_assistant(
                 assistant_id,
             )
             runtime_state._assistant_stored_inputs.delete_assistant(team_id, assistant_id)
+            # The binding outlives its icon, so a failed icon removal is retried by the next uninstall.
+            if binding is not None:
+                runtime_state._assistant_icons.discard_retiring(binding, runtime_state._dynamic_assistants.snapshot)
             runtime_state._dynamic_assistants.delete(team_id, assistant_id)
-            if source_digest is not None:
-                publication.discard_icon(
-                    runtime_state._assistant_icons,
-                    runtime_state._dynamic_assistants,
-                    source_digest,
-                )
         except (integration_store.OAuthIntegrationStoreError, action_stored_input.StoredInputStoreError) as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,

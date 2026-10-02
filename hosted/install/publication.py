@@ -28,15 +28,6 @@ def retained_icon(
     return store.retained(resolution, contents, bindings_store.snapshot)
 
 
-def discard_icon(
-    store: icons.AssistantIconStore,
-    bindings_store: bindings.DynamicAssistantStore,
-    source_digest: str,
-) -> None:
-    """Remove an icon once no installed binding or in-flight install references its publication."""
-    store.discard_unreferenced(source_digest, bindings_store.snapshot)
-
-
 def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assistant_registry.AssistantSpec:
     try:
         declarations = tuple(

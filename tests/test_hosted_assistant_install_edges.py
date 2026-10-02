@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
@@ -12,10 +13,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_dynamic_assistants import runtime_resolution
 
 lifecycle = harness.assistant_lifecycle
 resources = harness.hosted_resources
 state = harness.runtime_state
+assistant_icons = lifecycle.assistant_icons
 
 TEAM_ID = "team_1"
 ASSISTANT_ID = "shimpz-cloudflare"
@@ -444,7 +447,7 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             ) as teardown,
             mock.patch.object(state._assistant_integrations, "delete_assistant") as integrations,
             mock.patch.object(state._dynamic_assistants, "delete") as binding,
-            mock.patch.object(lifecycle.publication, "discard_icon") as icon,
+            mock.patch.object(state._assistant_icons, "discard_retiring") as icon,
         ):
             first = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
             second = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
@@ -455,23 +458,41 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
         self.assertEqual(binding.call_count, 2)
         icon.assert_not_called()
 
-    def test_uninstall_deletes_binding_integrations_and_unreferenced_icon(self) -> None:
+    def test_uninstall_discards_the_icon_before_the_binding_and_retries_both_after_a_failure(self) -> None:
         lease = _lease()
+        resolution = runtime_resolution()
+        assistant_id = resolution["assistant_id"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = lifecycle.dynamic_assistants.DynamicAssistantStore(root / "bindings.json")
+            icon_store = assistant_icons.AssistantIconStore(root / "icons")
+            store.put(TEAM_ID, resolution)
+            icon = root / "icons" / f"published-{resolution['source_digest'].removeprefix('sha256:')}.png"
+            icon.parent.mkdir()
+            icon.write_bytes(b"icon")
+            with (
+                mock.patch.object(state, "_dynamic_assistants", store),
+                mock.patch.object(state, "_assistant_icons", icon_store),
+                mock.patch.object(resources, "_require_current_authorization"),
+                mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_replayable_human"),
+                mock.patch.object(lifecycle, "_teardown_assistant", return_value=resources._CleanupResult(True, True)),
+                mock.patch.object(state._assistant_integrations, "delete_assistant") as integrations,
+                mock.patch.object(state._assistant_stored_inputs, "delete_assistant"),
+            ):
+                with (
+                    mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
+                    self.assertRaises(state.ApiError) as failed,
+                ):
+                    lifecycle._uninstall_assistant(TEAM_ID, assistant_id, lease)
+                self.assertEqual(failed.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+                self.assertIsNotNone(store.get(TEAM_ID, assistant_id))
+                self.assertTrue(icon.exists())
 
-        with (
-            mock.patch.object(state._dynamic_assistants, "get", return_value=BINDING),
-            mock.patch.object(resources, "_require_current_authorization"),
-            mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_replayable_human"),
-            mock.patch.object(lifecycle, "_teardown_assistant", return_value=resources._CleanupResult(True, True)),
-            mock.patch.object(state._assistant_integrations, "delete_assistant") as integrations,
-            mock.patch.object(state._dynamic_assistants, "delete") as binding,
-            mock.patch.object(lifecycle.publication, "discard_icon") as icon,
-        ):
-            result = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
-        self.assertTrue(result["uninstalled"])
-        integrations.assert_called_once_with(TEAM_ID, ASSISTANT_ID)
-        binding.assert_called_once_with(TEAM_ID, ASSISTANT_ID)
-        icon.assert_called_once()
+                result = lifecycle._uninstall_assistant(TEAM_ID, assistant_id, lease)
+                self.assertEqual(result["uninstalled"], True)
+                self.assertIsNone(store.get(TEAM_ID, assistant_id))
+                self.assertFalse(icon.exists())
+                integrations.assert_called_with(TEAM_ID, assistant_id)
 
 
 if __name__ == "__main__":
