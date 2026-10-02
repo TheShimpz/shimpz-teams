@@ -155,8 +155,9 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
 
         class IconStore:
             @staticmethod
-            def discard_retiring(binding, _references) -> None:
+            def retire(binding, _references, delete_binding) -> None:
                 events.append(("discard-icon", binding.assistant_id))
+                delete_binding()
 
         def teardown(_team_id: str, assistant_id: str, *, container=None):
             events.append(("teardown", assistant_id, container))

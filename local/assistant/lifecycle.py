@@ -778,17 +778,18 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
 
 
 def _retire_binding(self, team_id: str, assistant_id: str, binding) -> None:
-    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
-    if binding is not None:
-        try:
-            self.icons.discard_retiring(binding, self.registry.bindings)
-        except icons.AssistantIconError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant icon storage is unavailable",
-                code="assistant-icon-unavailable",
-            ) from exc
-    self.registry.delete(team_id, assistant_id)
+    """Retire the binding and its unreferenced icon together; a failed icon removal keeps the binding to retry."""
+    if binding is None:
+        self.registry.delete(team_id, assistant_id)
+        return
+    try:
+        self.icons.retire(binding, self.registry.bindings, lambda: self.registry.delete(team_id, assistant_id))
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
+        ) from exc
 
 
 @_serialize_against_local_team_chat

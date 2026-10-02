@@ -918,7 +918,7 @@ class DockerFlowTests(
                 lifecycle.client = client
                 lifecycle.registry = registry
                 lifecycle.residues = assistant_update.AssistantResidueStore(Path(residue_root))
-                lifecycle.icons = SimpleNamespace(discard_retiring=lambda *_args: None)
+                lifecycle.icons = SimpleNamespace(retire=lambda _binding, _references, delete: delete())
                 lifecycle._lock = lambda _team_id: nullcontext()
                 lifecycle._network = lambda _team_id: SimpleNamespace(name="unused")
                 lifecycle._assistant_container = lambda *_args, **_kwargs: None

@@ -140,18 +140,21 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
 
 
 def _retire_team_binding(self, team_id: str, assistant_id: str) -> None:
-    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
+    """Retire the binding and its unreferenced icon together; a failed icon removal keeps the binding to retry."""
     binding = self.registry.binding(team_id, assistant_id)
-    if binding is not None:
-        try:
-            self.assistant_icons.discard_retiring(binding, self.registry.bindings)
-        except icons.AssistantIconError as exc:
-            raise ApiProblem(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant icon storage is unavailable",
-                code="assistant-icon-unavailable",
-            ) from exc
-    self.registry.delete(team_id, assistant_id)
+    if binding is None:
+        self.registry.delete(team_id, assistant_id)
+        return
+    try:
+        self.assistant_icons.retire(
+            binding, self.registry.bindings, lambda: self.registry.delete(team_id, assistant_id)
+        )
+    except icons.AssistantIconError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Assistant icon storage is unavailable",
+            code="assistant-icon-unavailable",
+        ) from exc
 
 
 def _delete_team_persistence(self, team_id: str) -> bool:

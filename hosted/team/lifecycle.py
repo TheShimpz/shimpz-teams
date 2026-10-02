@@ -180,12 +180,17 @@ def _teardown_assistants(team_id: str) -> bool:
 
 
 def _retire_binding(team_id: str, assistant_id: str) -> bool:
-    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
+    """Retire the binding and its unreferenced icon together; a failed icon removal keeps the binding to retry."""
     try:
         binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
-        if binding is not None:
-            runtime_state._assistant_icons.discard_retiring(binding, runtime_state._dynamic_assistants.snapshot)
-        runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+        if binding is None:
+            runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+        else:
+            runtime_state._assistant_icons.retire(
+                binding,
+                runtime_state._dynamic_assistants.snapshot,
+                lambda: runtime_state._dynamic_assistants.delete(team_id, assistant_id),
+            )
     except dynamic_assistants.DynamicAssistantError, assistant_icons.AssistantIconError:
         return False
     return True

@@ -710,9 +710,14 @@ def _uninstall_assistant(
             )
             runtime_state._assistant_stored_inputs.delete_assistant(team_id, assistant_id)
             # The binding outlives its icon, so a failed icon removal is retried by the next uninstall.
-            if binding is not None:
-                runtime_state._assistant_icons.discard_retiring(binding, runtime_state._dynamic_assistants.snapshot)
-            runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+            if binding is None:
+                runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+            else:
+                runtime_state._assistant_icons.retire(
+                    binding,
+                    runtime_state._dynamic_assistants.snapshot,
+                    lambda: runtime_state._dynamic_assistants.delete(team_id, assistant_id),
+                )
         except (integration_store.OAuthIntegrationStoreError, action_stored_input.StoredInputStoreError) as exc:
             raise runtime_state.ApiError(
                 HTTPStatus.SERVICE_UNAVAILABLE,

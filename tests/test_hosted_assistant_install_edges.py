@@ -5,6 +5,8 @@ from __future__ import annotations
 import contextlib
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from http import HTTPStatus
 from pathlib import Path
@@ -447,7 +449,7 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             ) as teardown,
             mock.patch.object(state._assistant_integrations, "delete_assistant") as integrations,
             mock.patch.object(state._dynamic_assistants, "delete") as binding,
-            mock.patch.object(state._assistant_icons, "discard_retiring") as icon,
+            mock.patch.object(state._assistant_icons, "retire") as icon,
         ):
             first = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
             second = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
@@ -493,6 +495,61 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
                 self.assertIsNone(store.get(TEAM_ID, assistant_id))
                 self.assertFalse(icon.exists())
                 integrations.assert_called_with(TEAM_ID, assistant_id)
+
+    def test_concurrent_uninstalls_sharing_an_icon_never_orphan_it(self) -> None:
+        resolution = runtime_resolution()
+        assistant_id = resolution["assistant_id"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = lifecycle.dynamic_assistants.DynamicAssistantStore(root / "bindings.json")
+            store.put(TEAM_ID, resolution)
+            store.put("team_2", resolution)
+            icon = root / "icons" / f"published-{resolution['source_digest'].removeprefix('sha256:')}.png"
+            icon.parent.mkdir()
+            icon.write_bytes(b"icon")
+            first_inside = threading.Event()
+            snapshot = store.snapshot
+
+            def lingering_snapshot():
+                # The first uninstall lingers after reading the bindings, so the other one interleaves if it can.
+                current = snapshot()
+                if not first_inside.is_set():
+                    first_inside.set()
+                    time.sleep(0.2)
+                return current
+
+            store.snapshot = lingering_snapshot
+            failures: list[state.ApiError] = []
+
+            def uninstall(team_id: str, *, after: threading.Event | None = None) -> None:
+                if after is not None:
+                    after.wait(10)
+                try:
+                    lifecycle._uninstall_assistant(team_id, assistant_id, _lease())
+                except state.ApiError as exc:
+                    failures.append(exc)
+
+            with (
+                mock.patch.object(state, "_dynamic_assistants", store),
+                mock.patch.object(state, "_assistant_icons", assistant_icons.AssistantIconStore(root / "icons")),
+                mock.patch.object(resources, "_require_current_authorization"),
+                mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_replayable_human"),
+                mock.patch.object(lifecycle, "_teardown_assistant", return_value=resources._CleanupResult(True, True)),
+                mock.patch.object(state._assistant_integrations, "delete_assistant"),
+                mock.patch.object(state._assistant_stored_inputs, "delete_assistant"),
+            ):
+                threads = [
+                    threading.Thread(target=uninstall, args=(TEAM_ID,)),
+                    threading.Thread(target=uninstall, args=("team_2",), kwargs={"after": first_inside}),
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(10)
+
+            self.assertEqual(failures, [])
+            self.assertEqual(store.snapshot(), ())
+            self.assertFalse(icon.exists())
 
 
 if __name__ == "__main__":

@@ -112,26 +112,30 @@ class AssistantIconStore:
     def discard_binding(self, retired: DynamicAssistantBinding, references: References) -> None:
         self._discard(_binding_identity(retired), references)
 
-    def discard_retiring(self, retiring: DynamicAssistantBinding, references: References) -> None:
-        """Discard a binding's icon before the binding itself is deleted, unless another binding or install holds it.
+    def retire(
+        self, retiring: DynamicAssistantBinding, references: References, delete_binding: Callable[[], object]
+    ) -> None:
+        """Delete a binding and its icon in one custody transaction, keeping an icon another binding or install holds.
 
-        The retiring binding stays the retry anchor: when this removal fails, its owner keeps the binding and retries.
+        Deciding the icon's fate and deleting the binding happen under the same lock, so two Teams retiring bindings
+        that share an icon can never both keep it. The icon goes first: when its removal fails, the binding stays as
+        the retry anchor.
         """
+        identity = _binding_identity(retiring)
         owner = (retiring.team_id, retiring.assistant_id)
-        self._discard(
-            _binding_identity(retiring),
-            lambda: tuple(item for item in references() if (item.team_id, item.assistant_id) != owner),
-        )
+        path = self._path(identity)
+        with self._custody:
+            others = {_reference(item) for item in references() if (item.team_id, item.assistant_id) != owner}
+            if not self._pins[path] and (identity.namespace, identity.key) not in others:
+                _unlink(path)
+            delete_binding()
 
     def _discard(self, identity: _IconIdentity, references: References) -> None:
         path = self._path(identity)
         with self._custody:
             if self._pins[path] or (identity.namespace, identity.key) in {_reference(item) for item in references()}:
                 return
-            try:
-                path.unlink(missing_ok=True)
-            except OSError as exc:
-                raise AssistantIconError("the retired Assistant icon cannot be removed") from exc
+            _unlink(path)
 
     def _path(self, identity: _IconIdentity) -> Path:
         match = _DIGEST.fullmatch(identity.key)
@@ -189,6 +193,13 @@ def _local_identity(record: dict[str, Any]) -> _IconIdentity:
     ):
         raise AssistantIconError("the Local Assistant icon identity is invalid")
     return _IconIdentity("local", image_id, expected)
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise AssistantIconError("the retired Assistant icon cannot be removed") from exc
 
 
 def _reference(binding: DynamicAssistantBinding) -> tuple[str, object]:
