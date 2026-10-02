@@ -186,6 +186,10 @@ class TamperTests(StoreCase):
             "too many discards": lambda value: value.update(
                 discards=[[f"{index:032x}", ""] for index in range(record.MAX_DISCARDS + 1)]
             ),
+            "rollup runs": lambda value: value["routines"][0].update(
+                rollup_runs=record.http_routine.MAX_ROLLUP_RUNS + 1
+            ),
+            "rollup minute": lambda value: value["routines"][0].update(rollup_minute=-1),
             "starts shape": lambda value: value.update(starts=[["a" * 32]]),
             "start routine": lambda value: value.update(starts=[["not-a-routine", 5]]),
             "start instant": lambda value: value.update(starts=[["a" * 32, -1]]),
@@ -444,12 +448,14 @@ class ConcurrentReadTests(StoreCase):
 
 
 class StartWindowTests(StoreCase):
-    def test_alternating_routines_persist_their_starts_in_time_order(self) -> None:
+    def test_alternating_routines_persist_their_starts_in_time_order_and_rollups_round_trip(self) -> None:
         first = 1_790_000_000
         starts: record.routine_starts.Starts = ()
         for routine_id, offset in (("a" * 32, 0), ("b" * 32, 3), ("a" * 32, 8), ("b" * 32, 11)):
             starts = record.routine_starts.started(starts, routine_id, first + offset)
         self.assertEqual([at - first for _routine_id, at in starts], [0, 3, 8, 11])
         state = dataclasses.replace(busy_state(), starts=starts)
+        rolled = dataclasses.replace(state.routines[0], rollup_minute=first - first % 60, rollup_runs=12)
+        state = dataclasses.replace(state, routines=(rolled, *state.routines[1:]))
         put(self.store, "team_1", state)
         self.assertEqual(self.store.load("team_1").starts, starts)

@@ -17,6 +17,7 @@ from test_local_routine_service import CHANGE, Runtime
 
 from local.routine import run as routine_run
 from local.routine import turn as routine_turn
+from protocol.http.v1 import routine as http_routine
 from routine import record
 from routine import starts as routine_starts
 
@@ -181,6 +182,18 @@ class ServiceLoadTests(RoutineHttpCase):
             self.continuous_routine(service)
             service._chat_demand["team_1"] = time.monotonic() - routine_run.CHAT_PRIORITY_SECONDS
             self.assertIsNotNone(service.claim_routine_run())
+
+    def test_a_minute_rollup_reaches_admin_as_a_closed_routine_notice(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            value = self.continuous_routine(service)
+            minute = int(time.time()) // 60 * 60
+            rollup = record.Notice("c" * 32, value.routine_id, "", "healthy", minute, {"runs": 3}, 3)
+            service.routine_store.update("team_1", lambda state: (record._notice(state, rollup), None))
+            batch = service.routine_notices()
+        self.assertEqual(http_routine.canonical_notice_batch(batch), batch)
+        (notice,) = [item for item in batch["notices"] if item["outcome"] == "healthy"]
+        self.assertEqual((notice["run_id"], notice["version"], notice["created_at"][-3:]), (None, 3, "00Z"))
 
     def test_a_team_leases_one_run_at_a_time_however_many_of_its_routines_are_due(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

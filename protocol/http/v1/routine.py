@@ -20,11 +20,14 @@ MAX_DAILY_RUNS = 1000
 # A continuous Routine starts its next run this long, at least, after the previous one ended; at most a day.
 MIN_CONTINUOUS_GAP_SECONDS = 5
 MAX_CONTINUOUS_GAP_SECONDS = 86_400
+# The healthy runs a continuous Routine can end in one minute bucket, since each next run starts its gap after.
+MAX_ROLLUP_RUNS = 60 // MIN_CONTINUOUS_GAP_SECONDS
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 OUTCOMES = frozenset(
     {
         "done",
+        "healthy",
         "recovered",
         "held",
         "paused",
@@ -40,8 +43,9 @@ OUTCOMES = frozenset(
     }
 )
 # Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person's
-# Pular of a held run is the run outcome ``user-skipped``.
-ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed")
+# Pular of a held run is the run outcome ``user-skipped``. ``healthy`` rolls up a continuous Routine's healthy runs that
+# ended in one minute, starting at the notice's instant (ADR-0092 section 9).
+ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy")
 # Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
 # recovery budget, the person's Pausar, a Team-detected policy fault such as a secret echo or an invalid frame, or
 # recovery evidence that could not be read.
@@ -304,6 +308,7 @@ _DETAILS = {
     "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
     "user-skipped": (_STEP_FIELDS, _held_step),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
+    "healthy": ({"runs"}, lambda detail: type(detail["runs"]) is int and 1 <= detail["runs"] <= MAX_ROLLUP_RUNS),
     "scope-changed": ({"assistants"}, _scope_changed),
     "frozen": ({"request_kind", "assistant_id", "action"}, _frozen),
     "failed": (
