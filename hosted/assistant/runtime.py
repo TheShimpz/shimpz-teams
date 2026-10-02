@@ -788,18 +788,6 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         assistant=assistant_id,
         action=action,
     )
-    if (sent := action_files.delivered(files)) is not None:
-        # Audit names the opaque file and its size only, never its name or content (ADR-0093).
-        audit.log(
-            "assistant_action",
-            team_id,
-            result="ok",
-            phase="file-delivered",
-            assistant=assistant_id,
-            action=action,
-            file=sent.id,
-            size=sent.size,
-        )
     rpc_payload = {
         "input": safe_input,
         "integrations": action_execution.integration_access_tokens(private.integrations),
@@ -809,6 +797,8 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     }
     if private.transcript.responses:
         rpc_payload["responses"] = private.transcript.payloads()
+    # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
+    sent = action_files.delivered(files)
     try:
         raw_result = _assistant_rpc(
             team_id,
@@ -826,7 +816,30 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             action=action,
             status=int(exc.status),
         )
+        if sent is not None:
+            # The exchange failed, so whether the workload received the bytes is unknown.
+            audit.log(
+                "assistant_action",
+                team_id,
+                result="error",
+                phase="file-delivery-unconfirmed",
+                assistant=assistant_id,
+                action=action,
+                file=sent.id,
+                size=sent.size,
+            )
         raise
+    if sent is not None:
+        audit.log(
+            "assistant_action",
+            team_id,
+            result="ok",
+            phase="file-delivered",
+            assistant=assistant_id,
+            action=action,
+            file=sent.id,
+            size=sent.size,
+        )
     projected = _project_hosted_action_result(request, raw_result, private)
     try:
         _seal_hosted_stored_inputs(request, private)

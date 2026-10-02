@@ -98,6 +98,14 @@ class LocalFileDeliveryTests(unittest.TestCase):
         self.assertIn(f"file-delivered:upload:{self.file_id}:{len(DATA)}", details)
         self.assertFalse(any("Relatório" in str(detail) for detail in details))
 
+    def test_a_failed_exchange_audits_the_delivery_as_unconfirmed_never_as_delivered(self) -> None:
+        self.rpc.side_effect = local_app.ApiProblem(504, "Assistant Action timed out", code="assistant-timeout")
+        with self.assertRaises(local_app.ApiProblem):
+            self.invoke(_approved())
+        details = [call.kwargs.get("detail") for call in self.audit.call_args_list]
+        self.assertIn(f"file-delivery-unconfirmed:upload:{self.file_id}:{len(DATA)}", details)
+        self.assertFalse(any(str(detail).startswith("file-delivered") for detail in details))
+
     def test_a_deleted_file_or_a_direct_invocation_never_reaches_the_workload(self) -> None:
         self.storage.delete("team_1", self.file_id)
         with self.assertRaises(local_app.ApiProblem) as caught:

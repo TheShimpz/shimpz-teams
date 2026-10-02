@@ -586,15 +586,6 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"started:{action}",
             )
-            if (sent := action_files.delivered(files)) is not None:
-                # Audit names the opaque file and its size only, never its name or content (ADR-0093).
-                local_audit.record_request(
-                    "assistant-action",
-                    result="ok",
-                    team_id=team_id,
-                    assistant=assistant_id,
-                    detail=f"file-delivered:{action}:{sent.id}:{sent.size}",
-                )
             rpc_payload = {
                 "input": safe_payload,
                 "integrations": action_execution.integration_access_tokens(private.integrations),
@@ -605,6 +596,8 @@ class LocalController:
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()
             capabilities = action_failure.capability_values(container)
+        # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
+        sent = action_files.delivered(files)
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
@@ -619,7 +612,24 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"failed:{action}",
             )
+            if sent is not None:
+                # The exchange failed, so whether the workload received the bytes is unknown.
+                local_audit.record_request(
+                    "assistant-action",
+                    result="error",
+                    team_id=team_id,
+                    assistant=assistant_id,
+                    detail=f"file-delivery-unconfirmed:{action}:{sent.id}:{sent.size}",
+                )
             raise
+        if sent is not None:
+            local_audit.record_request(
+                "assistant-action",
+                result="ok",
+                team_id=team_id,
+                assistant=assistant_id,
+                detail=f"file-delivered:{action}:{sent.id}:{sent.size}",
+            )
         projected = local_chat_execution.project_invocation(
             self.assistant_stored_inputs,
             local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec, capabilities),

@@ -67,14 +67,14 @@ class HostedFileDeliveryTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         self.audit = started
 
-    def invoke(self, transcript, file="selected", rpc_result=None):
+    def request(self, transcript, file="selected"):
         evidence = action_execution.ActionInvocationEvidence(
             action_execution.RpcPrivateInputs({}, {}, self.file if file == "selected" else file),
             transcript,
             "a" * 64,
             OPERATION_ID,
         )
-        request = assistants.ActionInvocationRequest(
+        return assistants.ActionInvocationRequest(
             team_id=TEAM_ID,
             token=TURN_TOKEN,
             assistant_id=ASSISTANT_ID,
@@ -85,6 +85,9 @@ class HostedFileDeliveryTests(unittest.TestCase):
             validated_assistant=self.active,
             evidence=evidence,
         )
+
+    def invoke(self, transcript, file="selected", rpc_result=None):
+        request = self.request(transcript, file)
         rpc_result = rpc_result or {"type": "result", "result": {"stored": True}}
         with mock.patch.object(assistants, "_assistant_rpc", return_value=rpc_result) as rpc:
             try:
@@ -110,6 +113,16 @@ class HostedFileDeliveryTests(unittest.TestCase):
             file=self.file_id,
             size=len(DATA),
         )
+
+    def test_a_failed_exchange_audits_the_delivery_as_unconfirmed_never_as_delivered(self) -> None:
+        with (
+            mock.patch.object(assistants, "_assistant_rpc", side_effect=state.ApiError(504, "timed out")),
+            self.assertRaises(state.ApiError),
+        ):
+            assistants._invoke_assistant_action(self.request(_approved()))
+        phases = [call.kwargs.get("phase") for call in self.audit.call_args_list]
+        self.assertIn("file-delivery-unconfirmed", phases)
+        self.assertNotIn("file-delivered", phases)
 
     def test_a_deleted_file_or_a_turn_without_it_never_reaches_the_workload(self) -> None:
         self.storage.delete(TEAM_ID, self.file_id)
