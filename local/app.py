@@ -23,6 +23,7 @@ from docker.errors import DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import failure as action_failure
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
@@ -563,6 +564,7 @@ class LocalController:
             }
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()
+            capabilities = action_failure.capability_values(container)
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
@@ -578,48 +580,13 @@ class LocalController:
                 detail=f"failed:{action}",
             )
             raise
-        try:
-            projected = local_chat_execution.project_action_result(
-                raw_result,
-                action_spec,
-                private,
-                validate_action_payload,
-                spec,
-            )
-        except action_execution.StoredInputRejectedError as exc:
-            local_chat_execution.clear_rejected_stored_input(
-                self.assistant_stored_inputs,
-                team_id,
-                assistant_id,
-                action,
-                exc.stored_input,
-            )
-        except action_execution.RpcSecretExposureError:
-            local_audit.record_request(
-                "assistant-action",
-                result="error",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"secret-exposure:{action}",
-            )
-            raise ApiProblem(
-                HTTPStatus.BAD_GATEWAY,
-                "the Assistant returned an unsafe result",
-                code="assistant-secret-exposure",
-            ) from None
-        except action_execution.RpcInvalidResultError as exc:
-            local_audit.record_request(
-                "assistant-action",
-                result="error",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"invalid-output:{action}",
-            )
-            raise ApiProblem(
-                HTTPStatus.BAD_GATEWAY,
-                "the Assistant returned an invalid result",
-                code="invalid-action-output",
-            ) from exc
+        projected = local_chat_execution.project_invocation(
+            self.assistant_stored_inputs,
+            local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec, capabilities),
+            raw_result,
+            private,
+            validate_action_payload,
+        )
         try:
             local_chat_execution.seal_stored_inputs(
                 self.assistant_stored_inputs,

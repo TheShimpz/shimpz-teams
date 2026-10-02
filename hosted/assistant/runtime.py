@@ -12,6 +12,7 @@ import docker
 import docker.errors
 
 from action import execution as action_execution
+from action import failure as action_failure
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -613,8 +614,19 @@ def _project_hosted_action_result(
                     if action_spec.human_requests
                     else None
                 ),
+                capabilities=action_failure.capability_values(request.container),
             ),
         )
+    except action_failure.ActionFailedError as exc:
+        audit.log(
+            "assistant_action",
+            request.team_id,
+            result="error",
+            assistant=request.assistant_id,
+            action=action,
+            reason="action-failed",
+        )
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action failed") from exc
     except action_execution.StoredInputRejectedError as exc:
         audit.log(
             "assistant_action",

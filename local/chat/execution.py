@@ -1,10 +1,12 @@
 """Local chat Action execution and context validation operations."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
 from action import execution as action_execution
+from action import failure as action_failure
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -27,6 +29,7 @@ def project_action_result(
     private: action_execution.ResolvedInvocationEvidence,
     validate: Callable[[object, str, object], object],
     spec: object,
+    capabilities: tuple[str, ...] = (),
 ) -> object:
     return action_execution.project_rpc_result(
         raw_result,
@@ -43,8 +46,73 @@ def project_action_result(
             supplied_stored_inputs=frozenset(private.stored_inputs)
             | frozenset(private.transcript.submitted_stored_inputs()),
             catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
+            capabilities=capabilities,
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Invocation:
+    """The reviewed Action one RPC ran, and the capabilities Team injected into its workload."""
+
+    team_id: str
+    assistant_id: str
+    action: str
+    action_spec: object
+    spec: object
+    capabilities: tuple[str, ...]
+
+
+# Each refused projection: its audit reason, public message, and problem code.
+_REFUSED_PROJECTIONS = (
+    (action_failure.ActionFailedError, "action-failed", "the Assistant Action failed", "assistant-action-failed"),
+    (
+        action_execution.RpcSecretExposureError,
+        "secret-exposure",
+        "the Assistant returned an unsafe result",
+        "assistant-secret-exposure",
+    ),
+    (
+        action_execution.RpcInvalidResultError,
+        "invalid-output",
+        "the Assistant returned an invalid result",
+        "invalid-action-output",
+    ),
+)
+
+
+def project_invocation(
+    store: action_stored_input.StoredInputStore,
+    invocation: Invocation,
+    raw_result: object,
+    private: action_execution.ResolvedInvocationEvidence,
+    validate: Callable[[object, str, object], object],
+) -> object:
+    """Project one RPC result, or audit and raise the public problem of a rejection or a handled failure."""
+    try:
+        return project_action_result(
+            raw_result, invocation.action_spec, private, validate, invocation.spec, invocation.capabilities
+        )
+    except action_execution.StoredInputRejectedError as exc:
+        clear_rejected_stored_input(
+            store, invocation.team_id, invocation.assistant_id, invocation.action, exc.stored_input
+        )
+    except (
+        action_failure.ActionFailedError,
+        action_execution.RpcSecretExposureError,
+        action_execution.RpcInvalidResultError,
+    ) as exc:
+        reason, message, code = next(row[1:] for row in _REFUSED_PROJECTIONS if isinstance(exc, row[0]))
+        local_audit.record_request(
+            "assistant-action",
+            result="error",
+            team_id=invocation.team_id,
+            assistant=invocation.assistant_id,
+            detail=f"{reason}:{invocation.action}",
+        )
+        # A secret echo never travels as a cause; a handled failure keeps its sanitized diagnostic as one.
+        cause = None if isinstance(exc, action_execution.RpcSecretExposureError) else exc
+        raise ApiProblem(HTTPStatus.BAD_GATEWAY, message, code=code) from cause
 
 
 def seal_stored_inputs(

@@ -424,10 +424,14 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants.ActionInvocationRequest(**(base | {"validated_assistant": changed}))
             )
 
+        handled = assistants.action_failure.ActionFailedError(
+            assistants.action_failure.ActionFailure("ValueError", "", None, 502, None, False, False)
+        )
         for error, expected_message in (
             (state.ApiError(503, "rpc"), "rpc"),
             (assistants.action_execution.RpcSecretExposureError("secret"), "exposed protected data"),
             (assistants.action_execution.RpcInvalidResultError("invalid"), "invalid result"),
+            (handled, "Assistant Action failed"),
         ):
             patches = [mock.patch.object(assistants, "_assistant_rpc", return_value={})]
             if isinstance(error, state.ApiError):
@@ -440,6 +444,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 with self.assertRaises(state.ApiError) as caught:
                     assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
             self.assertIn(expected_message, caught.exception.message)
+            if error is handled:
+                self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
+                self.assertIs(assistants.action_failure.failure_of(caught.exception), handled.failure)
 
         with (
             mock.patch.object(assistants, "_assistant_rpc", return_value={}),

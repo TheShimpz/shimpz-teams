@@ -521,9 +521,13 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_invoke_maps_projection_failures_and_returns_valid_result(self) -> None:
         controller, _spec, _container = self.controller()
+        handled = local_app.action_failure.ActionFailedError(
+            local_app.action_failure.ActionFailure("ValueError", "", None, None, None, False, False)
+        )
         failures = (
             (local_app.action_execution.RpcSecretExposureError("unsafe"), "assistant-secret-exposure"),
             (local_app.action_execution.RpcInvalidResultError("invalid"), "invalid-action-output"),
+            (handled, "assistant-action-failed"),
         )
         for failure, expected_code in failures:
             with (
@@ -539,6 +543,12 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             ):
                 controller.invoke("team_1", "assistant", "action", {})
             self.assertEqual(caught.exception.code, expected_code)
+            self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
+            # Only a handled failure keeps its sanitized diagnostic as the cause; a secret echo never travels.
+            expected_cause = None if expected_code == "assistant-secret-exposure" else failure
+            self.assertIs(caught.exception.__cause__, expected_cause)
+            if failure is handled:
+                self.assertIs(local_app.action_failure.failure_of(caught.exception), handled.failure)
 
         with (
             mock.patch.object(local_app, "validate_action_payload", return_value={}),

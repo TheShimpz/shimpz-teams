@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import failure as action_failure
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -306,11 +307,16 @@ class HeldActionBatch(ActionBatch):
 
 
 class RpcExchangeError(RuntimeError):
-    """One stable failure kind translated into each Controller's public error shape."""
+    """One stable failure kind translated into each Controller's public error shape.
 
-    def __init__(self, kind: str) -> None:
+    ``condition`` is the actual safe transport condition, such as ``exit-status:1`` or ``stderr-output``, recorded
+    in place of any unverifiable raw child output (ADR-0092).
+    """
+
+    def __init__(self, kind: str, condition: str | None = None) -> None:
         super().__init__(kind)
         self.kind = kind
+        self.condition = condition or kind
 
 
 class RpcSecretExposureError(ValueError):
@@ -341,9 +347,30 @@ class RpcResultPolicy:
     supplied_stored_inputs: frozenset[str] = frozenset()
     # The reviewed English message catalog every request copy reference must name (ADR-0091).
     catalog: Mapping[str, Mapping[str, object]] | None = None
+    # Capabilities Team injected into the workload, such as its egress token; only failure redaction uses them.
+    capabilities: tuple[str, ...] = ()
 
 
 _DEFAULT_RPC_RESULT_POLICY = RpcResultPolicy()
+
+
+def _injected_values(integrations_by_id: Mapping[str, Mapping[str, object]], policy: RpcResultPolicy) -> dict[str, str]:
+    """Every private value Team supplied to one invocation: tokens, secret responses, and Stored Inputs."""
+    secrets = protected_rpc_values(integrations_by_id)
+    if policy.protected_values is not None:
+        secrets.update(policy.protected_values)
+    if policy.stored_inputs_by_id is not None:
+        secrets.update({f"stored-input:{key}": value for key, value in policy.stored_inputs_by_id.items()})
+    return secrets
+
+
+def _raise_failure(raw_result: object, secrets: tuple[str, ...]) -> NoReturn:
+    """Admit a handled failure re-redacted with every injected value; a malformed frame is an invalid result."""
+    try:
+        failure = action_failure.admit(raw_result, secrets)
+    except action_failure.FailureEnvelopeError as exc:
+        raise RpcInvalidResultError from exc
+    raise action_failure.ActionFailedError(failure)
 
 
 def project_rpc_result(
@@ -352,12 +379,14 @@ def project_rpc_result(
     validate: Callable[[object], object],
     policy: RpcResultPolicy = _DEFAULT_RPC_RESULT_POLICY,
 ) -> object:
-    """Reject private echoes, validate one tagged result, or raise one admitted suspension."""
-    secrets = protected_rpc_values(integrations_by_id)
-    if policy.protected_values is not None:
-        secrets.update(policy.protected_values)
-    if policy.stored_inputs_by_id is not None:
-        secrets.update({f"stored-input:{key}": value for key, value in policy.stored_inputs_by_id.items()})
+    """Reject private echoes, validate one tagged result, or raise one admitted suspension or handled failure.
+
+    Only the failure branch is sanitized (ADR-0092): a result, request, or Stored Input rejection that echoes an
+    injected value is still refused outright.
+    """
+    secrets = _injected_values(integrations_by_id, policy)
+    if action_failure.is_failure(raw_result):
+        _raise_failure(raw_result, (*secrets.values(), *policy.capabilities))
     if contains_secret(raw_result, secrets):
         raise RpcSecretExposureError
     valid_fields = ({"type", "result"}, {"type", "request"}, {"type", "stored_input"})
@@ -397,9 +426,9 @@ def decode_rpc_response(raw: bytes) -> dict[str, object]:
     try:
         response = strict_json.loads(raw)
     except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
-        raise RpcExchangeError("invalid-result") from exc
+        raise RpcExchangeError("invalid-result", "frame-invalid") from exc
     if not isinstance(response, dict):
-        raise RpcExchangeError("invalid-result")
+        raise RpcExchangeError("invalid-result", "frame-invalid")
     return response
 
 
@@ -459,24 +488,26 @@ def rpc_exchange(
     except (*transport_errors, OSError, ValueError, KeyError) as exc:
         strategy.fail_stop()
         strategy.cancelled(exc)
-        raise RpcExchangeError("failed") from exc
+        condition = "frame-invalid" if isinstance(exc, ValueError) else "transport-failed"
+        raise RpcExchangeError("failed", condition) from exc
 
     try:
         details = strategy.api.exec_inspect(exec_id)
     except transport_errors as exc:
         strategy.fail_stop()
         strategy.cancelled(exc)
-        raise RpcExchangeError("ambiguous") from exc
+        raise RpcExchangeError("ambiguous", "exit-unavailable") from exc
     exit_code = details.get("ExitCode")
     if not isinstance(exit_code, int):
         strategy.fail_stop()
         strategy.cancelled(None)
-        raise RpcExchangeError("ambiguous")
+        raise RpcExchangeError("ambiguous", "exit-unavailable")
     if exit_code != 0 or stderr:
         if detect_unsupported_path and exit_code == 2 and not stdout and not stderr:
             raise RpcExchangeError("unsupported-path")
         strategy.cancelled(None)
-        raise RpcExchangeError("failed")
+        # Only a clean exit with empty stderr may carry a handled failure frame; anything else is a transport fault.
+        raise RpcExchangeError("failed", f"exit-status:{exit_code}" if exit_code != 0 else "stderr-output")
     return decode_rpc_response(bytes(stdout))
 
 

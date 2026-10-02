@@ -134,7 +134,8 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
      ./protocol/account/authority/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/routine.py ./protocol/http/v1/
-COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/human_request_validator.py \
+COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/failure_validator.py \
+    protocol/assistant/v1/human_request_validator.py \
     protocol/assistant/v1/message_catalog_validator.py \
     ./protocol/assistant/v1/
 COPY core/__init__.py core/strict_json.py ./core/
@@ -147,7 +148,7 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
      integrations/challenges.py integrations/flow.py integrations/http.py \
      integrations/pkce.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
-COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
+COPY action/__init__.py action/challenges.py action/execution.py action/failure.py action/human.py action/journal.py \
      action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
 
