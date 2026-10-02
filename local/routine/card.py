@@ -43,6 +43,8 @@ class Card:
     revision: int
     # The Routine's current revision when the card opened, 0 once it is deleted; an update since makes it stale.
     current: int
+    # The held run's journal generation the card was opened on; a continuation and a new hold since change it.
+    generation: str
     operation_id: str | None
     nonce: str
     expires_at: float
@@ -140,6 +142,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
         value.routine_id,
         value.revision,
         _current_revision(self, team_id, value.routine_id),
+        value.generation,
         opened.cursor.operation_id,
         secrets.token_hex(16),
         self.routine_cards.deadline(),
@@ -160,26 +163,28 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     }
 
 
-def _bound(self, team_id: str, card: Card) -> None:
-    """The card still names exactly this Team incarnation, incident, revision, and operation."""
+def _bound(self, team_id: str, card: Card) -> record.Expected:
+    """The card still names exactly this Team incarnation, incident, revision, generation, and operation.
+
+    It is checked in the Team's execution slot, where nothing else moves the cursor, and returns what the card's state
+    transition checks again in its own write.
+    """
     value = _unresolved(self, team_id, card.incident_id)
     opened = routine_incident.open_recovery(self, team_id, card.incident_id)
     if (
         opened.recovery.binding.incarnation != card.incarnation
-        or (value.routine_id, value.revision) != (card.routine_id, card.revision)
+        or (value.routine_id, value.revision, value.generation) != (card.routine_id, card.revision, card.generation)
         or _current_revision(self, team_id, card.routine_id) != card.current
         or opened.cursor.operation_id != card.operation_id
     ):
         raise _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+    return record.Expected(card.revision, card.generation, card.current)
 
 
-def _verify(self, team_id: str, card: Card) -> dict[str, object]:
+def _verify(self, team_id: str, card: Card, token: str) -> dict[str, object]:
     """Verificar: the fixed verifier with no model, then the already-authorized continuation when evidence allows."""
-    with (
-        self._exclusive_chat_turn(team_id, card.routine_id) as token,
-        # A registered, cancellable recovery lease: Stop and deletion reach the verification and fence the continuation.
-        routine_run.registered(self, team_id, card.incident_id, token, VERIFY_SECONDS),
-    ):
+    # A registered, cancellable recovery lease: Stop and deletion reach the verification and fence the continuation.
+    with routine_run.registered(self, team_id, card.incident_id, token, VERIFY_SECONDS):
         verdict = routine_recovery.verify(self, team_id, card.incident_id, token, budgeted=False)
         status = None
         if verdict in {"occurred", "absent", "none"} and not self._chat_cancelled(token):
@@ -207,18 +212,21 @@ def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str,
     body = http_routine.canonical_card_answer_request(body)
     if body is None:
         raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and one choice", "invalid-body")
-    card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)
-    if card is None:
-        raise _problem(HTTPStatus.CONFLICT, "the recovery card expired; open it again", "routine-card-expired")
-    _bound(self, team_id, card)
-    choice = body["choice"]
-    if choice == "verify":
-        result = _verify(self, team_id, card)
-    elif choice == "skip":
-        routine_incident.skip(self, team_id, incident_id)
-        result = {"verdict": None, "status": "skipped"}
-    else:
-        routine_incident.pause(self, team_id, incident_id, "person")
-        result = {"verdict": None, "status": "paused"}
+    routine_id = _unresolved(self, team_id, incident_id).routine_id
+    # Every choice is checked and applied in the Team's execution slot, against the state the card was opened on.
+    with self._exclusive_chat_turn(team_id, routine_id) as token:
+        card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)
+        if card is None:
+            raise _problem(HTTPStatus.CONFLICT, "the recovery card expired; open it again", "routine-card-expired")
+        expected = _bound(self, team_id, card)
+        choice = body["choice"]
+        if choice == "verify":
+            result = _verify(self, team_id, card, token)
+        elif choice == "skip":
+            routine_incident.skip(self, team_id, incident_id, expected)
+            result = {"verdict": None, "status": "skipped"}
+        else:
+            routine_incident.pause(self, team_id, incident_id, "person", expected)
+            result = {"verdict": None, "status": "paused"}
     local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:{choice}")
     return {"team_id": team_id, "incident_id": incident_id, "choice": choice, **result}

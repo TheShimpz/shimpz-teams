@@ -384,7 +384,7 @@ class RecoveryRouteTests(RoutineHttpCase):
                     (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
                     (incident + "/answer", b'{"nonce":"x","choice":"skip"}', 422, "invalid-body"),
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"other"}', 422, "invalid-body"),
-                    (incident + "/answer", nonce.encode(), 409, "routine-card-expired"),
+                    (incident + "/answer", nonce.encode(), 404, "routine-incident-unavailable"),
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/{value.routine_id}/resume", b'{"x":1}', 422, "invalid-body"),

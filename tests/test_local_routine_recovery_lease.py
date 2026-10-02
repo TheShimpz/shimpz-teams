@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 from unittest import mock
 
+import routine_fixture
 from test_local_routine_automatic import AutomaticCase, Brain
 from test_local_routine_recovery import RECORD, Assistant, failed
 
+from local import app as local_app
 from local import audit as local_audit
+from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from routine import record
 
 PERSON = local_audit.AuditPrincipal("a" * 32, "human")
 
@@ -127,3 +132,72 @@ class RecoveryLeaseTests(AutomaticCase):
                     routine_recovery.continue_run(service, "team_1", run_id, token)
             self.assert_still_held(service, run_id, assistant)
         self.assertEqual(caught.exception.code, "routine-recovery-stopped")
+
+
+class AtomicCardTests(AutomaticCase):
+    def card(self, service, run_id: str) -> dict[str, object]:
+        with local_audit.bind_request_principal(PERSON):
+            return service.open_routine_card("team_1", run_id)
+
+    def answer(self, service, run_id: str, card: dict[str, object], choice: str) -> dict[str, object]:
+        with local_audit.bind_request_principal(PERSON):
+            return service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
+
+    def test_pular_and_pausar_apply_only_to_the_exact_state_the_card_was_opened_on(self) -> None:
+        for choice in ("skip", "pause"):
+            for change in ("generation", "revision"):
+                assistant = Assistant([failed()], [])
+                with tempfile.TemporaryDirectory() as directory, self.subTest(choice=choice, change=change):
+                    service, _brain, value, run_id = self.held(directory, assistant)
+                    card = self.card(service, run_id)
+                    if change == "generation":
+                        # A continuation and a new hold since the card opened leave the same incident id.
+                        held = record.incident(self.state(service), run_id)
+                        moved = record.generation_for(record.network_of(held.generation, run_id), run_id, "s1")
+                        service.routine_store.update(
+                            "team_1",
+                            lambda state, held=held, moved=moved: (
+                                record._replace_incident(state, dataclasses.replace(held, generation=moved)),
+                                None,
+                            ),
+                        )
+                    else:
+                        service.routine_store.update(
+                            "team_1",
+                            lambda state, routine_id=value.routine_id: (
+                                record._replace_routine(
+                                    state,
+                                    routine_fixture.granted(
+                                        dataclasses.replace(record.routine(state, routine_id), revision=2)
+                                    ),
+                                ),
+                                None,
+                            ),
+                        )
+                    # Even a check that let it through is refused by the transition's own write.
+                    with (
+                        mock.patch.object(
+                            routine_card,
+                            "_bound",
+                            side_effect=lambda _service, _team, bound: record.Expected(
+                                bound.revision, bound.generation, bound.current
+                            ),
+                        ),
+                        self.assertRaises(local_app.ApiProblem) as caught,
+                    ):
+                        self.answer(service, run_id, card, choice)
+                    state = self.state(service)
+                    self.assertEqual(caught.exception.code, "routine-card-stale")
+                    self.assertEqual(state.incidents[0].status, "unresolved")
+                    self.assertFalse(record.routine(state, value.routine_id).paused)
+
+    def test_an_answer_waits_for_the_execution_slot_without_spending_its_card(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            card = self.card(service, run_id)
+            with service._exclusive_chat_turn("team_1"), self.assertRaises(local_app.ApiProblem) as busy:
+                self.answer(service, run_id, card, "skip")
+            answered = self.answer(service, run_id, card, "skip")
+        self.assertEqual(busy.exception.code, "chat-active")
+        self.assertEqual(answered["status"], "skipped")
+        self.assertIsNotNone(value)

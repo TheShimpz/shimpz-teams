@@ -142,10 +142,11 @@ the Team incarnation, the Routine and its current revision, the run, and its ope
 `exhausted`, `policy`, a Team-detected policy fault that is never verified away or retried, or `unquiesced`, a workload
 Team could not prove stopped after an ambiguous outcome) and, when the evidence let the already-authorized run go on,
 how its continuation ended; Pular answers `skipped` and Pausar `paused`, each with a `null` verdict. An expired,
-foreign, or reused card is `routine-card-expired`, and one whose Routine revision, Team incarnation, or operation
-changed since it opened is `routine-card-stale`. `POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns
-dispatch back on and starts a fresh failure streak; an unresolved incident still holds the Routine until its card
-settles it.
+foreign, or reused card is `routine-card-expired`, and one whose Routine revision, Team incarnation, held generation, or
+operation changed since it opened is `routine-card-stale`; every answer is checked and applied in the Team's execution
+slot, and Pular and Pausar check the same state again in their own write. `POST
+/v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back on and starts a fresh failure streak; an
+unresolved incident still holds the Routine until its card settles it.
 
 A Local Supervisor reads one Routine run's execution details (ADR-0092) with
 `GET /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and

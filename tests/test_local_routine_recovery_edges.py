@@ -193,7 +193,7 @@ class ContinuationEdgeTests(RecoveryCase):
 class CardEdgeTests(RecoveryCase):
     def test_a_book_drops_and_clears_its_cards_and_refuses_a_foreign_nonce(self) -> None:
         book = routine_card.CardBook(now=lambda: 0.0)
-        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, None, "n" * 32, 10.0)
+        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, "n" * 32, 10.0)
         book.open("team_1", card)
         self.assertIsNone(book.take("team_1", card.incident_id, None, "p"))
         book.open("team_2", card)

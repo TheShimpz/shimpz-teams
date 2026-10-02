@@ -903,24 +903,55 @@ def _replace_incident(state: TeamRoutines, updated: Incident) -> TeamRoutines:
     )
 
 
-def skip_incident(state: TeamRoutines, incident_id: str, now: int) -> TeamRoutines:
+@dataclass(frozen=True, slots=True)
+class Expected:
+    """What a person's recovery card was opened on: the run's revision and generation, and the Routine's revision.
+
+    ``current`` is 0 when the Routine is deleted or being deleted.
+    """
+
+    revision: int
+    generation: str
+    current: int
+
+
+def _expect(state: TeamRoutines, value: Incident, expected: Expected | None) -> None:
+    """Refuse a card's transition when the incident or its Routine changed since the card opened."""
+    if expected is None:
+        return
+    current = next(
+        (item.revision for item in state.routines if item.routine_id == value.routine_id and not item.deleting), 0
+    )
+    if (value.revision, value.generation, current) != (expected.revision, expected.generation, expected.current):
+        raise RoutineStateError("incident-changed")
+
+
+def skip_incident(state: TeamRoutines, incident_id: str, now: int, expected: Expected | None = None) -> TeamRoutines:
     """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved.
 
-    Its notice says the person skipped it, which is distinct from the Routine's own missed-schedule skip.
+    Its notice says the person skipped it, which is distinct from the Routine's own missed-schedule skip. A card's
+    ``expected`` state is checked in the same write.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
         raise RoutineStateError("incident-not-unresolved")
+    _expect(state, value, expected)
     step = _step_detail((value.assistant_id, value.action))
     state, value = _incident_notice(state, value, "user-skipped", now, step)
     return _replace_incident(state, dataclasses.replace(value, status="skipped"))
 
 
-def pause_incident(state: TeamRoutines, incident_id: str, now: int, reason: str) -> TeamRoutines:
-    """Recovery or a person paused the Routine an unresolved incident holds, and the run's notice says why."""
+def pause_incident(
+    state: TeamRoutines, incident_id: str, now: int, reason: str, expected: Expected | None = None
+) -> TeamRoutines:
+    """Recovery or a person paused the Routine an unresolved incident holds, and the run's notice says why.
+
+    A card's ``expected`` state is checked in the same write.
+    """
     value = incident(state, incident_id)
     if value.status != "unresolved" or reason not in PAUSE_REASONS:
         raise RoutineStateError("incident-not-unresolved")
+    _expect(state, value, expected)
     state = set_paused(state, value.routine_id, True)
     detail = {**_step_detail((value.assistant_id, value.action)), "reason": reason}
     state, value = _incident_notice(state, value, "paused", now, detail)

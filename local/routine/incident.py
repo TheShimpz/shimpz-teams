@@ -257,23 +257,29 @@ def reconcile_team(self, team_id: str) -> None:
             reconcile(self, team_id, value.run_id)
 
 
-def skip(self, team_id: str, incident_id: str) -> None:
+def _transition_problem(code: str) -> ApiProblem:
+    if code == "incident-changed":
+        return _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+    return _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
+
+
+def skip(self, team_id: str, incident_id: str, expected: record.Expected | None = None) -> None:
     """Pular: the incident stops holding its Routine, then its cursor, evidence, and archive marker are released.
 
     It never replays or fabricates output, and never recreates a deleted Routine; any effect the run may have had
     stays unresolved, which the person was told.
     """
 
-    def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | None]:
+    def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | str]:
         try:
-            skipped = record.skip_incident(state, incident_id, int(time.time()))
-        except record.RoutineStateError:
-            return state, None
+            skipped = record.skip_incident(state, incident_id, int(time.time()), expected)
+        except record.RoutineStateError as exc:
+            return state, str(exc)
         return skipped, record.incident(skipped, incident_id)
 
     skipped = routine_state.update(self, team_id, mark)
-    if skipped is None:
-        raise _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
+    if isinstance(skipped, str):
+        raise _transition_problem(skipped)
     _release(self, team_id, skipped)
 
 
@@ -325,17 +331,18 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     return OpenedRecovery(snapshot, cursor)
 
 
-def pause(self, team_id: str, incident_id: str, reason: str) -> None:
+def pause(self, team_id: str, incident_id: str, reason: str, expected: record.Expected | None = None) -> None:
     """Pause the Routine an unresolved incident holds, and say why on the held run's notice."""
 
-    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            return record.pause_incident(state, incident_id, int(time.time()), reason), True
-        except record.RoutineStateError:
-            return state, False
+            return record.pause_incident(state, incident_id, int(time.time()), reason, expected), None
+        except record.RoutineStateError as exc:
+            return state, str(exc)
 
-    if not routine_state.update(self, team_id, change):
-        raise _problem(HTTPStatus.CONFLICT, "Routine incident cannot be paused", "routine-incident-unavailable")
+    refused = routine_state.update(self, team_id, change)
+    if refused is not None:
+        raise _transition_problem(refused)
 
 
 def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
