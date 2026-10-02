@@ -18,9 +18,10 @@ def _invocation(action: str) -> dict[str, object]:
     if not 0 < len(raw) <= MAX_BODY:
         raise ValueError
     payload = json.loads(raw)
-    if not isinstance(payload, dict) or set(payload) != {"input", "integrations", "stored_inputs", "operation_id"}:
+    expected = {"input", "integrations", "stored_inputs", "files", "operation_id"}
+    if not isinstance(payload, dict) or set(payload) != expected:
         raise ValueError
-    if payload["stored_inputs"] != {} or not isinstance(payload["operation_id"], str):
+    if payload["stored_inputs"] != {} or payload["files"] != {} or not isinstance(payload["operation_id"], str):
         raise ValueError
     if OPERATION_ID.fullmatch(payload["operation_id"]) is None:
         raise ValueError
