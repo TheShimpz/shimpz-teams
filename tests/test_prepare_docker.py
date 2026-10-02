@@ -36,12 +36,15 @@ class RealHelperTests(unittest.TestCase):
                 image, f"shimpz-prepare-proof-{os.getpid()}", {"com.shimpz.test": "prepare"}
             )
 
+        originals = {
+            "photo.jpg": prepare_fixtures.oriented_jpeg((2400, 1800), 6),
+            "report.pdf": prepare_fixtures.text_pdf("Quarterly total 1000"),
+            "secret.pdf": prepare_fixtures.encrypted_pdf(),
+        }
         files = [
-            service.StoredFile("1" * 32, "photo.jpg", 0, "", prepare_fixtures.oriented_jpeg((2400, 1800), 6)),
-            service.StoredFile("2" * 32, "report.pdf", 0, "", prepare_fixtures.text_pdf("Quarterly total 1000")),
-            service.StoredFile("3" * 32, "secret.pdf", 0, "", prepare_fixtures.encrypted_pdf()),
+            service.StoredFile(f"{index:032x}", name, len(data), "0" * 64, lambda data=data: data)
+            for index, (name, data) in enumerate(originals.items())
         ]
-        files = [service.StoredFile(item.id, item.name, len(item.data), "0" * 64, item.data) for item in files]
         try:
             prepared = service.prepare_attachments(
                 files,

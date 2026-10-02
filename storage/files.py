@@ -29,14 +29,14 @@ _TEAM_ID = re.compile(r"[a-z0-9_]{1,40}")
 _FILE_ID = re.compile(r"[a-f0-9]{32}")
 _MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
 _METADATA_SELECTS = (
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?,?,?)",
 )
 
 
@@ -382,6 +382,8 @@ class TeamStorage:
                 "name": row[1],
                 "media_type": row[2],
                 "size": row[3],
+                # The original digest binds a turn to these exact bytes across its continuations (ADR-0093).
+                "sha256": row[4],
             }
             for row in rows
         }

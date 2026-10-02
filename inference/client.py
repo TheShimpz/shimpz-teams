@@ -60,6 +60,11 @@ class RuntimeAction:
     id: str
     summary: str
     input_schema: Mapping[str, Any]
+    # Whether the Action declares an authorization capability: only such an Action may run while attachment content is
+    # in the turn (ADR-0093).
+    authorization: bool = False
+    # The input properties that carry one Team file id each (ADR-0093).
+    input_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +80,13 @@ def contract_digest(assistant: RuntimeAssistant) -> str:
         "id": assistant.id,
         "genesis": assistant.genesis,
         "actions": [
-            {"id": action.id, "summary": action.summary, "input_schema": dict(action.input_schema)}
+            {
+                "id": action.id,
+                "summary": action.summary,
+                "input_schema": dict(action.input_schema),
+                "authorization": action.authorization,
+                "input_files": list(action.input_files),
+            }
             for action in assistant.actions
         ],
     }
@@ -103,6 +114,9 @@ class RuntimeContext:
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
+    # The selected files prepared for this message (ADR-0093): request-local model content that Team rehydrates for the
+    # start and every resume of the logical turn, never persisted by Brain.
+    attachments: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,6 +342,8 @@ class BrainRuntimeClient:
                             "id": action.id,
                             "summary": action.summary,
                             "input_schema": dict(action.input_schema),
+                            "authorization": action.authorization,
+                            "input_files": list(action.input_files),
                         }
                         for action in assistant.actions
                     ],
@@ -344,6 +360,7 @@ class BrainRuntimeClient:
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
             "knowledge_writable": context.knowledge_writable,
+            "attachments": [dict(item) for item in context.attachments],
         }
 
     def _post(self, path: str, payload: Mapping[str, object], *, deadline: float | None = None) -> object:

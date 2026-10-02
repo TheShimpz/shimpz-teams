@@ -182,6 +182,56 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client.resume(context(self.secret), {"interrupt-1": {"status": "ok"}})
         self.assertNotIn("conversation", json.loads(connection.requests[0][2]))
 
+    def test_start_and_resume_both_carry_the_prepared_attachments_and_action_gates(self):
+        attachment = {
+            "id": "a" * 32,
+            "name": "notes.md",
+            "media_type": "text/markdown",
+            "size": 5,
+            "sha256": "f" * 64,
+            "content": {"type": "text", "text": "notes", "pdf": False},
+        }
+        base = context(self.secret)
+        gated = dataclasses.replace(
+            base,
+            attachments=(attachment,),
+            assistants=(
+                dataclasses.replace(
+                    base.assistants[0],
+                    actions=(
+                        brain_runtime_client.RuntimeAction(
+                            "upload", "Upload.", {"type": "object"}, authorization=True, input_files=("document",)
+                        ),
+                    ),
+                ),
+            ),
+        )
+        for call in (
+            lambda client: client.start(gated, "Use my notes", conversation=()),
+            lambda client: client.resume(gated, {"interrupt-1": {"ok": True}}),
+        ):
+            client, connection = self.client(
+                _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+            )
+            call(client)
+            payload = json.loads(connection.requests[0][2])
+            self.assertEqual(payload["attachments"], [attachment])
+            self.assertEqual(
+                payload["assistants"][0]["actions"][0],
+                {
+                    "id": "upload",
+                    "summary": "Upload.",
+                    "input_schema": {"type": "object"},
+                    "authorization": True,
+                    "input_files": ["document"],
+                },
+            )
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
+        client.start(base, "Hello", conversation=())
+        self.assertEqual(json.loads(connection.requests[0][2])["attachments"], [])
+
     def test_an_invalid_conversation_is_refused_before_any_request(self):
         oversized = tuple(
             brain_runtime_client.RuntimeConversationEntry("user", "x", False)

@@ -32,7 +32,7 @@ class _InProcessHelper:
 
 
 def _file(name: str, data: bytes, file_id: str = "0" * 32) -> service.StoredFile:
-    return service.StoredFile(file_id, name, len(data), hashlib.sha256(data).hexdigest(), data)
+    return service.StoredFile(file_id, name, len(data), hashlib.sha256(data).hexdigest(), lambda: data)
 
 
 class PreparationServiceTests(unittest.TestCase):
@@ -111,7 +111,7 @@ class PreparationServiceTests(unittest.TestCase):
             service.prepare_attachments(five_texts, _InProcessHelper())
         self.assertEqual(refused.exception.code, "attachments-too-much-text")
 
-        huge = service.StoredFile("f" * 32, "huge.bin", limits.MAX_SELECTED_ORIGINAL_BYTES + 1, "0" * 64, b"")
+        huge = service.StoredFile("f" * 32, "huge.bin", limits.MAX_SELECTED_ORIGINAL_BYTES + 1, "0" * 64, bytes)
         with self.assertRaises(service.AttachmentLimitError) as refused:
             service.prepare_attachments([huge], _InProcessHelper())
         self.assertEqual(refused.exception.code, "attachments-too-large")

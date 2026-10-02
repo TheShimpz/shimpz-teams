@@ -43,7 +43,8 @@ COPY assistant/__init__.py assistant/action_schema.py assistant/effect.py assist
     assistant/manifest.py \
     assistant/spec.py \
     ./assistant/
-COPY chat/__init__.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
+    chat/turn.py ./chat/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
@@ -57,7 +58,8 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
 COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
     local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
     local/assistant/rpc.py ./local/assistant/
-COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/chat/continuation.py \
+COPY local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
+    local/chat/continuation.py \
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/

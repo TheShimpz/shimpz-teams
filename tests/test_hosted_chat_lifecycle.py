@@ -424,10 +424,14 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.assertIsNotNone(checks.sessions[0])
 
     def test_hosted_team_context_contains_and_routes_two_active_assistants(self) -> None:
-        place_action = types.SimpleNamespace(summary="Find a place.", input_schema={"type": "object"})
+        place_action = types.SimpleNamespace(
+            summary="Find a place.", input_schema={"type": "object"}, human_requests=(), input_files=()
+        )
         weather_action = types.SimpleNamespace(
             summary="Read current weather.",
             input_schema={"type": "object"},
+            human_requests=(),
+            input_files=(),
         )
         place_contract = types.SimpleNamespace(name="Places", actions={"search": place_action}, stored_inputs={})
         weather_contract = types.SimpleNamespace(name="Weather", actions={"current": weather_action}, stored_inputs={})

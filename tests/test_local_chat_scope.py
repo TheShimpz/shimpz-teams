@@ -123,9 +123,12 @@ class LocalChatScopeTests(LocalContractCase):
         network.reload.assert_not_called()
 
     def test_chat_reuses_one_selected_file_connection_across_revalidation(self) -> None:
+        contexts = []
+
         class Runtime:
             @staticmethod
-            def start(_context, _message, *, conversation=()):
+            def start(context, _message, *, conversation=()):
+                contexts.append(context)
                 return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
 
         file_id = "a" * 32
@@ -141,11 +144,15 @@ class LocalChatScopeTests(LocalContractCase):
 
         def metadata(_team_id, _file_ids, current_connection=None):
             metadata_connections.append(current_connection)
-            return [{"id": file_id, "name": "brief.txt", "media_type": "text/plain", "size": 5}]
+            return [{"id": file_id, "name": "brief.txt", "media_type": "text/plain", "size": 5, "sha256": "e" * 64}]
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
-            controller.storage = SimpleNamespace(metadata=metadata, metadata_connection=metadata_connection)
+            controller.storage = SimpleNamespace(
+                metadata=metadata,
+                metadata_connection=metadata_connection,
+                get=lambda _team_id, _file_id: ({"sha256": "e" * 64, "size": 5}, b"brief"),
+            )
             controller.chat_turn_service.storage = controller.storage
 
             response = controller.chat_turn_service.chat(
@@ -164,6 +171,11 @@ class LocalChatScopeTests(LocalContractCase):
             )
 
         self.assertEqual(response["reply"], "Done.")
+        # The selected text file reaches the Brain as request-local content of this message (ADR-0093).
+        self.assertEqual(
+            [item["content"] for item in contexts[0].attachments],
+            [{"type": "text", "text": "brief", "pdf": False}],
+        )
         self.assertEqual(opened, 1)
         self.assertGreaterEqual(len(metadata_connections), 2)
         self.assertTrue(all(current is connection for current in metadata_connections))

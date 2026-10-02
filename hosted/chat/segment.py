@@ -11,6 +11,7 @@ from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
 from assistant import spec as assistant_registry
+from chat import attachments as chat_attachments
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
@@ -18,6 +19,7 @@ from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import attachments as hosted_attachments
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -381,11 +383,7 @@ def _run_hosted_chat_segment_with_metadata(
                     id=active.assistant_id,
                     genesis=genesis_by_id[active.assistant_id],
                     actions=tuple(
-                        brain_runtime_client.RuntimeAction(
-                            id=action_id,
-                            summary=action.summary,
-                            input_schema=action.input_schema,
-                        )
+                        chat_attachments.runtime_action(action_id, action)
                         for action_id, action in sorted(active.contract.actions.items())
                     ),
                 )
@@ -396,6 +394,7 @@ def _run_hosted_chat_segment_with_metadata(
             api_key=api_key,
             effort=config.effort,
             locale=request.locale,
+            attachments=hosted_attachments.turn_attachments(team_id, token, owner, files),
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
         batch = action_execution.ActionBatch(

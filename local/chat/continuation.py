@@ -21,7 +21,7 @@ from local.validation import validate_team_name
 from protocol.assistant.v1 import message_catalog_validator as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 MAX_JSON_DEPTH = 16
 MAX_JSON_NODES = 4096
 MAX_INVOKED_ACTIONS = 512
@@ -30,6 +30,7 @@ MAX_IDENTITY_FILES = 8
 # A turn's wall-clock admission in epoch milliseconds, within the exact JSON integer range.
 MAX_STARTED_MS = 2**53 - 1
 _FILE_ID = re.compile(r"[0-9a-f]{32}\Z")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64})\Z")
 _NETWORK_ID = re.compile(r"[^\s\x00-\x1f\x7f]{1,256}\Z")
 _CONTAINER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
@@ -493,7 +494,7 @@ def _identity(value: object) -> tuple[object, ...]:
         raise ContinuationCodecError("continuation Assistant identity is malformed")
     files: list[dict[str, object]] = []
     for item in _sequence(raw["files"], MAX_IDENTITY_FILES, "continuation files"):
-        entry = _mapping(item, {"id", "name", "media_type", "size"}, "continuation file")
+        entry = _mapping(item, {"id", "name", "media_type", "size", "sha256"}, "continuation file")
         if (
             not isinstance(entry["id"], str)
             or _FILE_ID.fullmatch(entry["id"]) is None
@@ -502,6 +503,8 @@ def _identity(value: object) -> tuple[object, ...]:
             or not 1 <= len(entry["media_type"]) <= 127
             or type(entry["size"]) is not int
             or not 0 <= entry["size"] <= 2**53 - 1
+            or not isinstance(entry["sha256"], str)
+            or _SHA256.fullmatch(entry["sha256"]) is None
         ):
             raise ContinuationCodecError("continuation file is malformed")
         files.append(dict(entry))

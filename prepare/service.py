@@ -36,13 +36,16 @@ class AttachmentLimitError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class StoredFile:
-    """One selected Team file whose length and digest the storage reader already verified."""
+    """One selected Team file; ``read`` returns its bytes after the storage reader verifies length and digest.
+
+    Bytes are read one file at a time and dropped after preparation, so at most one original is held in memory.
+    """
 
     id: str
     name: str
     size: int
     sha256: str
-    data: bytes
+    read: Callable[[], bytes]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +90,11 @@ def prepare_attachments(
             return session[0]
 
         for item in files:
-            found = detect.detect(item.name, item.data)
-            content = _content(item, found, running)
+            data = item.read()
+            found = detect.detect(item.name, data)
+            content = _content(data, found, running)
             prepared.append(Attachment(item.id, item.name, found.media_type, item.size, item.sha256, content))
+            del data
     admit_message(prepared)
     return tuple(prepared)
 
@@ -111,17 +116,17 @@ def admit_message(attachments: Sequence[Attachment]) -> None:
 
 
 def _content(
-    item: StoredFile,
+    data: bytes,
     found: detect.Detected,
     running: Callable[[], PreparationHelper],
 ) -> dict[str, object]:
     if found.kind == detect.OPAQUE:
         return _opaque("unsupported")
-    if len(item.data) > _SOURCE_LIMITS[found.kind]:
+    if len(data) > _SOURCE_LIMITS[found.kind]:
         return _opaque("too_large")
     if found.kind == detect.TEXT:
-        return _text(detect.decode_text(item.data), pdf=False)
-    answer = running().prepare(found.kind, item.data)
+        return _text(detect.decode_text(data), pdf=False)
+    answer = running().prepare(found.kind, data)
     if found.kind == detect.PDF:
         return _pdf_answer(answer)
     return _image_answer(answer)

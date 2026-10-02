@@ -102,11 +102,11 @@ COPY assistant/__init__.py assistant/action_schema.py assistant/effect.py assist
     assistant/manifest.py \
     assistant/spec.py \
     ./assistant/
-COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/attachments.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
      ./hosted/assistant/
-COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/human.py hosted/chat/lifecycle.py \
-     hosted/chat/segment.py ./hosted/chat/
+COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/attachments.py hosted/chat/human.py \
+     hosted/chat/lifecycle.py hosted/chat/segment.py ./hosted/chat/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/http.py hosted/install/publication.py \

@@ -61,6 +61,7 @@ def pending(
                     "name": filename,
                     "media_type": "text/plain",
                     "size": 42,
+                    "sha256": "b" * 64,
                 }
             ],
             inference_config.normalize("openai", "gpt-6-luna"),
@@ -382,8 +383,8 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
 
-    def test_schema_five_keeps_the_turn_locale_usage_and_localized_copy_together(self) -> None:
-        """One paused record carries ADR-0091 locale and copy beside ADR-0082 usage; schema 4 records are refused."""
+    def test_schema_six_keeps_the_turn_locale_usage_localized_copy_and_file_digests_together(self) -> None:
+        """One paused record carries ADR-0091 locale and copy, ADR-0082 usage, and ADR-0093 file digests."""
         request = human_request_fixtures.request("approval")
         requirement = (
             human_request_fixtures.requirement(
@@ -397,7 +398,8 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         decoded = local_chat_continuations.decode(
             local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
         )
-        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 5)
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 6)
+        self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
         self.assertEqual(decoded.pending, state)
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.requirements[0].copy.locale, "pt")

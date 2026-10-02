@@ -99,6 +99,13 @@ one active/paused turn. Selection and workload identity are revalidated before p
 Action, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
 executes Actions and resumes the checkpoint.
 
+Selected files are prepared for every segment of their turn (ADR-0093). The controller reads text, code, CSV, JSON,
+and Markdown itself and sends images and PDFs to one short-lived, serialized, networkless helper container that runs
+its own image read-only as `nobody`, with no capabilities, mounts, or Docker socket, and is removed before the Brain
+is asked. The Brain receives the prepared content only in that request; while any text or image content is in the
+turn, only Actions that declare an authorization capability are admitted, and the turn learns no memory or skill.
+Stop reaches a running helper as it reaches an Action workload, and Team deletion and Space reset remove helpers.
+
 Capability planning is a stateless pre-turn operation. It receives only an objective and at most eight bounded
 public candidates, forwards them through the independently bounded Brain planner lane with the Team's request-only
 model credential, and returns either `sufficient` or at most four sorted candidate IDs. It carries no Genesis,

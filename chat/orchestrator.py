@@ -8,6 +8,7 @@ from functools import partial
 from typing import Any
 
 from action import human as action_human
+from chat import attachments as chat_attachments
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
@@ -155,7 +156,8 @@ def _drive(
     turn = continuation.turn
     invoked = list(continuation.invoked)
     seen_interrupts = set(continuation.seen_interrupts)
-    declared = {(assistant.id, action.id): action for assistant in context.assistants for action in assistant.actions}
+    # While attachment content is in the turn, only authorizing Actions are declared to it (ADR-0093).
+    declared = chat_attachments.admitted_actions(context)
     contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
     for _round in range(continuation.round_index, MAX_ACTION_ROUNDS + 1):

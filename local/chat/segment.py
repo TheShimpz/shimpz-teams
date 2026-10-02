@@ -7,6 +7,7 @@ from action import challenges as action_challenges
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from chat import attachments as chat_attachments
 from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
@@ -14,6 +15,7 @@ from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from local import inference as local_inference
+from local.chat import attachments as local_attachments
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
@@ -74,7 +76,7 @@ def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_c
         id=active.spec.assistant_id,
         genesis=genesis,
         actions=tuple(
-            brain_runtime_client.RuntimeAction(id=action_id, summary=action.summary, input_schema=action.input_schema)
+            chat_attachments.runtime_action(action_id, action)
             for action_id, action in sorted(active.spec.actions.items())
         ),
     )
@@ -127,6 +129,43 @@ def _routine_mutable(request: SegmentRequest) -> bool:
     """Whether this turn may change a Routine: a new chat turn's fresh authenticated request without files."""
     grant = request.routine_request
     return request.routine is None and grant is not None and not request.file_ids and grant.fresh(int(time.time()))
+
+
+@dataclass(frozen=True, slots=True)
+class _TurnScope:
+    thread_id: str
+    team_name: str
+    assistants: tuple[_ActiveAssistant, ...]
+    genesis_by_id: dict[str, str]
+    files: list[dict[str, object]]
+    config: object
+
+
+def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_runtime_client.RuntimeContext:
+    """What the Brain sees in this segment: Assistants, knowledge, Routines, and the message's prepared files."""
+    routine = request.routine
+    # A compiled Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
+    # Brain keeps what a logical turn started with across resumes.
+    memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
+    runtime_assistants = tuple(
+        runtime_assistant(active, scope.genesis_by_id[active.spec.assistant_id]) for active in scope.assistants
+    )
+    config = scope.config
+    return brain_runtime_client.RuntimeContext(
+        thread_id=scope.thread_id,
+        team_name=scope.team_name,
+        assistants=runtime_assistants,
+        provider=config.provider,
+        model=config.model,
+        api_key=request.api_key,
+        effort=config.effort,
+        memories=None if routine is not None else tuple(memories),
+        skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
+        routines=self._chat_routines(request.team_id) if _routine_mutable(request) else None,
+        knowledge_writable=routine is None,
+        locale=request.locale,
+        attachments=local_attachments.turn_attachments(self, request.team_id, request.token, scope.files),
+    )
 
 
 def _run_chat_segment(
@@ -206,32 +245,14 @@ def _run_chat_segment_with_metadata(
             except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
-        # A compiled Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
-        # Brain keeps what a logical turn started with across resumes.
-        memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
-        runtime_assistants = tuple(
-            runtime_assistant(active, genesis_by_id[active.spec.assistant_id]) for active in assistants
-        )
         contracts = tuple(
             sorted(
                 (active.spec.assistant_id, routine_scope(active, genesis_by_id[active.spec.assistant_id]))
                 for active in assistants
             )
         )
-        routines = self._chat_routines(request.team_id) if _routine_mutable(request) else None
-        context = brain_runtime_client.RuntimeContext(
-            thread_id=thread_id,
-            team_name=display_name,
-            assistants=runtime_assistants,
-            provider=config.provider,
-            model=config.model,
-            api_key=request.api_key,
-            effort=config.effort,
-            memories=None if routine is not None else tuple(memories),
-            skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
-            routines=routines,
-            knowledge_writable=routine is None,
-            locale=request.locale,
+        context = _turn_context(
+            self, request, _TurnScope(thread_id, display_name, assistants, genesis_by_id, files, config)
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
         held = routine is not None and routine.held
