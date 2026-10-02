@@ -557,6 +557,18 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
         raise TimeoutError("the Action could not start within its deadline") from exc
 
 
+def _inspect_exec(exec_id: str, strategy: RpcExchangeStrategy, deadline: float) -> dict[str, object]:
+    """The exec's exit details within the same deadline; an answer that comes too late is no answer."""
+    try:
+        future = _bounded_call(lambda: strategy.api.exec_inspect(exec_id), deadline)
+        details = future.result(timeout=max(0.0, deadline - time.monotonic()))
+    except (_DispatchExpiredError, concurrent.futures.TimeoutError) as exc:
+        raise TimeoutError("the Action exit status was not read within its deadline") from exc
+    if time.monotonic() > deadline:
+        raise TimeoutError("the Action exit status arrived after its deadline")
+    return details
+
+
 def _close_late_stream(done: concurrent.futures.Future, strategy: RpcExchangeStrategy) -> None:
     # A setup that failed late has no stream to close; any error closing one is no longer anyone's to report.
     with suppress(Exception):
@@ -601,7 +613,12 @@ def rpc_exchange(
         raise RpcExchangeError("failed", condition) from exc
 
     try:
-        details = strategy.api.exec_inspect(exec_id)
+        details = _inspect_exec(exec_id, strategy, deadline)
+    except TimeoutError as exc:
+        # The workload's outcome stays uncertain, so it is fail-stopped before anything may verify it (ADR-0092).
+        strategy.fail_stop()
+        strategy.cancelled(exc)
+        raise RpcExchangeError("timeout", "exit-unavailable") from exc
     except transport_errors as exc:
         strategy.fail_stop()
         strategy.cancelled(exc)

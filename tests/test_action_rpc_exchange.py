@@ -236,6 +236,55 @@ class DockerCallBoundTests(unittest.TestCase):
         for strategy in strategies:
             self.assertEqual(strategy.close_stream.call_count, 1)
 
+    def test_a_call_the_pool_cannot_take_returns_its_slot(self) -> None:
+        with (
+            mock.patch.object(action_execution._DOCKER_CALLS, "submit", side_effect=RuntimeError("shut down")),
+            self.assertRaises(RuntimeError),
+        ):
+            action_execution._bounded_call(lambda: None, time.monotonic() + 5)
+        self.assertEqual(action_execution._DOCKER_CALL_SLOTS._value, action_execution.MAX_DOCKER_CALLS)
+
+    def test_exit_inspection_is_bounded_by_the_same_deadline(self) -> None:
+        clock = [100.0]
+
+        def late_inspect(_exec_id):
+            clock[0] = 200.0  # The exit status arrives after the deadline.
+            return {"ExitCode": 0}
+
+        api = SimpleNamespace(
+            exec_create=lambda *_a, **_k: {"Id": "exec"},
+            exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
+            exec_inspect=late_inspect,
+        )
+        late = _strategy(api, deadline=160.0)
+        with (
+            mock.patch.object(action_execution.time, "monotonic", side_effect=lambda: clock[0]),
+            mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
+            self.assertRaises(action_execution.RpcExchangeError) as caught,
+        ):
+            action_execution.rpc_exchange("container", ["command"], b"request", late)
+        self.assertEqual((caught.exception.kind, caught.exception.condition), ("timeout", "exit-unavailable"))
+        late.fail_stop.assert_called_once_with()
+
+        release = threading.Event()
+        self.addCleanup(release.set)
+        hanging = SimpleNamespace(
+            exec_create=lambda *_a, **_k: {"Id": "exec"},
+            exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
+            exec_inspect=lambda _exec_id: release.wait(10) or {"ExitCode": 0},
+        )
+        slow = _strategy(hanging, timeout=0.3)
+        started = time.monotonic()
+        with (
+            mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
+            self.assertRaises(action_execution.RpcExchangeError) as stalled,
+        ):
+            action_execution.rpc_exchange("container", ["command"], b"request", slow)
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertEqual(stalled.exception.kind, "timeout")
+        slow.fail_stop.assert_called_once_with()
+        release.set()
+
 
 if __name__ == "__main__":
     unittest.main()
