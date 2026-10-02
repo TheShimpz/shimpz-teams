@@ -125,9 +125,10 @@ closes each outcome's detail). `done` and `recovered` name the ordered `actions`
 steps it carried out, never their input or result; `recovered` is a run that a continuation completed after a hold.
 `held` names the step whose effect is unresolved as `{assistant_id, action}`, both `null` when the run sealed no plan
 cursor; the same run's notice then goes on as `paused`, the same step plus a `reason` (`decided`, `unavailable`,
-`exhausted`, `person`, or `policy`), or `user-skipped` when the person chose Pular. A person's `user-skipped` is a run
-outcome; the Routine outcome `skipped` reports missed firings and has no run id. `failed` names its code and the Actions
-that completed; a run whose failed step may have acted is held instead.
+`exhausted`, `person`, `policy`, or `evidence`, recovery evidence that could not be read), or `user-skipped` when the
+person chose Pular. A person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and
+has no run id. `failed` names its code and the Actions that completed; a run whose failed step may have acted is held
+instead.
 
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`, whose `paused`
 says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`, at most

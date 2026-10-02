@@ -189,7 +189,7 @@ class AutomaticTests(AutomaticCase):
 
 
 class AutomaticEdgeTests(AutomaticCase):
-    def test_an_exhausted_or_unconfigured_decision_pauses_and_unreadable_diagnostics_are_left_out(self) -> None:
+    def test_an_exhausted_decision_or_unreadable_diagnostics_pause_without_asking(self) -> None:
         for name in ("exhausted", "diagnostics"):
             brain = Brain("ask")
             assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
@@ -208,11 +208,23 @@ class AutomaticEdgeTests(AutomaticCase):
                 state = self.state(service)
                 paused = record.routine(state, value.routine_id).paused
                 self.assertEqual(self.status, "held")
-                self.assertEqual(paused, name != "diagnostics")
-                if name == "exhausted":
-                    self.assertEqual(state.notices[-1].detail["reason"], "exhausted")
-                if name == "diagnostics":
-                    self.assertEqual(brain.asked[0]["diagnostics"], [])
+                self.assertTrue(paused)
+                # Unreadable or corrupt diagnostics pause the Routine without asking the model anything.
+                expected = {"exhausted": "exhausted", "diagnostics": "evidence"}[name]
+                self.assertEqual(state.notices[-1].detail["reason"], expected)
+                self.assertEqual(brain.asked, [])
+
+    def test_absent_or_expired_diagnostics_are_simply_left_out(self) -> None:
+        brain = Brain("ask")
+        assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery.routine_diagnostics.DiagnosticStore, "read", return_value=()),
+        ):
+            service, value, _run_id = self.run_held(directory, assistant, brain)
+            state = self.state(service)
+        self.assertEqual(brain.asked[0]["diagnostics"], [])
+        self.assertFalse(record.routine(state, value.routine_id).paused)
 
     def test_an_unconfigured_team_has_no_decision(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -338,14 +338,18 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     return outcome
 
 
-def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, object]]:
-    """The failed step's sanitized failure evidence, as untrusted data; unreadable diagnostics are simply absent."""
+def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, object]] | None:
+    """The failed step's sanitized failure evidence, as untrusted data.
+
+    Diagnostics that were never kept or have expired are simply absent; unreadable or corrupt ones are None, which no
+    model is ever asked about.
+    """
     try:
         found = self.routine_diagnostics.read(
             team_id, assessment.network_id, assessment.cursor.binding.run_id, int(time.time())
         )
     except routine_diagnostics.DiagnosticStoreError:
-        return []
+        return None
     operation = assessment.cursor.operation_id
     return [{"failure": item.failure, "condition": item.condition} for item in found if item.operation_id == operation][
         -inference_recovery.MAX_DIAGNOSTICS :
@@ -353,8 +357,14 @@ def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, o
 
 
 def _decide(self, team_id: str, incident_id: str, api_key: str, locale: str | None) -> str:
-    """Ask the Brain once whether to retry, ask, or pause; its call and output are paid for before it is made."""
+    """Ask the Brain once whether to retry, ask, or pause; its call and output are paid for before it is made.
+
+    Recovery evidence that cannot be read is ``evidence``: the Routine pauses and the model is never asked.
+    """
     assessment = assess(self, team_id, incident_id)
+    diagnostics = _diagnostics(self, team_id, assessment)
+    if diagnostics is None:
+        return "evidence"
     try:
         spent = routine_cursor.spend(assessment.cursor, "model_calls", 1)
         spent = routine_cursor.spend(spent, "output_tokens", MAX_OUTPUT_TOKENS)
@@ -379,7 +389,7 @@ def _decide(self, team_id: str, incident_id: str, api_key: str, locale: str | No
             (config.provider, config.model, api_key),
             locale,
             subject,
-            _diagnostics(self, team_id, assessment),
+            diagnostics,
         )
     except brain_runtime_client.BrainRuntimeError:
         return "unavailable"
@@ -392,7 +402,13 @@ def _routine_name(self, team_id: str, routine_id: str) -> str:
 
 
 # What pauses the Routine when the episode ends on it, and the reason its notice gives.
-_PAUSES = {"policy": "policy", "exhausted": "exhausted", "pause": "decided", "unavailable": "unavailable"}
+_PAUSES = {
+    "policy": "policy",
+    "exhausted": "exhausted",
+    "pause": "decided",
+    "unavailable": "unavailable",
+    "evidence": "evidence",
+}
 # Evidence that lets the already-authorized run go on.
 _GO_ON = frozenset({"occurred", "none", "retry"})
 

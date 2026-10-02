@@ -38,8 +38,9 @@ OUTCOMES = frozenset(
 # Pular of a held run is the run outcome ``user-skipped``.
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed")
 # Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
-# recovery budget, the person's Pausar, or a Team-detected policy fault such as a secret echo or an invalid frame.
-PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person", "policy")
+# recovery budget, the person's Pausar, a Team-detected policy fault such as a secret echo or an invalid frame, or
+# recovery evidence that could not be read.
+PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person", "policy", "evidence")
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
