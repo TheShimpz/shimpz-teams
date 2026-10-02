@@ -477,8 +477,8 @@ class LocalController:
         with service._file_deletion_slot(team_id), self._lock(team_id):
             network = self.assistant_lifecycle._network(team_id)
             try:
-                (stored,) = self.storage.metadata(team_id, [file_id])
-                service._forget_file(team_id, stored["id"], network)
+                service._forget_file(team_id, team_storage.scoped_file_id(file_id), network)
+                # Deletion is idempotent: a file already gone is reported as absent, after the same cleanup.
                 result = self.storage.delete(team_id, file_id)
             except team_storage.StorageError as exc:
                 self._raise_storage_problem(exc)

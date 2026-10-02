@@ -15,6 +15,7 @@ lifecycle = harness.hosted_lifecycle
 resources = harness.hosted_resources
 state = harness.runtime_state
 
+FILE_ID = "0123456789abcdef0123456789abcdef"
 TEAM_ID = "team_1"
 OWNER = "account_1"
 RUNTIME_ID = "a" * 64
@@ -35,7 +36,6 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         storage.put.return_value = {"id": "file"}
         storage.list.return_value = {"files": []}
         storage.delete.return_value = {"deleted": True}
-        storage.metadata.return_value = [{"id": "file"}]
         with (
             mock.patch.object(resources, "_require_current_authorization"),
             mock.patch.object(state, "_storage", return_value=storage),
@@ -45,7 +45,7 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
                 lifecycle._put_inbox_file(TEAM_ID, "file", b"x", "text/plain", lease)["file"]["id"], "file"
             )
             self.assertEqual(lifecycle._list_team_files(TEAM_ID, lease)["files"], [])
-            self.assertTrue(lifecycle._delete_team_file(TEAM_ID, "file", lease)["deleted"])
+            self.assertTrue(lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease)["deleted"])
 
         operations = (
             (
@@ -71,17 +71,16 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
             (
                 "delete",
                 lifecycle.team_storage.StorageNotFoundError("missing"),
-                lambda: lifecycle._delete_team_file(TEAM_ID, "f", lease),
+                lambda: lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease),
             ),
             (
                 "delete",
                 lifecycle.team_storage.StorageError("storage"),
-                lambda: lifecycle._delete_team_file(TEAM_ID, "f", lease),
+                lambda: lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease),
             ),
         )
         for method, error, invoke in operations:
             failed = mock.Mock()
-            failed.metadata.return_value = [{"id": "f"}]
             setattr(failed, method, mock.Mock(side_effect=error))
             with (
                 mock.patch.object(resources, "_require_current_authorization"),
@@ -90,11 +89,9 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
                 self.assertRaises(state.ApiError),
             ):
                 invoke()
-        failed = mock.Mock()
-        failed.metadata.side_effect = lifecycle.team_storage.StorageInputError("input")
         with (
             mock.patch.object(resources, "_require_current_authorization"),
-            mock.patch.object(state, "_storage", return_value=failed),
+            mock.patch.object(state, "_storage", return_value=mock.Mock()),
             self.assertRaises(state.ApiError) as invalid,
         ):
             lifecycle._delete_team_file(TEAM_ID, "f", lease)

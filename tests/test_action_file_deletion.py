@@ -146,13 +146,23 @@ class LocalDeletionTests(unittest.TestCase):
             controller.assistant_lifecycle = types.SimpleNamespace(_network=lambda _team_id: NETWORK)
             service = _service()
             service._file_deletion_slot = lambda team_id: local_attachments.deletion_slot(service, team_id)
-            service._forget_file = lambda *_args: order.append("forget") or storage.list("team_1")
+            service._forget_file = lambda _team_id, file_id, _network: order.append(file_id)
             controller.chat_turn_service = service
+            controller._raise_storage_problem = local_app.LocalController._raise_storage_problem
             self.assertTrue(controller.delete_file("team_1", stored["id"])["deleted"])
-            self.assertEqual(order, ["forget"])
+            # A repeated deletion is the same successful outcome, reported as absent, after the same cleanup.
+            again = controller.delete_file("team_1", stored["id"])
+            self.assertEqual((again["deleted"], order), (False, [stored["id"], stored["id"]]))
             with self.assertRaises(local_app.ApiProblem) as caught:
-                controller.delete_file("team_1", stored["id"])
-            self.assertEqual((caught.exception.code, order), ("file-not-found", ["forget"]))
+                controller.delete_file("team_1", "not-a-file-id")
+            self.assertEqual((caught.exception.code, len(order)), ("invalid-file", 2))
+            service._forget_file = mock.Mock(
+                side_effect=local_app.ApiProblem(503, "unavailable", code="brain-runtime-failed")
+            )
+            kept = storage.put("team_1", "b.pdf", b"%PDF", "application/pdf")
+            with self.assertRaises(local_app.ApiProblem):
+                controller.delete_file("team_1", kept["id"])
+            self.assertEqual(len(storage.list("team_1")["files"]), 1)
 
 
 class HostedDeletionTests(unittest.TestCase):
@@ -160,6 +170,28 @@ class HostedDeletionTests(unittest.TestCase):
         state._human_challenges.cancel_team("team_1")
         state._brain_files.clear()
         self.addCleanup(state._brain_files.clear)
+
+    def test_a_repeated_deletion_is_absent_after_the_same_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = harness.hosted_lifecycle.team_storage.TeamStorage(Path(directory) / "teams")
+            stored = storage.put("team_1", "a.pdf", b"%PDF", "application/pdf")
+            forgotten: list[str] = []
+            with (
+                mock.patch.object(state, "_storage", return_value=storage),
+                mock.patch.object(
+                    harness.hosted_resources,
+                    "_require_current_authorization",
+                    return_value=types.SimpleNamespace(id="c" * 64),
+                ),
+                mock.patch.object(
+                    hosted_chat_lifecycle, "forget_file", side_effect=lambda _t, file_id, _c: forgotten.append(file_id)
+                ),
+            ):
+                self.assertTrue(hosted_lifecycle._delete_team_file("team_1", stored["id"], object())["deleted"])
+                self.assertFalse(hosted_lifecycle._delete_team_file("team_1", stored["id"], object())["deleted"])
+                with self.assertRaises(state.ApiError) as invalid:
+                    hosted_lifecycle._delete_team_file("team_1", "not-a-file-id", object())
+            self.assertEqual((invalid.exception.status, forgotten), (400, [stored["id"], stored["id"]]))
 
     def test_a_turn_holding_the_slot_refuses_the_deletion(self) -> None:
         lock = state._chat_lock_for("team_1")

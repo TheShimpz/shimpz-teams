@@ -74,6 +74,13 @@ def _file_id(value: object) -> str:
     return value
 
 
+def scoped_file_id(value: object) -> str:
+    """One well-formed Team file id, present or not; a malformed id is invalid input, never an absent file."""
+    if not isinstance(value, str) or _FILE_ID.fullmatch(value) is None:
+        raise StorageInputError("file id is invalid")
+    return value
+
+
 def _filename(value: object) -> str:
     if not isinstance(value, str) or not value or value.strip() != value:
         raise StorageInputError("filename must be non-empty and trimmed")

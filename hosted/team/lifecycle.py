@@ -107,8 +107,9 @@ def _delete_unused_team_file(team_id: str, file_id: object, lease: hosted_resour
         container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
             storage = runtime_state._storage()
-            (stored,) = storage.metadata(team_id, [file_id])
-            hosted_chat_lifecycle.forget_file(team_id, stored["id"], container.id)
+            # A file already gone still has its references cleaned up; a malformed id is refused.
+            hosted_chat_lifecycle.forget_file(team_id, team_storage.scoped_file_id(file_id), container.id)
+            # Deletion is idempotent: a file already gone is reported as absent.
             result = storage.delete(team_id, file_id)
         except team_storage.StorageInputError as exc:
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
