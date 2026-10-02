@@ -478,6 +478,7 @@ CONTROLLER_ROUTES = (
     _controller_route(
         "POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume", _LOCAL_CONTROLLER_ONLY
     ),
+    _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/pause", "routine-pause", _LOCAL_CONTROLLER_ONLY),
     _controller_route(
         "GET",
         "/v1/teams/:team_id/routines/runs/:run_id/diagnostics",

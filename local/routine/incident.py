@@ -359,11 +359,21 @@ def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
 
 
-def resume_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
-    """A person resumes a paused Routine; an unresolved incident still holds it until its card settles it."""
+def _set_paused_by_person(self, team_id: str, routine_id: object, paused: bool) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
-    set_paused(self, team_id, routine_id, False)
-    local_audit.record_request("routine-resume", result="ok", team_id=team_id, detail=routine_id)
-    return {"team_id": team_id, "routine_id": routine_id, "paused": False}
+    set_paused(self, team_id, routine_id, paused)
+    operation = "routine-pause" if paused else "routine-resume"
+    local_audit.record_request(operation, result="ok", team_id=team_id, detail=routine_id)
+    return {"team_id": team_id, "routine_id": routine_id, "paused": paused}
+
+
+def resume_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
+    """A person resumes a paused Routine; an unresolved incident still holds it until its card settles it."""
+    return _set_paused_by_person(self, team_id, routine_id, False)
+
+
+def pause_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
+    """A person pauses a whole Routine: no run of it starts until resumed; a run already going finishes."""
+    return _set_paused_by_person(self, team_id, routine_id, True)
