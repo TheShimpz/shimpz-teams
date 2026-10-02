@@ -8,6 +8,13 @@ ASCII-case-insensitively, and secret-shaped text is replaced through the end of 
 at the end of a text cannot be matched whole, so any trailing prefix of one is withheld rather than shown clipped.
 Redaction runs before the bound is enforced again, and both flags record what changed. A diagnostic is never
 evidence that an effect did or did not occur, and never authority.
+
+Redaction is best effort, not a guarantee. It removes whole injected values and their listed encodings, secret-shaped
+text, and trailing prefixes of at least ``MIN_CLIPPED`` characters. It does not remove an arbitrary short fragment of
+a secret: a piece of fewer than ``MIN_CLIPPED`` characters, a derived encoding shorter than ``MIN_DERIVED``, a piece
+taken from the middle of a value, or a value the Assistant transformed in a way not listed here may remain. Unknown
+secrets in Creator prose cannot be detected universally (ADR-0092 section 8), so diagnostics stay private, encrypted,
+bounded, and shown only to the Team's Supervisor.
 """
 
 from __future__ import annotations
