@@ -1,9 +1,12 @@
 """Opt-in proof of Action file delivery through Team's real RPC path into a real SDK Assistant (ADR-0093).
 
-The workload runs the attachment SDK under the Local isolation envelope (128 MiB, 0.25 CPU, 64 PIDs, read-only, no
-network). Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_SDK_WHEEL naming a built SDK wheel, for example the output of
-``uv build --wheel`` in the SDK's ``python`` directory. Each case prints its measurements: wall time, the longest
-silent interval on the exec socket, the controller's traced peak, and the workload cgroup's ``memory.peak``.
+The workload runs the attachment SDK under exactly the Local isolation envelope (128 MiB, 0.25 CPU, 64 PIDs,
+read-only, no network). Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_SDK_WHEEL naming a built SDK wheel, for example
+the output of ``uv build --wheel`` in the SDK's ``python`` directory. The cases cover the maximum 8 MiB delivery and a
+1 MiB one after the authorization replay, a withheld file the person denies, Stop during a delivery, and a delivery
+whose workload outlives its deadline, each ended and cleaned up within its bound. Each case prints its measurements:
+wall time, the longest silent interval on the exec socket, the controller's traced peak, and the workload cgroup's
+``memory.peak``.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 import tracemalloc
 import unittest
@@ -28,6 +32,7 @@ from action import human as action_human
 from assistant import spec as assistant_spec
 from local.assistant import isolation
 from local.assistant import rpc as local_assistant_rpc
+from local.errors import ApiProblemError
 from storage import files as team_storage
 
 ENABLED = os.environ.get("SHIMPZ_RUN_DOCKER_TESTS") == "1" and bool(os.environ.get("SHIMPZ_SDK_WHEEL"))
@@ -85,7 +90,7 @@ class RealFileDeliveryTests(unittest.TestCase):
             remove=True,
         )
         cls.contract = json.loads(contract)
-        cls.action = assistant_spec.action_spec(cls.contract["actions"][0])
+        cls.actions = {item["id"]: assistant_spec.action_spec(item) for item in cls.contract["actions"]}
         cls.catalog = action_human.catalog_by_id(cls.contract)
 
     def setUp(self) -> None:
@@ -108,65 +113,84 @@ class RealFileDeliveryTests(unittest.TestCase):
             ulimits=None,
         )
         self.addCleanup(self.container.remove, force=True)
-        self.controller = SimpleNamespace(
-            client=self.client,
-            _fail_stop_action=lambda container: container.kill(),
-            _close_exec_stream=action_execution.close_exec_stream,
-        )
+        # Team's own Local fail-stop: stop, then kill, and prove the workload no longer runs.
+        controller = SimpleNamespace(client=self.client, _blocked_action_workloads=set())
+        controller._action_not_running = local_assistant_rpc._action_not_running
+        controller._fail_stop_action = lambda container: local_assistant_rpc._fail_stop_action(controller, container)
+        controller._close_exec_stream = action_execution.close_exec_stream
+        self.controller = controller
 
-    def _rpc(self, file: action_files.ActionFile, transcript: action_human.ActionTranscript):
-        """One invocation through Team's real Local RPC path, returning its measurements."""
+    def _rpc(self, file: action_files.ActionFile, transcript: action_human.ActionTranscript, action_id: str = "store"):
+        """One invocation through Team's real Local RPC path, admitted to the file-RPC slot exactly as a batch is."""
         events: list[float] = []
         original = action_execution.exchange_rpc_frames
 
         def recorded(raw_socket, data, deadline, maximum):
             return original(_RecordingSocket(raw_socket, events), data, deadline, maximum)
 
+        action = self.actions[action_id]
         action_input = {"document": file.id}
+        peak_bytes = [0]
+        sampling = threading.Event()
+
+        def sample() -> None:
+            # The cgroup disappears with a stopped workload, so its peak is sampled while the exchange runs.
+            while not sampling.wait(0.1):
+                peak_bytes[0] = max(peak_bytes[0], self._workload_peak())
+
+        sampler = threading.Thread(target=sample, daemon=True)
+        sampler.start()
         tracemalloc.start()
         started = time.monotonic()
+        raw: object = None
+        files: dict[str, object] = {}
         try:
-            # Exactly as a chat batch does: the file-RPC slot is admitted before any byte is read.
-            admission = action_files.admitted(file, self.action.human_requests, transcript, lambda: False)
-            admission.__enter__()
-            files = action_files.deliver(
-                self.action, file, transcript, action_input, lambda file_id: self.storage.get("team_1", file_id)
-            )
-            payload = {
-                "input": action_input,
-                "integrations": {},
-                "stored_inputs": {},
-                "files": files,
-                "operation_id": action_execution.action_journal.new_operation_id(),
-            }
-            if transcript.responses:
-                payload["responses"] = transcript.payloads()
-            with mock.patch.object(action_execution, "exchange_rpc_frames", recorded):
-                raw = local_assistant_rpc._rpc(self.controller, self.container, "store", payload)
+            with (
+                action_files.admitted(file, action.human_requests, transcript, lambda: False),
+                mock.patch.object(action_execution, "exchange_rpc_frames", recorded),
+            ):
+                files = action_files.deliver(
+                    action, file, transcript, action_input, lambda file_id: self.storage.get("team_1", file_id)
+                )
+                payload = {
+                    "input": action_input,
+                    "integrations": {},
+                    "stored_inputs": {},
+                    "files": files,
+                    "operation_id": action_execution.action_journal.new_operation_id(),
+                }
+                if transcript.responses:
+                    payload["responses"] = transcript.payloads()
+                try:
+                    raw = local_assistant_rpc._rpc(self.controller, self.container, action_id, payload)
+                except ApiProblemError as exc:
+                    raw = exc
             finished = time.monotonic()
             peak = tracemalloc.get_traced_memory()[1]
         finally:
-            admission.__exit__(None, None, None)
             tracemalloc.stop()
+            peak_bytes[0] = max(peak_bytes[0], self._workload_peak())
+            sampling.set()
+            sampler.join(5)
         moments = [started, *events, finished]
         measured = {
             "wall_seconds": round(finished - started, 3),
             "longest_silence_seconds": round(max(b - a for a, b in itertools.pairwise(moments)), 3),
             "controller_traced_peak_mib": round(peak / MIB, 1),
-            "workload_memory_peak_mib": round(self._workload_peak() / MIB, 1),
+            "workload_memory_peak_mib": round(peak_bytes[0] / MIB, 1),
         }
         return raw, files, measured
 
     def _workload_peak(self) -> int:
-        result = self.container.exec_run(
-            ["/usr/local/bin/python3", "-c", "print(open('/sys/fs/cgroup/memory.peak').read().strip())"],
-            user=isolation.ASSISTANT_UID,
-        )
-        return int(result.output)
+        """The workload cgroup's peak memory, read from the host while or after the workload runs."""
+        scope = Path("/sys/fs/cgroup/system.slice") / f"docker-{self.container.id}.scope" / "memory.peak"
+        with contextlib.suppress(OSError, ValueError):
+            return int(scope.read_text().strip())
+        return 0
 
     def _suspension(self, raw: object) -> action_human.HumanRequest:
         policy = action_execution.RpcResultPolicy(
-            human_requests=self.action.human_requests, catalog=self.catalog, file_withheld=True
+            human_requests=("approval",), catalog=self.catalog, file_withheld=True
         )
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
             action_execution.project_rpc_result(raw, {}, lambda value: value, policy)
@@ -176,11 +200,15 @@ class RealFileDeliveryTests(unittest.TestCase):
         stored = self.storage.put("team_1", "report.pdf", os.urandom(size), "application/pdf")
         return action_files.selected([stored])[stored["id"]]
 
+    def _approved(self, file: action_files.ActionFile, action_id: str = "store"):
+        """The withheld first invocation, then the transcript that approves its authorization request."""
+        raw, files, withheld = self._rpc(file, action_human.ActionTranscript("interrupt-1"), action_id)
+        self.assertEqual(files[file.id]["content"], {"type": "withheld"})
+        return action_human.ActionTranscript("interrupt-1").append(self._suspension(raw), True), withheld
+
     def _deliver(self, size: int) -> dict[str, object]:
         file = self._file(size)
-        raw, files, withheld = self._rpc(file, action_human.ActionTranscript("interrupt-1"))
-        self.assertEqual(files[file.id]["content"], {"type": "withheld"})
-        approved = action_human.ActionTranscript("interrupt-1").append(self._suspension(raw), True)
+        approved, withheld = self._approved(file)
         raw, files, delivered = self._rpc(file, approved)
         self.assertEqual(files[file.id]["content"]["type"], "delivered")
         self.assertEqual(raw, {"type": "result", "result": {"bytes": size, "sha256": file.sha256}})
@@ -188,10 +216,14 @@ class RealFileDeliveryTests(unittest.TestCase):
         self.assertLess(delivered["workload_memory_peak_mib"], isolation.ASSISTANT_MEMORY / MIB)
         return {"size_mib": round(size / MIB, 2), "withheld": withheld, "delivered": delivered}
 
-    def test_an_eight_mib_file_is_delivered_after_approval_within_the_deadline(self) -> None:
+    def _stopped(self) -> bool:
+        self.container.reload()
+        return self.container.status != "running"
+
+    def test_an_eight_mib_file_is_delivered_after_the_authorization_replay_within_the_deadline(self) -> None:
         print(json.dumps({"case": "8 MiB", **self._deliver(8 * MIB)}))
 
-    def test_a_one_mib_file_is_delivered_after_approval(self) -> None:
+    def test_a_one_mib_file_is_delivered_after_the_authorization_replay(self) -> None:
         print(json.dumps({"case": "1 MiB", **self._deliver(MIB)}))
 
     def test_a_denied_file_never_leaves_the_controller(self) -> None:
@@ -201,10 +233,52 @@ class RealFileDeliveryTests(unittest.TestCase):
         self._suspension(raw)
         # A denial ends the turn: Team never replays, so the only invocation the workload saw carried no bytes.
         self.assertLess(withheld["workload_memory_peak_mib"], 64)
-        with contextlib.suppress(Exception):
-            self.container.reload()
-        self.assertEqual(self.container.status, "running")
+        self.assertFalse(self._stopped())
         print(json.dumps({"case": "8 MiB withheld then denied", "withheld": withheld}))
+
+    def test_stop_ends_an_eight_mib_delivery_and_its_workload_within_the_deadline(self) -> None:
+        file = self._file(8 * MIB)
+        approved, _withheld = self._approved(file, "hold")
+        outcome: dict[str, object] = {}
+
+        def deliver() -> None:
+            outcome["raw"], outcome["files"], outcome["measured"] = self._rpc(file, approved, "hold")
+
+        delivery = threading.Thread(target=deliver)
+        delivery.start()
+        time.sleep(8)
+        stop = time.monotonic()
+        self.controller._fail_stop_action(self.container)
+        delivery.join(action_files.FILE_RPC_TIMEOUT_SECONDS)
+        ended = time.monotonic() - stop
+        self.assertFalse(delivery.is_alive())
+        self.assertIsInstance(outcome["raw"], ApiProblemError)
+        self.assertTrue(self._stopped())
+        self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+        self.assertLess(outcome["measured"]["wall_seconds"], action_files.FILE_RPC_TIMEOUT_SECONDS)
+        print(
+            json.dumps(
+                {
+                    "case": "8 MiB delivery stopped after 8 s",
+                    "stop_to_end_seconds": round(ended, 3),
+                    "delivered": outcome["measured"],
+                }
+            )
+        )
+
+    def test_a_workload_that_outlives_its_deadline_is_ended_and_cleaned_up(self) -> None:
+        file = self._file(8 * MIB)
+        approved, _withheld = self._approved(file, "hold")
+        # A shorter deadline keeps the proof fast; the slot, exchange, and fail-stop paths are exactly the 60 s ones.
+        with mock.patch.object(action_files, "FILE_RPC_TIMEOUT_SECONDS", 20):
+            raw, _files, measured = self._rpc(file, approved, "hold")
+        self.assertIsInstance(raw, ApiProblemError)
+        self.assertEqual(raw.code, "assistant-timeout")
+        self.assertTrue(self._stopped())
+        self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+        # The exchange ends at its deadline; the proven fail-stop (stop, then kill) adds at most a few seconds.
+        self.assertLess(measured["wall_seconds"], 20 + 10)
+        print(json.dumps({"case": "8 MiB delivery past a 20 s deadline", "delivered": measured}))
 
 
 if __name__ == "__main__":
