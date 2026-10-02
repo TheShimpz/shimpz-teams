@@ -170,8 +170,10 @@ def regular_bytes(path: Path) -> bytes:
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         fail(f"Assistant protocol artifact is unreadable: {path.relative_to(HERE).as_posix()}")
-    # A FIFO swapped in after the check opens without blocking and reads empty, which no manifest row admits.
+    # The descriptor is checked again, so a FIFO or device swapped in after lstat is refused before any read.
     with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            fail(f"Assistant protocol layout has an unexpected entry: {path.relative_to(HERE).as_posix()}")
         return handle.read()
 
 

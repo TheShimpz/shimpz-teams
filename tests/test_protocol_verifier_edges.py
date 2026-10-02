@@ -12,6 +12,7 @@ import runpy
 import shutil
 import sys
 import tempfile
+import threading
 import types
 import unittest
 import zlib
@@ -235,6 +236,29 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
         def manifest_fifo(root: Path) -> None:
             (root / "contract-files.sha256").unlink()
             os.mkfifo(root / "contract-files.sha256")
+
+        regular = os.lstat(ASSISTANT / "README.md")
+        real_lstat = os.lstat
+
+        def swapped(root: Path) -> None:
+            manifest = root / "contract-files.sha256"
+            content = manifest.read_bytes()
+            manifest.unlink()
+            os.mkfifo(manifest)
+
+            def write() -> None:
+                with contextlib.suppress(OSError), manifest.open("wb") as fifo:
+                    fifo.write(content)
+
+            threading.Thread(target=write, daemon=True).start()
+
+        def lstat(path, *args, **kwargs):
+            # The manifest looked regular when lstat ran and became a FIFO with a ready writer before it was opened.
+            return regular if str(path).endswith("contract-files.sha256") else real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(os, "lstat", lstat), self.assertRaises(SystemExit) as raised:
+            _execute(ASSISTANT / "verify.py", swapped)
+        self.assertIn("unexpected entry: contract-files.sha256", str(raised.exception.code))
 
         for mutate, reason in (
             (manifest_fifo, "unexpected entry"),
