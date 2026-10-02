@@ -30,6 +30,9 @@ MAX_BYTES = 128 * 1024
 # Validation visits a subschema once for every path that reaches it, so references multiply work the literal bounds do
 # not show. The Assistant protocol pins this bound and its counting rule, and Developers publication applies it alike.
 MAX_EXPANDED_SUBSCHEMAS = 4096
+# One Action payload nests at most this deep below its root object. Admission refuses anything deeper, so every Team
+# store that keeps an admitted payload, such as a paused local chat continuation, can restore it under the same bound.
+MAX_PAYLOAD_DEPTH = 32
 
 
 class ActionSchemaError(ValueError):
@@ -157,6 +160,20 @@ def json_nodes_within(value: object, limit: int) -> bool:
             pending.extend(node.values())
         elif isinstance(node, list | tuple):
             pending.extend(node)
+    return True
+
+
+def json_depth_within(value: object, limit: int) -> bool:
+    """Whether no array element or member value of value nests more than limit levels below it."""
+    pending: list[tuple[object, int]] = [(value, 0)]
+    while pending:
+        node, depth = pending.pop()
+        if depth > limit:
+            return False
+        if isinstance(node, dict):
+            pending.extend((child, depth + 1) for child in node.values())
+        elif isinstance(node, list | tuple):
+            pending.extend((child, depth + 1) for child in node)
     return True
 
 

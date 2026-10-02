@@ -446,6 +446,8 @@ def validate_schema_payload(validator: Draft202012Validator, payload: object) ->
     """Validate one untrusted Action input or output against its reviewed schema."""
     if not isinstance(payload, dict):
         raise ValueError("Action payload must be an object")
+    if not action_schema.json_depth_within(payload, action_schema.MAX_PAYLOAD_DEPTH):
+        raise ValueError("Action payload nests too deeply")
     try:
         with action_schema.pattern_work_budget():
             validator.validate(payload)

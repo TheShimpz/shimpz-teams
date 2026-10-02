@@ -603,6 +603,14 @@ class BrainRuntimeClientTests(RuntimeClientCase):
                     client.start(context(self.secret), "Hello", conversation=())
                 self.assertNotIn(self.secret, str(raised.exception))
 
+    def test_response_nesting_beyond_the_decoder_fails_closed(self) -> None:
+        client, _connection = self.client(_Response({}, raw=b"[]"))
+        with (
+            mock.patch.object(brain_runtime_client.strict_json, "loads", side_effect=RecursionError),
+            self.assertRaises(brain_runtime_client.BrainRuntimeError),
+        ):
+            client.start(context(self.secret), "Hello", conversation=())
+
     def test_runtime_url_cannot_carry_credentials_paths_or_queries(self):
         for url in (
             "https://brain-runtime:8080",

@@ -37,14 +37,13 @@ class ContinuationCodecPrimitiveEdgeTests(unittest.TestCase):
     def test_json_value_enforces_depth_nodes_numbers_keys_and_types(self) -> None:
         self.assertEqual(continuation._json_value(1.5), 1.5)
         nested: object = None
-        for _index in range(continuation.MAX_JSON_DEPTH + 1):
+        for _index in range(continuation.action_schema.MAX_PAYLOAD_DEPTH + 1):
             nested = [nested]
         invalid_values = (
             nested,
-            [None] * (continuation.MAX_JSON_NODES + 1),
+            [None] * continuation.local_chat_continuation_store.MAX_PLAINTEXT_BYTES,
             float("inf"),
             {1: "value"},
-            {"x" * 129: "value"},
             object(),
         )
         for value in invalid_values:
@@ -146,13 +145,9 @@ class ContinuationCodecBindingEdgeTests(unittest.TestCase):
         ):
             continuation.encode("integrations", requirements, pending())
 
+        oversized = "x" * (continuation.local_chat_continuation_store.MAX_PLAINTEXT_BYTES + 1)
         with (
-            mock.patch.object(continuation.json, "dumps", return_value="x" * 8),
-            mock.patch.object(
-                continuation.local_chat_continuation_store,
-                "MAX_PLAINTEXT_BYTES",
-                1,
-            ),
+            mock.patch.object(continuation.json, "dumps", return_value=oversized),
             self.assertRaisesRegex(
                 continuation.ContinuationCodecError,
                 "fixed byte limit",
@@ -168,6 +163,15 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
     def test_payload_action_and_brain_continuation_reject_drift(self) -> None:
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._decode_payload(b"\xff")
+        # The deepest record that fits the fixed byte limit exhausts the decoder rather than the Team process.
+        half = continuation.local_chat_continuation_store.MAX_PLAINTEXT_BYTES // 2
+        with self.assertRaises(continuation.ContinuationCodecError):
+            continuation._decode_payload(b"[" * half + b"]" * half)
+        with (
+            mock.patch.object(continuation.strict_json, "loads", side_effect=RecursionError),
+            self.assertRaisesRegex(continuation.ContinuationCodecError, "not valid JSON"),
+        ):
+            continuation._decode_payload(b"{}")
 
         request = {
             "interrupt_id": "interrupt",

@@ -12,6 +12,8 @@ sys.path.insert(0, str(TEAM))
 
 from action import challenges as action_challenges
 from action import human as action_human
+from assistant import action_schema
+from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -120,6 +122,56 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ),
         )
         self._round_trip("integrations", requirements)
+
+    def test_every_admitted_action_input_survives_a_pause(self) -> None:
+        requirements = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        action = assistant_spec.ActionSpec(
+            "Publish",
+            action_schema.admitted(
+                {
+                    "type": "object",
+                    "properties": {"x": {"type": "array"}},
+                    "patternProperties": {"^k+$": {"type": "integer"}},
+                    "additionalProperties": False,
+                }
+            ),
+            {"type": "object", "additionalProperties": False},
+        )
+
+        def nested(levels: int) -> object:
+            value: object = 0
+            for _index in range(levels):
+                value = [value]
+            return value
+
+        def paused(action_input: dict[str, object]) -> local_chat_continuations.PendingLocalChat:
+            base = pending()
+            request = replace(TURN.actions[0], input=action_input)
+            return replace(base, continuation=replace(base.continuation, turn=replace(TURN, actions=(request,))))
+
+        # Each once failed to persist after admission, which cancelled the challenge and purged the Action journal.
+        admitted_inputs = (
+            {"k" * 129: 1},
+            {"x": nested(17)},
+            {"x": list(range(5_000))},
+            # The value under "x" sits one level below the input, so this reaches exactly the shared depth bound.
+            {"x": nested(action_schema.MAX_PAYLOAD_DEPTH - 1)},
+        )
+        for action_input in admitted_inputs:
+            with self.subTest(size=len(str(action_input))):
+                self.assertEqual(assistant_spec.validate_action_payload(action, "input", action_input), action_input)
+                self._round_trip("integrations", requirements, paused(action_input))
+
+        # One level deeper is refused at admission, before any challenge exists, under the bound the codec applies.
+        too_deep = {"x": nested(action_schema.MAX_PAYLOAD_DEPTH)}
+        with self.assertRaisesRegex(ValueError, "nests too deeply"):
+            assistant_spec.validate_action_payload(action, "input", too_deep)
+        with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "structure limit"):
+            local_chat_continuations.encode("integrations", requirements, paused(too_deep))
 
     def test_round_trips_a_local_snapshot_integration_suspension(self) -> None:
         requirements = (

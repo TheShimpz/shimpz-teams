@@ -392,7 +392,7 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime request failed")
         try:
             decoded = strict_json.loads(raw)
-        except (UnicodeError, ValueError) as exc:
+        except (UnicodeError, ValueError, RecursionError) as exc:
             raise BrainRuntimeError("Brain runtime returned an invalid response") from exc
         return decoded
 

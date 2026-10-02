@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 
 from action import challenges as action_challenges
 from action import human as action_human
+from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
 from core import strict_json
 from inference import client as brain_runtime_client
@@ -21,8 +22,6 @@ from local.validation import validate_team_name
 from protocol.http.v1 import payload as http_payload
 
 SCHEMA_VERSION = 4
-MAX_JSON_DEPTH = 16
-MAX_JSON_NODES = 4096
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
@@ -105,11 +104,14 @@ def _interrupt_id(value: object) -> str:
 
 
 def _json_value(value: object) -> object:
-    budget = [MAX_JSON_NODES]
+    # Admission bounds an Action payload's depth and nothing else, so the walk applies that depth and no narrower
+    # structure limit. Every value costs at least one encoded byte, so this budget refuses only what the fixed byte
+    # limit would refuse anyway while still bounding the walk over an in-memory value.
+    budget = [local_chat_continuation_store.MAX_PLAINTEXT_BYTES]
 
     def visit(item: object, depth: int) -> object:
         budget[0] -= 1
-        if budget[0] < 0 or depth > MAX_JSON_DEPTH:
+        if budget[0] < 0 or depth > action_schema.MAX_PAYLOAD_DEPTH:
             raise ContinuationCodecError("continuation JSON exceeds its structure limit")
         if item is None or isinstance(item, bool | str):
             return item
@@ -124,7 +126,7 @@ def _json_value(value: object) -> object:
         if isinstance(item, dict):
             result: dict[str, object] = {}
             for key, nested in item.items():
-                if not isinstance(key, str) or len(key) > 128 or key in result:
+                if not isinstance(key, str) or key in result:
                     raise ContinuationCodecError("continuation JSON object is malformed")
                 result[key] = visit(nested, depth + 1)
             return result
@@ -356,7 +358,7 @@ def encode(
 def _decode_payload(payload: bytes) -> dict[str, object]:
     try:
         value = strict_json.loads(payload)
-    except (UnicodeDecodeError, ValueError) as exc:
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise ContinuationCodecError("continuation is not valid JSON") from exc
     return _mapping(value, {"schema", "kind", "requirements", "pending"}, "continuation")
 
