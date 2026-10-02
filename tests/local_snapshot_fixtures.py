@@ -32,6 +32,7 @@ MACHINE_CONTRACT = {
             "integrations": [],
             "stored_inputs": [],
             "human_requests": [],
+            "effect": "read_only",
         }
     ],
     "messages": MESSAGES,

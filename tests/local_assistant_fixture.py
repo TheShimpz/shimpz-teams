@@ -97,6 +97,7 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "integrations": list(action.integrations),
                     "stored_inputs": list(action.stored_inputs),
                     "human_requests": list(action.human_requests),
+                    "effect": action.effect,
                 }
                 for action_id, action in sorted(actions.items())
             ],

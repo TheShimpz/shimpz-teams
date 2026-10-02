@@ -34,8 +34,9 @@ LOCAL_PACKAGE_DATA = {
     "install": set(),
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
-# The Developers Assistant protocol reference validators Team imports at run time (ADR-0091).
+# The Developers Assistant protocol reference validators Team imports at run time (ADR-0091, ADR-0092).
 ASSISTANT_PROTOCOL_RUNTIME = {
+    "protocol/assistant/v1/action_effect_validator.py",
     "protocol/assistant/v1/human_request_validator.py",
     "protocol/assistant/v1/message_catalog_validator.py",
 }

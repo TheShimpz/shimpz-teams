@@ -63,6 +63,7 @@ class AssistantProtocolTests(unittest.TestCase):
                     "integrations": [],
                     "stored_inputs": [],
                     "human_requests": [],
+                    "effect": "read_only",
                 }
                 action[position] = case["schema"]
                 try:
@@ -70,6 +71,7 @@ class AssistantProtocolTests(unittest.TestCase):
                         {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()},
                         (),
                         summary=catalog_fixtures.SUMMARY,
+                        allowed_hosts=(),
                     )
                 except ManifestError:
                     valid = False

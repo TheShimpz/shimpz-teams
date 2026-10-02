@@ -98,7 +98,8 @@ COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign
 COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
      hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
      hosted/validation.py ./hosted/
-COPY assistant/__init__.py assistant/action_schema.py assistant/genesis.py assistant/language.py assistant/manifest.py \
+COPY assistant/__init__.py assistant/action_schema.py assistant/effect.py assistant/genesis.py assistant/language.py \
+    assistant/manifest.py \
     assistant/spec.py \
     ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
@@ -133,7 +134,8 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
      ./protocol/account/authority/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/routine.py ./protocol/http/v1/
-COPY protocol/assistant/v1/human_request_validator.py protocol/assistant/v1/message_catalog_validator.py \
+COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/human_request_validator.py \
+    protocol/assistant/v1/message_catalog_validator.py \
     ./protocol/assistant/v1/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/

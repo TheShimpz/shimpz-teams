@@ -52,6 +52,13 @@ The machine contract carries the Assistant's English message catalog as a sorted
 lowercase SHA-256 of its `msgid` bytes, and the published `summary` is one catalog message with no parameters and a
 `max_length` of at most 160.
 
+Every machine-contract Action carries its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
+closed `verifier` descriptor naming a `read_only` Action of the same contract, its typed input bindings from the
+original input or `operation_id`, and the RFC 6901 pointers of its outcome and recovered result. A `mutating` Action
+may also carry one closed `idempotency` declaration: the provider host, the key location and name, the key scope,
+the provider's retention in seconds, and whether a reused key requires the same payload. These schemas fix
+the shape only; Developers Assistant Spec v1 owns the semantics, and Developers and Team each enforce them.
+
 Language packs travel with the artifact. Each final image holds the canonical pack for that catalog at the fixed
 read-only `/opt/shimpz/shimpz.pack.json` (`language_pack` in the runtime), and resolve carries its `pack_digest`:
 `sha256:` over the exact pack bytes. The signed provenance binds the same digest beside the manifest and machine

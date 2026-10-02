@@ -120,7 +120,8 @@
                 "approval",
                 "input:choice",
                 "input:password"
-              ]
+              ],
+              "effect": "mutating"
             }
           ],
           "messages": [
@@ -678,7 +679,8 @@
             },
             "integrations": [
               "cloudflare"
-            ]
+            ],
+            "effect": "mutating"
           }
         ]
       }
@@ -712,7 +714,660 @@
             "human_requests": [
               "approval",
               "auth:password"
+            ],
+            "effect": "mutating"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_effects_and_verifier",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_idempotency",
+      "fixture": "resolve_response",
+      "valid": true,
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            },
+            "idempotency": {
+              "provider": "api.cloudflare.com",
+              "key": {
+                "location": "header",
+                "name": "Idempotency-Key"
+              },
+              "scope": "account",
+              "retention_seconds": 86400,
+              "same_payload_required": true
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_idempotency_unknown_field",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            },
+            "idempotency": {
+              "provider": "api.cloudflare.com",
+              "key": {
+                "location": "header",
+                "name": "Idempotency-Key"
+              },
+              "scope": "account",
+              "retention_seconds": 86400,
+              "same_payload_required": true,
+              "ttl": 60
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_idempotency_cookie_key",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            },
+            "idempotency": {
+              "provider": "api.cloudflare.com",
+              "key": {
+                "location": "cookie",
+                "name": "k"
+              },
+              "scope": "account",
+              "retention_seconds": 86400,
+              "same_payload_required": true
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_idempotency_short_retention",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            },
+            "idempotency": {
+              "provider": "api.cloudflare.com",
+              "key": {
+                "location": "header",
+                "name": "Idempotency-Key"
+              },
+              "scope": "account",
+              "retention_seconds": 59,
+              "same_payload_required": true
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_missing_effect",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
             ]
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_unknown_effect",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "write",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_verifier_unknown_field",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record",
+              "matcher": "equals"
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_verifier_literal_binding",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "zone": {
+                  "from": "literal",
+                  "value": "example.com"
+                }
+              },
+              "outcome": "/outcome",
+              "result": "/record"
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
+          }
+        ]
+      }
+    },
+    {
+      "name": "resolve_machine_contract_verifier_root_pointer",
+      "fixture": "resolve_response",
+      "valid": false,
+      "error": "schema_violation",
+      "mutation": {
+        "op": "set",
+        "path": [
+          "machine_contract",
+          "actions"
+        ],
+        "value": [
+          {
+            "id": "hello",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [
+              "cloudflare"
+            ],
+            "stored_inputs": [
+              "whatsapp-token"
+            ],
+            "human_requests": [
+              "approval",
+              "input:choice",
+              "input:password"
+            ],
+            "effect": "mutating",
+            "verifier": {
+              "action": "lookup",
+              "input": {
+                "operation": {
+                  "from": "operation_id"
+                },
+                "zone": {
+                  "from": "input",
+                  "pointer": "/zone"
+                }
+              },
+              "outcome": "",
+              "result": "/record"
+            }
+          },
+          {
+            "id": "lookup",
+            "input_schema": {
+              "type": "object"
+            },
+            "output_schema": {
+              "type": "object"
+            },
+            "integrations": [],
+            "stored_inputs": [],
+            "human_requests": [],
+            "effect": "read_only"
           }
         ]
       }
@@ -827,7 +1482,8 @@
               "approval",
               "input:choice",
               "input:password"
-            ]
+            ],
+            "effect": "mutating"
           }
         ]
       }
@@ -861,7 +1517,8 @@
             "human_requests": [
               "approval",
               "input:choice"
-            ]
+            ],
+            "effect": "mutating"
           }
         ]
       }

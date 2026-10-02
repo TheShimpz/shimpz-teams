@@ -37,7 +37,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 ),
             ):
                 assistant_manifest.parse_machine_contract(
-                    json.dumps(contract).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                    json.dumps(contract).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
                 )
 
     def test_machine_schema_closes_typeless_objects_and_rejects_boolean_subschemas(self) -> None:
@@ -47,14 +47,14 @@ class AssistantActionSchemaTests(unittest.TestCase):
         typeless["actions"][0]["input_schema"]["properties"]["page"] = {"properties": {"value": {"type": "string"}}}
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "must close every object"):
             assistant_manifest.parse_machine_contract(
-                json.dumps(typeless).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                json.dumps(typeless).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
             )
 
         boolean = json.loads(json.dumps(reviewed.machine_contract))
         boolean["actions"][0]["input_schema"]["properties"]["page"] = True
         with self.assertRaises(assistant_manifest.ManifestError):
             assistant_manifest.parse_machine_contract(
-                json.dumps(boolean).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                json.dumps(boolean).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
             )
 
         literals = json.loads(json.dumps(reviewed.machine_contract))
@@ -66,7 +66,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
             }
         )
         parsed = assistant_manifest.parse_machine_contract(
-            json.dumps(literals).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            json.dumps(literals).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
         )
 
         self.assertEqual(
@@ -100,7 +100,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                     self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"),
                 ):
                     assistant_manifest.parse_machine_contract(
-                        json.dumps(external).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                        json.dumps(external).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
                     )
 
         for definitions, reference in (
@@ -114,7 +114,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
             schema["properties"]["page"] = {"$ref": reference}
             with self.subTest(reference=reference):
                 parsed = assistant_manifest.parse_machine_contract(
-                    json.dumps(local).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                    json.dumps(local).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
                 )
                 self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["page"], {"$ref": reference})
 
@@ -136,7 +136,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
                 self.assertRaisesRegex(assistant_manifest.ManifestError, "Draft 2020-12 dialect"),
             ):
                 assistant_manifest.parse_machine_contract(
-                    json.dumps(switched).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                    json.dumps(switched).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
                 )
 
         rebound = json.loads(json.dumps(reviewed.machine_contract))
@@ -146,7 +146,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "nested identifier"):
             assistant_manifest.parse_machine_contract(
-                json.dumps(rebound).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                json.dumps(rebound).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
             )
 
         current = json.loads(json.dumps(reviewed.machine_contract))
@@ -154,7 +154,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         schema.update({"$schema": action_schema._DRAFT_2020_12, "$id": "https://example.test/action.json"})
         schema["properties"]["page"] = {"$schema": action_schema._DRAFT_2020_12, "type": "integer"}
         parsed = assistant_manifest.parse_machine_contract(
-            json.dumps(current).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            json.dumps(current).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
         )
         self.assertEqual(parsed["actions"][0]["input_schema"]["$id"], "https://example.test/action.json")
 
@@ -167,7 +167,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         schema["properties"]["$ref"] = {"type": "string"}
         schema["properties"]["mode"] = {"const": remote, "enum": [remote], "default": remote, "examples": [remote]}
         parsed = assistant_manifest.parse_machine_contract(
-            json.dumps(data).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+            json.dumps(data).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
         )
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["$ref"], {"type": "string"})
         self.assertEqual(parsed["actions"][0]["input_schema"]["properties"]["mode"]["const"], remote)
@@ -179,7 +179,7 @@ class AssistantActionSchemaTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(assistant_manifest.ManifestError, "root or a named definition"):
             assistant_manifest.parse_machine_contract(
-                json.dumps(nested).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY
+                json.dumps(nested).encode(), reviewed.integrations, summary=FIXTURE_SUMMARY, allowed_hosts=()
             )
 
     def test_action_schema_validators_never_retrieve_a_uri(self) -> None:

@@ -38,7 +38,8 @@ COPY local/__init__.py local/activity.py local/app.py local/audit.py local/autho
 COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/
-COPY assistant/__init__.py assistant/action_schema.py assistant/genesis.py assistant/language.py assistant/manifest.py \
+COPY assistant/__init__.py assistant/action_schema.py assistant/effect.py assistant/genesis.py assistant/language.py \
+    assistant/manifest.py \
     assistant/spec.py \
     ./assistant/
 COPY chat/__init__.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
@@ -81,7 +82,8 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     ./protocol/install/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/routine.py \
     protocol/http/v1/supervisor.py ./protocol/http/v1/
-COPY protocol/assistant/v1/human_request_validator.py protocol/assistant/v1/message_catalog_validator.py \
+COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/human_request_validator.py \
+    protocol/assistant/v1/message_catalog_validator.py \
     ./protocol/assistant/v1/
 COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
     action/stored_input.py ./action/

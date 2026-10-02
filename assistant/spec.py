@@ -26,6 +26,25 @@ class ActionSpec:
     integrations: tuple[str, ...] = ()
     stored_inputs: tuple[str, ...] = ()
     human_requests: tuple[str, ...] = ()
+    # The reviewed effect class and optional verifier and idempotency declarations (ADR-0092); absent means mutating.
+    effect: str = "mutating"
+    verifier: Mapping[str, object] | None = None
+    idempotency: Mapping[str, object] | None = None
+
+
+def action_spec(action: Mapping[str, Any]) -> ActionSpec:
+    """One admitted machine-contract Action as both Controllers hold it."""
+    return ActionSpec(
+        summary=action_summary(action["id"]),
+        input_schema=action["input_schema"],
+        output_schema=action["output_schema"],
+        integrations=tuple(action["integrations"]),
+        stored_inputs=tuple(action["stored_inputs"]),
+        human_requests=tuple(action["human_requests"]),
+        effect=action["effect"],
+        verifier=action.get("verifier"),
+        idempotency=action.get("idempotency"),
+    )
 
 
 @dataclass(frozen=True, slots=True)

@@ -225,6 +225,7 @@ def _preview_summaries(summary: str, manifest: bytes, extracted: dict[str, bytes
         contract.integrations,
         contract.stored_inputs,
         summary=summary,
+        allowed_hosts=contract.allowed_hosts,
     )
     raw_pack = extracted[assistant_language.PACK_PATH]
     pack = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack))
@@ -251,7 +252,11 @@ def validate_record(record: dict[str, Any]) -> None:
             stored_input_declarations={declaration.id: declaration.metadata() for declaration in stored_inputs},
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
-            record["machine_contract"], declarations, stored_inputs, summary=identity.summary
+            record["machine_contract"],
+            declarations,
+            stored_inputs,
+            summary=identity.summary,
+            allowed_hosts=contract.allowed_hosts,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the local Assistant record is invalid") from exc
@@ -466,6 +471,7 @@ def _record(
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
         summary=identity.summary,
+        allowed_hosts=manifest_contract.allowed_hosts,
     )
     if candidate.actions != tuple(
         action["id"] for action in machine_contract["actions"]
