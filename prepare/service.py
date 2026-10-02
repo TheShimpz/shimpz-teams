@@ -24,6 +24,7 @@ _SOURCE_LIMITS = {
     detect.PDF: limits.MAX_PDF_BYTES,
     detect.IMAGE: limits.MAX_IMAGE_BYTES,
 }
+_MAX_SOURCE_BYTES = max(_SOURCE_LIMITS.values())
 
 
 class AttachmentLimitError(ValueError):
@@ -74,14 +75,22 @@ class Attachment:
 def prepare_attachments(
     files: Sequence[StoredFile],
     helper: Callable[[], AbstractContextManager[PreparationHelper]],
+    admission: AbstractContextManager[object] | None = None,
 ) -> tuple[Attachment, ...]:
-    """Prepare every selected file, starting the helper only when an image or PDF needs it."""
+    """Prepare every selected file, starting the helper only when an image or PDF needs it.
+
+    ``admission`` is held before the first original is read and until the helper is gone, so a profile can bound how
+    many originals and derivatives its controller holds at once. An original larger than every readable type's source
+    ceiling is never read: it is opaque without allocating its bytes.
+    """
     if len(files) > limits.MAX_SELECTED_FILES:
         raise AttachmentLimitError("attachments-too-many")
     if sum(item.size for item in files) > limits.MAX_SELECTED_ORIGINAL_BYTES:
         raise AttachmentLimitError("attachments-too-large")
     prepared: list[Attachment] = []
     with ExitStack() as stack:
+        if admission is not None:
+            stack.enter_context(admission)
         session: list[PreparationHelper] = []
 
         def running() -> PreparationHelper:
@@ -90,6 +99,11 @@ def prepare_attachments(
             return session[0]
 
         for item in files:
+            if item.size > _MAX_SOURCE_BYTES:
+                prepared.append(
+                    Attachment(item.id, item.name, detect.OCTET_STREAM, item.size, item.sha256, _opaque("too_large"))
+                )
+                continue
             data = item.read()
             found = detect.detect(item.name, data)
             content = _content(data, found, running)

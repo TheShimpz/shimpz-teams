@@ -13,6 +13,7 @@ from action import execution as action_execution
 from local import prepare as local_prepare
 from prepare import helper as preparation_helper
 from prepare import limits
+from prepare import service as preparation
 
 IMAGE_ID = "sha256:" + "c" * 64
 
@@ -159,32 +160,41 @@ class HelperSessionTests(unittest.TestCase):
 
 
 class LocalAdapterTests(unittest.TestCase):
-    def test_local_preparation_is_serialized_across_the_controller(self) -> None:
+    def test_local_admission_is_held_before_any_original_is_read_even_for_text(self) -> None:
         client = _Client()
         entered = threading.Event()
         release = threading.Event()
         order: list[str] = []
 
-        def first() -> None:
-            with local_prepare.helper(client, space_id="s", team_id="team_1", cpuset_cpus=None):
-                order.append("first-in")
-                entered.set()
-                release.wait(5)
-                order.append("first-out")
+        def text_file(label: str, *, wait: bool) -> preparation.StoredFile:
+            def read() -> bytes:
+                order.append(f"{label}-read")
+                if wait:
+                    entered.set()
+                    release.wait(5)
+                return b"plain text"
 
-        def second() -> None:
-            entered.wait(5)
-            with local_prepare.helper(client, space_id="s", team_id="team_2", cpuset_cpus=None):
-                order.append("second-in")
+            return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
 
-        threads = [threading.Thread(target=first), threading.Thread(target=second)]
-        for thread in threads:
-            thread.start()
+        first = threading.Thread(
+            target=local_prepare.prepare_attachments,
+            args=(client, [text_file("a", wait=True)]),
+            kwargs={"space_id": "s", "team_id": "team_1", "cpuset_cpus": None},
+        )
+        second = threading.Thread(
+            target=local_prepare.prepare_attachments,
+            args=(client, [text_file("b", wait=False)]),
+            kwargs={"space_id": "s", "team_id": "team_2", "cpuset_cpus": None},
+        )
+        first.start()
         entered.wait(5)
+        second.start()
+        second.join(0.2)
+        self.assertEqual(order, ["a-read"])
         release.set()
-        for thread in threads:
-            thread.join(5)
-        self.assertEqual(order, ["first-in", "first-out", "second-in"])
+        first.join(5)
+        second.join(5)
+        self.assertEqual(order, ["a-read", "b-read"])
 
     def test_helpers_are_removed_per_team_or_for_the_whole_space(self) -> None:
         client = _Client()

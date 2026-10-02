@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import json
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -47,9 +48,26 @@ def detect(name: str, data: bytes) -> Detected:
         return Detected(IMAGE, "image/webp")
     if data.startswith(b"%PDF-"):
         return Detected(PDF, "application/pdf")
-    if decode_text(data) is not None:
+    if _text_prefix(data):
         return Detected(TEXT, _text_media_type(name, data))
     return Detected(OPAQUE, OCTET_STREAM)
+
+
+def _text_prefix(data: bytes) -> bool:
+    """Whether the bytes read as text, deciding from at most the text source ceiling without decoding more.
+
+    A longer file classifies as text from its prefix and is then refused for size, so no oversized text is decoded.
+    """
+    prefix = data[: limits.MAX_TEXT_SOURCE_BYTES]
+    final = len(data) <= limits.MAX_TEXT_SOURCE_BYTES
+    body = prefix.removeprefix(_UTF8_BOM)
+    if not body:
+        return False
+    try:
+        text = codecs.getincrementaldecoder("utf-8")().decode(body, final=final)
+    except UnicodeDecodeError:
+        return False
+    return _printable(text)
 
 
 def decode_text(data: bytes) -> str | None:
@@ -57,13 +75,17 @@ def decode_text(data: bytes) -> str | None:
     body = data.removeprefix(_UTF8_BOM)
     if not body:
         return None
+    if len(data) > limits.MAX_TEXT_SOURCE_BYTES:
+        return None
     try:
         text = body.decode("utf-8")
     except UnicodeDecodeError:
         return None
-    if any(ord(character) < 32 and character not in _TEXT_CONTROLS for character in text) or "\x7f" in text:
-        return None
-    return text
+    return text if _printable(text) else None
+
+
+def _printable(text: str) -> bool:
+    return not any(ord(character) < 32 and character not in _TEXT_CONTROLS for character in text) and "\x7f" not in text
 
 
 def _text_media_type(name: str, data: bytes) -> str:

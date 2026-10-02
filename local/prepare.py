@@ -58,17 +58,14 @@ def helper(
     started: Callable[[object], None] = lambda _container: None,
     stopped: Callable[[object], None] = lambda _container: None,
 ) -> Iterator[preparation_helper.PreparationHelper]:
-    """One serialized helper for one preparation segment, removed before the segment continues."""
-    with (
-        _SERIAL,
-        preparation_helper.PreparationHelper(
-            client,
-            lambda: helper_kwargs(client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus),
-            transport_errors=(DockerException,),
-            started=started,
-            stopped=stopped,
-        ) as session,
-    ):
+    """One helper for one preparation segment, removed before the segment continues."""
+    with preparation_helper.PreparationHelper(
+        client,
+        lambda: helper_kwargs(client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus),
+        transport_errors=(DockerException,),
+        started=started,
+        stopped=stopped,
+    ) as session:
         yield session
 
 
@@ -82,12 +79,17 @@ def prepare_attachments(
     started: Callable[[object], None] = lambda _container: None,
     stopped: Callable[[object], None] = lambda _container: None,
 ) -> tuple[preparation.Attachment, ...]:
-    """Prepare one message's files, holding at most one serialized helper only while images or PDFs need it."""
+    """Prepare one message's files under the controller-wide preparation admission.
+
+    Local's 256 MiB controller holds at most one preparation's originals, text, and helper at a time, from before the
+    first original is read (ADR-0093).
+    """
     return preparation.prepare_attachments(
         files,
         lambda: helper(
             client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus, started=started, stopped=stopped
         ),
+        _SERIAL,
     )
 
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import base64
+import codecs
 import contextlib
 import hashlib
 import unittest
+from unittest import mock
 
 from prepare import limits, service, worker
 from tests import prepare_fixtures
@@ -70,6 +72,29 @@ class PreparationServiceTests(unittest.TestCase):
         prepared = service.prepare_attachments([big_text, long_text], helper)
         self.assertEqual([item.content for item in prepared], [{"type": "opaque", "reason": "too_large"}] * 2)
         self.assertEqual(helper.opened, 0)
+
+    def test_an_original_beyond_every_source_ceiling_is_never_read(self) -> None:
+        def unreadable() -> bytes:
+            raise AssertionError("the oversized original was read")
+
+        huge = service.StoredFile("d" * 32, "video.mp4", limits.MAX_PDF_BYTES + 1, "0" * 64, unreadable)
+        prepared = service.prepare_attachments([huge], _InProcessHelper())
+        self.assertEqual(
+            (prepared[0].media_type, prepared[0].content),
+            ("application/octet-stream", {"type": "opaque", "reason": "too_large"}),
+        )
+
+    def test_oversized_text_is_refused_without_decoding_past_its_ceiling(self) -> None:
+        big = b"a" * (8 * 1024 * 1024)
+        with mock.patch.object(service.detect.codecs, "getincrementaldecoder", wraps=codecs.getincrementaldecoder) as d:
+            prepared = service.prepare_attachments([_file("big.txt", big)], _InProcessHelper())
+        self.assertEqual(prepared[0].content, {"type": "opaque", "reason": "too_large"})
+        self.assertEqual(prepared[0].media_type, "text/plain")
+        d.assert_called_once()
+        self.assertIsNone(service.detect.decode_text(big))
+        # A multi-byte character split at the ceiling still classifies the prefix as text.
+        split = b"a" * (limits.MAX_TEXT_SOURCE_BYTES - 1) + "é".encode() + b"tail"
+        self.assertEqual(service.detect.detect("a.txt", split).kind, service.detect.TEXT)
 
     def test_untrusted_helper_answers_are_revalidated(self) -> None:
         png = prepare_fixtures.image("PNG", (8, 8))
