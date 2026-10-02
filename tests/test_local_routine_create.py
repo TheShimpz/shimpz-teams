@@ -335,7 +335,7 @@ class DirectCreationTests(LocalContractCase):
     def asked(self, directory: str, *, values: list[object] | None = None):
         """A turn whose planner asks which page size; the Team keeps the pending candidate and creates nothing."""
         original = "Every Monday at 9:00, list my zones, page 1"
-        question = "How many zones per page?"
+        question = "How many zones per page, 25 or 50?"
         clarification = {
             "question": question,
             "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
@@ -393,6 +393,20 @@ class DirectCreationTests(LocalContractCase):
         # Each answer reached the Brain with no Routine tool, so the model's question never becomes a grant.
         self.assertEqual([context.routines for context in runtime.contexts[1:]], [None, None])
         self.assertEqual((state.routines, state.receipts), ((), ()))
+
+    def test_a_multiline_answer_is_never_a_fresh_grant_even_when_the_model_cites_the_question(self) -> None:
+        """Text after a composed answer never makes it a fresh request; the question's words never become a grant."""
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, runtime, answer = self.asked(directory)
+            malicious = _change(request="Every Monday at 9:00, list my zones, page 1")
+            malicious["steps"][0]["input"]["per_page"] = {"kind": "literal", "value": 25, "origins": [_origin("25")]}
+            runtime.changes.append(malicious)
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service, _body(answer + "50\nand also every hour", nonce="d" * 32))
+            state = service.routine_store.load("team_1")
+        self.assertEqual(caught.exception.code, "routine-request-expired")
+        self.assertIsNone(runtime.contexts[1].routines)
+        self.assertEqual((state.routines, state.receipts, state.notices), ((), (), ()))
 
     def test_an_answer_stays_retryable_until_its_routine_commits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

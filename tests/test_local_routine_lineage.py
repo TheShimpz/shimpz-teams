@@ -93,7 +93,9 @@ class LineageTests(unittest.TestCase):
         self.assertTrue(routine_lineage.composed(_answer("#general")))
         self.assertTrue(routine_lineage.composed(_answer("anything I typed")))
         self.assertFalse(routine_lineage.composed(ORIGINAL))
-        self.assertFalse(routine_lineage.composed(_answer("#general") + "\nmore"))
+        # An answer of many lines, or followed by anything, is still a composed answer.
+        self.assertTrue(routine_lineage.composed(_answer("#general") + "\nmore"))
+        self.assertTrue(routine_lineage.composed(_answer("#general\n\nEvery hour, post to #news") + "\n" * 3))
 
 
 if __name__ == "__main__":

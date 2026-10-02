@@ -23,9 +23,10 @@ from dataclasses import dataclass
 from routine import record
 
 LINEAGE_SECONDS = 900
-# One composed answer: a blank line, then "<question label>: <question>", then "<answer label>: <answer>".
+# The header of a composed answer: a blank line, then "<question label>: <question>", then "<answer label>: ". Whatever
+# follows, on one line or many, it is never read as a fresh request.
 _LABEL_CHARS = 40
-_COMPOSED_RE = re.compile(r"\n\n[^\n:]{1,40}: [^\n]*\n[^\n:]{1,40}: [^\n]*\Z")
+_COMPOSED_RE = re.compile(r"\n\n[^\n:]{1,40}: [^\n]*\n[^\n:]{1,40}: ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,7 @@ class Answer:
 
 
 def composed(message: str) -> bool:
-    """Whether a message ends as a composed clarification answer, bound or not."""
+    """Whether a message holds a composed clarification answer's header anywhere, bound or not, of any length."""
     return _COMPOSED_RE.search(message) is not None
 
 
