@@ -383,6 +383,9 @@ def _stop_registered(self, team_id: str, run_id: str, expected: str | None) -> b
         running = self._routine_runs.get(run_id)
         if running is None or running.team_id != team_id or expected not in (None, running.token):
             return False
+        if expected is not None:
+            # A deadline, not a person: the run's ending records it as out of time, never as stopped.
+            self._routine_runs[run_id] = dataclasses.replace(running, overdue=True)
         token = running.token
         self._cancelled_chat_tokens.add(token)
         brain_abort = self._brain_aborts.get(token)

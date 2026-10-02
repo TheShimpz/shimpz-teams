@@ -615,7 +615,12 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
                     return "held"
                 # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
                 left = max(0, math.floor(reservation.deadline - _clock()))
-                return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
+                outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
+                if outcome == "held" and reservation.expired.is_set():
+                    # The deadline cut the continuation, even between steps: its partial evidence is held again, and
+                    # the Routine pauses as exhausted instead of running another cycle.
+                    routine_incident.pause(self, team_id, incident_id, "exhausted")
+                return outcome
             finally:
                 _release(self, team_id, incident_id, reservation)
     except ApiProblem:

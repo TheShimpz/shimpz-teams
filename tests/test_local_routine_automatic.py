@@ -459,3 +459,54 @@ class DeadlineTests(BalanceCase):
                     break
                 time.sleep(0.01)
         audited.assert_called_once_with("routine-recovery", result="error", team_id="team_1", detail="deadline-stop")
+
+
+class ContinuationDeadlineTests(BalanceCase):
+    def test_a_deadline_between_continuation_steps_holds_the_partial_run_and_pauses_as_exhausted(self) -> None:
+        fired: list[object] = []
+
+        class Captured:
+            """The deadline timer, fired by the test at the exact point it chooses."""
+
+            def __init__(self, _seconds, function) -> None:
+                self.daemon = False
+                fired.append(function)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
+
+        def resume(runtime, context, results):
+            turn = real_resume(runtime, context, results)
+            if runtime.cursor.segment and runtime.cursor.step == 2:
+                # The retried step completed; the deadline passes before the next step is dispatched.
+                fired[-1]()
+            return turn
+
+        brain = Brain("retry")
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        controller_plan = (
+            ("zones", "list-zones", LOOKUP_INPUT),
+            ("create", "create-record", {"zone_id": ZONE, "name": "www"}),
+            ("check", "list-zones", LOOKUP_INPUT),
+        )
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
+            mock.patch.object(self, "plan", lambda service, *_steps: type(self).plan(service, *controller_plan)),
+        ):
+            service, value, run_id = self.run_held(directory, assistant, brain)
+            state = self.state(service)
+            cursor = self.cursor(service, run_id)
+        # Never ended as stopped: the partial run is held with its evidence and its Routine runs no further cycle.
+        self.assertEqual(self.status, "held")
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual(cursor.step, 2)
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+        self.assertTrue(record.routine(state, value.routine_id).paused)
+        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
