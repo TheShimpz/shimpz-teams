@@ -503,14 +503,14 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def accepted_timezone(value: dict[str, object]) -> None:
             value["routine_timezone"]["invalid"] = ["UTC"]
 
-        def missing_changes(value: dict[str, object]) -> None:
-            value["routine_change"]["valid"] = []
+        def missing_identities(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["valid"] = []
 
-        def rejected_change(value: dict[str, object]) -> None:
-            value["routine_change"]["valid"] = [{**value["routine_change"]["valid"][0], "extra": 1}]
+        def rejected_identity(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["valid"] = [{**value["chat_request_identity"]["valid"][0], "extra": 1}]
 
-        def accepted_change(value: dict[str, object]) -> None:
-            value["routine_change"]["invalid"] = [value["routine_change"]["valid"][0]]
+        def accepted_identity(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["invalid"] = [value["chat_request_identity"]["valid"][0]]
 
         def missing_routine_assertions(value: dict[str, object]) -> None:
             value["local_routine"]["invalid"] = []
@@ -532,9 +532,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_timezones,
             rejected_timezone,
             accepted_timezone,
-            missing_changes,
-            rejected_change,
-            accepted_change,
+            missing_identities,
+            rejected_identity,
+            accepted_identity,
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):

@@ -1,19 +1,34 @@
-"""What a Local chat turn knows about the Team's Routines, and what it does with a proposed change (ADR-0086)."""
+"""What a Local chat turn knows about the Team's Routines, and how its compiled change commits (ADR-0086, ADR-0092).
+
+A Routine is created or changed only from the authenticated user's own chat message, with no confirmation card. The
+Brain's isolated compiler proposes the change; Team admits it against the committed message, the exact contracts of
+the Assistants the turn saw, and the request's fresh identity, then commits the Routine, its notice, and the request's
+receipt in one write exactly when the reply commits, under the Team lifecycle lock and the Stop guard.
+"""
 
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 
 from install import bindings
+from local import audit as local_audit
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
-from local.routine import proposal as proposal_book
+from local.routine import state as routine_state
 from local.routine import store as routine_store
+from routine import change as routine_change
+from routine import pin as routine_pin
+from routine import plan as routine_plan
+from routine import record
+
+# The zone of a Routine whose message named none and whose browser reported none.
+DEFAULT_TIMEZONE = "UTC"
 
 
 def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
-    """The Team's Routines as data for the Brain, so the user can name one to cancel; a deleting one is gone."""
+    """The Team's Routines as data for the Brain: enough to name one and to keep its steps; never an input value."""
     try:
         state = self.routine_store.load(team_id)
     except routine_store.RoutineStoreError as exc:
@@ -21,38 +36,131 @@ def chat_routines(self, team_id: str) -> tuple[dict[str, object], ...]:
             HTTPStatus.SERVICE_UNAVAILABLE, "Team Routine state is unavailable", code="routine-state-unavailable"
         ) from exc
     return tuple(
-        {"routine_id": item.routine_id, "quote": item.quote, "schedule": dict(item.schedule), "timezone": item.timezone}
+        {
+            "routine_id": item.routine_id,
+            "name": item.name,
+            "quote": item.quote,
+            "schedule": dict(item.schedule),
+            "timezone": item.timezone,
+            "revision": item.revision,
+            "steps": [
+                {
+                    "id": step["id"],
+                    "assistant": step["assistant"],
+                    "action": step["action"],
+                    "inputs": sorted(step["input"]),
+                }
+                for step in item.plan["steps"]
+            ],
+        }
         for item in state.routines
         if not item.deleting
     )
 
 
-def routine_proposal(self, response: object, change: dict[str, object] | None) -> dict[str, object] | None:
-    """Bind a chat turn's confirmed Routine change to the exact contracts its Brain saw, as a one-use proposal.
+def _expired() -> ApiProblem:
+    return ApiProblem(
+        HTTPStatus.CONFLICT, "this request can no longer change a Routine", code="routine-request-expired"
+    )
 
-    It is inserted under the Team's lifecycle lock and only while the Team is still exactly as the turn saw it, so
-    neither a changed Assistant nor a concurrent destroy or reset can cross that step.
-    """
-    if change is None:
+
+def _contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, str], routine_plan.ActionContract]:
+    """Each Action of the turn's Assistants with its complete current pin and reviewed input schema."""
+    return {
+        (active.spec.assistant_id, action_id): routine_plan.ActionContract(
+            routine_pin.action_pin(active.spec, action_id, locale), action.input_schema
+        )
+        for active in assistants
+        for action_id, action in active.spec.actions.items()
+    }
+
+
+def _current(self, team_id: str, change: routine_change.Change) -> record.Routine | None:
+    if change.op == "create":
         return None
-    team_id, segment = response.team_id, response.segment
-    with self._lock(team_id):
-        current = self._chat_setup(team_id, list(response.file_ids), response.provider, response.assistant_ids)
-        if self._chat_identity(*current) != segment.identity:
-            raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; retry", code="team-context-changed")
+    state = routine_state.load(self, team_id)
+    found = next((item for item in state.routines if item.routine_id == change.routine_id), None)
+    if found is None or found.deleting:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine is unavailable", code="routine-not-found")
+    return found
+
+
+def admit_change(
+    self, response: object, proposed: dict[str, object], excluded: tuple[tuple[int, int], ...] = ()
+) -> Callable[[], None]:
+    """Admit a completed turn's compiled change and return the write that commits it with the reply.
+
+    The caller holds the Team lifecycle lock from here to the commit, so a changed Assistant, a destroy, or a reset
+    cannot cross it. ``excluded`` marks the spans of the message the Team's clarification lineage says are not the
+    user's own words.
+    """
+    team_id, segment, request = response.team_id, response.segment, response.routine_request
+    now = int(time.time())
+    try:
+        change = routine_change.parse(proposed)
+    except routine_change.ChangeError as exc:
+        raise ApiProblem(
+            HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
+        ) from exc
+    if request is None or response.file_ids or not request.fresh(now):
+        raise _expired()
+    current = self._chat_setup(team_id, list(response.file_ids), response.provider, response.assistant_ids)
+    if self._chat_identity(*current) != segment.identity:
+        raise ApiProblem(HTTPStatus.CONFLICT, "Team capabilities changed; retry", code="team-context-changed")
+    network_id, assistants = current[1], current[2]
+    existing = _current(self, team_id, change)
+    try:
+        compiled = routine_change.compile_change(
+            change,
+            routine_change.Words(request.message, excluded),
+            _contracts(assistants, request.locale or "en"),
+            None if existing is None else existing.plan,
+            request.timezone or DEFAULT_TIMEZONE,
+        )
+        scope = dict(segment.contracts)
+        value = record.scheduled(
+            record.Routine(
+                change.routine_id or record.new_id(),
+                compiled.name,
+                compiled.quote,
+                compiled.schedule,
+                compiled.timezone,
+                tuple((assistant, scope[assistant]) for assistant in compiled.assistants),
+                compiled.document,
+                anchor=0,
+                next_run_at=0,
+            ),
+            now,
+        )
+    except (routine_change.ChangeError, record.RoutineStateError) as exc:
+        code = getattr(exc, "code", str(exc))
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "the Routine change was refused", code=code) from exc
+    receipt = request.receipt(network_id)
+
+    def apply(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
+        moment = int(time.time())
         try:
-            proposal = self.routine_proposals.create(team_id, change, dict(segment.contracts))
-        except proposal_book.ProposalError as exc:
-            raise ApiProblem(
-                HTTPStatus.CONFLICT, "Routine proposals are unavailable", code="routine-proposal-unavailable"
-            ) from exc
-    return proposal.view(time.time())
+            if change.op == "create":
+                state, changed = record.create(state, value, moment, receipt, request.expires_at)
+            else:
+                state, changed = record.update(
+                    state, value, change.expected_revision, moment, receipt, request.expires_at
+                )
+        except record.RoutineStateError as exc:
+            return state, str(exc)
+        return state, "ok" if changed else "repeated"
 
+    def write() -> None:
+        if not request.fresh(int(time.time())):
+            raise _expired()
+        outcome = routine_state.update(self, team_id, apply)
+        if outcome not in {"ok", "repeated"}:
+            raise ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code=outcome)
+        local_audit.record_request(
+            "routine-change", result="ok", team_id=team_id, detail=f"{change.op}:{value.routine_id}:{outcome}"
+        )
 
-def withdraw_routine_proposal(self, team_id: str, proposal: dict[str, object] | None) -> None:
-    """Stop won the turn's commit, so its offer disappears with its reply."""
-    if proposal is not None:
-        self.routine_proposals.drop(team_id, proposal["proposal_id"])
+    return write
 
 
 class ContractsUnavailableError(Exception):
@@ -67,7 +175,7 @@ def context_unavailable() -> ApiProblem:
 
 
 def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str]:
-    """Each named Assistant's current Routine scope pin, exactly as a chat turn proposing a Routine computes it.
+    """Each named Assistant's current Routine scope pin, exactly as a chat turn compiling a Routine computes it.
 
     An Assistant the Team no longer runs has no entry, which proves the scope changed. When the Team or an Assistant's
     contract cannot be read, ContractsUnavailableError is raised instead, so a transient failure never reads as a

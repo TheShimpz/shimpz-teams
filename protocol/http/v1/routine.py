@@ -11,14 +11,31 @@ from fractions import Fraction
 
 MAX_ROUTINES = 8
 MAX_ROUTINE_QUOTE_CHARS = 500
+MAX_ROUTINE_NAME_CHARS = 80
+# The ordered Actions of a compiled plan (ADR-0092 section 3).
+MAX_ROUTINE_STEPS = 8
 MAX_DAILY_RUNS = 24
 MAX_NOTICE_REPLY_CHARS = 16_000
 MAX_NOTICE_QUESTION_CHARS = 240
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 OUTCOMES = frozenset(
-    {"done", "failed", "denied", "uncertain", "stopped", "skipped", "scope-changed", "needs-input", "frozen"}
+    {
+        "done",
+        "failed",
+        "denied",
+        "uncertain",
+        "stopped",
+        "skipped",
+        "scope-changed",
+        "needs-input",
+        "frozen",
+        "created",
+        "changed",
+    }
 )
+# Outcomes of the Routine itself, never of a run: they carry no run id.
+ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed")
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -63,9 +80,18 @@ def canonical_schedule(value: object) -> dict[str, object] | None:
 
 def canonical_quote(value: object) -> str | None:
     """The user's quoted request: NFC, one line, no control characters, trimmed, 1 to 500 characters."""
+    return _line(value, MAX_ROUTINE_QUOTE_CHARS)
+
+
+def canonical_name(value: object) -> str | None:
+    """A Routine's short name: NFC, one line, no control characters, trimmed, 1 to 80 characters."""
+    return _line(value, MAX_ROUTINE_NAME_CHARS)
+
+
+def _line(value: object, maximum: int) -> str | None:
     if (
         not isinstance(value, str)
-        or not 0 < len(value) <= MAX_ROUTINE_QUOTE_CHARS
+        or not 0 < len(value) <= maximum
         or unicodedata.normalize("NFC", value) != value
         or value.strip() != value
         or any(
@@ -122,6 +148,18 @@ def _scope_changed(detail: dict[str, object]) -> bool:
     )
 
 
+def _defined(detail: dict[str, object]) -> bool:
+    """What a created or changed Routine does: its name, its ordered Actions, and when, never an input value."""
+    steps = detail["actions"]
+    return (
+        canonical_name(detail["name"]) == detail["name"]
+        and _actions(steps)
+        and 0 < len(steps) <= MAX_ROUTINE_STEPS
+        and canonical_schedule(detail["schedule"]) == detail["schedule"]
+        and canonical_timezone(detail["timezone"]) is not None
+    )
+
+
 def _frozen(detail: dict[str, object]) -> bool:
     """The one request a frozen run waits for: its kind and the Assistant Action that asked."""
     return (
@@ -146,6 +184,8 @@ _DETAILS = {
     "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "uncertain": ({"actions"}, lambda detail: _actions(detail["actions"])),
+    "created": ({"name", "actions", "schedule", "timezone"}, _defined),
+    "changed": ({"name", "actions", "schedule", "timezone"}, _defined),
 }
 
 
@@ -157,30 +197,7 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
     return copy.deepcopy(detail) if set(detail) == fields and valid(detail) else None
 
 
-def canonical_routine_change(value: object) -> dict[str, object] | None:
-    """The exact Routine change a Brain turn proposes, or None: propose with a schedule, or cancel a Routine by id."""
-    if not isinstance(value, dict) or set(value) != {"op", "quote", "schedule", "timezone", "routine_id"}:
-        return None
-    op, timezone, routine_id = value["op"], value["timezone"], value["routine_id"]
-    if canonical_quote(value["quote"]) is None:
-        return None
-    if op == "propose":
-        schedule = canonical_schedule(value["schedule"])
-        valid = schedule is not None and routine_id is None and (timezone is None or canonical_timezone(timezone))
-        return {**value, "schedule": schedule} if valid else None
-    valid = (
-        op == "cancel"
-        and value["schedule"] is None
-        and timezone is None
-        and isinstance(routine_id, str)
-        and ROUTINE_ID_RE.fullmatch(routine_id) is not None
-    )
-    return dict(value) if valid else None
-
-
 # Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
-PROPOSAL_SECONDS = 900
-MAX_PREVIEW_RUNS = 3
 MAX_NOTICE_BATCH = 1024
 # The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. A
 # notice at its bound, a 16,000-character reply whose every character JSON-escapes to six bytes, is about 96.5 KB.
@@ -192,9 +209,6 @@ TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
-_RATE_RE = re.compile(r"(?:0|[1-9][0-9]*)(?:/[1-9][0-9]*)?\Z")
-_PROPOSAL_FIELDS = frozenset({"proposal_id", "op", "quote", "schedule", "timezone", "routine_id", "assistant_ids"})
-_PREVIEW_FIELDS = frozenset({"timezone", "next_runs", "daily_runs", "max_daily_runs", "fits"})
 
 
 def _instant(value: object) -> bool:
@@ -224,48 +238,6 @@ def _assistant_ids(value: object, *, minimum: int) -> bool:
 
 def _optional(value: object, pattern: re.Pattern[str]) -> bool:
     return value is None or _identity(value, pattern)
-
-
-def canonical_proposal(value: object) -> dict[str, object] | None:
-    """A chat turn's one-use Routine proposal as the confirmation card shows it, or None."""
-    if not isinstance(value, dict) or set(value) != _PROPOSAL_FIELDS | {"expires_in"}:
-        return None
-    change = canonical_routine_change(
-        {field: value[field] for field in ("op", "quote", "schedule", "timezone", "routine_id")}
-    )
-    expires_in = value["expires_in"]
-    valid = (
-        change is not None
-        and _identity(value["proposal_id"], ROUTINE_ID_RE)
-        and _assistant_ids(value["assistant_ids"], minimum=1 if value["op"] == "propose" else 0)
-        and type(expires_in) is int
-        and 0 <= expires_in <= PROPOSAL_SECONDS
-    )
-    return copy.deepcopy(value) if valid else None
-
-
-def canonical_preview(value: object) -> dict[str, object] | None:
-    """A proposal with the facts its card shows: the timezone, the next runs, and the Team's daily run budget."""
-    if not isinstance(value, dict) or set(value) != _PROPOSAL_FIELDS | {"expires_in"} | _PREVIEW_FIELDS:
-        return None
-    if canonical_proposal({field: value[field] for field in _PROPOSAL_FIELDS | {"expires_in"}}) is None:
-        return None
-    runs, rate, fits = value["next_runs"], value["daily_runs"], value["fits"]
-    if value["op"] == "cancel":
-        facts = (value["timezone"], runs, rate, value["max_daily_runs"], fits)
-        return copy.deepcopy(value) if facts == (None, [], None, None, True) else None
-    valid = (
-        canonical_timezone(value["timezone"]) is not None
-        and isinstance(runs, list)
-        and 0 < len(runs) <= MAX_PREVIEW_RUNS
-        and all(_instant(item) for item in runs)
-        and runs == sorted(set(runs))
-        and isinstance(rate, str)
-        and _RATE_RE.fullmatch(rate) is not None
-        and value["max_daily_runs"] == MAX_DAILY_RUNS
-        and type(fits) is bool
-    )
-    return copy.deepcopy(value) if valid else None
 
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
@@ -330,7 +302,7 @@ def canonical_notice(value: object) -> dict[str, object] | None:
         and value["quote"] is not None
         and canonical_quote(value["quote"]) == value["quote"]
         and _optional(value["run_id"], ROUTINE_ID_RE)
-        and (value["run_id"] is None) == (value["outcome"] in ("skipped", "scope-changed"))
+        and (value["run_id"] is None) == (value["outcome"] in ROUTINE_OUTCOMES)
         # A run's one notice is keyed by its run id.
         and value["run_id"] in (None, value["notice_id"])
         and _instant(value["created_at"])

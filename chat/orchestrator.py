@@ -40,7 +40,7 @@ class ChatOutcome:
     actions: tuple[InvokedAction, ...]
     clarification: dict[str, object] | None = None
     memory: tuple[dict[str, str], ...] = ()
-    routine: dict[str, object] | None = None
+    routine: object | None = None
 
 
 @dataclass(frozen=True, slots=True)

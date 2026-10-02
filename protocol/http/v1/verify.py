@@ -244,18 +244,8 @@ if any(routine.canonical_timezone(value) != value for value in timezones["valid"
 if any(routine.canonical_timezone(value) is not None for value in timezones["invalid"]):
     fail("an invalid routine timezone vector was admitted")
 
-changes = vectors.get("routine_change", {})
-if not changes.get("valid") or not changes.get("invalid"):
-    fail("routine change vectors are missing")
-if any(routine.canonical_routine_change(value) != value for value in changes["valid"]):
-    fail("a valid routine change vector was not admitted exactly")
-if any(routine.canonical_routine_change(value) is not None for value in changes["invalid"]):
-    fail("an invalid routine change vector was admitted")
-
 views = vectors.get("routine_views", {})
 admit_view = {
-    "proposal": routine.canonical_proposal,
-    "preview": routine.canonical_preview,
     "routine": routine.canonical_routine_view,
     "run": routine.canonical_run_view,
     "notice_batch": routine.canonical_notice_batch,

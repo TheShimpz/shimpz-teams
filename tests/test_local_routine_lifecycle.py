@@ -9,25 +9,19 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+import routine_fixture
+
 from action import challenges as action_challenges
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local.errors import ApiProblemError
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
-from local.routine import proposal as routine_proposal
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
 from routine import record
 
 KEY = "e" * 64
-PROPOSED = {
-    "op": "propose",
-    "quote": "Every day at 9, check the DNS",
-    "schedule": {"kind": "daily", "time": "09:00"},
-    "timezone": None,
-    "routine_id": None,
-}
 NETWORK = "a" * 64
 NINE = int(datetime.datetime(2026, 10, 1, 9, tzinfo=datetime.UTC).timestamp())
 
@@ -40,7 +34,9 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 def routine(routine_id: str) -> record.Routine:
     value = record.Routine(
         routine_id=routine_id,
+        name="Daily DNS check",
         quote="Every day at 9, check the DNS.",
+        plan=routine_fixture.plan_document(),
         schedule={"kind": "daily", "time": "09:00"},
         timezone="UTC",
         assistants=(("dns", "sha256:" + "c" * 64),),
@@ -73,7 +69,6 @@ class RoutineLifecycleTests(unittest.TestCase):
             ),
             brain_runtime=SimpleNamespace(delete_thread=lambda thread_id: self.events.append(("thread", thread_id))),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
-            routine_proposals=routine_proposal.ProposalBook(),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
         )
 
@@ -81,10 +76,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         state, run_id = two_runs()
         put(self.subject.routine_store, "team_1", state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
-        proposed = self.subject.routine_proposals.create("team_1", PROPOSED, {"dns": "sha256:" + "c" * 64})
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
-        with self.assertRaises(routine_proposal.ProposalError):
-            self.subject.routine_proposals.peek("team_1", proposed.proposal_id)
         self.assertEqual(
             self.events,
             [
@@ -126,15 +118,11 @@ class RoutineLifecycleTests(unittest.TestCase):
         self.assertEqual(self.subject.routine_store.teams(), ())
 
     def test_a_space_reset_deletes_every_teams_routines_and_the_keyring(self):
-        # A proposal of a Team without any Routine state yet is dropped too.
-        orphan = self.subject.routine_proposals.create("team_9", PROPOSED, {"dns": "sha256:" + "c" * 64})
         state, run_id = two_runs()
         for team in ("team_1", "team_2"):
             put(self.subject.routine_store, team, state)
         self.subject.routine_store.put_continuation("team_1", run_id, b"continuation")
         routine_lifecycle.delete_all_routines(self.subject)
-        with self.assertRaises(routine_proposal.ProposalError):
-            self.subject.routine_proposals.peek("team_9", orphan.proposal_id)
         self.assertEqual(len([event for event in self.events if event[0] == "purge"]), 2)
         self.assertEqual(self.subject.routine_store.teams(), ())
         self.assertFalse(self.subject.routine_store.key_path.exists())

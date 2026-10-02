@@ -105,6 +105,27 @@ def canonical(value: object) -> bytes:
 
 def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract]) -> Plan:
     """Admit one plan at creation against the exact current contracts of the Actions it names."""
+    timezone, raw_steps, encoded = _document(document)
+    steps: list[Step] = []
+    for raw in raw_steps:
+        steps.append(_step(raw, contracts, tuple(item.step_id for item in steps)))
+    return Plan(timezone, tuple(steps), "sha256:" + hashlib.sha256(encoded).hexdigest())
+
+
+def well_formed(document: object) -> bool:
+    """Whether a kept plan still has the closed shape and bounds of an admitted one; its contracts are checked apart."""
+    try:
+        _timezone, raw_steps, _encoded = _document(document)
+        earlier: list[str] = []
+        for raw in raw_steps:
+            earlier.append(_step_shape(raw, tuple(earlier))[0])
+    except PlanError:
+        return False
+    return True
+
+
+def _document(document: object) -> tuple[str, list[object], bytes]:
+    """A plan's timezone, raw steps, and canonical bytes, within its closed top-level shape and bounds."""
     if not isinstance(document, dict) or set(document) != {"version", "timezone", "steps"}:
         raise PlanError("plan-invalid")
     try:
@@ -121,13 +142,11 @@ def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract])
     raw_steps = document["steps"]
     if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= MAX_STEPS:
         raise PlanError("plan-invalid")
-    steps: list[Step] = []
-    for raw in raw_steps:
-        steps.append(_step(raw, contracts, tuple(item.step_id for item in steps)))
-    return Plan(timezone, tuple(steps), "sha256:" + hashlib.sha256(encoded).hexdigest())
+    return timezone, raw_steps, encoded
 
 
-def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earlier: tuple[str, ...]) -> Step:
+def _step_shape(raw: object, earlier: tuple[str, ...]) -> tuple[str, str, str, str, dict[str, object]]:
+    """One step's closed shape and value sources, before its Action contract is known."""
     if not isinstance(raw, dict) or set(raw) != {"id", "assistant", "action", "pin", "input"}:
         raise PlanError("plan-step-invalid")
     step_id, assistant_id, action, pin, inputs = (raw[key] for key in ("id", "assistant", "action", "pin", "input"))
@@ -140,6 +159,13 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
         or not isinstance(inputs, dict)
     ):
         raise PlanError("plan-step-invalid")
+    for source in inputs.values():
+        _source(source, earlier)
+    return step_id, assistant_id, action, pin, inputs
+
+
+def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earlier: tuple[str, ...]) -> Step:
+    step_id, assistant_id, action, pin, inputs = _step_shape(raw, earlier)
     contract = contracts.get((assistant_id, action))
     if contract is None or contract.pin != pin:
         raise PlanError("plan-pin-drift")
@@ -147,8 +173,6 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
     properties = schema.get("properties", {})
     if not set(inputs) <= set(properties) or not set(schema.get("required", ())) <= set(inputs):
         raise PlanError("plan-input-mismatch")
-    for source in inputs.values():
-        _source(source, earlier)
     # The whole input is the first position, so the root's own applicators and annotations derive every member's
     # destinations; a member that is not a literal counts only for presence and is never itself checked.
     supplied = {name: source.get("value", _NOT_LITERAL) for name, source in inputs.items()}

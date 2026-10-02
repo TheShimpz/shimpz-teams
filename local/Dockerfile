@@ -62,10 +62,10 @@ COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/c
     local/chat/state.py local/chat/types.py ./local/chat/
 COPY local/routine/__init__.py local/routine/diagnostics.py local/routine/human.py local/routine/lifecycle.py \
     local/routine/incident.py local/routine/manage.py \
-    local/routine/notices.py local/routine/proposal.py local/routine/run.py local/routine/state.py local/routine/store.py \
+    local/routine/notices.py local/routine/run.py local/routine/state.py local/routine/store.py \
     local/routine/turn.py \
     local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/cursor.py routine/pin.py routine/plan.py routine/record.py routine/request.py \
+COPY routine/__init__.py routine/change.py routine/cursor.py routine/pin.py routine/plan.py routine/record.py routine/request.py \
     routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/

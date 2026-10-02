@@ -350,7 +350,7 @@ def run_routine(
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,
         registered(self, team_id, run_id, token, value.active_seconds_left),
     ):
-        # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody confirmed.
+        # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
         refused = _context_refusal(self, team_id, pinned)
         if refused is not None:
             outcome = _end(self, team_id, run_id, "failed", {"code": refused, "actions": []})

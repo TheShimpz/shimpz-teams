@@ -30,8 +30,6 @@ MODEL_BOUND_OPERATIONS = frozenset({RUN_OPERATION, *STREAMED_OPERATIONS})
 BODY_LIMITS = {
     "routine-claim": MAX_BODY_BYTES,
     "routine-notice-ack": 64 * 1024,
-    "routine-confirm": MAX_BODY_BYTES,
-    "routine-preview": MAX_BODY_BYTES,
     RUN_OPERATION: MAX_BODY_BYTES,
     "routine-challenge-open": MAX_BODY_BYTES,
     "routine-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
@@ -93,10 +91,6 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
         "routine-list": lambda: service.list_routines(team_id),
         "routine-diagnostics": lambda: service.routine_run_diagnostics(team_id, _run_id(route), int(time.time())),
         "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
-        "routine-confirm": lambda: service.confirm_routine(team_id, handler._body(max_bytes=MAX_BODY_BYTES)),
-        "routine-preview": lambda: service.preview_routine(
-            team_id, route.params["proposal_id"], handler._body(max_bytes=MAX_BODY_BYTES)
-        ),
     }
     operation = operations.get(route.operation)
     return operation() if operation is not None else _run(handler, route, team_id)

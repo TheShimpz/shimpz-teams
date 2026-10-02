@@ -7,6 +7,7 @@ state, never a mix.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import datetime
 import hashlib
@@ -15,6 +16,7 @@ import secrets
 from dataclasses import dataclass
 
 from protocol.http.v1 import routine as http_routine
+from routine import plan as routine_plan
 from routine import schedule
 
 MAX_ROUTINES = http_routine.MAX_ROUTINES
@@ -42,6 +44,10 @@ MAX_UNRESOLVED_INCIDENTS = 32
 # Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
 # cleanup is still pending, never does.
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
+# Live receipts of requests that changed a Routine (ADR-0092); saturation refuses a change, never evicts a receipt.
+MAX_RECEIPTS = 256
+# A new or changed Routine never fires sooner than this after it is durable.
+INITIAL_DELAY_SECONDS = 30
 
 
 class RoutineStateError(ValueError):
@@ -51,11 +57,15 @@ class RoutineStateError(ValueError):
 @dataclass(frozen=True, slots=True)
 class Routine:
     routine_id: str
+    name: str
+    # The user's own words that state the standing request (ADR-0092).
     quote: str
     schedule: dict[str, object]
     timezone: str
-    # (assistant_id, contract digest) pinned at confirmation, sorted by assistant id.
+    # (assistant_id, scope pin) of each Assistant the plan uses, pinned at creation, sorted by assistant id.
     assistants: tuple[tuple[str, str], ...]
+    # The canonical compiled plan document: its ordered steps, each Action's complete pin, and every input source.
+    plan: dict[str, object]
     anchor: int
     next_run_at: int
     needs_reconfirm: bool = False
@@ -139,6 +149,8 @@ class TeamRoutines:
     # (run_id, generation) of ended runs whose Brain thread, journal generation, and continuation are still held.
     discards: tuple[tuple[str, str], ...] = ()
     incidents: tuple[Incident, ...] = ()
+    # (receipt, expires_at) of each request that changed a Routine; a receipt outlives the Routine it changed.
+    receipts: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,7 +211,11 @@ def _admitted(value: Routine) -> Routine:
         raise RoutineStateError("routine-invalid") from exc
     if (
         http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is None
+        or http_routine.canonical_name(value.name) is None
         or http_routine.canonical_quote(value.quote) is None
+        or not routine_plan.well_formed(value.plan)
+        or value.plan["timezone"] != value.timezone
+        or sorted({step["assistant"] for step in value.plan["steps"]}) != [item for item, _pin in assistants]
         or canonical is None
         or not assistants
         or len(assistants) > http_routine.MAX_NOTICE_ASSISTANTS
@@ -214,8 +230,92 @@ def _admitted(value: Routine) -> Routine:
     ):
         raise RoutineStateError("routine-invalid")
     return Routine(
-        value.routine_id, value.quote, canonical, value.timezone, assistants, value.anchor, value.next_run_at
+        value.routine_id,
+        value.name,
+        value.quote,
+        canonical,
+        value.timezone,
+        assistants,
+        copy.deepcopy(value.plan),
+        value.anchor,
+        value.next_run_at,
     )
+
+
+def scheduled(value: Routine, now: int) -> Routine:
+    """A defined Routine scheduled from ``now``: its first firing comes no sooner than 30 s after it is durable."""
+    anchored = dataclasses.replace(value, anchor=now + INITIAL_DELAY_SECONDS)
+    try:
+        return dataclasses.replace(anchored, next_run_at=next_after(anchored, anchored.anchor))
+    except (KeyError, TypeError, schedule.ScheduleError) as exc:
+        raise RoutineStateError("routine-invalid") from exc
+
+
+def definition(value: Routine) -> dict[str, object]:
+    """What a created or changed notice says the Routine does: its name, ordered Actions, schedule, and zone."""
+    return {
+        "name": value.name,
+        "actions": [[step["assistant"], step["action"]] for step in value.plan["steps"]],
+        "schedule": dict(value.schedule),
+        "timezone": value.timezone,
+    }
+
+
+def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tuple[TeamRoutines, bool]:
+    """Record one request's receipt; False when that request already changed a Routine, so it never acts twice.
+
+    Expired receipts go first: their requests can no longer change anything. Saturation refuses the change and never
+    evicts a live receipt.
+    """
+    if _FINGERPRINT_RE.fullmatch(receipt) is None or type(expires_at) is not int:
+        raise RoutineStateError("routine-receipt-invalid")
+    live = tuple(item for item in state.receipts if item[1] > now)
+    if any(key == receipt for key, _expires in live):
+        return dataclasses.replace(state, receipts=live), False
+    if len(live) >= MAX_RECEIPTS:
+        raise RoutineStateError("routine-receipts-full")
+    return dataclasses.replace(state, receipts=(*live, (receipt, expires_at))), True
+
+
+def create(state: TeamRoutines, value: Routine, now: int, receipt: str, expires_at: int) -> tuple[TeamRoutines, bool]:
+    """Add a Routine with its created notice and the receipt of the request that made it, in one transition.
+
+    A request whose receipt is already live changes nothing, so a resend never creates a second Routine, and a deleted
+    Routine's receipt never recreates it.
+    """
+    state, fresh = _receipt(state, receipt, expires_at, now)
+    if not fresh:
+        return state, False
+    state = add_routine(state, value)
+    admitted = routine(state, value.routine_id)
+    return _notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, definition(admitted))), True
+
+
+def update(
+    state: TeamRoutines, value: Routine, expected_revision: int, now: int, receipt: str, expires_at: int
+) -> tuple[TeamRoutines, bool]:
+    """Replace a Routine's definition as its next revision, with its changed notice and the request's receipt.
+
+    Only the revision the request saw changes, never while one of its runs is live or it is being deleted; an
+    authenticated change clears a scope hold and keeps a pause. Its schedule restarts from the change.
+    """
+    state, fresh = _receipt(state, receipt, expires_at, now)
+    if not fresh:
+        return state, False
+    current = routine(state, value.routine_id)
+    if current.deleting:
+        raise RoutineStateError("routine-not-found")
+    if current.revision != expected_revision:
+        raise RoutineStateError("routine-revision-changed")
+    if any(item.routine_id == current.routine_id for item in state.runs):
+        raise RoutineStateError("routine-busy")
+    admitted = _admitted(value)
+    others = tuple(item for item in state.routines if item.routine_id != current.routine_id)
+    if not daily_rate_allows(others, admitted.schedule):
+        raise RoutineStateError("routine-rate-limit")
+    changed = dataclasses.replace(admitted, revision=current.revision + 1, paused=current.paused)
+    state = _replace_routine(state, changed)
+    return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, definition(changed))), True
 
 
 def daily_rate_allows(routines: tuple[Routine, ...], schedule_value: dict[str, object]) -> bool:
@@ -724,7 +824,7 @@ def complete_delete(state: TeamRoutines, routine_id: str) -> TeamRoutines:
 
 
 def mark_scope_changed(state: TeamRoutines, routine_id: str, now: int, assistants: list[str]) -> TeamRoutines:
-    """The Routine's Assistants no longer match what the user confirmed: record it and stop claiming it."""
+    """The Routine's Assistants no longer match its pins: no claim until an authenticated update."""
     value = routine(state, routine_id)
     state = _notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {"assistants": assistants}))
     return _replace_routine(state, dataclasses.replace(value, needs_reconfirm=True))

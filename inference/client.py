@@ -21,7 +21,6 @@ from urllib.parse import urlparse
 from core import strict_json
 from inference import usage as brain_usage
 from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import routine as http_routine
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
@@ -123,7 +122,7 @@ class RuntimeTurn:
     clarification: dict[str, object] | None = None
     # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
     memory: tuple[dict[str, str], ...] = ()
-    # The one Routine change a completed turn proposed and the Brain's check confirmed (ADR-0086), or None.
+    # The one Routine change a completed turn's isolated compiler produced (ADR-0092), or None; Local Team admits it.
     routine: dict[str, object] | None = None
 
 
@@ -410,6 +409,16 @@ class BrainRuntimeClient:
         return rest
 
     @staticmethod
+    def _parse_routine(value: dict[str, object]) -> dict[str, object] | None:
+        """A completed turn's one compiled Routine change, never beside a question; Local Team admits its shape."""
+        routine = value["routine"]
+        if routine is None:
+            return None
+        if not isinstance(routine, dict) or value["status"] != "completed" or value["clarification"] is not None:
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return routine
+
+    @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
         if not isinstance(value, dict) or set(value) != {
             "status",
@@ -423,9 +432,7 @@ class BrainRuntimeClient:
         memory = http_payload.canonical_memory_changes(value["memory"])
         if memory is None or (memory and value["status"] != "completed"):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        routine = None if value["routine"] is None else http_routine.canonical_routine_change(value["routine"])
-        if (value["routine"] is not None and routine is None) or (routine and value["status"] != "completed"):
-            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        routine = BrainRuntimeClient._parse_routine(value)
         clarification = value["clarification"]
         if clarification is not None:
             clarification = http_payload.canonical_clarification(clarification)

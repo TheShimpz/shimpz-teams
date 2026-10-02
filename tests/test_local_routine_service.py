@@ -1,4 +1,4 @@
-"""Local Routine runs end to end on the Local controller: confirm, claim, run, freeze, resume, stop (ADR-0086)."""
+"""Local Routine runs end to end on the Local controller: claim, run, freeze, resume, stop (ADR-0086)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from local_controller_harness import LocalContractCase
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
@@ -24,7 +25,6 @@ from local import authority as local_authority
 from local.install.registry import AssistantRegistry
 from local.labels import ASSISTANT_LABEL
 from local.routine import human as routine_human
-from local.routine import proposal as routine_proposal
 from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
@@ -96,7 +96,6 @@ class RoutineServiceCase(LocalContractCase):
     def service(self, directory: str, runtime: Runtime):
         controller = self._chat_controller(directory, runtime)
         service = controller.chat_turn_service
-        service.routine_proposals = controller.routine_proposals = routine_proposal.ProposalBook()
         controller.brain_runtime = service.brain_runtime = runtime
         return controller, service
 
@@ -105,7 +104,9 @@ class RoutineServiceCase(LocalContractCase):
         contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
         value = record.Routine(
             routine_id=record.new_id(),
+            name="Daily zones",
             quote=CHANGE["quote"],
+            plan=routine_fixture.plan_document(ASSISTANT, action="list-zones"),
             schedule=dict(CHANGE["schedule"]),
             timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
@@ -152,125 +153,6 @@ class RoutineServiceCase(LocalContractCase):
             mock.patch.object(service.assistant_lifecycle, "client", docker, create=True),
         ):
             yield
-
-
-class ConfirmationTests(RoutineServiceCase):
-    def test_a_proposal_previews_then_confirms_into_a_pinned_routine(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
-            preview = service.preview_routine("team_1", proposal.proposal_id, {"timezone": "America/Sao_Paulo"})
-            self.assertEqual(
-                (preview["timezone"], len(preview["next_runs"]), preview["fits"]), ("America/Sao_Paulo", 3, True)
-            )
-            self.assertEqual((preview["daily_runs"], preview["max_daily_runs"]), ("1", 24))
-            confirmed = service.confirm_routine(
-                "team_1", {"proposal_id": proposal.proposal_id, "timezone": "America/Sao_Paulo"}
-            )["routine"]
-            self.assertEqual((confirmed["quote"], confirmed["assistant_ids"]), (CHANGE["quote"], [ASSISTANT]))
-            listed = service.list_routines("team_1")
-            self.assertEqual([item["routine_id"] for item in listed["routines"]], [confirmed["routine_id"]])
-            self.assertEqual(self.state(service).routines[0].assistants, tuple(sorted(contracts.items())))
-            # A proposal is one-use.
-            with self.assertRaises(local_app.ApiProblem) as reused:
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertEqual(reused.exception.code, "routine-proposal-unavailable")
-
-    def test_confirmation_refuses_a_changed_scope_bad_input_and_a_full_team(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            stale = service.routine_proposals.create("team_1", CHANGE, {ASSISTANT: "sha256:" + "0" * 64})
-            with self.assertRaises(local_app.ApiProblem) as changed:
-                service.confirm_routine("team_1", {"proposal_id": stale.proposal_id, "timezone": "UTC"})
-            self.assertEqual(changed.exception.code, "team-context-changed")
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
-            for body, code in (
-                ({"proposal_id": proposal.proposal_id}, "invalid-body"),
-                ({"proposal_id": proposal.proposal_id, "timezone": "Mars/X"}, "invalid-timezone"),
-            ):
-                with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as refused:
-                    service.confirm_routine("team_1", body)
-                self.assertEqual(refused.exception.code, code)
-            hourly = service.routine_proposals.create(
-                "team_1", {**CHANGE, "schedule": {"kind": "hourly", "every": 1}}, contracts
-            )
-            service.confirm_routine("team_1", {"proposal_id": hourly.proposal_id, "timezone": "UTC"})
-            full = service.routine_proposals.create("team_1", CHANGE, contracts)
-            self.assertFalse(service.preview_routine("team_1", full.proposal_id, {"timezone": "UTC"})["fits"])
-            with self.assertRaises(local_app.ApiProblem) as over:
-                service.confirm_routine("team_1", {"proposal_id": full.proposal_id, "timezone": "UTC"})
-            self.assertEqual(over.exception.code, "routine-rate-limit")
-
-    def test_confirmation_is_retryable_while_the_team_cannot_be_read(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
-            down = local_app.ApiProblem(503, "Docker is unavailable", code="docker-unavailable")
-            with (
-                mock.patch.object(service, "_active_chat_assistants", side_effect=down),
-                self.assertRaises(local_app.ApiProblem) as unavailable,
-            ):
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertEqual(
-                (unavailable.exception.status, unavailable.exception.code), (503, "team-context-unavailable")
-            )
-            self.assertEqual(self.state(service).routines, ())
-            # Neither a transient read failure nor a wrong timezone spends the one-use proposal.
-            with self.assertRaises(local_app.ApiProblem) as invalid:
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "Mars/X"})
-            self.assertEqual(invalid.exception.code, "invalid-timezone")
-            confirmed = service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertEqual(
-                [item.routine_id for item in self.state(service).routines], [confirmed["routine"]["routine_id"]]
-            )
-            with self.assertRaises(local_app.ApiProblem) as spent:
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertEqual(spent.exception.code, "routine-proposal-unavailable")
-
-    def test_of_two_validated_confirmations_only_the_one_that_takes_the_proposal_creates(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
-            current = routine_turn.current_contracts
-
-            def taken_meanwhile(*args):
-                result = current(*args)
-                service.routine_proposals.take("team_1", proposal.proposal_id)
-                return result
-
-            with (
-                mock.patch.object(routine_turn, "current_contracts", side_effect=taken_meanwhile),
-                self.assertRaises(local_app.ApiProblem) as lost,
-            ):
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertEqual(lost.exception.code, "routine-proposal-unavailable")
-            self.assertEqual(self.state(service).routines, ())
-
-    def test_a_confirmed_cancellation_deletes_the_routine(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            value = self.routine(service)
-            cancel = {
-                "op": "cancel",
-                "quote": "stop listing my zones",
-                "schedule": None,
-                "timezone": None,
-                "routine_id": value.routine_id,
-            }
-            proposal = service.routine_proposals.create("team_1", cancel, {})
-            preview = service.preview_routine("team_1", proposal.proposal_id, {"timezone": "UTC"})
-            self.assertEqual((preview["next_runs"], preview["fits"]), ([], True))
-            deleted = service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            self.assertTrue(deleted["deleted"])
-            self.assertEqual(self.state(service).routines, ())
-            for routine_id in ("0" * 32, 7):
-                with self.subTest(routine_id=routine_id), self.assertRaises(local_app.ApiProblem) as missing:
-                    service.delete_routine("team_1", routine_id)
-                self.assertEqual(missing.exception.code, "routine-not-found")
 
 
 class RunTests(RoutineServiceCase):
@@ -417,41 +299,24 @@ class RunTests(RoutineServiceCase):
             with self.assertRaises(local_app.ApiProblem) as stop:
                 service.stop_routine("team_1", claim["run_id"])
             self.assertEqual(stop.exception.code, "routine-run-uncertain")
-            # A confirmed cancellation the uncertain run refuses keeps its one-use offer for after the resolution.
-            cancel = {
-                "op": "cancel",
-                "quote": "stop listing my zones",
-                "schedule": None,
-                "timezone": None,
-                "routine_id": value.routine_id,
-            }
-            offer = {
-                "proposal_id": service.routine_proposals.create("team_1", cancel, {}).proposal_id,
-                "timezone": "UTC",
-            }
+            # The uncertain run refuses a deletion until its exact batch is resolved.
             with self.assertRaises(local_app.ApiProblem) as refused:
-                service.confirm_routine("team_1", offer)
+                service.delete_routine("team_1", value.routine_id)
             self.assertEqual(refused.exception.code, "routine-run-uncertain")
             self.assertFalse(record.routine(self.state(service), value.routine_id).deleting)
             service.resolve_routine_run("team_1", claim["run_id"], {"batch_fingerprint": held.batch[1]})
             self.assertEqual(self.state(service).runs, ())
             self.assertIsNone(controller.action_state.uncertain_fingerprint(held.generation))
-            self.assertEqual(record.routine(self.state(service), value.routine_id).routine_id, value.routine_id)
-            # An offer spent meanwhile admits nothing: the Routine is not even marked deleting.
-            with (
-                mock.patch.object(
-                    service.routine_proposals, "take", side_effect=routine_proposal.ProposalError("used")
-                ),
-                self.assertRaises(local_app.ApiProblem) as spent,
-            ):
-                service.confirm_routine("team_1", offer)
-            self.assertEqual(spent.exception.code, "routine-proposal-unavailable")
-            self.assertFalse(record.routine(self.state(service), value.routine_id).deleting)
-            self.assertTrue(service.confirm_routine("team_1", offer)["deleted"])
+            self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
             self.assertEqual(self.state(service).routines, ())
-            with self.assertRaises(local_app.ApiProblem) as reused:
-                service.confirm_routine("team_1", offer)
-            self.assertEqual(reused.exception.code, "routine-proposal-unavailable")
+
+    def test_deleting_an_unknown_or_malformed_routine_is_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            for routine_id in ("0" * 32, "Not-An-Id", None):
+                with self.subTest(routine_id=routine_id), self.assertRaises(local_app.ApiProblem) as caught:
+                    service.delete_routine("team_1", routine_id)
+                self.assertEqual((caught.exception.status, caught.exception.code), (404, "routine-not-found"))
 
     def test_other_failures_and_a_dead_lease(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -48,7 +48,6 @@ class ChatTurnService:
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
-        self.routine_proposals = dependencies.routine_proposals
         self.routine_diagnostics = dependencies.routine_diagnostics
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
         self.routine_human_challenges = dependencies.routine_human_challenges or action_challenges.HumanChallengeStore()
@@ -161,13 +160,10 @@ class ChatTurnService:
     _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_turn.chat_routines
-    _routine_proposal = local_routine_turn.routine_proposal
-    _withdraw_routine_proposal = local_routine_turn.withdraw_routine_proposal
+    _routine_change = local_routine_turn.admit_change
     claim_routine_run = local_routine_run.claim_routine_run
     run_routine = local_routine_run.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run
-    preview_routine = local_routine_manage.preview_routine
-    confirm_routine = local_routine_manage.confirm_routine
     list_routines = local_routine_manage.list_routines
     delete_routine = local_routine_manage.delete_routine
     open_routine_challenge = local_routine_human.open_routine_challenge

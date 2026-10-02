@@ -20,8 +20,6 @@ from test_local_authority import _claims, _segment
 from test_local_routine_service import (
     API_KEY,
     API_KEY_SHA256,
-    ASSISTANT,
-    CHANGE,
     RoutineServiceCase,
     Runtime,
     acting,
@@ -33,7 +31,6 @@ from action import human as action_human
 from local import authority as local_authority
 from local.http import server
 from local.routine import diagnostics as routine_diagnostics
-from local.routine import turn as routine_turn
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
@@ -246,12 +243,13 @@ class SessionRouteTests(RoutineHttpCase):
                 self.assertEqual(self.terminal(raw)["body"]["code"], "routine-run-not-found")
                 status, _type, raw = self.request("DELETE", f"/v1/teams/team_1/routines/{value.routine_id}")
                 self.assertEqual((status, json.loads(raw)["deleted"]), (200, True))
+                # The retired confirmation and preview routes stay absent: a Routine is created only from a chat.
                 preview = "/v1/teams/team_1/routines/proposals/" + "0" * 32 + "/preview"
                 status, _type, raw = self.request("POST", preview, b'{"timezone":"UTC"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-proposal-unavailable"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
                 confirm = json.dumps({"proposal_id": "0" * 32, "timezone": "UTC"}).encode()
                 status, _type, raw = self.request("POST", "/v1/teams/team_1/routines", confirm)
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-proposal-unavailable"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
             with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
@@ -380,9 +378,6 @@ class ProtocolViewTests(RoutineHttpCase):
                 raise action_human.HumanRequestSuspensionError(approval())
 
             controller.assistant_lifecycle.invoke = invoke
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", dict(CHANGE), contracts)
-            self.assertIsNotNone(http_routine.canonical_proposal(proposal.view(time.time())))
             self.routine(service)
             _status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = body(raw)
@@ -393,10 +388,6 @@ class ProtocolViewTests(RoutineHttpCase):
             self.assertEqual(http_routine.canonical_notice_batch(notices), notices)
             self.assertEqual(notices["notices"][0]["outcome"], "frozen")
             with mock.patch.object(local_authority, "verify", return_value=self.session):
-                preview_path = f"/v1/teams/team_1/routines/proposals/{proposal.proposal_id}/preview"
-                _status, _type, raw = self.request("POST", preview_path, b'{"timezone":"America/Sao_Paulo"}')
-                preview = body(raw)
-                self.assertEqual(http_routine.canonical_preview(preview), preview)
                 _status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 listed = body(raw)
             self.assertEqual(set(listed), {"team_id", "routines", "runs"})

@@ -54,7 +54,6 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
@@ -121,7 +120,6 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),

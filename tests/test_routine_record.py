@@ -8,6 +8,8 @@ import json
 import unittest
 from pathlib import Path
 
+import routine_fixture
+
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from routine import record
@@ -17,6 +19,7 @@ KEY = "e" * 64
 DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 HOURLY = {"kind": "hourly", "every": 1}
+WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 
 
@@ -31,7 +34,9 @@ ANCHOR = epoch(2026, 9, 1)
 def routine(routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR) -> record.Routine:
     value = record.Routine(
         routine_id=routine_id,
+        name="Daily DNS summary",
         quote="Every day at 9, summarize the DNS changes.",
+        plan=routine_fixture.plan_document(),
         schedule=dict(schedule or DAILY),
         timezone="UTC",
         assistants=(("dns", DIGEST),),
@@ -64,6 +69,14 @@ def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Le
     return record.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
 
 
+DEFINED = {
+    "name": "Daily DNS summary",
+    "actions": [["dns", "check"]],
+    "schedule": {"kind": "daily", "time": "09:00"},
+    "timezone": "UTC",
+}
+
+
 def full_notices(count: int = record.MAX_UNDELIVERED_NOTICES) -> tuple[record.Notice, ...]:
     return tuple(
         record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, {"reply": "Done."}) for index in range(count)
@@ -91,6 +104,8 @@ class ContractTests(unittest.TestCase):
             "stopped": {"actions": [["dns", "list-zones"]]},
             "uncertain": {"actions": [["dns", "replace-dns-record"]]},
             "frozen": {"request_kind": "human", "assistant_id": "dns", "action": "replace-dns-record"},
+            "created": DEFINED,
+            "changed": DEFINED,
         }
         self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
@@ -116,52 +131,24 @@ class ContractTests(unittest.TestCase):
             ("frozen", {"request_kind": "human", "assistant_id": "dns"}),
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
+            ("created", {**DEFINED, "name": ""}),
+            ("created", {**DEFINED, "actions": []}),
+            ("created", {**DEFINED, "actions": [["dns", "check"]] * 9}),
+            ("changed", {**DEFINED, "schedule": {"kind": "daily"}}),
+            ("changed", {**DEFINED, "timezone": "../etc"}),
+            ("changed", {**DEFINED, "input": {"zone": "example.com"}}),
         )
         for outcome, detail in invalid:
             with self.subTest(outcome=outcome, detail=detail):
                 self.assertIsNone(http_routine.canonical_notice_detail(outcome, detail))
 
 
-class ChangeContractTests(unittest.TestCase):
-    def test_a_brain_routine_change_is_one_closed_propose_or_cancel(self):
-        propose = {
-            "op": "propose",
-            "quote": "Every Monday at 9, check the DNS",
-            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
-            "timezone": None,
-            "routine_id": None,
-        }
-        cancel = {
-            "op": "cancel",
-            "quote": "stop the daily summary",
-            "schedule": None,
-            "timezone": None,
-            "routine_id": "a" * 32,
-        }
-        for value in (propose, {**propose, "timezone": "Europe/Lisbon"}, cancel):
+class NameContractTests(unittest.TestCase):
+    def test_a_routine_name_is_one_short_canonical_line(self):
+        self.assertEqual(http_routine.canonical_name("Resumo diário de DNS"), "Resumo diário de DNS")
+        for value in (None, 7, "", " padded ", "x" * 81, "two\nlines", "Cafe\u0301"):
             with self.subTest(value=value):
-                self.assertEqual(http_routine.canonical_routine_change(value), value)
-        for value in (
-            None,
-            {**propose, "extra": 1},
-            {**propose, "quote": 7},
-            {**propose, "quote": ""},
-            {**propose, "quote": " padded "},
-            {**propose, "quote": "x" * 501},
-            {**propose, "quote": "check\nthe DNS"},
-            {**propose, "quote": "check\u2028the DNS"},
-            {**propose, "quote": "Cafe\u0301 check"},
-            {**propose, "schedule": {"kind": "daily"}},
-            {**propose, "routine_id": "a" * 32},
-            {**propose, "timezone": "../etc"},
-            {**cancel, "schedule": propose["schedule"]},
-            {**cancel, "timezone": "UTC"},
-            {**cancel, "routine_id": ["a" * 32]},
-            {**cancel, "routine_id": "A" * 32},
-            {**cancel, "op": "pause"},
-        ):
-            with self.subTest(value=value):
-                self.assertIsNone(http_routine.canonical_routine_change(value))
+                self.assertIsNone(http_routine.canonical_name(value))
 
 
 class AddTests(unittest.TestCase):
@@ -176,6 +163,10 @@ class AddTests(unittest.TestCase):
         good = routine()
         bad = (
             dataclasses.replace(good, routine_id="A" * 32),
+            dataclasses.replace(good, name=""),
+            dataclasses.replace(good, plan={}),
+            dataclasses.replace(good, plan=routine_fixture.plan_document(timezone="Europe/Lisbon")),
+            dataclasses.replace(good, plan=routine_fixture.plan_document("web")),
             dataclasses.replace(good, quote=""),
             dataclasses.replace(good, quote="x" * 501),
             dataclasses.replace(good, quote="Every day\nat 9"),
@@ -541,8 +532,6 @@ class RoutineViewContractTests(unittest.TestCase):
             "routine_views"
         ]
         admit = {
-            "proposal": http_routine.canonical_proposal,
-            "preview": http_routine.canonical_preview,
             "routine": http_routine.canonical_routine_view,
             "run": http_routine.canonical_run_view,
             "notice_batch": http_routine.canonical_notice_batch,
@@ -565,8 +554,6 @@ class RoutineViewContractTests(unittest.TestCase):
                     with self.subTest(kind=kind, path=path, replaced=replaced):
                         admitted = function(_replace(value, path, replaced))
                         self.assertIn(admitted, (None, _replace(value, path, replaced)))
-        proposal = views["preview"]["valid"][0]
-        self.assertIsNone(http_routine.canonical_preview({**proposal, "expires_in": "soon"}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": "none", "more": False}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": ["x"], "more": False}))
         # Two notices at their bound exceed a batch's encoded bound; one alone fits.
@@ -575,3 +562,81 @@ class RoutineViewContractTests(unittest.TestCase):
         self.assertIsNotNone(http_routine.canonical_notice_batch({"notices": [largest], "more": True}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": [largest, second], "more": False}))
         self.assertIsNone(http_routine.canonical_claim({"run": ["x"]}))
+
+
+RECEIPT = "e" * 64
+
+
+class CompiledChangeTests(unittest.TestCase):
+    """A request creates or changes a Routine with its notice and receipt in one transition (ADR-0092)."""
+
+    def test_a_defined_routine_first_fires_no_sooner_than_thirty_seconds_after_it_is_durable(self):
+        now = epoch(2026, 9, 1, 8, 59, 45)
+        value = record.scheduled(dataclasses.replace(routine(), anchor=0, next_run_at=0), now)
+        self.assertEqual(value.anchor, now + record.INITIAL_DELAY_SECONDS)
+        self.assertEqual(value.next_run_at, epoch(2026, 9, 2, 9))
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
+            record.scheduled(dataclasses.replace(routine(), schedule={"kind": "yearly"}), now)
+
+    def test_a_request_creates_once_with_its_notice_and_its_receipt(self):
+        state, created = record.create(record.TeamRoutines(), routine(), NINE, RECEIPT, NINE + 900)
+        self.assertTrue(created)
+        self.assertEqual([item.routine_id for item in state.routines], ["a" * 32])
+        self.assertEqual(state.receipts, ((RECEIPT, NINE + 900),))
+        (notice,) = state.notices
+        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", DEFINED))
+        again, created = record.create(state, routine("b" * 32), NINE + 5, RECEIPT, NINE + 900)
+        self.assertFalse(created)
+        self.assertEqual(again, state)
+        # Deleting the Routine keeps its receipt, so a resend of the same request never recreates it.
+        deleted = record.complete_delete(record.begin_delete(state, "a" * 32)[0], "a" * 32)
+        self.assertEqual(record.create(deleted, routine(), NINE + 9, RECEIPT, NINE + 900), (deleted, False))
+
+    def test_receipts_expire_but_saturation_refuses_without_evicting_a_live_one(self):
+        expired = dataclasses.replace(record.TeamRoutines(), receipts=(("f" * 64, NINE),))
+        state, created = record.create(expired, routine(), NINE, RECEIPT, NINE + 900)
+        self.assertTrue(created)
+        self.assertEqual(state.receipts, ((RECEIPT, NINE + 900),))
+        live = tuple((f"{index:064x}", NINE + 900) for index in range(record.MAX_RECEIPTS))
+        full = dataclasses.replace(record.TeamRoutines(), receipts=live)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-receipts-full"):
+            record.create(full, routine(), NINE, RECEIPT, NINE + 900)
+        for receipt, expires_at in (("E" * 64, NINE + 900), (RECEIPT, float(NINE))):
+            with self.subTest(receipt=receipt), self.assertRaisesRegex(record.RoutineStateError, "receipt-invalid"):
+                record.create(record.TeamRoutines(), routine(), NINE, receipt, expires_at)
+
+    def test_an_update_is_the_next_revision_of_exactly_the_revision_the_request_saw(self):
+        state = dataclasses.replace(added(routine(), routine("b" * 32)))
+        state = record.mark_scope_changed(state, "a" * 32, NINE, ["dns"])
+        state = record.set_paused(state, "a" * 32, True)
+        changed = record.scheduled(dataclasses.replace(routine(), name="DNS summary", schedule=WEEKLY), NINE)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-revision-changed"):
+            record.update(state, changed, 2, NINE, RECEIPT, NINE + 900)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
+            record.update(
+                added(routine(), routine("b" * 32, {"kind": "hourly", "every": 2})),
+                record.scheduled(dataclasses.replace(routine(), schedule=HOURLY), NINE),
+                1,
+                NINE,
+                RECEIPT,
+                NINE + 900,
+            )
+        after, updated = record.update(state, changed, 1, NINE, RECEIPT, NINE + 900)
+        self.assertTrue(updated)
+        current = record.routine(after, "a" * 32)
+        self.assertEqual(
+            (current.revision, current.name, current.paused, current.needs_reconfirm), (2, changed.name, True, False)
+        )
+        self.assertEqual(after.notices[-1].outcome, "changed")
+        self.assertEqual(after.notices[-1].detail["schedule"], WEEKLY)
+        self.assertEqual(record.update(after, changed, 2, NINE, RECEIPT, NINE + 900), (after, False))
+
+    def test_an_update_never_lands_on_a_running_or_deleting_routine(self):
+        claimed_state, _claim, _lease = claimed()
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-busy"):
+            record.update(claimed_state, routine(), 1, NINE, RECEIPT, NINE + 900)
+        deleting = record.begin_delete(added(routine()), "a" * 32)[0]
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+            record.update(deleting, routine(), 1, NINE, RECEIPT, NINE + 900)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+            record.update(record.TeamRoutines(), routine(), 1, NINE, RECEIPT, NINE + 900)

@@ -79,25 +79,24 @@ def _segment_response(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
             ) from exc
 
+    def commit(terminal: chat_orchestrator.ChatOutcome) -> bool:
+        if terminal.routine is None:
+            return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
+        # A compiled Routine change commits with the reply, in one write under the lifecycle lock and the Stop guard;
+        # when Stop wins, nothing is created (ADR-0092).
+        with self._lock(team_id):
+            write = self._routine_change(response, terminal.routine)
+            return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal)))
+
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        # A proposed Routine is only an offer: a Local Supervisor must confirm it before anything is scheduled. It is
-        # bound before the reply commits, and withdrawn when Stop wins the commit.
-        proposal = self._routine_proposal(response, terminal.routine)
-        try:
-            committed = self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
-        except BaseException:
-            self._withdraw_routine_proposal(team_id, proposal)
-            raise
-        if not committed:
-            self._withdraw_routine_proposal(team_id, proposal)
+        if not commit(terminal):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply,
             "clarification": terminal.clarification,
-            "routine_proposal": proposal,
         }
         usage = None if response.usage is None else response.usage.joined().wire()
         if usage is not None:
@@ -191,6 +190,11 @@ def chat(
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
         principal = local_audit.human_principal()
+        routine_request = (
+            None
+            if principal is None
+            else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale)
+        )
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,
@@ -203,13 +207,20 @@ def chat(
                 conversation=conversation,
                 locale=locale,
                 progress=progress or chat_progress.Reporter(),
-                routine_request=None
-                if principal is None
-                else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale),
+                routine_request=routine_request,
             )
         )
         return self._segment_response(
-            _ResponseRequest(team_id, token, segment, assistant_ids, tuple(file_ids), provider, usage=usage)
+            _ResponseRequest(
+                team_id,
+                token,
+                segment,
+                assistant_ids,
+                tuple(file_ids),
+                provider,
+                usage=usage,
+                routine_request=routine_request,
+            )
         )
 
 

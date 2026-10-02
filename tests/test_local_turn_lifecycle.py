@@ -710,7 +710,6 @@ class LocalTurnLifecycleTests(LocalContractCase):
                 "team_name": "Marketing",
                 "reply": "Done",
                 "clarification": None,
-                "routine_proposal": None,
             },
         )
 

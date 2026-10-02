@@ -71,7 +71,6 @@ from local.labels import (
 )
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
-from local.routine import proposal as local_routine_proposal
 from local.routine import store as local_routine_store
 from local.routine import watchdog as local_routine_watchdog
 from local.validation import brain_thread_id as _local_brain_thread_id
@@ -305,7 +304,6 @@ class LocalController:
         self.team_names = dependencies.team_names or local_names.TeamNameStore(INFERENCE_ROOT)
         self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
         self.routine_diagnostics = dependencies.routine_diagnostics or local_routine_diagnostics.DiagnosticStore()
-        self.routine_proposals = local_routine_proposal.ProposalBook()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
         self.action_state = (
             dependencies.action_state
@@ -403,7 +401,6 @@ class LocalController:
                 raise_storage_problem=self._raise_storage_problem,
                 routine_store=getattr(self, "routine_store", None),
                 routine_diagnostics=getattr(self, "routine_diagnostics", None),
-                routine_proposals=getattr(self, "routine_proposals", None),
             )
         )
         assistant_lifecycle.chat_turn_service = chat_turn_service

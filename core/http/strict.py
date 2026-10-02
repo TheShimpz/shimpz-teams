@@ -442,13 +442,6 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/routines/notices", "routine-notices", _LOCAL_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/routines/notices/ack", "routine-notice-ack", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/routines", "routine-list", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/routines", "routine-confirm", _LOCAL_CONTROLLER_ONLY),
-    _controller_route(
-        "POST",
-        "/v1/teams/:team_id/routines/proposals/:proposal_id/preview",
-        "routine-preview",
-        _LOCAL_CONTROLLER_ONLY,
-    ),
     _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete", _LOCAL_CONTROLLER_ONLY),
     _controller_route(
         "POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run", _LOCAL_CONTROLLER_ONLY

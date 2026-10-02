@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import types
 import unittest
 from contextlib import nullcontext
@@ -187,8 +188,8 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace(
             _delete_chat_continuation=mock.Mock(),
             _commit_chat_terminal=lambda *_args: False,
-            _routine_proposal=lambda _response, _change: {"proposal_id": "p" * 32},
-            _withdraw_routine_proposal=mock.Mock(),
+            _lock=lambda _team_id: threading.RLock(),
+            _routine_change=mock.Mock(return_value=mock.Mock()),
         )
 
         def invalid_pending(_outcome, _groups, pending, _pauses, _complete):
@@ -213,8 +214,9 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
         self.assertEqual(caught.exception.code, "chat-stopped")
-        # Stop won the commit, so the turn's Routine offer is withdrawn with its reply; so does a failed commit.
-        subject._withdraw_routine_proposal.assert_called_once_with("team_1", {"proposal_id": "p" * 32})
+        # Stop won the commit, so the turn's compiled Routine change was admitted but never written.
+        subject._routine_change.assert_called_once()
+        subject._routine_change.return_value.assert_not_called()
 
         def failing_commit(*_args):
             raise local_app.ApiProblem(503, "memory", code="memory-store-failed")
@@ -225,7 +227,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             self.assertRaises(local_app.ApiProblem),
         ):
             local_chat_api._segment_response(subject, response)
-        self.assertEqual(subject._withdraw_routine_proposal.call_count, 2)
+        subject._routine_change.return_value.assert_not_called()
 
         with (
             mock.patch.object(

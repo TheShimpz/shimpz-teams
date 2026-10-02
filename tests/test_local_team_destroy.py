@@ -79,7 +79,6 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("action-purge", generation)))
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
@@ -186,7 +185,6 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
@@ -251,7 +249,6 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=fail_purge)
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),

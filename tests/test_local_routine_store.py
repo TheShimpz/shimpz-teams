@@ -11,6 +11,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import routine_fixture
+
 from local.routine import store as routine_store
 from routine import record
 
@@ -28,7 +30,9 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 def routine(routine_id: str = "a" * 32) -> record.Routine:
     value = record.Routine(
         routine_id=routine_id,
+        name="Resumo de DNS",
         quote="Todo dia às 9, resuma as mudanças de DNS.",
+        plan=routine_fixture.plan_document(timezone="America/Sao_Paulo"),
         schedule={"kind": "daily", "time": "09:00"},
         timezone="America/Sao_Paulo",
         assistants=(("dns", "sha256:" + "c" * 64),),

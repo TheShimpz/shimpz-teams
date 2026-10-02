@@ -642,7 +642,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
                     "team_name": "Team One",
                     "reply": "Done",
                     "clarification": None,
-                    "routine_proposal": None,
                 },
             )
             self.assertIsNone(controller.integration_challenges.current("team_1"))
@@ -662,7 +661,6 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             "team_name": "Team One",
             "reply": "Done",
             "clarification": None,
-            "routine_proposal": None,
         }
         chat_turn_service = SimpleNamespace(
             pending_chat_integrations=lambda team_id: pending,

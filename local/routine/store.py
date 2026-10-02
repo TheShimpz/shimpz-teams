@@ -26,12 +26,13 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from core import strict_json
 from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
+from routine import plan as routine_plan
 from routine import record
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 2
+SCHEMA = 3
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
@@ -50,7 +51,9 @@ _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
+        "name",
         "quote",
+        "plan",
         "schedule",
         "timezone",
         "assistants",
@@ -87,7 +90,19 @@ _RUN_FIELDS = frozenset(
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
 _INCIDENT_FIELDS = frozenset({"incident_id", "routine_id", "generation", "created_at", "revision", "status"})
 _STATE_FIELDS = frozenset(
-    {"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts", "discards", "incidents"}
+    {
+        "schema",
+        "team_id",
+        "routines",
+        "runs",
+        "notices",
+        "served_at",
+        "starts_day",
+        "starts",
+        "discards",
+        "incidents",
+        "receipts",
+    }
 )
 
 
@@ -153,6 +168,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "starts": state.starts,
         "discards": [list(item) for item in state.discards],
         "incidents": [{name: getattr(item, name) for name in _INCIDENT_FIELDS} for item in state.incidents],
+        "receipts": [list(item) for item in state.receipts],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
@@ -164,7 +180,9 @@ def _decode_routine(value: object) -> record.Routine:
     _require(
         isinstance(value["routine_id"], str)
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
+        and http_routine.canonical_name(value["name"]) is not None
         and http_routine.canonical_quote(value["quote"]) is not None
+        and routine_plan.well_formed(value["plan"])
         and schedule is not None
         and http_routine.canonical_timezone(value["timezone"]) is not None
         and isinstance(assistants, list)
@@ -186,7 +204,9 @@ def _decode_routine(value: object) -> record.Routine:
     )
     return record.Routine(
         routine_id=value["routine_id"],
+        name=value["name"],
         quote=value["quote"],
+        plan=value["plan"],
         schedule=schedule,
         timezone=value["timezone"],
         assistants=tuple((pair[0], pair[1]) for pair in assistants),
@@ -332,6 +352,16 @@ def _decode_incident(value: object) -> record.Incident:
     )
 
 
+def _decode_receipt(value: object) -> tuple[str, int]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and _HEX64_RE.fullmatch(value[0]) is not None
+    )
+    return value[0], _instant(value[1])
+
+
 def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
     try:
         value = strict_json.loads(payload)
@@ -356,6 +386,8 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and len(value["discards"]) <= record.MAX_DISCARDS
         and isinstance(value["incidents"], list)
         and len(value["incidents"]) <= record.MAX_INCIDENTS
+        and isinstance(value["receipts"], list)
+        and len(value["receipts"]) <= record.MAX_RECEIPTS
     )
     state = record.TeamRoutines(
         routines=tuple(_decode_routine(item) for item in value["routines"]),
@@ -366,6 +398,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         starts=value["starts"],
         discards=tuple(_decode_discard(item) for item in value["discards"]),
         incidents=tuple(_decode_incident(item) for item in value["incidents"]),
+        receipts=tuple(_decode_receipt(item) for item in value["receipts"]),
     )
     identifiers = [item.routine_id for item in state.routines]
     _require(
@@ -374,6 +407,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and len({item.notice_id for item in state.notices}) == len(state.notices)
         and len({item[0] for item in state.discards}) == len(state.discards)
         and len({item.incident_id for item in state.incidents}) == len(state.incidents)
+        and len({item[0] for item in state.receipts}) == len(state.receipts)
         and sum(item.status == "unresolved" for item in state.incidents) <= record.MAX_UNRESOLVED_INCIDENTS
         and all(item.routine_id in identifiers for item in state.runs)
     )
