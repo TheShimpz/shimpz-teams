@@ -98,3 +98,17 @@ class PolicyHoldTests(AutomaticCase):
                 verdict = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("absent", "handled", True))
+
+    def test_a_workload_never_proven_stopped_keeps_the_hold_until_it_is(self) -> None:
+        assistant = ReadOnlyFault(problem("assistant-action-blocked"))
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, assistant)
+            with service._exclusive_chat_turn("team_1", value.routine_id) as token:
+                verdict = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+            cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
+            with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
+                card = service.open_routine_card("team_1", run_id)
+        # Even a read-only Action is not admitted as absent while its workload may still run.
+        self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
+        self.assertEqual(routine_recovery.refusal(cursor), "routine-workload-unquiesced")
+        self.assertEqual(card["recommended"], "pause")

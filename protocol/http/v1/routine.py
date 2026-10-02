@@ -407,7 +407,7 @@ MAX_UNRESOLVED_INCIDENTS = 32
 CARD_CHOICES = ("verify", "skip", "pause")
 CARD_SECONDS = 300
 NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
-CARD_VERDICTS = ("occurred", "absent", "none", "inconclusive", "unverifiable", "exhausted", "policy")
+CARD_VERDICTS = ("occurred", "absent", "none", "inconclusive", "unverifiable", "exhausted", "policy", "unquiesced")
 # How an answer left the run: settled by the person, or how its already-authorized continuation ended.
 CARD_STATUSES = ("skipped", "paused", "recovered", "held", "frozen", "failed", "stopped")
 

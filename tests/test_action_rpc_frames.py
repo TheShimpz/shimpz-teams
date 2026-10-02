@@ -609,10 +609,12 @@ class ActionRpcFrameTests(unittest.TestCase):
                 )
             self.assertEqual(caught.exception.kind, expected)
             close.assert_called_once_with(stream)
-            if expected == "ambiguous":
-                fail_stop.assert_called_once_with()
-            else:
+            if expected == "unsupported-path":
+                # An unsupported path never ran an Action, so there is nothing to stop.
                 fail_stop.assert_not_called()
+            else:
+                # An ambiguous outcome, or a nonzero exit or stderr, fail-stops the workload (ADR-0092).
+                fail_stop.assert_called_once_with()
             if expected != "unsupported-path":
                 cancelled.assert_called_once()
 

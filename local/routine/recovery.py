@@ -153,6 +153,9 @@ def proven(assessment: Assessment) -> str:
         return "none"
     if cursor.fault == "policy":
         return "policy"
+    if cursor.fault == "unquiesced":
+        # Team could not prove the workload stopped after an ambiguous outcome: nothing may verify or retry it yet.
+        return "unquiesced"
     if cursor.absent or assessment.action.effect == "read_only":
         return "absent"
     if assessment.state in _ABSENT_STATES and not cursor.carried:
@@ -255,7 +258,7 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     """
     assessment = assess(self, team_id, incident_id)
     verdict = proven(assessment)
-    if verdict in {"none", "policy"}:
+    if verdict in {"none", "policy", "unquiesced"}:
         return verdict
     if verdict == "absent":
         if not assessment.cursor.absent:
@@ -286,6 +289,8 @@ def refusal(cursor: routine_cursor.Cursor) -> str | None:
         return None
     if cursor.fault == "policy":
         return "routine-policy-hold"
+    if cursor.fault == "unquiesced":
+        return "routine-workload-unquiesced"
     if not cursor.absent:
         return "routine-operation-uncertain"
     return None if cursor.remaining("retries") else "routine-retry-exhausted"

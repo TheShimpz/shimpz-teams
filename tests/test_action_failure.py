@@ -297,6 +297,8 @@ class FailureProjectionTests(unittest.TestCase):
                 action_execution.rpc_exchange("container", ["command"], b"request", strategy)
             self.assertEqual(caught.exception.condition, expected)
             self.assertNotIn("secret", str(caught.exception))
+            # Every ambiguous outcome fail-stops its workload before anything may verify it (ADR-0092).
+            strategy.fail_stop.assert_called_once_with()
         for raw in (b"{", b"[]"):
             with self.subTest(raw=raw), self.assertRaises(action_execution.RpcExchangeError) as decoded:
                 action_execution.decode_rpc_response(raw)

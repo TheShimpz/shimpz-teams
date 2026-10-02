@@ -529,8 +529,10 @@ def rpc_exchange(
     if exit_code != 0 or stderr:
         if detect_unsupported_path and exit_code == 2 and not stdout and not stderr:
             raise RpcExchangeError("unsupported-path")
+        # Only a clean exit with empty stderr may carry a handled failure frame; anything else is a transport fault,
+        # whose workload is fail-stopped like every other ambiguous outcome before anything may verify it (ADR-0092).
+        strategy.fail_stop()
         strategy.cancelled(None)
-        # Only a clean exit with empty stderr may carry a handled failure frame; anything else is a transport fault.
         raise RpcExchangeError("failed", f"exit-status:{exit_code}" if exit_code != 0 else "stderr-output")
     return decode_rpc_response(bytes(stdout))
 
