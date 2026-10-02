@@ -2069,5 +2069,28 @@
       {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "diagnostics": [{"operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "attempt": 1, "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "recorded_at": "2026-10-05T12:00:03Z", "failure": {"error_type": "httpx.HTTPStatusError", "message": "Client error '404 Not Found' for url 'https://api.cloudflare.com/client/v4/zones/[REDACTED]'", "provider": "api.cloudflare.com", "http_status": 404, "response_excerpt": "{\"success\":false,\"errors\":[{\"code\":7003}]}", "redacted": 0, "truncated": false}, "condition": null}]},
       {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "diagnostics": [{"operation_id": "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "attempt": 1, "assistant_id": "shimpz-cloudflare", "action": "replace-dns-record", "recorded_at": "2026-10-05T12:00:03Z", "failure": {"error_type": "httpx.HTTPStatusError", "message": "Client error '404 Not Found' for url 'https://api.cloudflare.com/client/v4/zones/[REDACTED]'", "provider": "api.cloudflare.com", "http_status": 404, "response_excerpt": "{\"success\":false,\"errors\":[{\"code\":7003}]}", "redacted": true, "truncated": null}, "condition": null}]}
     ]
+  },
+  "routine_rollup_delivery": {
+    "same_minute_change": {
+      "deliveries": [
+        [{"team_id": "team_1", "notice_id": "3b579c706bea0d88f8e375e2f08a03cd", "version": 1, "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quote": "Every day at 9, summarize the DNS changes.", "run_id": null, "outcome": "healthy", "created_at": "2026-10-01T09:00:00Z", "detail": {"runs": 1}}],
+        [{"team_id": "team_1", "notice_id": "3b579c706bea0d88f8e375e2f08a03cd", "version": 3, "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quote": "Every day at 9, summarize the DNS changes.", "run_id": null, "outcome": "healthy", "created_at": "2026-10-01T09:00:00Z", "detail": {"runs": 3}}]
+      ],
+      "transcript": [
+        ["3b579c706bea0d88f8e375e2f08a03cd", 3, 3]
+      ]
+    },
+    "backward_clock": {
+      "deliveries": [
+        [{"team_id": "team_1", "notice_id": "3b579c706bea0d88f8e375e2f08a03cd", "version": 2, "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quote": "Every day at 9, summarize the DNS changes.", "run_id": null, "outcome": "healthy", "created_at": "2026-10-01T09:00:00Z", "detail": {"runs": 2}}],
+        [{"team_id": "team_1", "notice_id": "5aff4f60bc318ad0236040888a9b2d1a", "version": 1, "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quote": "Every day at 9, summarize the DNS changes.", "run_id": null, "outcome": "healthy", "created_at": "2026-10-01T09:01:00Z", "detail": {"runs": 1}}],
+        [],
+        [{"team_id": "team_1", "notice_id": "5aff4f60bc318ad0236040888a9b2d1a", "version": 2, "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quote": "Every day at 9, summarize the DNS changes.", "run_id": null, "outcome": "healthy", "created_at": "2026-10-01T09:01:00Z", "detail": {"runs": 2}}]
+      ],
+      "transcript": [
+        ["3b579c706bea0d88f8e375e2f08a03cd", 2, 2],
+        ["5aff4f60bc318ad0236040888a9b2d1a", 2, 2]
+      ]
+    }
   }
 }

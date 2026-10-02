@@ -140,8 +140,11 @@ cursor; the same run's notice then goes on as `paused`, the same step plus a `re
 person chose Pular. A person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and
 has no run id. A continuous Routine's healthy runs, each completed with no earlier notice, share one versioned `healthy`
 Routine notice per minute bucket instead: its instant is the minute's start and its `runs`, at most
-`routine.MAX_ROLLUP_RUNS`, counts them and is also its version. Every other outcome stays one notice per run. `failed`
-names its code and the Actions that completed; a run whose failed step may have acted is held instead.
+`routine.MAX_ROLLUP_RUNS`, counts them and is also its version. Every other outcome stays one notice per run. The rollup
+minute only moves forward: a run whose clock fell back into an earlier minute keeps its own notice. A Routine change
+keeps its minute's count, and the `routine_rollup_delivery` vectors pin exact delivery sequences, with the transcript
+rows Admin must end with. `failed` names its code and the Actions that completed; a run whose failed step may have acted
+is held instead.
 
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`, whose `paused`
 says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`, at most
