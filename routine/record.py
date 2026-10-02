@@ -48,7 +48,7 @@ PAUSE_REASONS = http_routine.PAUSE_REASONS
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
-MAX_UNRESOLVED_INCIDENTS = 32
+MAX_UNRESOLVED_INCIDENTS = http_routine.MAX_UNRESOLVED_INCIDENTS
 # Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
 # cleanup is still pending, never does.
 MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS

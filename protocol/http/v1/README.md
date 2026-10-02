@@ -130,9 +130,9 @@ is a run outcome; the Routine outcome `skipped` reports missed firings and has n
 and the Actions that completed; a run whose failed step may have acted is held instead.
 
 A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`, whose `paused`
-says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`
-(`routine.canonical_incident_view`): each held run's id, Routine, quote, creation instant, and step, which outlive a
-deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with `{}` opens that run's recovery
+says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`, at most
+`routine.MAX_UNRESOLVED_INCIDENTS` (`routine.canonical_incident_view`): each held run's id, Routine, quote, creation
+instant, and step, which outlive a deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with `{}` opens that run's recovery
 card (`routine.canonical_card`): the step, the revision the run executed, a one-use 32-hex `nonce`, `expires_in` of
 300 seconds, and exactly the choices `verify`, `skip`, and `pause` with the `recommended` one first (`pause` when no
 verifier can prove anything). The card is bound to the authenticated person, the Team incarnation, the Routine and

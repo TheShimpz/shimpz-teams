@@ -401,6 +401,8 @@ def canonical_incident_view(value: object) -> dict[str, object] | None:
     return copy.deepcopy(value) if valid else None
 
 
+# The unresolved incidents a Team holds at most, which its Routine list carries (ADR-0092).
+MAX_UNRESOLVED_INCIDENTS = 32
 # A held run's recovery card (ADR-0092 section 7): exactly Verificar, Pular, and Pausar, the recommended one first.
 CARD_CHOICES = ("verify", "skip", "pause")
 CARD_SECONDS = 300
