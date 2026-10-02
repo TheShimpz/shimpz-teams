@@ -8,6 +8,7 @@ import json
 import unittest
 from unittest import mock
 
+from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from routine import plan as routine_plan
 
@@ -269,9 +270,117 @@ class PlanAdmissionTests(unittest.TestCase):
         self.assertTrue(routine_plan._secret_literal(nested, "items", deep, {"type": "array"}, 0))
         chain = {"$defs": {f"d{index}": {"$ref": f"#/$defs/d{index + 1}"} for index in range(70)}}
         with self.assertRaises(routine_plan.PlanError) as indirect:
-            routine_plan._applicable(chain, {"$ref": "#/$defs/d0"}, 0)
+            routine_plan._applicable(chain, {"$ref": "#/$defs/d0"}, 0, None)
         self.assertEqual(indirect.exception.code, "plan-secret-literal")
-        self.assertEqual(routine_plan._applicable(nested, None, 0), [])
+        self.assertEqual(routine_plan._applicable(nested, None, 0, None), [])
+
+    def test_every_admitted_applicator_is_followed_or_refused_for_secret_literals(self) -> None:
+        sealed = {"type": "string", "writeOnly": True}
+        plain = {"type": "string"}
+
+        def options_schema(options: dict[str, object], **defs: object) -> dict[str, object]:
+            schema = {
+                "type": "object",
+                "properties": {"options": options},
+                "required": ["options"],
+                "additionalProperties": False,
+            }
+            if defs:
+                schema["$defs"] = defs
+            # Each regression schema is one normal Action admission accepts.
+            return action_schema.admitted(schema)
+
+        def admit(schema: dict[str, object], options: object) -> routine_plan.Plan:
+            document = _document()
+            document["steps"] = [
+                {
+                    "id": "publish",
+                    "assistant": "shimpz-blog",
+                    "action": "publish-post",
+                    "pin": PIN,
+                    "input": {"options": {"kind": "literal", "value": options}},
+                }
+            ]
+            return routine_plan.admit(
+                document, {("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, schema)}
+            )
+
+        pattern = options_schema(
+            {
+                "type": "object",
+                "properties": {},
+                "patternProperties": {"^value$": sealed, "^note$": plain},
+                "additionalProperties": False,
+            }
+        )
+        dependent = options_schema(
+            {
+                "type": "object",
+                "properties": {"mode": plain, "x": plain},
+                "dependentSchemas": {
+                    "mode": {
+                        "type": "object",
+                        "properties": {"mode": plain, "x": sealed},
+                        "additionalProperties": False,
+                    }
+                },
+                "additionalProperties": False,
+            }
+        )
+        conditional = options_schema(
+            {
+                "type": "object",
+                "properties": {"x": plain},
+                "if": {"type": "object", "properties": {"x": {"const": "a"}}, "additionalProperties": False},
+                "then": {"type": "object", "properties": {"x": sealed}, "additionalProperties": False},
+                "additionalProperties": False,
+            }
+        )
+        negated = options_schema({"type": "string", "not": {"$ref": "#/$defs/sealed"}}, sealed=sealed)
+        contained = options_schema({"type": "array", "items": plain, "contains": sealed})
+        named = options_schema(
+            {
+                "type": "array",
+                "items": plain,
+                "contains": {"type": "object", "properties": {"api_key": plain}, "additionalProperties": False},
+            }
+        )
+        harmless = options_schema(
+            {
+                "type": "object",
+                "properties": {"x": plain},
+                "if": {"type": "object", "properties": {"x": {"const": "a"}}, "additionalProperties": False},
+                "then": {"type": "object", "properties": {"x": {"maxLength": 4}}, "additionalProperties": False},
+                "additionalProperties": False,
+            }
+        )
+        for schema, options in (
+            (pattern, {"value": "hunter2"}),
+            (dependent, {"mode": "a", "x": "hunter2"}),
+            (conditional, {"x": "b"}),
+            (negated, "plain"),
+            (contained, ["plain"]),
+            (named, ["plain"]),
+        ):
+            with self.subTest(options=options), self.assertRaises(routine_plan.PlanError) as caught:
+                admit(schema, options)
+            self.assertEqual(caught.exception.code, "plan-secret-literal")
+        self.assertEqual(admit(pattern, {"note": "n"}).steps[0].inputs["options"]["value"], {"note": "n"})
+        self.assertEqual(admit(dependent, {"x": "plain"}).steps[0].inputs["options"]["value"], {"x": "plain"})
+        self.assertEqual(admit(harmless, {"x": "a"}).steps[0].inputs["options"]["value"], {"x": "a"})
+        # An additional-properties schema applies only to members no property or pattern names.
+        extra = {"properties": {"a": plain}, "patternProperties": {"^b$": plain}, "additionalProperties": sealed}
+        self.assertEqual(routine_plan._member([extra], "c"), {"allOf": [sealed]})
+        self.assertEqual(routine_plan._member([extra], "a"), {"allOf": [plain]})
+        self.assertEqual(routine_plan._member([extra], "b"), {"allOf": [plain]})
+        with self.assertRaises(routine_plan.PlanError) as unmatchable:
+            routine_plan._member([{"patternProperties": {"(?<=a)b": plain}}], "ab")
+        self.assertEqual(unmatchable.exception.code, "plan-secret-literal")
+        deep: object = {"type": "string"}
+        for _ in range(routine_plan.MAX_SECRET_DEPTH + 2):
+            deep = {"not": deep}
+        self.assertTrue(routine_plan._could_hold_secret({}, deep, 0))
+        self.assertFalse(routine_plan._could_hold_secret({}, None, 0))
         self.assertTrue(routine_plan._holds_credential({"password=abc": "v"}))
 
 

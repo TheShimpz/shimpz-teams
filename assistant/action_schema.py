@@ -266,7 +266,8 @@ _APPLICATOR_LIST_KEYWORDS = frozenset({"allOf", "anyOf", "oneOf", "prefixItems"}
 _APPLICATOR_MAP_KEYWORDS = frozenset({"$defs", "definitions", "dependentSchemas", "patternProperties", "properties"})
 
 
-def _applied_subschemas(node: Mapping[str, Any]) -> Iterator[object]:
+def applied_subschemas(node: Mapping[str, Any]) -> Iterator[object]:
+    """Every subschema an admitted node applies directly, through each Draft 2020-12 applicator except ``$ref``."""
     # The metaschema check already proved each applicator value has its Draft 2020-12 shape.
     for keyword in _APPLICATOR_KEYWORDS & node.keys():
         yield node[keyword]
@@ -307,7 +308,7 @@ def reference_target(schema: Mapping[str, Any], reference: str) -> object:
 
 
 def _expansion_edges(schema: Mapping[str, Any], node: Mapping[str, Any]) -> list[object]:
-    edges = [*_applied_subschemas(node)]
+    edges = [*applied_subschemas(node)]
     if "$ref" in node:
         edges.append(reference_target(schema, node["$ref"]))
     return edges
@@ -352,7 +353,7 @@ def _reject_node_problems(schema: Mapping[str, Any]) -> None:
             problem = _schema_node_problem(node, nested=node is not schema)
             if problem is not None:
                 raise ActionSchemaError(problem)
-            pending.extend(_applied_subschemas(node))
+            pending.extend(applied_subschemas(node))
 
 
 @lru_cache(maxsize=256)

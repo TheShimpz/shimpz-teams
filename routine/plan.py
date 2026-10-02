@@ -178,22 +178,25 @@ def _source(name: str, source: object, schema: Mapping[str, Any], earlier: tuple
 def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema: object, depth: int) -> bool:
     """Whether a literal reaches a secret destination anywhere inside it.
 
-    Every position of the value is checked against every subschema that can apply there, through local ``$ref``,
-    ``allOf``, ``anyOf``, ``oneOf``, object ``properties``, and array ``items`` and ``prefixItems``: a member whose
-    name marks a secret, or a destination annotated ``writeOnly`` or ``format: password``, refuses the whole literal.
-    A value nested deeper than the bound is refused rather than left unchecked.
+    Every position of the value is checked against every subschema that applies there. Applicators whose effect is
+    exact are followed position by position: local ``$ref``, ``allOf``, ``anyOf``, ``oneOf``, ``dependentSchemas`` of
+    a present member, object ``properties``, ``patternProperties`` (matched by the linear-time matcher), and
+    ``additionalProperties``, and array ``prefixItems`` and ``items``. A member whose name marks a secret, or a
+    destination annotated ``writeOnly`` or ``format: password``, refuses the whole literal. Every other applicator
+    (``if``, ``then``, ``else``, ``not``, ``contains``, ``unevaluatedItems``, ``contentSchema``, ``propertyNames``)
+    is not modelled, so a literal is refused when anything that one reaches could hold a secret. A value nested deeper
+    than the bound is refused rather than left unchecked.
     """
     if depth > MAX_SECRET_DEPTH:
         return True
-    candidates = _applicable(root, subschema, 0)
+    candidates = _applicable(root, subschema, 0, value)
     lowered = name.lower().replace("-", "_")
-    if any(marker in lowered for marker in _SECRET_MARKERS) or any(_marked(item) for item in candidates):
+    if _secret_name(lowered) or any(_marked(item) for item in candidates):
+        return True
+    if any(_could_hold_secret(root, item[keyword], 0) for item in candidates for keyword in _UNMODELLED & item.keys()):
         return True
     if isinstance(value, dict):
-        return any(
-            _secret_literal(root, key, item, _children(candidates, "properties", key), depth + 1)
-            for key, item in value.items()
-        )
+        return any(_secret_literal(root, key, item, _member(candidates, key), depth + 1) for key, item in value.items())
     if isinstance(value, list):
         return any(
             _secret_literal(root, name, item, _items(candidates, index), depth + 1) for index, item in enumerate(value)
@@ -201,30 +204,63 @@ def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema
     return False
 
 
+# Applicators whose effect at a position is not modelled; anything they reach that could hold a secret refuses.
+_UNMODELLED = frozenset({"if", "then", "else", "not", "contains", "unevaluatedItems", "contentSchema", "propertyNames"})
+
+
+def _secret_name(lowered: str) -> bool:
+    return any(marker in lowered for marker in _SECRET_MARKERS)
+
+
 def _marked(subschema: Mapping[str, Any]) -> bool:
     return subschema.get("writeOnly") is True or subschema.get("format") == "password"
 
 
-def _applicable(root: Mapping[str, Any], subschema: object, depth: int) -> list[Mapping[str, Any]]:
-    """The subschemas that apply at one position: the node, its local reference, and its combinator members."""
+def _applicable(root: Mapping[str, Any], subschema: object, depth: int, value: object) -> list[Mapping[str, Any]]:
+    """The subschemas that apply at one position.
+
+    That is the node, its local reference, its combinator members, and the ``dependentSchemas`` of each member the
+    value holds.
+    """
     if depth > MAX_SECRET_DEPTH:
         raise PlanError("plan-secret-literal")
     if not isinstance(subschema, dict):
         return []
-    found = [subschema]
+    members: list[object] = []
     if isinstance(subschema.get("$ref"), str):
-        found.extend(_applicable(root, action_schema.reference_target(root, subschema["$ref"]), depth + 1))
+        members.append(action_schema.reference_target(root, subschema["$ref"]))
     for combinator in ("allOf", "anyOf", "oneOf"):
-        for member in subschema.get(combinator, ()) if isinstance(subschema.get(combinator), list) else ():
-            found.extend(_applicable(root, member, depth + 1))
+        if isinstance(subschema.get(combinator), list):
+            members.extend(subschema[combinator])
+    dependent = subschema.get("dependentSchemas")
+    if isinstance(dependent, dict) and isinstance(value, dict):
+        members.extend(dependent[key] for key in value if key in dependent)
+    found: list[Mapping[str, Any]] = [subschema]
+    for member in members:
+        found.extend(_applicable(root, member, depth + 1, value))
     return found
 
 
-def _children(candidates: list[Mapping[str, Any]], keyword: str, key: str) -> dict[str, Any]:
-    """One synthetic subschema whose combinator holds every candidate's member schema for ``key``."""
-    members = [
-        item[keyword][key] for item in candidates if isinstance(item.get(keyword), dict) and key in item[keyword]
-    ]
+def _member(candidates: list[Mapping[str, Any]], key: str) -> dict[str, Any]:
+    """Every subschema the candidates apply to one object member.
+
+    That is its property, each matching pattern, or else the candidate's additional-properties schema.
+    """
+    members: list[object] = []
+    try:
+        with action_schema.pattern_work_budget():
+            for item in candidates:
+                properties = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+                patterns = item.get("patternProperties") if isinstance(item.get("patternProperties"), dict) else {}
+                matched = [
+                    schema for pattern, schema in patterns.items() if action_schema.pattern_matches(pattern, key)
+                ]
+                members.extend([properties[key]] if key in properties else [])
+                members.extend(matched)
+                if key not in properties and not matched and isinstance(item.get("additionalProperties"), dict):
+                    members.append(item["additionalProperties"])
+    except action_schema.PatternError as exc:
+        raise PlanError("plan-secret-literal") from exc
     return {"allOf": members}
 
 
@@ -237,6 +273,21 @@ def _items(candidates: list[Mapping[str, Any]], index: int) -> dict[str, Any]:
         elif "items" in item:
             members.append(item["items"])
     return {"allOf": members}
+
+
+def _could_hold_secret(root: Mapping[str, Any], subschema: object, depth: int) -> bool:
+    """Whether anything a subschema reaches, through every applicator and local reference, could hold a secret."""
+    if depth > MAX_SECRET_DEPTH:
+        return True
+    if not isinstance(subschema, dict):
+        return False
+    properties = subschema.get("properties") if isinstance(subschema.get("properties"), dict) else {}
+    if _marked(subschema) or any(_secret_name(key.lower().replace("-", "_")) for key in properties):
+        return True
+    reached = list(action_schema.applied_subschemas(subschema))
+    if isinstance(subschema.get("$ref"), str):
+        reached.append(action_schema.reference_target(root, subschema["$ref"]))
+    return any(_could_hold_secret(root, item, depth + 1) for item in reached)
 
 
 def _holds_credential(value: object) -> bool:
