@@ -735,7 +735,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
             self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
             self.registry.delete(team_id, assistant_id)
             if binding is not None:
-                self.icons.discard_binding(binding, self.registry.bindings())
+                self.icons.discard_binding(binding, self.registry.bindings)
             self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": False}
         spec = self.registry.get(team_id, assistant_id)
@@ -776,7 +776,7 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
         self.chat_turn_service._delete_assistant_stored_input_state(team_id, assistant_id)
         self.registry.delete(team_id, assistant_id)
         if binding is not None:
-            self.icons.discard_binding(binding, self.registry.bindings())
+            self.icons.discard_binding(binding, self.registry.bindings)
         self.sweep_residues()
         return {"assistant": assistant_id, "uninstalled": True}
 

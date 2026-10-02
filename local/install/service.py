@@ -93,43 +93,38 @@ def _install_local_snapshot(self, team_id: str, image_id: str, *, fresh_only: bo
     admitted = _admit_local_snapshot(self, image_id)
     assistant_id = admitted.record["assistant_id"]
     existing = self.registry.binding(team_id, assistant_id)
-    candidate = bindings.binding_from_local_record(team_id, admitted.record, snapshots.validate_record)
     try:
-        self.assistant_icons.put_local(admitted.record, admitted.icon)
-        if fresh_only and existing is not None:
-            raise bindings.DynamicAssistantConflictError("automatic Local install requires an unbound Assistant")
-        if existing is not None and existing.provenance == "published":
-            result = self.assistant_lifecycle.replace_published_with_local(
-                team_id,
-                existing,
-                lambda install_assistant: _apply_local_snapshot(
-                    self,
+        with self.assistant_icons.retained_local(admitted.record, admitted.icon, self.registry.bindings):
+            if fresh_only and existing is not None:
+                raise bindings.DynamicAssistantConflictError("automatic Local install requires an unbound Assistant")
+            if existing is not None and existing.provenance == "published":
+                result = self.assistant_lifecycle.replace_published_with_local(
                     team_id,
-                    None,
-                    admitted.record,
-                    install_assistant=install_assistant,
-                ),
-            )
-            existing = None
-        elif existing is None:
-            result = self.assistant_lifecycle.install_fresh_local(
-                team_id,
-                assistant_id,
-                lambda install_assistant: _apply_local_snapshot(
-                    self,
+                    existing,
+                    lambda install_assistant: _apply_local_snapshot(
+                        self,
+                        team_id,
+                        None,
+                        admitted.record,
+                        install_assistant=install_assistant,
+                    ),
+                )
+                existing = None
+            elif existing is None:
+                result = self.assistant_lifecycle.install_fresh_local(
                     team_id,
-                    None,
-                    admitted.record,
-                    install_assistant=install_assistant,
-                ),
-            )
-        else:
-            result = _apply_local_snapshot(self, team_id, existing, admitted.record)
-    except ApiProblem:
-        _discard_local_icon(self, candidate)
-        raise
+                    assistant_id,
+                    lambda install_assistant: _apply_local_snapshot(
+                        self,
+                        team_id,
+                        None,
+                        admitted.record,
+                        install_assistant=install_assistant,
+                    ),
+                )
+            else:
+                result = _apply_local_snapshot(self, team_id, existing, admitted.record)
     except bindings.DynamicAssistantError as exc:
-        _discard_local_icon(self, candidate)
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Local Assistant binding failed",
@@ -214,7 +209,7 @@ def _apply_local_snapshot(
 
 def _discard_local_icon(self, binding: bindings.DynamicAssistantBinding) -> None:
     try:
-        self.assistant_icons.discard_binding(binding, self.registry.bindings())
+        self.assistant_icons.discard_binding(binding, self.registry.bindings)
     except icons.AssistantIconError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -239,12 +234,10 @@ def install_publication(
             "Assistant binding changed before automatic update",
             code="assistant-update-conflict",
         )
-    publication_resolved = False
-    installation_completed = False
     try:
-        resolution = _resolved_publication(self, assistant_id, source_digest)
-        publication_resolved = True
-        result = _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution)
+        resolution, icon = _resolved_publication(self, assistant_id, source_digest)
+        with self.assistant_icons.retained(resolution, icon, self.registry.bindings):
+            result = _apply_publication(self, team_id, assistant_id, source_digest, existing, resolution)
     except ApiProblem:
         raise
     except developers.DevelopersError as exc:
@@ -267,18 +260,9 @@ def install_publication(
             "Assistant icon storage is unavailable",
             code="assistant-icon-unavailable",
         ) from exc
-    else:
-        if existing is not None:
-            _discard_icon(self, str(existing.resolution["source_digest"]))
-        installation_completed = True
-        return result
-    finally:
-        _discard_failed_publication(
-            self,
-            source_digest,
-            publication_resolved=publication_resolved,
-            installation_completed=installation_completed,
-        )
+    if existing is not None:
+        _discard_icon(self, str(existing.resolution["source_digest"]))
+    return result
 
 
 def _developers_problem(exc: developers.DevelopersError) -> ApiProblem:
@@ -301,24 +285,11 @@ def _developers_problem(exc: developers.DevelopersError) -> ApiProblem:
     )
 
 
-def _discard_failed_publication(
-    self,
-    source_digest: str,
-    *,
-    publication_resolved: bool,
-    installation_completed: bool,
-) -> None:
-    if publication_resolved and not installation_completed:
-        _discard_icon(self, source_digest)
-
-
-def _resolved_publication(self, assistant_id: str, source_digest: str) -> dict[str, object]:
+def _resolved_publication(self, assistant_id: str, source_digest: str) -> tuple[dict[str, object], bytes]:
     resolution = self.developers.resolve(source_digest)
     if resolution["assistant_id"] != assistant_id:
         raise developers.PublicationNotInstallableError("publication does not match the requested Assistant")
-    icon = _verify_publication_assets(self, source_digest, resolution)
-    self.assistant_icons.put(resolution, icon)
-    return resolution
+    return resolution, _verify_publication_assets(self, source_digest, resolution)
 
 
 def _verify_publication_assets(self, source_digest: str, resolution: dict[str, object]) -> bytes:
@@ -379,7 +350,7 @@ def _apply_publication(self, team_id, assistant_id, source_digest, existing, res
 
 def _discard_icon(self, source_digest: str) -> None:
     try:
-        self.assistant_icons.discard_unreferenced(source_digest, self.registry.bindings())
+        self.assistant_icons.discard_unreferenced(source_digest, self.registry.bindings)
     except icons.AssistantIconError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,

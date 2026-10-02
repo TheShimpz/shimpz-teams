@@ -109,7 +109,6 @@ def _install(request: RequestIO) -> None:
     # Pull outside the Team lifecycle lock; the install path resolves this same digest
     # again immediately before create.
     hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
-    publication.retain_icon(client, runtime_state._assistant_icons, resolution)
 
     def authorize_start() -> None:
         authorization = {
@@ -127,19 +126,15 @@ def _install(request: RequestIO) -> None:
         if not _install_authorization_matches(receipt, expected, int(time.time())):
             raise developers_client.InstallAuthorizationDeniedError("installation authorization does not match")
 
-    try:
+    with publication.retained_icon(
+        client, runtime_state._assistant_icons, runtime_state._dynamic_assistants, resolution
+    ):
         installed = assistant_lifecycle._install_assistant(
             body["team_id"],
             binding,
             request.account_id,
             lease,
             authorize_start=authorize_start,
-        )
-    finally:
-        publication.discard_icon(
-            runtime_state._assistant_icons,
-            runtime_state._dynamic_assistants,
-            body["source_digest"],
         )
     response = {
         "version": 1,

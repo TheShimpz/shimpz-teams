@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import hashlib
 import tempfile
@@ -162,7 +163,10 @@ class LocalInstallEdgeTests(unittest.TestCase):
         )
         return types.SimpleNamespace(
             registry=registry,
-            assistant_icons=types.SimpleNamespace(discard_unreferenced=mock.Mock()),
+            assistant_icons=types.SimpleNamespace(
+                retained=mock.Mock(side_effect=lambda *_args: contextlib.nullcontext()),
+                discard_unreferenced=mock.Mock(),
+            ),
         )
 
     def test_install_service_maps_each_boundary_failure_without_deleting_foreign_bindings(self) -> None:
@@ -326,7 +330,6 @@ class LocalInstallEdgeTests(unittest.TestCase):
         controller = types.SimpleNamespace(
             developers=types.SimpleNamespace(resolve=lambda _digest: RESOLUTION, icon=icon),
             artifact_trust=types.SimpleNamespace(verify=verify),
-            assistant_icons=types.SimpleNamespace(put=mock.Mock()),
         )
         with local_audit.bind_request_principal(principal):
             result = install_service._resolved_publication(
@@ -335,10 +338,9 @@ class LocalInstallEdgeTests(unittest.TestCase):
                 RESOLUTION["source_digest"],
             )
 
-        self.assertEqual(result, RESOLUTION)
+        self.assertEqual(result, (RESOLUTION, ICON))
         self.assertEqual({name for name, _authority in observed}, {"icon", "trust"})
         self.assertTrue(all(authority is principal for _name, authority in observed))
-        controller.assistant_icons.put.assert_called_once_with(RESOLUTION, ICON)
 
     def test_publication_trust_failure_wins_and_never_persists_the_icon(self) -> None:
         for first in ("icon", "trust"):
@@ -365,7 +367,6 @@ class LocalInstallEdgeTests(unittest.TestCase):
                         artifact_trust.ArtifactTrustError("untrusted"),
                     )
                 ),
-                assistant_icons=types.SimpleNamespace(put=mock.Mock()),
             )
             with (
                 self.subTest(first=first),
@@ -376,7 +377,6 @@ class LocalInstallEdgeTests(unittest.TestCase):
                     RESOLUTION["assistant_id"],
                     RESOLUTION["source_digest"],
                 )
-            controller.assistant_icons.put.assert_not_called()
 
     def test_publication_icon_failure_surfaces_after_trust_succeeds(self) -> None:
         controller = types.SimpleNamespace(
@@ -391,41 +391,31 @@ class LocalInstallEdgeTests(unittest.TestCase):
 
         controller.artifact_trust.verify.assert_called_once_with(RESOLUTION)
 
-    def test_install_skips_redundant_icon_cleanup_only_after_success(self) -> None:
-        controller = self._service_controller()
+    def test_install_holds_the_icon_until_the_binding_commits_or_fails(self) -> None:
         resolution = _runtime_resolution()
-        with (
-            mock.patch.object(install_service, "_resolved_publication", return_value=resolution),
-            mock.patch.object(
-                install_service,
-                "_apply_publication",
-                return_value={"assistant": "helper", "installed": True},
-            ),
-        ):
-            result = install_service.install_publication(
-                controller,
-                "team_1",
-                "helper",
-                resolution["source_digest"],
-            )
+        for failure in (None, ApiProblemError(503, "install failed", code="install-failed")):
+            controller = self._service_controller()
+            custody: list[object] = []
 
-        self.assertEqual(result, {"assistant": "helper", "installed": True})
-        controller.assistant_icons.discard_unreferenced.assert_not_called()
+            @contextlib.contextmanager
+            def retained(*args, events=custody):
+                events.append(args)
+                try:
+                    yield
+                finally:
+                    events.append("released")
 
-        controller = self._service_controller()
-        failure = ApiProblemError(503, "install failed", code="install-failed")
-        with (
-            mock.patch.object(install_service, "_resolved_publication", return_value=resolution),
-            mock.patch.object(install_service, "_apply_publication", side_effect=failure),
-            self.assertRaisesRegex(ApiProblemError, "install failed"),
-        ):
-            install_service.install_publication(
-                controller,
-                "team_1",
-                "helper",
-                resolution["source_digest"],
-            )
-        controller.assistant_icons.discard_unreferenced.assert_called_once()
+            controller.assistant_icons.retained = retained
+            effect = {"side_effect": failure} if failure else {"return_value": {"assistant": "helper"}}
+            with (
+                self.subTest(failure=failure),
+                mock.patch.object(install_service, "_resolved_publication", return_value=(resolution, ICON)),
+                mock.patch.object(install_service, "_apply_publication", **effect),
+                self.assertRaises(ApiProblemError) if failure else contextlib.nullcontext(),
+            ):
+                install_service.install_publication(controller, "team_1", "helper", resolution["source_digest"])
+            self.assertEqual(custody, [(resolution, ICON, controller.registry.bindings), "released"])
+            controller.assistant_icons.discard_unreferenced.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import time
@@ -116,6 +117,14 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
             events.append("prepare-image")
             self.assertEqual(spec.image, RESOLUTION["image_reference"])
 
+        @contextlib.contextmanager
+        def custody(*_args):
+            events.append("retain-icon")
+            try:
+                yield
+            finally:
+                events.append("discard-icon")
+
         with (
             mock.patch.multiple(
                 runtime_state,
@@ -131,16 +140,7 @@ class DevelopersInstallBoundaryTests(unittest.TestCase):
                 return_value=materialized_spec,
             ) as assistant_spec,
             mock.patch.object(hosted_resources, "_prepare_assistant_image", side_effect=prepare_image),
-            mock.patch.object(
-                hosted_controller.publication,
-                "retain_icon",
-                side_effect=lambda *_args: events.append("retain-icon"),
-            ),
-            mock.patch.object(
-                hosted_controller.publication,
-                "discard_icon",
-                side_effect=lambda *_args: events.append("discard-icon"),
-            ),
+            mock.patch.object(hosted_controller.publication, "retained_icon", side_effect=custody),
             mock.patch.object(assistant_lifecycle, "_install_assistant", side_effect=install),
         ):
             developers_http._install(self._request(handler))

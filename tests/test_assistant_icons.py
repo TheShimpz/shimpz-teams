@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import tempfile
+import threading
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
@@ -25,31 +26,50 @@ def resolution(contents: bytes = ICON) -> dict[str, str]:
     }
 
 
+BINDING = DynamicAssistantBinding(
+    team_id="team_1",
+    binding_digest="sha256:" + ("b" * 64),
+    provenance="published",
+    document={**resolution(), "assistant_id": "example"},
+)
+
+
+def bound(*bindings: DynamicAssistantBinding):
+    return lambda: bindings
+
+
+def keep(store: AssistantIconStore, value: dict[str, str] | None = None, contents: bytes = ICON) -> None:
+    """Retain an icon whose binding commits, so it stays after the install releases its pin."""
+    with store.retained(value or resolution(), contents, bound(BINDING)):
+        pass
+
+
 class AssistantIconStoreTests(unittest.TestCase):
     def test_persists_and_revalidates_exact_icon_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = AssistantIconStore(Path(directory) / "icons")
-            store.put(resolution(), ICON)
+            keep(store)
 
             self.assertEqual(store.read(resolution()), ICON)
-            store.put(resolution(), ICON)
+            keep(store)
 
             with (
                 mock.patch.object(store, "_read", return_value=b"other"),
                 self.assertRaisesRegex(AssistantIconError, "conflicts"),
             ):
-                store.put(resolution(), ICON)
+                keep(store)
+            self.assertEqual(store._pins, {})
 
     def test_rejects_digest_mismatch_oversize_and_tampering(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "icons"
             store = AssistantIconStore(root)
             with self.assertRaisesRegex(AssistantIconError, "digest does not match"):
-                store.put(resolution(), b"different")
+                keep(store, contents=b"different")
             with self.assertRaisesRegex(AssistantIconError, "invalid"):
-                store.put(resolution(b"x" * (1024 * 1024 + 1)), b"x" * (1024 * 1024 + 1))
+                keep(store, resolution(b"x" * (1024 * 1024 + 1)), b"x" * (1024 * 1024 + 1))
 
-            store.put(resolution(), ICON)
+            keep(store)
             next(root.glob("*.png")).write_bytes(b"tampered")
             with self.assertRaisesRegex(AssistantIconError, "digest does not match"):
                 store.read(resolution())
@@ -58,19 +78,82 @@ class AssistantIconStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "icons"
             store = AssistantIconStore(root)
-            store.put(resolution(), ICON)
-            binding = DynamicAssistantBinding(
-                team_id="team_1",
-                binding_digest="sha256:" + ("b" * 64),
-                provenance="published",
-                document={**resolution(), "assistant_id": "example"},
-            )
+            keep(store)
 
-            store.discard_unreferenced(SOURCE_DIGEST, [binding])
+            store.discard_unreferenced(SOURCE_DIGEST, bound(BINDING))
             self.assertEqual(store.read(resolution()), ICON)
-            store.discard_unreferenced(SOURCE_DIGEST, [])
+            store.discard_unreferenced(SOURCE_DIGEST, bound())
             with self.assertRaisesRegex(AssistantIconError, "unavailable"):
                 store.read(resolution())
+            # An install whose binding never commits leaves no icon behind.
+            with store.retained(resolution(), ICON, bound()):
+                self.assertEqual(store.read(resolution()), ICON)
+            self.assertEqual(list(root.glob("*.png")), [])
+
+    def test_an_install_in_flight_keeps_its_icon_from_another_teams_cleanup(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = AssistantIconStore(Path(directory) / "icons")
+            committed: list[DynamicAssistantBinding] = []
+            pinned = threading.Event()
+            cleaned = threading.Event()
+            failures: list[AssistantIconError] = []
+
+            def install() -> None:
+                try:
+                    with store.retained(resolution(), ICON, lambda: tuple(committed)):
+                        pinned.set()
+                        # Another Team's failed install or uninstall runs while this binding is not committed yet.
+                        cleaned.wait(10)
+                        committed.append(BINDING)
+                except AssistantIconError as exc:
+                    failures.append(exc)
+
+            def other_team_cleanup() -> None:
+                pinned.wait(10)
+                store.discard_unreferenced(SOURCE_DIGEST, bound())
+                cleaned.set()
+
+            threads = [threading.Thread(target=install), threading.Thread(target=other_team_cleanup)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(10)
+
+            self.assertEqual(failures, [])
+            self.assertTrue(cleaned.is_set())
+            self.assertEqual(store.read(resolution()), ICON)
+            self.assertEqual(store._pins, {})
+            # Once the binding is gone and nothing is in flight, the same cleanup removes the icon.
+            committed.clear()
+            store.discard_unreferenced(SOURCE_DIGEST, lambda: tuple(committed))
+            with self.assertRaisesRegex(AssistantIconError, "unavailable"):
+                store.read(resolution())
+
+    def test_the_icon_stays_while_any_install_of_it_is_in_flight(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "icons"
+            store = AssistantIconStore(root)
+            with store.retained(resolution(), ICON, bound()):
+                with store.retained(resolution(), ICON, bound()):
+                    pass
+                # The first install failed, but the second still holds the icon it is about to bind.
+                self.assertEqual(store.read(resolution()), ICON)
+            self.assertEqual(list(root.glob("*.png")), [])
+            self.assertEqual(store._pins, {})
+
+    def test_deletion_reads_the_bindings_inside_the_custody_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = AssistantIconStore(Path(directory) / "icons")
+            keep(store)
+            observed: list[bool] = []
+
+            def references():
+                observed.append(store._custody.locked())
+                return (BINDING,)
+
+            store.discard_unreferenced(SOURCE_DIGEST, references)
+            self.assertEqual(observed, [True])
+            self.assertEqual(store.read(resolution()), ICON)
 
     def test_local_image_identity_cannot_collide_with_a_publication_source(self) -> None:
         local_icon = b"different local icon"
@@ -88,8 +171,9 @@ class AssistantIconStoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "icons"
             store = AssistantIconStore(root)
-            store.put(resolution(), ICON)
-            store.put_local(local_record, local_icon)
+            keep(store)
+            with store.retained_local(local_record, local_icon, bound(local_binding)):
+                pass
 
             self.assertEqual(store.read(resolution()), ICON)
             self.assertEqual(store.read_binding(local_binding), local_icon)
@@ -100,24 +184,18 @@ class AssistantIconStoreTests(unittest.TestCase):
                     f"local-{SOURCE_DIGEST.removeprefix('sha256:')}.png",
                 },
             )
-            store.discard_binding(local_binding, (local_binding,))
+            store.discard_binding(local_binding, bound(local_binding))
             self.assertEqual(store.read_binding(local_binding), local_icon)
-            store.discard_binding(local_binding, ())
+            store.discard_binding(local_binding, bound())
             self.assertEqual(store.read(resolution()), ICON)
 
     def test_local_api_serves_only_an_installed_verified_icon(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = AssistantIconStore(Path(directory) / "icons")
-            store.put(resolution(), ICON)
-            binding = DynamicAssistantBinding(
-                team_id="team_1",
-                binding_digest="sha256:" + ("b" * 64),
-                provenance="published",
-                document={**resolution(), "assistant_id": "example"},
-            )
+            keep(store)
             controller = SimpleNamespace(
                 _lock=lambda _team_id: nullcontext(),
-                registry=SimpleNamespace(binding=lambda _team_id, _assistant_id: binding),
+                registry=SimpleNamespace(binding=lambda _team_id, _assistant_id: BINDING),
                 assistant_icons=store,
             )
 
@@ -159,7 +237,7 @@ class AssistantIconStoreTests(unittest.TestCase):
             with self.subTest(invalid=invalid), self.assertRaisesRegex(AssistantIconError, "identity"):
                 store.read(invalid)
         with self.assertRaisesRegex(AssistantIconError, "Local Assistant icon identity"):
-            store.put_local({"image_id": "invalid", "icon_digest": SOURCE_DIGEST}, ICON)
+            store.retained_local({"image_id": "invalid", "icon_digest": SOURCE_DIGEST}, ICON, bound())
         invalid_binding = DynamicAssistantBinding("team_1", SOURCE_DIGEST, "unknown", {})
         with self.assertRaisesRegex(AssistantIconError, "provenance is invalid"):
             store.read_binding(invalid_binding)
@@ -170,7 +248,7 @@ class AssistantIconStoreTests(unittest.TestCase):
             mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
             self.assertRaisesRegex(AssistantIconError, "cannot be removed"),
         ):
-            store.discard_unreferenced(SOURCE_DIGEST, [])
+            store.discard_unreferenced(SOURCE_DIGEST, bound())
 
     def test_persistence_failure_removes_a_partial_temporary_file(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

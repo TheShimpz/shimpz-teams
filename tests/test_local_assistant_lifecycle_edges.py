@@ -846,7 +846,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
 
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
         controller.assistant_lifecycle._release_assistant_egress.assert_called_once()
-        controller.icons.discard_binding.assert_called_once_with(binding, ())
+        controller.icons.discard_binding.assert_called_once_with(binding, controller.registry.bindings)
 
     def test_uninstall_existing_container_discards_unreferenced_icon(self) -> None:
         controller, _container, _events = self._lifecycle_controller()
@@ -862,7 +862,7 @@ class LocalAssistantLifecycleOperationEdgeTests(LocalContractCase):
         )
 
         self.assertTrue(result["uninstalled"])
-        controller.icons.discard_binding.assert_called_once_with(binding, ())
+        controller.icons.discard_binding.assert_called_once_with(binding, controller.registry.bindings)
 
     def test_uninstall_local_binding_preserves_exact_staged_image(self) -> None:
         controller, _container, events = self._lifecycle_controller()

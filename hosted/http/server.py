@@ -827,7 +827,6 @@ class Handler(BaseHTTPRequestHandler):
             trust.verify(resolution)
             binding = dynamic_assistants.binding_from_resolution(request.team_id, resolution)
             hosted_resources._prepare_assistant_image(publication.assistant_spec(binding))
-            publication.retain_icon(client, runtime_state._assistant_icons, resolution)
 
             def authorize_start() -> None:
                 current = client.resolve(source_digest)
@@ -836,19 +835,15 @@ class Handler(BaseHTTPRequestHandler):
                         "Assistant publication changed before installation"
                     )
 
-            try:
+            with publication.retained_icon(
+                client, runtime_state._assistant_icons, runtime_state._dynamic_assistants, resolution
+            ):
                 installed = assistant_lifecycle._install_assistant(
                     request.team_id,
                     binding,
                     request.lease.owner,
                     request.lease,
                     authorize_start=authorize_start,
-                )
-            finally:
-                publication.discard_icon(
-                    runtime_state._assistant_icons,
-                    runtime_state._dynamic_assistants,
-                    source_digest,
                 )
         except developers_client.AssistantNotInstallableError as exc:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installable") from exc

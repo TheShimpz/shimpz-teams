@@ -7,7 +7,10 @@ import os
 import re
 import stat
 import tempfile
-from collections.abc import Iterable
+import threading
+from collections import Counter
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,17 +25,49 @@ class AssistantIconError(RuntimeError):
     """A canonical Assistant icon is missing or violates its binding."""
 
 
+# Reads the current bindings; deletion calls it only inside the custody lock, so it sees every committed binding.
+References = Callable[[], Iterable[DynamicAssistantBinding]]
+
+
 class AssistantIconStore:
-    """Persist immutable icons in provenance-separated namespaces."""
+    """Persist immutable icons in provenance-separated namespaces.
+
+    An install retains its icon under a pin until its binding commits or fails. Reference-aware deletion reads the
+    current bindings and the pins under one custody lock and never removes a pinned or bound icon, so one Team's
+    failed install or uninstall cannot delete an icon that another Team is about to bind.
+    """
 
     def __init__(self, root: Path) -> None:
         self._root = root
+        self._custody = threading.Lock()
+        self._pins: Counter[Path] = Counter()
 
-    def put(self, resolution: dict[str, Any], contents: bytes) -> None:
-        self._put(_publication_identity(resolution), contents)
+    def retained(
+        self, resolution: dict[str, Any], contents: bytes, references: References
+    ) -> AbstractContextManager[None]:
+        """Hold a publication's icon while its binding commits, then discard it unless a binding references it."""
+        return self._retained(_publication_identity(resolution), contents, references)
 
-    def put_local(self, record: dict[str, Any], contents: bytes) -> None:
-        self._put(_local_identity(record), contents)
+    def retained_local(
+        self, record: dict[str, Any], contents: bytes, references: References
+    ) -> AbstractContextManager[None]:
+        """Hold a Local snapshot's icon while its binding commits, then discard it unless a binding references it."""
+        return self._retained(_local_identity(record), contents, references)
+
+    @contextmanager
+    def _retained(self, identity: _IconIdentity, contents: bytes, references: References) -> Iterator[None]:
+        path = self._path(identity)
+        with self._custody:
+            self._pins[path] += 1
+        try:
+            self._put(identity, contents)
+            yield
+        finally:
+            with self._custody:
+                self._pins[path] -= 1
+                if not self._pins[path]:
+                    del self._pins[path]
+            self._discard(identity, references)
 
     def _put(self, identity: _IconIdentity, contents: bytes) -> None:
         _verify(contents, identity.digest)
@@ -68,34 +103,24 @@ class AssistantIconStore:
         _verify(contents, identity.digest)
         return contents
 
-    def discard_unreferenced(
-        self,
-        source_digest: str,
-        bindings: Iterable[DynamicAssistantBinding],
-    ) -> None:
-        identity = _publication_identity({"source_digest": source_digest, "icon_digest": source_digest})
-        if any(
-            binding.provenance == "published" and binding.document.get("source_digest") == source_digest
-            for binding in bindings
-        ):
-            return
-        self._discard(identity)
+    def discard_unreferenced(self, source_digest: str, references: References) -> None:
+        self._discard(
+            _publication_identity({"source_digest": source_digest, "icon_digest": source_digest}),
+            references,
+        )
 
-    def discard_binding(
-        self,
-        retired: DynamicAssistantBinding,
-        bindings: Iterable[DynamicAssistantBinding],
-    ) -> None:
-        identity = _binding_identity(retired)
-        if any(_binding_identity(binding) == identity for binding in bindings):
-            return
-        self._discard(identity)
+    def discard_binding(self, retired: DynamicAssistantBinding, references: References) -> None:
+        self._discard(_binding_identity(retired), references)
 
-    def _discard(self, identity: _IconIdentity) -> None:
-        try:
-            self._path(identity).unlink(missing_ok=True)
-        except OSError as exc:
-            raise AssistantIconError("the retired Assistant icon cannot be removed") from exc
+    def _discard(self, identity: _IconIdentity, references: References) -> None:
+        path = self._path(identity)
+        with self._custody:
+            if self._pins[path] or (identity.namespace, identity.key) in {_reference(item) for item in references()}:
+                return
+            try:
+                path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise AssistantIconError("the retired Assistant icon cannot be removed") from exc
 
     def _path(self, identity: _IconIdentity) -> Path:
         match = _DIGEST.fullmatch(identity.key)
@@ -153,6 +178,11 @@ def _local_identity(record: dict[str, Any]) -> _IconIdentity:
     ):
         raise AssistantIconError("the Local Assistant icon identity is invalid")
     return _IconIdentity("local", image_id, expected)
+
+
+def _reference(binding: DynamicAssistantBinding) -> tuple[str, object]:
+    key = "image_id" if binding.provenance == "local" else "source_digest"
+    return binding.provenance, binding.document.get(key)
 
 
 def _binding_identity(binding: DynamicAssistantBinding) -> _IconIdentity:

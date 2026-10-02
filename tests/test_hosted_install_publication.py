@@ -20,15 +20,17 @@ class HostedInstallPublicationTests(unittest.TestCase):
 
     def test_icon_lifecycle_uses_exact_publication_digests(self) -> None:
         client = SimpleNamespace(icon=mock.Mock(return_value=b"png"))
-        store = SimpleNamespace(put=mock.Mock(), discard_unreferenced=mock.Mock())
+        store = SimpleNamespace(
+            retained=mock.Mock(return_value=mock.sentinel.custody), discard_unreferenced=mock.Mock()
+        )
         binding_store = SimpleNamespace(snapshot=mock.Mock(return_value=("binding",)))
 
-        publication.retain_icon(client, store, RESOLUTION)
+        self.assertIs(publication.retained_icon(client, store, binding_store, RESOLUTION), mock.sentinel.custody)
         client.icon.assert_called_once_with(RESOLUTION["source_digest"], RESOLUTION["icon_digest"])
-        store.put.assert_called_once_with(RESOLUTION, b"png")
+        store.retained.assert_called_once_with(RESOLUTION, b"png", binding_store.snapshot)
 
         publication.discard_icon(store, binding_store, RESOLUTION["source_digest"])
-        store.discard_unreferenced.assert_called_once_with(RESOLUTION["source_digest"], ("binding",))
+        store.discard_unreferenced.assert_called_once_with(RESOLUTION["source_digest"], binding_store.snapshot)
 
     def test_spec_rejects_noncanonical_and_malformed_resolutions(self) -> None:
         resolution = copy.deepcopy(RESOLUTION)

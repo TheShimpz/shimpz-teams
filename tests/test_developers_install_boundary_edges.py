@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import unittest
@@ -71,6 +72,15 @@ class DevelopersInstallBoundaryEdgeTests(unittest.TestCase):
         def install(*_args, authorize_start, **_kwargs):
             authorize_start()
 
+        released: list[bool] = []
+
+        @contextlib.contextmanager
+        def custody(*_args):
+            try:
+                yield
+            finally:
+                released.append(True)
+
         with (
             mock.patch.multiple(
                 runtime_state,
@@ -84,13 +94,12 @@ class DevelopersInstallBoundaryEdgeTests(unittest.TestCase):
             mock.patch.object(developers_http.hosted_resources, "_authorize", return_value=lease),
             mock.patch.object(developers_http.hosted_resources, "_prepare_assistant_image"),
             mock.patch.object(developers_http.publication, "assistant_spec", return_value=object()),
-            mock.patch.object(developers_http.publication, "retain_icon"),
-            mock.patch.object(developers_http.publication, "discard_icon") as discard,
+            mock.patch.object(developers_http.publication, "retained_icon", side_effect=custody),
             mock.patch.object(developers_http.assistant_lifecycle, "_install_assistant", side_effect=install),
             self.assertRaises(developers_http.developers_client.InstallAuthorizationDeniedError),
         ):
             developers_http._install(request)
-        discard.assert_called_once()
+        self.assertEqual(released, [True])
 
     def test_dispatch_routes_and_rejects_unknown_operation(self) -> None:
         teams = self.request(developers_http.TEAMS_PATH)

@@ -557,7 +557,7 @@ class LocalSnapshotTests(unittest.TestCase):
         controller = SimpleNamespace(
             client=client,
             registry=registry,
-            assistant_icons=mock.Mock(),
+            assistant_icons=mock.MagicMock(),
             assistant_lifecycle=lifecycle,
         )
 
@@ -599,7 +599,7 @@ class LocalSnapshotTests(unittest.TestCase):
         controller = SimpleNamespace(
             client=client,
             registry=registry,
-            assistant_icons=mock.Mock(),
+            assistant_icons=mock.MagicMock(),
             assistant_lifecycle=lifecycle,
         )
 
@@ -624,7 +624,7 @@ class LocalSnapshotTests(unittest.TestCase):
             return SimpleNamespace(
                 client=client,
                 registry=registry,
-                assistant_icons=mock.Mock(),
+                assistant_icons=mock.MagicMock(),
                 assistant_lifecycle=_fresh_installing_lifecycle(mock.Mock()),
             )
 
@@ -640,7 +640,10 @@ class LocalSnapshotTests(unittest.TestCase):
         ):
             service.install_local_snapshot(rollback, "team_1", IMAGE_ID)
         rollback.registry.delete_if_matches.assert_not_called()
-        rollback.assistant_icons.discard_binding.assert_called_once_with(candidate, ())
+        rollback.assistant_icons.retained_local.assert_called_once_with(
+            admitted.record, admitted.icon, rollback.registry.bindings
+        )
+        rollback.assistant_icons.retained_local.return_value.__exit__.assert_called_once()
 
         binding_failure = controller()
         with (
@@ -683,7 +686,7 @@ class LocalSnapshotTests(unittest.TestCase):
         replacement_failure.registry.delete_if_matches.assert_not_called()
 
         icon_failure = controller()
-        icon_failure.assistant_icons.put_local.side_effect = AssistantIconError("offline")
+        icon_failure.assistant_icons.retained_local.side_effect = AssistantIconError("offline")
         with (
             mock.patch.object(service.snapshots, "admit", return_value=admitted),
             self.assertRaises(ApiProblemError) as caught,

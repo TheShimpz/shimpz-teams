@@ -529,19 +529,27 @@ class HostedHttpAssistantRouteEdgeTests(unittest.TestCase):
         def install(*_args, authorize_start, **_kwargs):
             authorize_start()
 
+        released: list[bool] = []
+
+        @contextlib.contextmanager
+        def custody(*_args):
+            try:
+                yield
+            finally:
+                released.append(True)
+
         with (
             mock.patch.object(runtime_state, "_enforce_rate"),
             mock.patch.object(server.dynamic_assistants, "binding_from_resolution", return_value=binding),
             mock.patch.object(server.publication, "assistant_spec", return_value=mock.sentinel.spec),
             mock.patch.object(hosted_resources, "_prepare_assistant_image"),
-            mock.patch.object(server.publication, "retain_icon"),
-            mock.patch.object(server.publication, "discard_icon") as discard,
+            mock.patch.object(server.publication, "retained_icon", side_effect=custody),
             mock.patch.object(assistant_lifecycle, "_install_assistant", side_effect=install),
             self.assertRaises(runtime_state.ApiError) as caught,
         ):
             handler._route_assistant_install(_request())
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-        discard.assert_called_once()
+        self.assertEqual(released, [True])
 
     def test_install_maps_each_external_trust_boundary_to_a_closed_public_error(self) -> None:
         exception_cases = (

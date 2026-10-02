@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import AbstractContextManager
 from copy import deepcopy
 from functools import lru_cache
 from typing import Any
@@ -16,10 +17,15 @@ from install import bindings, icons
 _SPEC_CACHE_ENTRIES = 256
 
 
-def retain_icon(client, store: icons.AssistantIconStore, resolution: dict[str, Any]) -> None:
-    """Fetch and retain the exact canonical icon declared by resolution."""
+def retained_icon(
+    client,
+    store: icons.AssistantIconStore,
+    bindings_store: bindings.DynamicAssistantStore,
+    resolution: dict[str, Any],
+) -> AbstractContextManager[None]:
+    """Fetch the exact canonical icon declared by resolution and hold it while its binding commits."""
     contents = client.icon(resolution["source_digest"], resolution["icon_digest"])
-    store.put(resolution, contents)
+    return store.retained(resolution, contents, bindings_store.snapshot)
 
 
 def discard_icon(
@@ -27,8 +33,8 @@ def discard_icon(
     bindings_store: bindings.DynamicAssistantStore,
     source_digest: str,
 ) -> None:
-    """Remove an icon once no installed binding references its publication."""
-    store.discard_unreferenced(source_digest, bindings_store.snapshot())
+    """Remove an icon once no installed binding or in-flight install references its publication."""
+    store.discard_unreferenced(source_digest, bindings_store.snapshot)
 
 
 def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assistant_registry.AssistantSpec:
