@@ -8,8 +8,10 @@ authorization response carries the original bytes, read from Team storage and ch
 from __future__ import annotations
 
 import base64
+import contextvars
 import hashlib
 import threading
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -174,21 +176,55 @@ def delivered(files: Mapping[str, object]) -> ActionFile | None:
 
 
 class FileRpcBusyError(RuntimeError):
-    """Another file-bearing Action RPC held the one slot past this RPC's whole deadline; nothing was dispatched."""
+    """Another delivery held the one file-RPC slot past this delivery's whole deadline; nothing was journaled."""
+
+
+class FileRpcCancelledError(RuntimeError):
+    """The turn was stopped while its delivery waited for the file-RPC slot; nothing was journaled."""
+
+
+_DEADLINE: contextvars.ContextVar[float | None] = contextvars.ContextVar("action_file_deadline", default=None)
+_SLOT_POLL_SECONDS = 0.25
 
 
 @contextmanager
-def rpc_slot(files: Mapping[str, object]) -> Iterator[float | None]:
-    """Hold the one file-bearing RPC slot while delivered bytes are in flight, and yield that RPC's deadline.
+def admitted(
+    file: ActionFile | None,
+    human_requests: Iterable[str],
+    transcript: action_human.ActionTranscript,
+    cancelled: Callable[[], bool],
+) -> Iterator[None]:
+    """Hold the one file-RPC slot for an invocation that will deliver bytes, before its execution is journaled.
 
-    An invocation without delivered content keeps the ordinary deadline: it yields None and holds nothing.
+    The slot is admitted before any byte is read and before the journal begins the attempt, so a delivery refused
+    here leaves the journal exactly as it was. The wait observes Stop, and the wait and the exchange share one
+    deadline (ADR-0093). An invocation that delivers nothing holds nothing.
+    """
+    if file is None or not authorized(human_requests, transcript):
+        yield
+        return
+    deadline = time.monotonic() + FILE_RPC_TIMEOUT_SECONDS
+    while not _FILE_RPC_SLOT.acquire(timeout=max(0.0, min(_SLOT_POLL_SECONDS, deadline - time.monotonic()))):
+        if cancelled():
+            raise FileRpcCancelledError("the turn was stopped while its file delivery waited")
+        if time.monotonic() >= deadline:
+            raise FileRpcBusyError("another file-bearing Action is still running")
+    token = _DEADLINE.set(deadline)
+    try:
+        yield
+    finally:
+        _DEADLINE.reset(token)
+        _FILE_RPC_SLOT.release()
+
+
+def rpc_timeout(files: Mapping[str, object], ordinary: float) -> float:
+    """The exchange deadline of one invocation: the remainder of its admitted delivery, or the ordinary one.
+
+    Delivered bytes outside an admitted slot are refused, so no path can dispatch them unbounded.
     """
     if not input_file_validator.delivers_content({"files": files}):
-        yield None
-        return
-    if not _FILE_RPC_SLOT.acquire(timeout=FILE_RPC_TIMEOUT_SECONDS):
-        raise FileRpcBusyError("another file-bearing Action is still running")
-    try:
-        yield float(FILE_RPC_TIMEOUT_SECONDS)
-    finally:
-        _FILE_RPC_SLOT.release()
+        return ordinary
+    deadline = _DEADLINE.get()
+    if deadline is None:
+        raise FileDeliveryError("delivered file content was not admitted to the file-RPC slot")
+    return max(0.0, deadline - time.monotonic())

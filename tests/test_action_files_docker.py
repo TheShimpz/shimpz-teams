@@ -126,6 +126,9 @@ class RealFileDeliveryTests(unittest.TestCase):
         tracemalloc.start()
         started = time.monotonic()
         try:
+            # Exactly as a chat batch does: the file-RPC slot is admitted before any byte is read.
+            admission = action_files.admitted(file, self.action.human_requests, transcript, lambda: False)
+            admission.__enter__()
             files = action_files.deliver(
                 self.action, file, transcript, action_input, lambda file_id: self.storage.get("team_1", file_id)
             )
@@ -143,6 +146,7 @@ class RealFileDeliveryTests(unittest.TestCase):
             finished = time.monotonic()
             peak = tracemalloc.get_traced_memory()[1]
         finally:
+            admission.__exit__(None, None, None)
             tracemalloc.stop()
         moments = [started, *events, finished]
         measured = {
@@ -177,8 +181,6 @@ class RealFileDeliveryTests(unittest.TestCase):
         raw, files, withheld = self._rpc(file, action_human.ActionTranscript("interrupt-1"))
         self.assertEqual(files[file.id]["content"], {"type": "withheld"})
         approved = action_human.ActionTranscript("interrupt-1").append(self._suspension(raw), True)
-        with action_files.rpc_slot({file.id: {"content": {"type": "delivered"}}}) as timeout:
-            self.assertEqual(timeout, 60.0)
         raw, files, delivered = self._rpc(file, approved)
         self.assertEqual(files[file.id]["content"]["type"], "delivered")
         self.assertEqual(raw, {"type": "result", "result": {"bytes": size, "sha256": file.sha256}})

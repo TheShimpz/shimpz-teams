@@ -322,12 +322,12 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Action input is too large") from exc
     try:
-        with action_files.rpc_slot(request.payload.get("files", {})) as file_timeout:
-            return _exchange_registered(request, encoded, file_timeout or action_execution.RPC_TIMEOUT_SECONDS)
-    except action_files.FileRpcBusyError as exc:
+        timeout = action_files.rpc_timeout(request.payload.get("files", {}), action_execution.RPC_TIMEOUT_SECONDS)
+    except action_files.FileDeliveryError as exc:
         raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE, "another file-bearing Action is still running; retry"
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
         ) from exc
+    return _exchange_registered(request, encoded, timeout)
 
 
 def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, timeout: float) -> object:

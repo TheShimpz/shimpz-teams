@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
@@ -319,6 +321,30 @@ def _hosted_human_requirement(
     )
 
 
+@contextlib.contextmanager
+def _admitted_delivery(
+    request: HostedChatSegmentRequest,
+    active: hosted_assistants._ActiveAssistant,
+    action_request: brain_runtime_client.ActionRequest,
+    private_inputs: object,
+) -> Iterator[None]:
+    """Admit a file delivery to the one file-RPC slot before its attempt is journaled (ADR-0093)."""
+    try:
+        with action_files.admitted(
+            getattr(private_inputs, "file", None),
+            active.contract.actions[action_request.action].human_requests,
+            action_human.transcript_for(request.transcripts, action_request.interrupt_id),
+            lambda: runtime_state._token_cancelled(request.token),
+        ):
+            yield
+    except action_files.FileRpcCancelledError as exc:
+        raise chat_orchestrator.ChatStoppedError("chat turn stopped") from exc
+    except action_files.FileRpcBusyError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE, "another file-bearing Action is still running; retry"
+        ) from exc
+
+
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
     with (
         hosted_assistants.integration_secrets_client.IntegrationSecretSession() as credential_session,
@@ -379,6 +405,9 @@ def _run_hosted_chat_segment_with_metadata(
         locale: str,
     ) -> action_challenges.HumanRequirement:
         return _hosted_human_requirement(bindings, action_request, human_request, locale, selected_files)
+
+    def admit(action_request: brain_runtime_client.ActionRequest, private_inputs: object):
+        return _admitted_delivery(request, bindings[action_request.assistant_id], action_request, private_inputs)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
         nonlocal bindings, config, generation, initial_identity, prepared_assistants, selected_files
@@ -442,6 +471,7 @@ def _run_hosted_chat_segment_with_metadata(
                     origins,
                 ),
                 lambda request: bindings[request.assistant_id].contract.actions[request.action].effect,
+                admit=admit,
             ),
         )
         return chat_turn_engine.PreparedSegment(team_name, initial_identity, context, files, batch)

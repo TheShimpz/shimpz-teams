@@ -80,14 +80,14 @@ def _rpc(
         ) from exc
 
     try:
-        with action_files.rpc_slot(payload.get("files", {})) as file_timeout:
-            return _exchange(self, container, action_id, encoded, file_timeout or action_execution.RPC_TIMEOUT_SECONDS)
-    except action_files.FileRpcBusyError as exc:
+        timeout = action_files.rpc_timeout(payload.get("files", {}), action_execution.RPC_TIMEOUT_SECONDS)
+    except action_files.FileDeliveryError as exc:
         raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "another file-bearing Action is still running; retry",
-            code="assistant-file-busy",
+            HTTPStatus.CONFLICT,
+            "the attached file is unavailable for this Action; attach it again",
+            code="action-file-unavailable",
         ) from exc
+    return _exchange(self, container, action_id, encoded, timeout)
 
 
 def _exchange(self, container, action_id: str, encoded: bytes, timeout: float) -> object:

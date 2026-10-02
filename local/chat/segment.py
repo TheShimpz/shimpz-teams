@@ -1,7 +1,11 @@
 """Local chat segment orchestration operations."""
 
+import functools
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from http import HTTPStatus
 
 from action import challenges as action_challenges
 from action import execution as action_execution
@@ -177,6 +181,34 @@ def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_run
     )
 
 
+@contextmanager
+def _admitted_delivery(
+    self,
+    request: SegmentRequest,
+    bindings: dict[str, _ActiveAssistant],
+    action_request: brain_runtime_client.ActionRequest,
+    private_inputs: object,
+) -> Iterator[None]:
+    """Admit a file delivery to the one file-RPC slot before its attempt is journaled (ADR-0093)."""
+    action = _required_active_assistant(bindings, action_request.assistant_id).spec.actions[action_request.action]
+    try:
+        with action_files.admitted(
+            getattr(private_inputs, "file", None),
+            action.human_requests,
+            action_human.transcript_for(request.transcripts, action_request.interrupt_id),
+            lambda: self._chat_cancelled(request.token),
+        ):
+            yield
+    except action_files.FileRpcCancelledError as exc:
+        raise chat_orchestrator.ChatStoppedError("chat turn stopped") from exc
+    except action_files.FileRpcBusyError as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "another file-bearing Action is still running; retry",
+            code="assistant-file-busy",
+        ) from exc
+
+
 def _run_chat_segment(
     self,
     request: SegmentRequest,
@@ -299,6 +331,7 @@ def _run_chat_segment_with_metadata(
                 ),
                 # A Routine retry repeats its carried logical operation; anything else lets the journal mint one.
                 (lambda _request: None) if routine is None else routine.runtime.logical_operation,
+                functools.partial(_admitted_delivery, self, request, bindings),
             ),
         )
         if held:

@@ -10,7 +10,7 @@ import socket
 import struct
 import time
 from collections.abc import Callable, Mapping
-from contextlib import suppress
+from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
@@ -176,6 +176,9 @@ class ActionBatchStrategy:
     effect: Callable[[object], str] = lambda _request: "mutating"
     # The logical operation a permitted Routine retry repeats (ADR-0092); None lets the journal mint a new one.
     operation_id: Callable[[object], str | None] = lambda _request: None
+    # Admits one request's execution before its attempt is journaled: a file delivery holds the one file-RPC slot
+    # here, so a refused or stopped wait leaves the journal unchanged (ADR-0093).
+    admit: Callable[[object, object], AbstractContextManager[None]] = lambda _request, _evidence: nullcontext()
 
 
 class ActionBatch:
@@ -269,6 +272,10 @@ class ActionBatch:
             current_operation != operation and self._operation(request, self._origins) != operation
         ):
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
+        with self._strategy.admit(request, evidence):
+            return self._execute(request, operation, evidence)
+
+    def _execute(self, request: object, operation: action_journal.Operation, evidence: object) -> object:
         decision = self._journal.begin(self._batch, operation)
         if not decision.execute:
             return decision.result

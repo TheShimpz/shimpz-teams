@@ -183,32 +183,77 @@ class DeliveryTests(unittest.TestCase):
         self.assertIs(resolved.file, self.file)
 
 
-class FileRpcSlotTests(unittest.TestCase):
-    def test_only_delivered_bytes_hold_the_one_file_rpc_slot_and_its_longer_deadline(self) -> None:
-        withheld = {FILE_ID: {"content": {"type": "withheld"}}}
-        delivered = {FILE_ID: {"content": {"type": "delivered", "base64": "YQ=="}}}
-        with action_files.rpc_slot(withheld) as timeout:
-            self.assertIsNone(timeout)
-        busy: list[BaseException] = []
+class FileRpcAdmissionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.file = action_files.selected([_wire()])[FILE_ID]
 
-        def contend() -> None:
+    def test_only_an_authorized_delivery_holds_the_slot_and_one_shared_deadline(self) -> None:
+        delivered = {FILE_ID: {"content": {"type": "delivered", "base64": "YQ=="}}}
+        withheld = {FILE_ID: {"content": {"type": "withheld"}}}
+        with action_files.admitted(self.file, ("approval",), action_human.ActionTranscript("i"), lambda: False):
+            self.assertEqual(action_files.rpc_timeout(withheld, 8.0), 8.0)
+            with self.assertRaises(action_files.FileDeliveryError):
+                action_files.rpc_timeout(delivered, 8.0)
+        with action_files.admitted(None, ("approval",), _approved(), lambda: False):
+            self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+        started = time.monotonic()
+        with action_files.admitted(self.file, ("approval",), _approved(), lambda: False):
+            self.assertEqual(action_files._FILE_RPC_SLOT._value, 0)
+            remaining = action_files.rpc_timeout(delivered, 8.0)
+            self.assertLessEqual(remaining, action_files.FILE_RPC_TIMEOUT_SECONDS - (time.monotonic() - started) + 0.01)
+            self.assertGreater(remaining, action_files.FILE_RPC_TIMEOUT_SECONDS - 5)
+        self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+
+    def test_a_waiting_delivery_is_refused_at_its_deadline_or_at_stop_without_holding_bytes(self) -> None:
+        outcomes: list[BaseException] = []
+        stopped = threading.Event()
+
+        def contend(cancelled) -> None:
             try:
-                with action_files.rpc_slot(delivered):
-                    pass
-            except action_files.FileRpcBusyError as exc:
-                busy.append(exc)
+                with action_files.admitted(self.file, ("approval",), _approved(), cancelled):
+                    outcomes.append(AssertionError("admitted while the slot was held"))
+            except (action_files.FileRpcBusyError, action_files.FileRpcCancelledError) as exc:
+                outcomes.append(exc)
 
         with (
-            mock.patch.object(action_files, "FILE_RPC_TIMEOUT_SECONDS", 0.05),
-            action_files.rpc_slot(delivered) as timeout,
+            mock.patch.object(action_files, "FILE_RPC_TIMEOUT_SECONDS", 0.3),
+            action_files.admitted(self.file, ("approval",), _approved(), lambda: False),
         ):
-            self.assertEqual(timeout, 0.05)
-            contender = threading.Thread(target=contend)
-            contender.start()
-            contender.join(5)
-        self.assertEqual(len(busy), 1)
-        with action_files.rpc_slot(delivered) as timeout:
-            self.assertEqual(timeout, float(action_files.FILE_RPC_TIMEOUT_SECONDS))
+            busy = threading.Thread(target=contend, args=(lambda: False,))
+            busy.start()
+            busy.join(5)
+            cancelled = threading.Thread(target=contend, args=(stopped.is_set,))
+            started = time.monotonic()
+            cancelled.start()
+            stopped.set()
+            cancelled.join(5)
+            self.assertLess(time.monotonic() - started, 1.0)
+        self.assertIsInstance(outcomes[0], action_files.FileRpcBusyError)
+        self.assertIsInstance(outcomes[1], action_files.FileRpcCancelledError)
+        self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+
+
+class BatchAdmissionTests(unittest.TestCase):
+    def test_a_refused_admission_never_begins_the_journaled_attempt(self) -> None:
+        journal = mock.Mock(spec=action_execution.action_journal.ActionJournal)
+        refused = mock.MagicMock()
+        refused.__enter__.side_effect = action_files.FileRpcBusyError("busy")
+        execute = mock.Mock()
+        strategy = action_execution.ActionBatchStrategy(
+            lambda _active: ("container", "image"),
+            execute,
+            lambda _request: action_execution.RpcPrivateInputs({}, {}),
+            admit=lambda _request, _evidence: refused,
+        )
+        request = brain_runtime_client.ActionRequest("interrupt-1", "docs", "upload", {"document": FILE_ID})
+        batch = action_execution.ActionBatch(journal, "generation", "thread", {"docs": object()}, strategy)
+        operation = batch._operation(request)
+        batch._batch, batch._operations = object(), {"interrupt-1": operation}
+        batch._prepared_stored_inputs = {"interrupt-1": {}}
+        with self.assertRaises(action_files.FileRpcBusyError):
+            batch.invoke(request)
+        journal.begin.assert_not_called()
+        execute.assert_not_called()
 
 
 def _context(*attachments: dict[str, object]) -> brain_runtime_client.RuntimeContext:
@@ -338,20 +383,26 @@ class TransportEdgeTests(unittest.TestCase):
         self.assertEqual(flaky.blocked, set())
         self.assertEqual(workload.recv(16), b"input")
 
-    def test_a_busy_file_rpc_slot_refuses_before_anything_is_dispatched(self) -> None:
-        busy = mock.patch.object(action_files, "rpc_slot", side_effect=action_files.FileRpcBusyError("busy"))
-        payload = {"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID}
-        subject = SimpleNamespace(_close_exec_stream=mock.Mock())
-        with busy, self.assertRaises(local_app.ApiProblem) as caught:
+    def test_delivered_bytes_outside_an_admitted_slot_never_reach_the_workload(self) -> None:
+        files = {FILE_ID: {"content": {"type": "delivered", "base64": "YQ=="}}}
+        payload = {"input": {}, "integrations": {}, "stored_inputs": {}, "files": files, "operation_id": OPERATION_ID}
+        subject = SimpleNamespace(client=SimpleNamespace(api=mock.Mock()), _close_exec_stream=mock.Mock())
+        with (
+            mock.patch.object(action_execution, "encode_rpc_invocation", return_value=b"{}"),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
             local_assistant_rpc._rpc(subject, SimpleNamespace(id="container"), "upload", payload)
-        self.assertEqual(caught.exception.code, "assistant-file-busy")
+        self.assertEqual(caught.exception.code, "action-file-unavailable")
+        subject.client.api.exec_create.assert_not_called()
         request = hosted_assistants.AssistantRpcRequest("team_1", SimpleNamespace(id="c"), "upload", payload, None)
-        # The Hosted harness loads its own copy of the module, so its slot is patched there.
-        hosted_files = hosted_assistants.action_files
-        hosted_busy = mock.patch.object(hosted_files, "rpc_slot", side_effect=hosted_files.FileRpcBusyError("busy"))
-        with hosted_busy, self.assertRaises(hosted_state.ApiError) as hosted:
+        with (
+            mock.patch.object(hosted_assistants.action_execution, "encode_rpc_invocation", return_value=b"{}"),
+            mock.patch.object(hosted_assistants, "_exchange_registered") as exchange,
+            self.assertRaises(hosted_state.ApiError) as hosted,
+        ):
             hosted_assistants._assistant_rpc_exchange(request)
-        self.assertEqual(hosted.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        self.assertEqual(hosted.exception.status, HTTPStatus.CONFLICT)
+        exchange.assert_not_called()
 
 
 class DisclosureVectorTests(unittest.TestCase):
