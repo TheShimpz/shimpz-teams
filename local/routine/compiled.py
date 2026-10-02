@@ -95,7 +95,20 @@ class CompiledRuntime:
         self.cursor = cursor
 
     def start(self, _context, _message, *, conversation=()) -> brain_runtime_client.RuntimeTurn:
+        """The segment's first turn; a carried operation is retried only after proven absence, once per run."""
+        if self.cursor.carried:
+            try:
+                retried = routine_cursor.retry(self.cursor)
+            except routine_cursor.CursorError as exc:
+                raise CompiledRunError(exc.code) from exc
+            self.seal(retried)
         return self._turn()
+
+    def logical_operation(self, request: brain_runtime_client.ActionRequest) -> str | None:
+        """The carried operation a permitted retry repeats; every other request lets the journal mint its own."""
+        if self.cursor.carried and request.interrupt_id == self.interrupt(self.cursor.step):
+            return self.cursor.operation_id
+        return None
 
     def resume(self, _context, results: Mapping[str, object]) -> brain_runtime_client.RuntimeTurn:
         """Seal the completed step's selected values, before the journal may drop its receipts, then go on."""
@@ -171,7 +184,7 @@ def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
 
 def runtime(self, team_id: str, value: record.Run, routine: record.Routine) -> CompiledRuntime:
     """The run's compiled runtime: its recovery snapshot sealed, and its cursor reopened or started."""
-    network_id = value.generation.removesuffix(f":routine:{value.run_id}")
+    network_id = record.network_of(value.generation, value.run_id)
     binding = routine_cursor.Binding(network_id, routine.routine_id, routine.revision, value.run_id)
     plan = _plan(self, team_id, routine)
     # Write-once and sealed before the run's first dispatch; every later segment reseals the exact same bytes.
@@ -235,7 +248,7 @@ def _sealed(self, team_id: str, value: record.Run):
     snapshot = routine_incident.read_recovery(payload, value.run_id)
     if (
         snapshot.binding.routine_id != value.routine_id
-        or record.generation_for(snapshot.binding.incarnation, value.run_id) != value.generation
+        or record.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
     ):
         raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
     cursor = self.routine_store.cursor(team_id, snapshot.binding)

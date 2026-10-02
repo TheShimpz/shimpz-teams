@@ -393,7 +393,10 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             )
             self.routine(service)
             down = action_journal.ActionJournalError("down")
-            with mock.patch.object(service.action_state, "discard", side_effect=down):
+            with (
+                mock.patch.object(service.action_state, "discard", side_effect=down),
+                mock.patch.object(service.action_state, "purge", side_effect=down),
+            ):
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     routine_manage.drain(service, "team_1")
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")

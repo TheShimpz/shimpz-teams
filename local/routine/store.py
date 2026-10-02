@@ -90,7 +90,9 @@ _RUN_FIELDS = frozenset(
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
-_INCIDENT_FIELDS = frozenset({"incident_id", "routine_id", "generation", "created_at", "revision", "status"})
+_INCIDENT_FIELDS = frozenset(
+    {"incident_id", "routine_id", "generation", "created_at", "revision", "status", "notice_version"}
+)
 _STATE_FIELDS = frozenset(
     {
         "schema",
@@ -317,7 +319,8 @@ def _decode_notice(value: object) -> record.Notice:
 
 def _generation_of(run_id: str, generation: object) -> bool:
     return isinstance(generation, str) and (
-        generation == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}", generation) is not None
+        generation == ""
+        or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s[1-9][0-9]{{0,2}})?", generation) is not None
     )
 
 
@@ -353,6 +356,7 @@ def _decode_incident(value: object) -> record.Incident:
         _instant(value["created_at"]),
         value["revision"],
         value["status"],
+        _count(value["notice_version"]),
     )
 
 
@@ -409,7 +413,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         len(set(identifiers)) == len(identifiers)
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
-        and len({item[0] for item in state.discards}) == len(state.discards)
+        and len(set(state.discards)) == len(state.discards)
         and len({item.incident_id for item in state.incidents}) == len(state.incidents)
         and len({item[0] for item in state.receipts}) == len(state.receipts)
         and sum(item.status == "unresolved" for item in state.incidents) <= record.MAX_UNRESOLVED_INCIDENTS

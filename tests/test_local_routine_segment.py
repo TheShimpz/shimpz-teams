@@ -37,6 +37,10 @@ class Compiled(Runtime):
     def dispatching(self, _request, _operation_id) -> None:
         raise AssertionError("nothing is dispatched")
 
+    @staticmethod
+    def logical_operation(_request) -> None:
+        return None
+
 
 class RoutineSegmentTests(LocalContractCase):
     def request(self, routine: RoutineSegment | None) -> SegmentRequest:

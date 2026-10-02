@@ -271,15 +271,17 @@ def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
     network_id = self.assistant_lifecycle._network(team_id).id
     now = int(time.time())
 
-    def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+    def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            return record.bind_generation(state, run_id, lease, now, network_id), True
+            bound = record.bind_generation(state, run_id, lease, now, network_id)
         except record.RoutineStateError:
-            return state, False
+            return state, None
+        return bound, record.run(bound, run_id).generation
 
-    if not routine_state.update(self, team_id, bind):
+    generation = routine_state.update(self, team_id, bind)
+    if generation is None:
         raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
-    return record.generation_for(network_id, run_id)
+    return generation
 
 
 def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:

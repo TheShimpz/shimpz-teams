@@ -34,6 +34,10 @@ _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
+_SUFFIX_RE = re.compile(r"[sv][1-9][0-9]{0,2}\Z")
+_GENERATION_RE = re.compile(
+    r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv][1-9][0-9]{0,2})?\Z"
+)
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 _RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
@@ -139,6 +143,8 @@ class Incident:
     # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown
     # and its archive marker, cursor, and evidence are still being released; "released" has nothing left to release.
     status: str = "unresolved"
+    # The held run's last notice version, which its continuation goes on from so Admin replaces the same row.
+    notice_version: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,9 +389,9 @@ def _without_run(state: TeamRoutines, run_id: str) -> TeamRoutines:
     )
 
 
-def discarded(state: TeamRoutines, run_id: str) -> TeamRoutines:
-    """Team removed an ended run's thread, journal generation, and continuation."""
-    return dataclasses.replace(state, discards=tuple(item for item in state.discards if item[0] != run_id))
+def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
+    """Team removed what one ended generation of a run held; a resumed run may queue more than one."""
+    return dataclasses.replace(state, discards=tuple(item for item in state.discards if item != (run_id, generation)))
 
 
 def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
@@ -582,15 +588,31 @@ def _live(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> Run:
     return value
 
 
-def generation_for(network_id: str, run_id: str) -> str:
-    return f"{network_id}:routine:{run_id}"
+def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
+    """A run's journal generation in the Team's network.
+
+    A continuation (``s<n>``) or verification (``v<n>``) after a hold gets its own, since the held generation is
+    archived (ADR-0092).
+    """
+    if suffix and _SUFFIX_RE.fullmatch(suffix) is None:
+        raise RoutineStateError("generation-invalid")
+    return f"{network_id}:routine:{run_id}" + (f":{suffix}" if suffix else "")
+
+
+def network_of(generation: object, run_id: str) -> str | None:
+    """The Team network a run's generation, or one of its continuation or verification generations, belongs to."""
+    match = _GENERATION_RE.fullmatch(generation) if isinstance(generation, str) else None
+    return match["network"] if match is not None and match["run"] == run_id else None
 
 
 def bind_generation(state: TeamRoutines, run_id: str, lease: Lease, now: int, network_id: str) -> TeamRoutines:
-    """Bind the run's own journal generation, derived from the Team's trusted network id, once; it never changes."""
+    """Bind the run's own journal generation, derived from the Team's trusted network id, once; it never changes.
+
+    A continuation after a hold already names its own generation, which must belong to the same network.
+    """
     value = _live(state, run_id, lease, now)
-    generation = generation_for(network_id, run_id)
-    if _SAFE_ID_RE.fullmatch(generation) is None or value.generation not in {"", generation}:
+    generation = value.generation or generation_for(network_id, run_id)
+    if _SAFE_ID_RE.fullmatch(generation) is None or network_of(generation, run_id) != network_id:
         raise RoutineStateError("generation-invalid")
     return _replace_run(state, dataclasses.replace(value, generation=generation))
 
@@ -770,7 +792,7 @@ def settle_hold(state: TeamRoutines, run_id: str, now: int, revision: int | None
     executed = routine(state, value.routine_id).revision if revision is None else revision
     if type(executed) is not int or executed < 1:
         raise RoutineStateError("incident-invalid")
-    incident = Incident(run_id, value.routine_id, value.generation, now, executed)
+    incident = Incident(run_id, value.routine_id, value.generation, now, executed, notice_version=value.notice_version)
     kept = list(state.incidents)
     while len(kept) >= MAX_INCIDENTS:
         released = next((item for item in kept if item.status == "released"), None)
@@ -785,6 +807,44 @@ def incident(state: TeamRoutines, incident_id: str) -> Incident:
         if item.incident_id == incident_id:
             return item
     raise RoutineStateError("incident-not-found")
+
+
+def reopen_incident(state: TeamRoutines, incident_id: str, now: int, generation: str) -> tuple[TeamRoutines, str]:
+    """Resume a held run after Team-admitted evidence, as a continuation in its own ``generation`` (ADR-0092).
+
+    Only the revision the run executed, of a Routine still listed, not paused, and with no other run, may continue.
+    The incident gives way in the same write, and its archived generation is queued for removal; the continuation runs
+    under a fresh internal lease that no machine assertion knows, and goes on with the run's notice.
+    """
+    value = incident(state, incident_id)
+    if value.status != "unresolved":
+        raise RoutineStateError("incident-not-unresolved")
+    current = routine(state, value.routine_id)
+    if current.deleting or current.paused or current.revision != value.revision:
+        raise RoutineStateError("routine-not-resumable")
+    if any(item.routine_id == value.routine_id for item in state.runs) or network_of(generation, incident_id) is None:
+        raise RoutineStateError("routine-busy")
+    token = secrets.token_urlsafe(32)
+    resumed = Run(
+        incident_id,
+        value.routine_id,
+        "leased",
+        value.created_at,
+        lease_sha256=lease_sha256(token),
+        lease_key=HUMAN_LEASE,
+        lease_expires_at=now + LEASE_SECONDS,
+        generation=generation,
+        notice_version=value.notice_version,
+    )
+    return (
+        dataclasses.replace(
+            state,
+            incidents=tuple(item for item in state.incidents if item.incident_id != incident_id),
+            runs=(*state.runs, resumed),
+            discards=(*state.discards, (incident_id, value.generation)),
+        ),
+        token,
+    )
 
 
 def skip_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:

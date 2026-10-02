@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import select
@@ -158,6 +159,8 @@ class ActionBatchStrategy:
     )
     # The pinned reviewed effect class of a request's Action; anything not declared read_only is mutating.
     effect: Callable[[object], str] = lambda _request: "mutating"
+    # The logical operation a permitted Routine retry repeats (ADR-0092); None lets the journal mint a new one.
+    operation_id: Callable[[object], str | None] = lambda _request: None
 
 
 class ActionBatch:
@@ -197,16 +200,14 @@ class ActionBatch:
         evidence = self._strategy.preflight(request)
         container_id, image = self._strategy.binding_identity(active)
         origins = excluded_origins if excluded_origins is not None else frozenset({stored_input_origin(request)})
-        return (
-            action_operation(
-                request,
-                container_id,
-                image,
-                self._strategy.integration_generations(request),
-                self._strategy.stored_input_generations(request, origins),
-            ),
-            evidence,
+        operation = action_operation(
+            request,
+            container_id,
+            image,
+            self._strategy.integration_generations(request),
+            self._strategy.stored_input_generations(request, origins),
         )
+        return dataclasses.replace(operation, operation_id=self._strategy.operation_id(request)), evidence
 
     def _operation(
         self,

@@ -147,7 +147,7 @@ def read_evidence(payload: bytes, incident_id: str) -> dict[str, object]:
         snapshot = read_recovery(value["recovery"], incident_id)
         if (
             snapshot.binding.routine_id != value["routine_id"]
-            or record.generation_for(snapshot.binding.incarnation, incident_id) != value["generation"]
+            or record.network_of(value["generation"], incident_id) != snapshot.binding.incarnation
         ):
             raise routine_state.unavailable()
         value["recovery"] = snapshot
@@ -162,7 +162,7 @@ def _snapshot(self, team_id: str, value: record.Run) -> Recovery | None:
     snapshot = read_recovery(payload, value.run_id)
     if (
         snapshot.binding.routine_id != value.routine_id
-        or record.generation_for(snapshot.binding.incarnation, value.run_id) != value.generation
+        or record.network_of(value.generation, value.run_id) != snapshot.binding.incarnation
     ):
         raise routine_state.unavailable()
     return snapshot
@@ -191,6 +191,9 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
     try:
         current = self.action_state.current_batch(value.generation)
         sealed = routine_state.call(lambda: self.routine_store.incident(team_id, run_id))
+        if sealed is not None and read_evidence(sealed, run_id)["generation"] != value.generation:
+            # Evidence of an earlier hold this run resumed from; its generation is gone, and this hold seals its own.
+            sealed = None
         if sealed is None:
             if current is not None and current[1] == "archived":
                 # Archiving happens only after the evidence is durable, so this is lost evidence: never guess it.

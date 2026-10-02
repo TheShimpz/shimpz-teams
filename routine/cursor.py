@@ -21,12 +21,15 @@ VERSION = 1
 MAX_CURSOR_BYTES = 256 * 1024
 # The initial automatic recovery bounds; consumption is persisted before any paid dispatch.
 BUDGETS = (
+    ("episodes", 1),
     ("model_calls", 4),
     ("output_tokens", 4096),
     ("recovery_seconds", 60),
     ("retries", 1),
     ("verifications", 3),
 )
+# Continuation segments a run may open after holds; each runs in its own journal generation.
+MAX_SEGMENTS = 8
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -45,6 +48,9 @@ _FIELDS = frozenset(
         "commitment",
         "selected",
         "budgets",
+        "segment",
+        "absent",
+        "carried",
     }
 )
 
@@ -78,6 +84,20 @@ class Cursor:
     commitment: str | None = None
     selected: tuple[tuple[str, str, object], ...] = ()
     budgets: tuple[tuple[str, int], ...] = BUDGETS
+    # The continuation segment after holds; 0 is the run's own generation.
+    segment: int = 0
+    # Team-admitted evidence proved the dispatched operation had no business effect, which permits one retry of it.
+    absent: bool = False
+    # The dispatched operation came from an earlier segment: this segment may only retry it, under the same logical
+    # operation, after proven absence.
+    carried: bool = False
+
+    @property
+    def generation_suffix(self) -> str:
+        return f"s{self.segment}" if self.segment else ""
+
+    def remaining(self, budget: str) -> int:
+        return dict(self.budgets)[budget]
 
     def selections(self) -> dict[tuple[str, str], object]:
         return {(step, pointer): value for step, pointer, value in self.selected}
@@ -121,7 +141,31 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object) -> Cursor:
         raise CursorError(exc.code) from exc
     selected = (*cursor.selected, *((step_id, pointer, value) for pointer, value in sorted(chosen.items())))
     advanced = Cursor(cursor.binding, cursor.plan, cursor.started_at, cursor.step + 1, selected=selected)
-    return _checked(dataclasses.replace(advanced, budgets=cursor.budgets))
+    return _checked(dataclasses.replace(advanced, budgets=cursor.budgets, segment=cursor.segment))
+
+
+def proven_absent(cursor: Cursor) -> Cursor:
+    """Record Team-admitted proof that the dispatched operation had no business effect."""
+    if cursor.operation_id is None:
+        raise CursorError("cursor-not-dispatched")
+    return _checked(dataclasses.replace(cursor, absent=True))
+
+
+def retry(cursor: Cursor) -> Cursor:
+    """Permit the one retry of the dispatched operation, under the same logical operation, only after proven absence.
+
+    The retry is consumed here, before its dispatch, and the proof is spent with it.
+    """
+    if cursor.operation_id is None or not cursor.absent:
+        raise CursorError("cursor-operation-uncertain")
+    return _checked(dataclasses.replace(spend(cursor, "retries", 1), absent=False))
+
+
+def continued(cursor: Cursor) -> Cursor:
+    """The cursor of the run's next continuation segment, after a hold archived the current generation."""
+    if cursor.segment >= MAX_SEGMENTS:
+        raise CursorError("cursor-segments-exhausted")
+    return _checked(dataclasses.replace(cursor, segment=cursor.segment + 1, carried=cursor.operation_id is not None))
 
 
 def spend(cursor: Cursor, budget: str, amount: int) -> Cursor:
@@ -154,6 +198,9 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "commitment": cursor.commitment,
         "selected": [[step, pointer, value] for step, pointer, value in cursor.selected],
         "budgets": dict(cursor.budgets),
+        "segment": cursor.segment,
+        "absent": cursor.absent,
+        "carried": cursor.carried,
     }
 
 
@@ -185,6 +232,9 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["commitment"],
         tuple((item[0], item[1], item[2]) for item in selected),
         tuple(sorted(budgets.items())),
+        value["segment"],
+        value["absent"],
+        value["carried"],
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -212,6 +262,11 @@ def _checked(cursor: Cursor) -> Cursor:
         )
         and _budgets_valid(cursor.budgets)
         and _selections_valid(cursor.selected)
+        and type(cursor.segment) is int
+        and 0 <= cursor.segment <= MAX_SEGMENTS
+        and type(cursor.absent) is bool
+        and type(cursor.carried) is bool
+        and (dispatched or not (cursor.absent or cursor.carried))
     )
     if not valid:
         raise CursorError("cursor-invalid")

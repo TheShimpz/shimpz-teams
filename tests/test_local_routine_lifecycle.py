@@ -14,6 +14,7 @@ import routine_fixture
 from action import challenges as action_challenges
 from action import journal as action_journal
 from local.errors import ApiProblemError
+from local.routine import card as routine_card
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import lineage as routine_lineage
@@ -72,6 +73,7 @@ class RoutineLifecycleTests(unittest.TestCase):
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
             routine_lineage=routine_lineage.LineageBook(),
+            routine_cards=routine_card.CardBook(),
         )
 
     def test_a_teams_routine_threads_generations_and_state_are_deleted(self):

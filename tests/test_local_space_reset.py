@@ -13,6 +13,7 @@ from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase,
 from action import challenges as action_challenges
 from local import app as local_app
 from local import labels as local_labels
+from local.routine import card as routine_card
 from local.routine import lineage as routine_lineage
 from routine import record as routine_record
 
@@ -57,6 +58,7 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -124,6 +126,7 @@ class LocalSpaceResetTests(LocalContractCase):
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
         controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),

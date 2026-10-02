@@ -65,23 +65,30 @@ def list_routines(self, team_id: str) -> dict[str, object]:
     }
 
 
-def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool) -> None:
-    """Remove one ended run's live journal batch, continuation, and cursor; each removal is idempotent.
+def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool, live: bool) -> None:
+    """Remove one ended run's journal generation, continuation, and cursor; each removal is idempotent.
 
-    An archive marker and a cursor its incident still needs stay (ADR-0092).
+    An archive marker, cursor, and evidence an unresolved incident still needs stay (ADR-0092). A generation a resumed
+    run left behind goes whole, archive marker included, while the files the live continuation shares stay.
     """
     if generation:
         try:
-            self.action_state.discard(generation)
+            if incident:
+                self.action_state.discard(generation)
+            else:
+                self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:
             raise _problem(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"
             ) from exc
+    if live:
+        return
     routine_state.call(lambda: self.routine_store.delete_continuation(team_id, run_id))
     # An incident keeps its own sealed copy of the recovery snapshot.
     routine_state.call(lambda: self.routine_store.delete_recovery(team_id, run_id))
     if not incident:
         routine_state.call(lambda: self.routine_store.delete_cursor(team_id, run_id))
+        routine_state.call(lambda: self.routine_store.delete_incident(team_id, run_id))
 
 
 def drain(self, team_id: str) -> None:
@@ -91,10 +98,13 @@ def drain(self, team_id: str) -> None:
     is removed while the run could still resume.
     """
     state = routine_state.load(self, team_id)
-    incidents = {item.incident_id for item in state.incidents}
+    incidents = {item.incident_id for item in state.incidents if item.status != "released"}
+    live = {item.run_id for item in state.runs}
     for run_id, generation in state.discards:
-        _discard(self, team_id, run_id, generation, incident=run_id in incidents)
-        routine_state.update(self, team_id, lambda state, run=run_id: (record.discarded(state, run), None))
+        _discard(self, team_id, run_id, generation, incident=run_id in incidents, live=run_id in live)
+        routine_state.update(
+            self, team_id, lambda state, run=run_id, held=generation: (record.discarded(state, run, held), None)
+        )
 
 
 def settle(self, team_id: str, routine_id: str) -> bool:

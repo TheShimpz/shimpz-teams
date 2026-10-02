@@ -37,6 +37,8 @@ class RoutineSegment:
     generation: str
     runtime: object
     batches: list[action_execution.HeldActionBatch] = field(default_factory=list)
+    # A run's own segment holds an uncertain batch for recovery; a read-only verification ends its batch in-band.
+    held: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,9 +195,9 @@ def _run_chat_segment_with_metadata(
         routine = request.routine
         generation, thread_id = network_id, _brain_thread_id(self.space_id, request.team_id, network_id)
         if routine is not None:
-            generation = routine_record.generation_for(network_id, routine.run_id)
+            generation = routine.generation
             thread_id = _routine_thread_id(self.space_id, request.team_id, network_id, routine.run_id)
-            if generation != routine.generation:
+            if routine_record.network_of(generation, routine.run_id) != network_id:
                 # The Team network changed since the run bound its generation: nothing may run in another network.
                 self._raise_chat_problem("context-changed", None)
         if request.continuation is None:
@@ -232,7 +234,8 @@ def _run_chat_segment_with_metadata(
             locale=request.locale,
         )
         bindings = {active.spec.assistant_id: active for active in assistants}
-        batch = (action_execution.ActionBatch if routine is None else action_execution.HeldActionBatch)(
+        held = routine is not None and routine.held
+        batch = (action_execution.HeldActionBatch if held else action_execution.ActionBatch)(
             self.action_state,
             generation,
             context.thread_id,
@@ -261,9 +264,11 @@ def _run_chat_segment_with_metadata(
                     .spec.actions[action_request.action]
                     .effect
                 ),
+                # A Routine retry repeats its carried logical operation; anything else lets the journal mint one.
+                (lambda _request: None) if routine is None else routine.runtime.logical_operation,
             ),
         )
-        if routine is not None:
+        if held:
             routine.batches.append(batch)
         return chat_turn_engine.PreparedSegment(display_name, identity, context, files, batch)
 
