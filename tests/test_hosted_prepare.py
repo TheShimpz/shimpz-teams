@@ -92,6 +92,25 @@ class HostedPrepareTests(unittest.TestCase):
         self.assertEqual(files, [])
         self.assertTrue(callable(factory))
 
+    def test_a_clean_team_starts_its_helper_and_teardown_delegates_removal(self) -> None:
+        container = SimpleNamespace(id="helper-1", start=mock.Mock(), remove=mock.Mock())
+        self.docker.containers.create.return_value = container
+        with (
+            mock.patch.object(resources, "_reserve_capacity"),
+            mock.patch.object(
+                hosted_prepare.preparation_helper.action_execution,
+                "rpc_exchange",
+                return_value={"type": "text", "text": "ok"},
+            ),
+            hosted_prepare.helper("team_1", "account_1") as session,
+        ):
+            self.assertEqual(session.prepare("pdf", b"%PDF"), {"type": "text", "text": "ok"})
+        container.start.assert_called_once_with()
+        container.remove.assert_called_once_with(force=True)
+        with mock.patch.object(hosted_prepare, "remove_helpers", return_value=True) as remove:
+            self.assertTrue(harness.hosted_lifecycle._teardown_preparation_helpers("team_1"))
+        remove.assert_called_once_with("team_1")
+
 
 if __name__ == "__main__":
     unittest.main()

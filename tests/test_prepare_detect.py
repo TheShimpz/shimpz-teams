@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from prepare import detect
+from prepare import detect, limits
 from tests import prepare_fixtures
 
 
@@ -42,6 +42,12 @@ class DetectTests(unittest.TestCase):
         ):
             with self.subTest(name=name, data=data[:16]):
                 self.assertEqual(detect.detect(name, data), opaque)
+
+    def test_text_decoding_and_json_detection_stay_within_the_text_ceiling(self) -> None:
+        self.assertIsNone(detect.decode_text(b"a" * (limits.MAX_TEXT_SOURCE_BYTES + 1)))
+        self.assertIsNone(detect.decode_text(b"\xc3("))
+        self.assertIsNone(detect.decode_text(b"\xef\xbb\xbf"))
+        self.assertFalse(detect._valid_json(b"[" + b" " * limits.MAX_TEXT_SOURCE_BYTES + b"]"))
 
 
 if __name__ == "__main__":

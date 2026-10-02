@@ -159,6 +159,18 @@ class PreparationServiceTests(unittest.TestCase):
             service.admit_message([wide])
         self.assertEqual(refused.exception.code, "attachments-too-large")
 
+    def test_helper_answers_outside_their_shapes_become_closed_opaque_reasons(self) -> None:
+        self.assertEqual(service._text(None, pdf=False), {"type": "opaque", "reason": "unreadable"})
+        self.assertEqual(service._text("  ", pdf=True), {"type": "opaque", "reason": "no_text"})
+        self.assertEqual(
+            service._pdf_answer({"type": "opaque", "reason": "encrypted"}), {"type": "opaque", "reason": "encrypted"}
+        )
+        self.assertEqual(
+            service._opaque_answer({"type": "opaque", "reason": "maybe"}), {"type": "opaque", "reason": "unreadable"}
+        )
+        self.assertIsNone(service._decoded(7))
+        self.assertIsNone(service._decoded("YWJ="))
+
 
 if __name__ == "__main__":
     unittest.main()

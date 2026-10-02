@@ -97,6 +97,20 @@ class LocalTurnAttachmentTests(unittest.TestCase):
                 local_attachments.turn_attachments(_service(), "team_1", "token", FILES)
             self.assertEqual((int(raised.exception.status), raised.exception.code), (status, code))
 
+    def test_stopping_a_helper_that_no_longer_holds_the_slot_leaves_the_slot_alone(self) -> None:
+        service = _service()
+        holder = ("token", object())
+
+        def prepare(*_args: object, started, stopped, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
+            stopped(object())
+            service._active_action_containers["team_1"] = holder
+            stopped(object())
+            return ()
+
+        with mock.patch.object(local_attachments.local_prepare, "prepare_attachments", side_effect=prepare):
+            local_attachments.turn_attachments(service, "team_1", "token", FILES)
+        self.assertEqual(service._active_action_containers, {"team_1": holder})
+
 
 if __name__ == "__main__":
     unittest.main()

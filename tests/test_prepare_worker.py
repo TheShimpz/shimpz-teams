@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
+import logging
+import runpy
 import subprocess
 import sys
 import unittest
+import warnings
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from PIL import Image
 
-from prepare import limits, worker
+from prepare import image, limits, pdf, worker
 from tests import prepare_fixtures
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,6 +119,65 @@ class FramingTests(unittest.TestCase):
         )
         self.assertEqual(completed.stderr, b"")
         self.assertEqual(json.loads(completed.stdout)["text"], "Hello from the helper")
+
+
+class PreparationRefusalTests(unittest.TestCase):
+    def test_pypdf_refusals_map_to_closed_reasons(self) -> None:
+        from pypdf import errors
+
+        for error, reason in (
+            (errors.FileNotDecryptedError("x"), "encrypted"),
+            (errors.LimitReachedError("x"), "too_large"),
+        ):
+            with self.subTest(reason=reason), mock.patch.object(pdf, "prepare", side_effect=error):
+                self.assertEqual(worker._pdf(b"%PDF-1.4"), {"type": "opaque", "reason": reason})
+
+    def test_a_page_stream_over_its_ceiling_is_too_large(self) -> None:
+        with mock.patch.object(limits, "MAX_PDF_PAGE_STREAM_BYTES", 1):
+            self.assertEqual(
+                _answer("pdf", prepare_fixtures.text_pdf("Invoice")), {"type": "opaque", "reason": "too_large"}
+            )
+
+    def test_an_oversized_transparent_png_falls_back_to_jpeg_or_is_refused(self) -> None:
+        big = b"x" * (limits.MAX_DERIVATIVE_BYTES + 1)
+        with mock.patch.object(image, "_save", side_effect=[big, big, b"small"]):
+            self.assertEqual(image._encode(Image.new("RGBA", (4, 4), (10, 20, 30, 128)))["media_type"], "image/jpeg")
+        with mock.patch.object(image, "_save", return_value=big), self.assertRaises(image.ImageRefusedError) as refused:
+            image._encode(Image.new("RGB", (4, 4)))
+        self.assertEqual(refused.exception.reason, "too_large")
+
+
+class EntrypointConfinementTests(unittest.TestCase):
+    @contextlib.contextmanager
+    def _process(self, raw: bytes):
+        stdout = io.StringIO()
+        with (
+            warnings.catch_warnings(),
+            mock.patch.object(worker.resource, "setrlimit") as setrlimit,
+            mock.patch.object(worker.logging, "disable") as disable,
+            mock.patch.object(worker.warnings, "simplefilter"),
+            mock.patch.object(worker.sys, "stdin", SimpleNamespace(buffer=io.BytesIO(raw))),
+            mock.patch.object(worker.sys, "stdout", stdout),
+        ):
+            yield stdout, setrlimit, disable
+
+    def test_the_entrypoint_confines_itself_before_answering(self) -> None:
+        request = worker.encode_request("pdf", prepare_fixtures.text_pdf("Hello in process"))
+        with self._process(request) as (stdout, setrlimit, disable):
+            self.assertEqual(worker.main(), 0)
+        self.assertIn(mock.call(worker.resource.RLIMIT_FSIZE, (0, 0)), setrlimit.call_args_list)
+        self.assertIn(mock.call(worker.resource.RLIMIT_CPU, (limits.HELPER_CPU_SECONDS,) * 2), setrlimit.call_args_list)
+        disable.assert_called_once_with(logging.CRITICAL)
+        self.assertEqual(json.loads(stdout.getvalue())["text"], "Hello in process")
+
+    def test_an_oversized_request_is_unreadable_when_run_as_a_program(self) -> None:
+        with (
+            self._process(b"x" * (limits.MAX_HELPER_INPUT_BYTES + 1)) as (stdout, _setrlimit, _disable),
+            self.assertRaises(SystemExit) as exited,
+        ):
+            runpy.run_module("prepare.worker", run_name="__main__")
+        self.assertEqual(exited.exception.code, 0)
+        self.assertEqual(json.loads(stdout.getvalue()), {"type": "opaque", "reason": "unreadable"})
 
 
 if __name__ == "__main__":

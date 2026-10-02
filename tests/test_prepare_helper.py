@@ -205,6 +205,23 @@ class HelperSessionTests(unittest.TestCase):
         helper.close()
         helper.close()
 
+    def test_a_helper_that_cannot_start_is_removed_and_refused(self) -> None:
+        client = _Client()
+        container = _Container(client.events, "s")
+        container.start = mock.Mock(side_effect=DockerException("no runtime"))
+        client.containers.create = mock.Mock(return_value=container)
+        stopped: list[str] = []
+        with (
+            self._helper(client, stopped=lambda item: stopped.append(item.id)) as helper,
+            self.assertRaises(preparation_helper.HelperUnavailableError),
+        ):
+            helper.prepare("image", b"x")
+        self.assertEqual((client.events, stopped), ([("remove", "helper-s", True)], ["helper-s"]))
+
+    def test_closing_an_exchange_stream_never_raises(self) -> None:
+        preparation_helper._close_stream(SimpleNamespace(close=mock.Mock(side_effect=OSError("closed"))))
+        preparation_helper._close_stream(object())
+
 
 class LocalAdapterTests(unittest.TestCase):
     def test_local_admission_is_held_before_any_original_is_read_even_for_text(self) -> None:
@@ -256,6 +273,31 @@ class LocalAdapterTests(unittest.TestCase):
         stuck.containers.list = lambda **_kwargs: [SimpleNamespace(remove=mock.Mock(side_effect=DockerException("x")))]
         with self.assertRaises(DockerException):
             local_prepare.remove_helpers(stuck, "space")
+
+    def test_a_local_segment_clears_residue_first_and_refuses_when_it_remains(self) -> None:
+        client = _Client()
+        with (
+            mock.patch.object(action_execution, "rpc_exchange", return_value={"type": "text", "text": "ok"}),
+            local_prepare.helper(client, space_id="space", team_id="team_1", cpuset_cpus=None) as session,
+        ):
+            self.assertEqual(session.prepare("pdf", b"%PDF"), {"type": "text", "text": "ok"})
+        self.assertEqual(client.events[0], ("remove", "helper-stale", True))
+        self.assertEqual(client.created[0]["network_mode"], "none")
+
+        stuck = _Client()
+        stuck.containers.list = lambda **_kwargs: [SimpleNamespace(remove=mock.Mock(side_effect=DockerException("x")))]
+        with (
+            local_prepare.helper(stuck, space_id="space", team_id="team_1", cpuset_cpus=None) as session,
+            self.assertRaises(preparation_helper.HelperUnavailableError),
+        ):
+            session.prepare("pdf", b"%PDF")
+        self.assertEqual(stuck.created, [])
+
+    def test_an_already_absent_helper_counts_as_removed(self) -> None:
+        client = _Client()
+        gone = NotFound("gone", response=SimpleNamespace(status_code=404))
+        client.containers.list = lambda **_kwargs: [SimpleNamespace(remove=mock.Mock(side_effect=gone))]
+        self.assertEqual(local_prepare.remove_helpers(client, "space", "team_1"), 1)
 
 
 if __name__ == "__main__":

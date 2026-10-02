@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from protocol.assistant.v1.validators import human_request as human
+from protocol.assistant.v1.validators import input_file as files_module
 from protocol.assistant.v1.validators import message_catalog as catalog_module
 from protocol.http.v1 import websocket
 from protocol.install.v1 import schema_validator as schema
@@ -789,6 +790,90 @@ class SchemaReferenceEdgeTests(unittest.TestCase):
         self.assertTrue(schema._accepts({"type": "string"}, "ok", {}, self.identifier, "$"))
         self.assertFalse(schema._accepts({"type": "integer"}, "ok", {}, self.identifier, "$"))
         self.assertTrue(schema._json_equal({"b": 1, "a": 2}, {"a": 2, "b": 1}))
+
+
+class AssistantFileInputValidatorTests(unittest.TestCase):
+    def test_reference_validator_reproduces_every_published_verdict(self) -> None:
+        for filename, fields, error in (
+            ("input-file.json", ("actions",), files_module.input_files_error),
+            ("file-invocation.json", ("action", "invocation"), files_module.invocation_files_error),
+        ):
+            for case in json.loads((ASSISTANT_PROTOCOL / "vectors" / filename).read_bytes())["cases"]:
+                with self.subTest(vector=case["name"]):
+                    self.assertEqual(error(*(case[field] for field in fields)) is None, case["valid"])
+
+    def test_declarations_and_values_outside_json_are_refused(self) -> None:
+        action = {
+            "input_files": ["file"],
+            "input_schema": {"properties": {"file": {**files_module.FILE_ID_SCHEMA, "x": float("nan")}}},
+            "human_requests": ["approval"],
+        }
+        action["input_schema"]["required"] = ["file"]
+        self.assertEqual(files_module.declaration_error(action), "input_file_schema")
+        self.assertFalse(files_module.valid_name("bad\udc00name"))
+
+    def test_shapes_outside_the_vectors_are_refused_with_stable_reasons(self) -> None:
+        action = {"input_files": [], "human_requests": ["input:choices"]}
+        self.assertEqual(files_module.input_files_error({"input_files": []}), "actions_invalid")
+        self.assertEqual(
+            files_module.declaration_error({"input_files": ["file"], "input_schema": []}), "input_file_unknown"
+        )
+        self.assertEqual(files_module.invocation_files_error([], {"files": {}}), "invocation_invalid")
+        self.assertEqual(files_module.responses_error(action, {}), "responses_invalid")
+        response = {"ordinal": 0, "fingerprint": "0" * 64, "kind": "input:choices"}
+        for value, error in ((["a", "b"], None), (["a", "a"], "responses_invalid"), ("a", "responses_invalid")):
+            with self.subTest(value=value):
+                self.assertEqual(files_module.responses_error(action, [{**response, "value": value}]), error)
+
+    def test_content_decoding_is_canonical_and_bounded(self) -> None:
+        self.assertEqual(files_module.decode_content("YWI="), b"ab")
+        for text in ("YWJ=", "YWI", "YW I=", "-_8=", 7, "A" * (files_module.MAX_BASE64_CHARACTERS + 4)):
+            with self.subTest(text=text):
+                self.assertIsNone(files_module.decode_content(text))
+        self.assertEqual(files_module.MAX_BASE64_CHARACTERS, 11_184_812)
+
+    def test_only_delivered_content_admits_the_larger_invocation_bound(self) -> None:
+        record = {"name": "a.txt", "media_type": "text/plain", "size": 1, "sha256": "0" * 64}
+        delivered = {"files": {"0" * 32: {**record, "content": {"type": "delivered", "base64": "YQ=="}}}}
+        withheld = {"files": {"0" * 32: {**record, "content": {"type": "withheld"}}}}
+        self.assertTrue(files_module.delivers_content(delivered))
+        self.assertFalse(files_module.delivers_content(withheld))
+        self.assertFalse(files_module.delivers_content({"files": {}}))
+        self.assertFalse(files_module.delivers_content(None))
+        self.assertLess(
+            files_module.MAX_BASE64_CHARACTERS + files_module.MAX_INVOCATION_BYTES,
+            files_module.MAX_FILE_INVOCATION_BYTES,
+        )
+
+    def test_files_shape_matches_every_schema_level_invocation_vector(self) -> None:
+        vectors = json.loads((ASSISTANT_PROTOCOL / "vectors/invocation.json").read_bytes())
+        for case in vectors["cases"]:
+            files = case["invocation"].get("files")
+            if files is None or not case["valid"]:
+                continue
+            with self.subTest(case=case["name"]):
+                self.assertIsNone(files_module.files_shape_error(files))
+        record = {"name": "a.txt", "media_type": "text/plain", "size": 1, "sha256": "0" * 64}
+        for files in (
+            None,
+            {
+                "0" * 32: {**record, "content": {"type": "withheld"}},
+                "1" * 32: {**record, "content": {"type": "withheld"}},
+            },
+            {"0" * 31: {**record, "content": {"type": "withheld"}}},
+            {"0" * 32: {**record, "content": {"type": "delivered"}}},
+            {"0" * 32: {**record, "content": {"type": "withheld", "base64": "YQ=="}}},
+            {"0" * 32: {**record, "size": 0, "content": {"type": "withheld"}}},
+        ):
+            with self.subTest(files=files):
+                self.assertIsNotNone(files_module.files_shape_error(files))
+
+    def test_names_are_literal_bounded_data(self) -> None:
+        self.assertTrue(files_module.valid_name("Relatório de março.pdf"))
+        for name in ("", " a", "a ", ".", "..", "a/b", "a\\b", "a\x00", "a\x7f", "\ud800", "é" * 128):
+            with self.subTest(name=name):
+                self.assertFalse(files_module.valid_name(name))
+        self.assertTrue(files_module.valid_name("a" * 255))
 
 
 if __name__ == "__main__":

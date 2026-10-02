@@ -211,10 +211,25 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             (root / "validators/__pycache__").mkdir()
             (root / "validators/__pycache__/failure.cpython-314.pyc").write_bytes(b"\0")
 
-        for mutate in (nested, bytecode, lambda root: (root / "vectors/unlisted.json").write_text("{}")):
+        def linked_file(root: Path) -> None:
+            target = root / "vectors/pattern.json"
+            target.rename(root.parent / "pattern.json")
+            target.symlink_to(root.parent / "pattern.json")
+
+        def file_input_contract(root: Path) -> None:
+            _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["$defs"]["action"]["properties"]["input_files"].update({"maxItems": 2}),
+            )
+
+        for mutate in (nested, bytecode, linked_file, lambda root: (root / "vectors/unlisted.json").write_text("{}")):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit) as raised:
                 _execute(ASSISTANT / "verify.py", mutate)
             self.assertRegex(str(raised.exception.code), "layout|artifact set")
+        with self.assertRaises(SystemExit) as raised:
+            _execute(ASSISTANT / "verify.py", file_input_contract)
+        self.assertIn("file input contract", str(raised.exception.code))
 
     def test_rejects_manifest_and_human_vector_drift(self) -> None:
         mutations = (
