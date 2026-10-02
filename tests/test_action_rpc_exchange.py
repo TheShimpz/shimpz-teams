@@ -184,5 +184,58 @@ class ActionRpcExchangeTests(unittest.TestCase):
         self.assertTrue(closed.wait(5))
 
 
+def _strategy(api: object, **changes: object) -> action_execution.RpcExchangeStrategy:
+    return dataclasses.replace(
+        action_execution.RpcExchangeStrategy(
+            api=api,
+            user="10001:10001",
+            workdir=container_spec.CONTAINER_TMP,
+            timeout=0.1,
+            maximum=1024,
+            transport_errors=(),
+            fail_stop=mock.Mock(),
+            cancelled=mock.Mock(),
+            close_stream=mock.Mock(),
+        ),
+        **changes,
+    )
+
+
+class DockerCallBoundTests(unittest.TestCase):
+    def test_abandoned_setup_never_accumulates_workers_and_saturation_refuses_dispatch(self) -> None:
+        release = threading.Event()
+        self.addCleanup(release.set)
+        starts: list[str] = []
+
+        def hanging_start(exec_id, **_kwargs):
+            starts.append(exec_id)
+            release.wait(10)
+            return SimpleNamespace(_sock=object())
+
+        api = SimpleNamespace(exec_create=lambda *_a, **_k: {"Id": "exec"}, exec_start=hanging_start)
+        strategies = [_strategy(api) for _ in range(action_execution.MAX_DOCKER_CALLS)]
+        for strategy in strategies:
+            with self.assertRaises(action_execution.RpcExchangeError) as timed_out:
+                action_execution.rpc_exchange("container", ["command"], b"request", strategy)
+            self.assertEqual(timed_out.exception.kind, "timeout")
+            strategy.fail_stop.assert_called_once_with()
+        saturated = _strategy(SimpleNamespace(exec_create=mock.Mock(), exec_start=mock.Mock()))
+        with self.assertRaises(action_execution.RpcExchangeError) as refused:
+            action_execution.rpc_exchange("container", ["command"], b"request", saturated)
+        self.assertEqual(refused.exception.condition, "deadline-expired-before-dispatch")
+        saturated.api.exec_create.assert_not_called()
+        saturated.fail_stop.assert_not_called()
+        workers = [thread for thread in threading.enumerate() if thread.name.startswith("action-docker")]
+        self.assertLessEqual(len(workers), action_execution.MAX_DOCKER_CALLS)
+        release.set()
+        grace = time.monotonic() + 5
+        while action_execution._DOCKER_CALL_SLOTS._value != action_execution.MAX_DOCKER_CALLS:
+            self.assertLess(time.monotonic(), grace)
+            time.sleep(0.01)
+        # Every late stream was closed once its abandoned setup finished.
+        for strategy in strategies:
+            self.assertEqual(strategy.close_stream.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

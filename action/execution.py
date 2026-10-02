@@ -9,6 +9,7 @@ import json
 import select
 import socket
 import struct
+import threading
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext, suppress
@@ -499,18 +500,37 @@ class RpcExchangeStrategy:
 
 
 class _DispatchExpiredError(RuntimeError):
-    """The RPC's deadline passed before its workload process was started."""
+    """The RPC's deadline passed, or Docker capacity stayed saturated, before its workload process was started."""
+
+
+# Docker calls of every Action RPC run on one shared bounded pool. A call that outlives its budget keeps its slot until
+# Docker answers or the client's own timeout ends it, so abandoned calls can never accumulate: once every slot is held,
+# a new RPC is refused before it starts anything.
+MAX_DOCKER_CALLS = 8
+_DOCKER_CALLS = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_DOCKER_CALLS, thread_name_prefix="action-docker")
+_DOCKER_CALL_SLOTS = threading.BoundedSemaphore(MAX_DOCKER_CALLS)
+
+
+def _bounded_call[T](call: Callable[[], T], deadline: float) -> concurrent.futures.Future[T]:
+    """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0 or not _DOCKER_CALL_SLOTS.acquire(timeout=remaining):
+        raise _DispatchExpiredError("the Action deadline passed before its Docker call could run")
+    try:
+        future = _DOCKER_CALLS.submit(call)
+    except BaseException:
+        _DOCKER_CALL_SLOTS.release()
+        raise
+    future.add_done_callback(lambda _done: _DOCKER_CALL_SLOTS.release())
+    return future
 
 
 def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrategy, deadline: float) -> object:
     """Create and start the exec within the RPC's remaining budget; nothing starts once the deadline has passed.
 
-    Setup runs on a worker so a slow Docker call cannot outlive the budget. When the wait expires, a stream that
-    still arrives is closed, and the caller fail-stops the workload because the process may have started.
+    When the wait expires, a stream that still arrives is closed, and the caller fail-stops the workload because the
+    process may have started.
     """
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise _DispatchExpiredError("the Action deadline passed before dispatch")
 
     def setup() -> object:
         # Docker exec Env is additive; the workload inherits the container environment intentionally.
@@ -529,11 +549,9 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
             raise _DispatchExpiredError("the Action deadline passed before dispatch")
         return exec_id, strategy.api.exec_start(exec_id, socket=True)
 
-    worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="action-rpc-setup")
-    future = worker.submit(setup)
-    worker.shutdown(wait=False)
+    future = _bounded_call(setup, deadline)
     try:
-        return future.result(timeout=remaining)
+        return future.result(timeout=max(0.0, deadline - time.monotonic()))
     except concurrent.futures.TimeoutError as exc:
         future.add_done_callback(lambda done: _close_late_stream(done, strategy))
         raise TimeoutError("the Action could not start within its deadline") from exc
