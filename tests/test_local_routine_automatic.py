@@ -450,8 +450,14 @@ class DeadlineTests(BalanceCase):
     def test_a_deadline_whose_stop_cannot_be_proven_is_audited_and_still_expires(self) -> None:
         reservation = routine_recovery._Reservation(0, "g", 0.0)
         blocked = routine_recovery.ApiProblem(503, "x", code="assistant-action-blocked")
+
+        def unprovable(_service, _team, _run, _token, mark):
+            # The deadline is marked as the cause, then the Action's fail-stop cannot be proven.
+            mark()
+            raise blocked
+
         with (
-            mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=blocked),
+            mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=unprovable),
             mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
             routine_recovery._deadline(None, "team_1", "a" * 32, "token", reservation),
         ):
@@ -563,3 +569,34 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertEqual((outcome, len(brain.asked)), ("held", 1))
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+
+    def test_a_low_balance_retry_continues_with_the_time_its_reservation_has_left(self) -> None:
+        brain = Brain("retry")
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        balances: list[tuple[int, int]] = []
+        real_continue = routine_recovery.continue_run
+
+        def continuing(service, team_id, incident_id, token, progress=None, *, seconds=None):
+            held = routine_hold.incident(service.routine_store.load(team_id), incident_id)
+            cursor = routine_recovery.routine_incident.open_recovery(service, team_id, incident_id).cursor
+            balances.append((held.active_seconds_left, cursor.remaining("recovery_seconds")))
+            return real_continue(service, team_id, incident_id, token, progress, seconds=seconds)
+
+        with tempfile.TemporaryDirectory() as directory:
+            # All 5 seconds the run had left were reserved; the retry still runs inside them.
+            service, _value, run_id = self.held_with_balance(directory, 5, assistant, brain)
+            with (
+                service._exclusive_chat_turn("team_1") as token,
+                mock.patch.object(routine_recovery, "continue_run", side_effect=continuing),
+            ):
+                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                outcome = routine_recovery.automatic(service, run, API_KEY)
+            state = self.state(service)
+        self.assertEqual(outcome, "recovered")
+        self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 2)
+        # The run started its continuation with what the reservation had left, never more than its 5 seconds, and
+        # the recovery budget got none of it back.
+        ((handed, recovery),) = balances
+        self.assertTrue(0 < handed <= 5)
+        self.assertEqual(recovery, 55)
+        self.assertEqual((state.incidents, state.runs, state.notices[-1].outcome), ((), (), "recovered"))

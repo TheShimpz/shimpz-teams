@@ -6,6 +6,7 @@ import base64
 import dataclasses
 import json
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -369,21 +370,27 @@ def stop_routine_run(self, team_id: str, run_id: str) -> bool:
     return _stop_registered(self, team_id, run_id, None)
 
 
-def expire_routine_run(self, team_id: str, run_id: str, token: str) -> bool:
+def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callable[[], None]) -> bool:
     """A deadline's Stop of exactly the execution it was set for, identified by its token.
 
     Checking the registration and cancelling it is one step under the guard, so a late deadline never reaches another
-    execution registered for the same run since, nor one that already ended.
+    execution registered for the same run since, nor one that already ended. One a person already stopped stays a
+    person's Stop: the deadline then does nothing, and ``mark`` records the deadline as the cause only when it is.
     """
-    return _stop_registered(self, team_id, run_id, token)
+    return _stop_registered(self, team_id, run_id, token, mark)
 
 
-def _stop_registered(self, team_id: str, run_id: str, expected: str | None) -> bool:
+def _stop_registered(
+    self, team_id: str, run_id: str, expected: str | None, mark: Callable[[], None] | None = None
+) -> bool:
     with self._active_chat_guard:
         running = self._routine_runs.get(run_id)
         if running is None or running.team_id != team_id or expected not in (None, running.token):
             return False
         if expected is not None:
+            if expected in self._cancelled_chat_tokens:
+                return False
+            mark()
             # A deadline, not a person: the run's ending records it as out of time, never as stopped.
             self._routine_runs[run_id] = dataclasses.replace(running, overdue=True)
         token = running.token
