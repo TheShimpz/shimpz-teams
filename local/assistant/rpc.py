@@ -80,17 +80,17 @@ def _rpc(
         ) from exc
 
     try:
-        timeout = action_files.rpc_timeout(payload.get("files", {}), action_execution.RPC_TIMEOUT_SECONDS)
+        deadline = action_files.rpc_deadline(payload.get("files", {}))
     except action_files.FileDeliveryError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "the attached file is unavailable for this Action; attach it again",
             code="action-file-unavailable",
         ) from exc
-    return _exchange(self, container, action_id, encoded, timeout)
+    return _exchange(self, container, action_id, encoded, deadline)
 
 
-def _exchange(self, container, action_id: str, encoded: bytes, timeout: float) -> object:
+def _exchange(self, container, action_id: str, encoded: bytes, deadline: float | None) -> object:
     def close_stream(stream: object) -> None:
         with suppress(Exception):
             self._close_exec_stream(stream)
@@ -104,12 +104,13 @@ def _exchange(self, container, action_id: str, encoded: bytes, timeout: float) -
                 api=self.client.api,
                 user=action_execution.ASSISTANT_RPC_USER,
                 workdir=ASSISTANT_WORKDIR,
-                timeout=timeout,
+                timeout=action_execution.RPC_TIMEOUT_SECONDS,
                 maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                 transport_errors=(DockerException,),
                 fail_stop=lambda: self._fail_stop_action(container),
                 cancelled=lambda _exc: None,
                 close_stream=close_stream,
+                deadline=deadline,
             ),
         )
     except action_execution.RpcExchangeError as exc:

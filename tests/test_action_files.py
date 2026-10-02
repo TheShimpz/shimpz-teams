@@ -191,17 +191,18 @@ class FileRpcAdmissionTests(unittest.TestCase):
         delivered = {FILE_ID: {"content": {"type": "delivered", "base64": "YQ=="}}}
         withheld = {FILE_ID: {"content": {"type": "withheld"}}}
         with action_files.admitted(self.file, ("approval",), action_human.ActionTranscript("i"), lambda: False):
-            self.assertEqual(action_files.rpc_timeout(withheld, 8.0), 8.0)
+            self.assertIsNone(action_files.rpc_deadline(withheld))
             with self.assertRaises(action_files.FileDeliveryError):
-                action_files.rpc_timeout(delivered, 8.0)
+                action_files.rpc_deadline(delivered)
         with action_files.admitted(None, ("approval",), _approved(), lambda: False):
             self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
         started = time.monotonic()
         with action_files.admitted(self.file, ("approval",), _approved(), lambda: False):
             self.assertEqual(action_files._FILE_RPC_SLOT._value, 0)
-            remaining = action_files.rpc_timeout(delivered, 8.0)
-            self.assertLessEqual(remaining, action_files.FILE_RPC_TIMEOUT_SECONDS - (time.monotonic() - started) + 0.01)
-            self.assertGreater(remaining, action_files.FILE_RPC_TIMEOUT_SECONDS - 5)
+            deadline = action_files.rpc_deadline(delivered)
+            # The wait and the exchange share the one deadline set when the wait began.
+            self.assertLessEqual(deadline, time.monotonic() + action_files.FILE_RPC_TIMEOUT_SECONDS)
+            self.assertGreaterEqual(deadline, started + action_files.FILE_RPC_TIMEOUT_SECONDS)
         self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
 
     def test_a_waiting_delivery_is_refused_at_its_deadline_or_at_stop_without_holding_bytes(self) -> None:

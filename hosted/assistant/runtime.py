@@ -322,15 +322,15 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Action input is too large") from exc
     try:
-        timeout = action_files.rpc_timeout(request.payload.get("files", {}), action_execution.RPC_TIMEOUT_SECONDS)
+        deadline = action_files.rpc_deadline(request.payload.get("files", {}))
     except action_files.FileDeliveryError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
         ) from exc
-    return _exchange_registered(request, encoded, timeout)
+    return _exchange_registered(request, encoded, deadline)
 
 
-def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, timeout: float) -> object:
+def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, deadline: float | None) -> object:
     team_id = request.team_id
     container = request.container
     token = request.token
@@ -350,12 +350,13 @@ def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, timeout: 
                     api=runtime_state._docker.api,
                     user=action_execution.ASSISTANT_RPC_USER,
                     workdir=container_spec.CONTAINER_TMP,
-                    timeout=timeout,
+                    timeout=action_execution.RPC_TIMEOUT_SECONDS,
                     maximum=action_execution.MAX_RPC_RESPONSE_BYTES,
                     transport_errors=(docker.errors.DockerException,),
                     fail_stop=lambda: _fail_stop_action(team_id, container),
                     cancelled=lambda exc: _raise_if_rpc_cancelled(token, exc),
                     close_stream=close_stream,
+                    deadline=deadline,
                 ),
             )
         except action_execution.RpcExchangeError as exc:

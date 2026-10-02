@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import hashlib
 import json
@@ -492,19 +493,26 @@ class RpcExchangeStrategy:
     fail_stop: Callable[[], None]
     cancelled: Callable[[BaseException | None], None]
     close_stream: Callable[[object], None]
+    # An absolute monotonic deadline that already bounds this RPC, such as an admitted file delivery's (ADR-0093);
+    # without one, the RPC's deadline starts when it is called.
+    deadline: float | None = None
 
 
-def rpc_exchange(
-    container_id: str,
-    argv: list[str],
-    encoded: bytes,
-    strategy: RpcExchangeStrategy,
-    *,
-    detect_unsupported_path: bool = False,
-) -> object:
-    """Execute one bounded Docker RPC with shared fail-stop and framing decisions."""
-    transport_errors = strategy.transport_errors
-    try:
+class _DispatchExpiredError(RuntimeError):
+    """The RPC's deadline passed before its workload process was started."""
+
+
+def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrategy, deadline: float) -> object:
+    """Create and start the exec within the RPC's remaining budget; nothing starts once the deadline has passed.
+
+    Setup runs on a worker so a slow Docker call cannot outlive the budget. When the wait expires, a stream that
+    still arrives is closed, and the caller fail-stops the workload because the process may have started.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _DispatchExpiredError("the Action deadline passed before dispatch")
+
+    def setup() -> object:
         # Docker exec Env is additive; the workload inherits the container environment intentionally.
         created = strategy.api.exec_create(
             container_id,
@@ -517,18 +525,53 @@ def rpc_exchange(
             workdir=strategy.workdir,
         )
         exec_id = created["Id"]
-        stream = strategy.api.exec_start(exec_id, socket=True)
+        if time.monotonic() >= deadline:
+            raise _DispatchExpiredError("the Action deadline passed before dispatch")
+        return exec_id, strategy.api.exec_start(exec_id, socket=True)
+
+    worker = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="action-rpc-setup")
+    future = worker.submit(setup)
+    worker.shutdown(wait=False)
+    try:
+        return future.result(timeout=remaining)
+    except concurrent.futures.TimeoutError as exc:
+        future.add_done_callback(lambda done: _close_late_stream(done, strategy))
+        raise TimeoutError("the Action could not start within its deadline") from exc
+
+
+def _close_late_stream(done: concurrent.futures.Future, strategy: RpcExchangeStrategy) -> None:
+    # A setup that failed late has no stream to close; any error closing one is no longer anyone's to report.
+    with suppress(Exception):
+        strategy.close_stream(done.result()[1])
+
+
+def rpc_exchange(
+    container_id: str,
+    argv: list[str],
+    encoded: bytes,
+    strategy: RpcExchangeStrategy,
+    *,
+    detect_unsupported_path: bool = False,
+) -> object:
+    """Execute one bounded Docker RPC with shared fail-stop and framing decisions."""
+    transport_errors = strategy.transport_errors
+    # One absolute deadline bounds setup and exchange alike, so setup time is never added to the exchange.
+    deadline = strategy.deadline if strategy.deadline is not None else time.monotonic() + strategy.timeout
+    try:
+        exec_id, stream = _start_exec(container_id, argv, strategy, deadline)
         if stream is None:
             raise OSError("Docker attach stream is unavailable")
         try:
             raw_socket = getattr(stream, "_sock", None)
             if raw_socket is None:
                 raise OSError("Docker attach socket cannot half-close stdin")
-            stdout, stderr = exchange_rpc_frames(
-                raw_socket, encoded, time.monotonic() + strategy.timeout, strategy.maximum
-            )
+            stdout, stderr = exchange_rpc_frames(raw_socket, encoded, deadline, strategy.maximum)
         finally:
             strategy.close_stream(stream)
+    except _DispatchExpiredError as exc:
+        # No workload process started, so there is nothing to stop.
+        strategy.cancelled(exc)
+        raise RpcExchangeError("timeout", "deadline-expired-before-dispatch") from exc
     except TimeoutError as exc:
         strategy.fail_stop()
         strategy.cancelled(exc)

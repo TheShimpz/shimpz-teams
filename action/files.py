@@ -221,14 +221,14 @@ def admitted(
         _FILE_RPC_SLOT.release()
 
 
-def rpc_timeout(files: Mapping[str, object], ordinary: float) -> float:
-    """The exchange deadline of one invocation: the remainder of its admitted delivery, or the ordinary one.
+def rpc_deadline(files: Mapping[str, object]) -> float | None:
+    """The absolute deadline of one invocation's admitted delivery, or None for one that delivers nothing.
 
     Delivered bytes outside an admitted slot are refused, so no path can dispatch them unbounded.
     """
     if not input_file_validator.delivers_content({"files": files}):
-        return ordinary
+        return None
     deadline = _DEADLINE.get()
     if deadline is None:
         raise FileDeliveryError("delivered file content was not admitted to the file-RPC slot")
-    return max(0.0, deadline - time.monotonic())
+    return deadline
