@@ -17,8 +17,10 @@ passed: it is retried only after proven absence, or the run is held again.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import datetime
 import math
+import threading
 import time
 from dataclasses import dataclass
 
@@ -31,6 +33,7 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import recovery as inference_recovery
+from local import audit as local_audit
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
@@ -484,6 +487,8 @@ class _Reservation:
     seconds: int
     generation: str
     started: float
+    # Set by the deadline timer when the reservation ran out, whatever the episode was doing.
+    expired: threading.Event = dataclasses.field(default_factory=threading.Event)
 
     @property
     def deadline(self) -> float:
@@ -531,17 +536,46 @@ def _release(self, team_id: str, incident_id: str, reservation: _Reservation) ->
     )
 
 
-def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool:
+@contextlib.contextmanager
+def _deadline(self, team_id: str, incident_id: str, reservation: _Reservation):
+    """A direct timer that cancels the episode at its absolute deadline, whatever it is doing.
+
+    At the deadline it marks the reservation expired and stops the registered recovery: its token, its Brain request,
+    and any Action in flight. The watchdog still reconciles a timer that could not act.
+    """
+
+    def expire() -> None:
+        reservation.expired.set()
+        try:
+            routine_run.stop_routine_run(self, team_id, incident_id)
+        except ApiProblem:
+            local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
+
+    timer = threading.Timer(reservation.seconds, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
+def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservation) -> bool:
     """Verify first, and ask the Brain only on proven absence; True when the run may go on.
 
-    Past its deadline, the episode stops asking and pauses the Routine as exhausted; a policy fault, an exhausted
-    budget, a pause decision, or a decision that could not be made pauses it too, with that reason on the notice.
+    Exhaustion is judged on the reservation's own clock, never on what the episode found: once its deadline passed,
+    the Routine pauses as exhausted. Otherwise a policy fault, missing evidence, an exhausted budget, a pause decision,
+    or a decision that could not be made pauses it, with that reason on the notice.
     """
     team_id, incident_id = run.team_id, run.run_id
     verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
-    if verdict == "absent":
-        verdict = _decide(self, team_id, incident_id, api_key, None) if _clock() < deadline else "exhausted"
-    if verdict in _GO_ON and _clock() >= deadline:
+
+    def expired() -> bool:
+        return reservation.expired.is_set() or _clock() >= reservation.deadline
+
+    if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
+        verdict = _decide(self, team_id, incident_id, api_key, None)
+    if expired():
         verdict = "exhausted"
     reason = _PAUSES.get(verdict)
     if reason is not None:
@@ -566,9 +600,12 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
             # No time is left in either balance: the episode is exhausted before it starts.
             routine_incident.pause(self, team_id, incident_id, "exhausted")
             return "held"
-        with routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds):
+        with (
+            routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds),
+            _deadline(self, team_id, incident_id, reservation),
+        ):
             try:
-                go_on = _episode(self, run, api_key, reservation.deadline)
+                go_on = _episode(self, run, api_key, reservation)
                 if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
                     return "held"
                 # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
