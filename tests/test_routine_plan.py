@@ -149,6 +149,16 @@ class PlanAdmissionTests(unittest.TestCase):
         duplicate["steps"][1]["id"] = "publish"
         self.assert_refused(duplicate, "plan-step-invalid")
 
+    def test_an_action_that_takes_a_file_cannot_be_compiled(self) -> None:
+        # A Routine holds no file grant, so even a literal id never stands for an attached file (ADR-0093).
+        contracts = {
+            **CONTRACTS,
+            ("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, PUBLISH, ("title",)),
+        }
+        with self.assertRaises(routine_plan.PlanError) as refused:
+            routine_plan.admit(_document(), contracts)
+        self.assertEqual(refused.exception.code, "plan-file-input")
+
     def test_every_value_source_is_closed_and_typed_at_creation(self) -> None:
         def source(name: str, value: object, step: int = 0) -> dict[str, object]:
             document = _document()

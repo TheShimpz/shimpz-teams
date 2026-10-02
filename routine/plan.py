@@ -7,7 +7,9 @@ selected by an RFC 6901 pointer, from a completed earlier step of the same run. 
 expression, branch, loop, or cross-run lookup. Outputs can only fill inputs: they never choose an Assistant, an Action,
 a schedule, or a step. A missing path, an invalid index or escape, and a value its destination schema refuses (null
 included) fail closed. Only the selected values are retained, never a complete output, and a literal that a secret
-belongs in is refused: such a value must be the Action's declared Stored Input.
+belongs in is refused: such a value must be the Action's declared Stored Input. An Action that declares a file input
+is refused in v1: a Routine holds no file grant, so no literal id or copied output may stand for an attached file
+(ADR-0093).
 """
 
 from __future__ import annotations
@@ -93,10 +95,11 @@ class Plan:
 
 @dataclass(frozen=True, slots=True)
 class ActionContract:
-    """What a plan needs of one Action: its current complete pin and its reviewed input schema."""
+    """What a plan needs of one Action: its current complete pin, its reviewed input schema, and its file inputs."""
 
     pin: str
     input_schema: Mapping[str, Any]
+    input_files: tuple[str, ...] = ()
 
 
 def canonical(value: object) -> bytes:
@@ -169,6 +172,8 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
     contract = contracts.get((assistant_id, action))
     if contract is None or contract.pin != pin:
         raise PlanError("plan-pin-drift")
+    if contract.input_files:
+        raise PlanError("plan-file-input")
     schema = contract.input_schema
     properties = schema.get("properties", {})
     if not set(inputs) <= set(properties) or not set(schema.get("required", ())) <= set(inputs):

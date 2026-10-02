@@ -70,7 +70,7 @@ def contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, st
     """Each Action of the turn's Assistants with its complete current pin and reviewed input schema."""
     return {
         (active.spec.assistant_id, action_id): routine_plan.ActionContract(
-            routine_pin.action_pin(active.spec, action_id, locale), action.input_schema
+            routine_pin.action_pin(active.spec, action_id, locale), action.input_schema, action.input_files
         )
         for active in assistants
         for action_id, action in active.spec.actions.items()
