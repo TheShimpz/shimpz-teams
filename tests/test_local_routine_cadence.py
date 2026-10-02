@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 import routine_fixture
 from test_local_routine_http import CLAIM, RoutineHttpCase
@@ -108,6 +109,14 @@ class SimulatedDayTests(unittest.TestCase):
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_399), 1000 + 86_400)
         self.assertEqual(routine_starts.free_at(starts, "b" * 32, None, 1000 + 86_400), 1000 + 86_400)
         self.assertEqual(len(routine_starts.started(starts, "b" * 32, 1000 + 86_400)), routine_starts.TEAM_CEILING)
+
+    def test_the_team_window_frees_its_oldest_start_whichever_routine_made_it(self) -> None:
+        # Sorted by Routine id, "a" at 5 would look older than "b" at 0 and hold the ceiling 5 seconds too long.
+        starts = (("b" * 32, 0), ("a" * 32, 5))
+        with mock.patch.object(routine_starts, "TEAM_CEILING", 2):
+            self.assertEqual(routine_starts.free_at(starts, "c" * 32, None, 10), 86_400)
+            self.assertEqual(routine_starts.free_at(starts, "a" * 32, 2, 10), 86_400)
+            self.assertEqual(routine_starts.free_at(starts, "a" * 32, 1, 10), 86_405)
 
 
 class ServiceLoadTests(RoutineHttpCase):

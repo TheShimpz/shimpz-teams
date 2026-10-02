@@ -17,7 +17,8 @@ Starts = tuple[tuple[str, int], ...]
 
 def window(starts: Starts, now: int) -> Starts:
     """The starts still inside the 24 hours that end at ``now``, oldest first."""
-    return tuple(sorted(item for item in starts if item[1] > now - WINDOW_SECONDS))
+    # Chronological by instant alone: the oldest start leaves the window first, whichever Routine made it.
+    return tuple(sorted((item for item in starts if item[1] > now - WINDOW_SECONDS), key=lambda item: item[1]))
 
 
 def _free_at(instants: list[int], limit: int, now: int) -> int:

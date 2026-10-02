@@ -441,3 +441,15 @@ class ConcurrentReadTests(StoreCase):
             self.assertRaisesRegex(routine_store.RoutineStoreError, "ownership"),
         ):
             self.store.teams()
+
+
+class StartWindowTests(StoreCase):
+    def test_alternating_routines_persist_their_starts_in_time_order(self) -> None:
+        first = 1_790_000_000
+        starts: record.routine_starts.Starts = ()
+        for routine_id, offset in (("a" * 32, 0), ("b" * 32, 3), ("a" * 32, 8), ("b" * 32, 11)):
+            starts = record.routine_starts.started(starts, routine_id, first + offset)
+        self.assertEqual([at - first for _routine_id, at in starts], [0, 3, 8, 11])
+        state = dataclasses.replace(busy_state(), starts=starts)
+        put(self.store, "team_1", state)
+        self.assertEqual(self.store.load("team_1").starts, starts)
