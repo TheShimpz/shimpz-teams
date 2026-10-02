@@ -17,9 +17,12 @@ passed: it is retried only after proven absence, or the run is held again.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import math
 import time
 from dataclasses import dataclass
+
+from docker.errors import DockerException
 
 from action import journal as action_journal
 from assistant import spec as assistant_spec
@@ -90,7 +93,7 @@ class VerifierRuntime:
         self.result = results.get(self._request.interrupt_id)
         return brain_runtime_client.RuntimeTurn("completed", "", ())
 
-    def dispatching(self, _request, _operation_id) -> None:
+    def dispatching(self, _request, _operation_id, _workload="") -> None:
         return
 
     def failed(self, _request, _evidence, _exc) -> None:
@@ -169,6 +172,58 @@ def proven(assessment: Assessment) -> str:
     if assessment.action.effect == "read_only":
         return "absent" if cursor.fault in _TRUSTED_FAULTS else "unclassified"
     return "uncertain"
+
+
+def _docker_instant(value: object) -> int | None:
+    """Docker's RFC 3339 instant as whole UTC epoch seconds, or None when it is not one."""
+    if not isinstance(value, str) or len(value) < 20 or value[19] not in ".Z":
+        return None
+    try:
+        return int(datetime.datetime.fromisoformat(value[:19] + "+00:00").timestamp())
+    except ValueError:
+        return None
+
+
+def _workload_state(self, team_id: str, assistant_id: str, workload: str) -> dict[str, object] | None:
+    """The attempt's container state as Docker reports it; not running when that container is gone or replaced.
+
+    None when it cannot be read, which is never proof.
+    """
+    try:
+        container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
+        if container.id != workload:
+            return {"Running": False}
+        container.reload()
+        state = getattr(container, "attrs", {}).get("State")
+    except ApiProblem as exc:
+        return {"Running": False} if exc.code == "assistant-not-found" else None
+    except DockerException:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _quiesced(self, team_id: str, assessment: Assessment) -> bool:
+    """Whether the workload of the held attempt is proven to have stopped since it was dispatched.
+
+    A Team crash or Stop leaves no classification, and the original Docker execution may still be running, so an
+    absence observed now would prove nothing about a later effect. Proof is the attempt's container being gone or
+    replaced, stopped, or started again after the attempt.
+    """
+    cursor = assessment.cursor
+    state = _workload_state(self, team_id, assessment.step.assistant_id, cursor.workload) if cursor.workload else None
+    if state is None:
+        return False
+    if state.get("Running") is False:
+        return True
+    started = _docker_instant(state.get("StartedAt"))
+    return started is not None and started > cursor.dispatched_at
+
+
+def quiescence(self, team_id: str, assessment: Assessment, verdict: str) -> str:
+    """An uncertain operation whose failure Team never classified needs its workload proven stopped first."""
+    if verdict == "uncertain" and assessment.cursor.fault == "" and not _quiesced(self, team_id, assessment):
+        return "unquiesced"
+    return verdict
 
 
 def _original_input(assessment: Assessment) -> dict[str, object] | None:
@@ -265,7 +320,7 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     verification spends its budget before the call.
     """
     assessment = assess(self, team_id, incident_id)
-    verdict = proven(assessment)
+    verdict = quiescence(self, team_id, assessment, proven(assessment))
     if verdict in {"none", "policy", "unquiesced", "unclassified"}:
         return verdict
     if verdict == "absent":

@@ -45,7 +45,7 @@ class AssessmentEdgeTests(RecoveryCase):
             ):
                 routine_recovery._operation_state(service, "team_1", run_id, "x")
             finished = dataclasses.replace(self.cursor(service, run_id), step=2, operation_id=None, commitment=None)
-            finished = dataclasses.replace(finished, attempts=0, fault="")
+            finished = dataclasses.replace(finished, attempts=0, fault="", workload="", dispatched_at=0)
             service.routine_store.put_cursor("team_1", finished)
             self.assertIsNone(routine_recovery.assess(service, "team_1", run_id).action)
             self.assertEqual(self.verify(service, value, run_id), "none")

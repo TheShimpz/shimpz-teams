@@ -34,7 +34,7 @@ class Runtime:
 class Compiled(Runtime):
     """A compiled run's runtime: its plan has no step left."""
 
-    def dispatching(self, _request, _operation_id) -> None:
+    def dispatching(self, _request, _operation_id, _workload="") -> None:
         raise AssertionError("nothing is dispatched")
 
     @staticmethod

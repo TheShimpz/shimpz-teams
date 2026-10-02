@@ -38,6 +38,8 @@ FAULTS = ("", "handled", "transport", "unquiesced", "policy", "other")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+# A Docker container id or name: the workload an attempt was dispatched to.
+_WORKLOAD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 _FIELDS = frozenset(
     {
         "version",
@@ -57,6 +59,8 @@ _FIELDS = frozenset(
         "absent",
         "carried",
         "fault",
+        "workload",
+        "dispatched_at",
     }
 )
 
@@ -99,6 +103,9 @@ class Cursor:
     carried: bool = False
     # How the dispatched operation's last attempt failed, as Team classified it; see FAULTS.
     fault: str = ""
+    # The workload the last attempt was dispatched to, and when, so recovery can prove it stopped since (ADR-0092).
+    workload: str = ""
+    dispatched_at: int = 0
 
     @property
     def generation_suffix(self) -> str:
@@ -119,11 +126,20 @@ def start(plan: routine_plan.Plan, binding: Binding, started_at: int) -> Cursor:
     return _checked(Cursor(binding, plan.digest, started_at))
 
 
-def dispatch(cursor: Cursor, plan: routine_plan.Plan, operation_id: str, commitment: str) -> Cursor:
+def dispatch(
+    cursor: Cursor,
+    plan: routine_plan.Plan,
+    operation_id: str,
+    commitment: str,
+    *,
+    workload: str = "",
+    dispatched_at: int = 0,
+) -> Cursor:
     """Record one dispatch of the current step before its RPC: its logical operation and exact resolved input.
 
     A repeated dispatch of the same step keeps its logical operation and must carry the same input commitment, so a
-    replay or permitted retry never changes the business payload of an operation.
+    replay or permitted retry never changes the business payload of an operation. The attempt's workload and instant
+    are kept with it; an unknown workload can never be proven stopped.
     """
     _same_plan(cursor, plan)
     if cursor.done(plan) or not action_journal.valid_operation_id(operation_id):
@@ -134,7 +150,13 @@ def dispatch(cursor: Cursor, plan: routine_plan.Plan, operation_id: str, commitm
         raise CursorError("cursor-operation-changed")
     return _checked(
         dataclasses.replace(
-            cursor, operation_id=operation_id, attempts=cursor.attempts + 1, commitment=commitment, fault=""
+            cursor,
+            operation_id=operation_id,
+            attempts=cursor.attempts + 1,
+            commitment=commitment,
+            fault="",
+            workload=workload,
+            dispatched_at=dispatched_at,
         )
     )
 
@@ -230,6 +252,8 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "absent": cursor.absent,
         "carried": cursor.carried,
         "fault": cursor.fault,
+        "workload": cursor.workload,
+        "dispatched_at": cursor.dispatched_at,
     }
 
 
@@ -265,6 +289,8 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["absent"],
         value["carried"],
         value["fault"],
+        value["workload"],
+        value["dispatched_at"],
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -301,6 +327,11 @@ def _checked(cursor: Cursor) -> Cursor:
         and cursor.fault in FAULTS
         and (dispatched or cursor.fault == "")
         and not (cursor.absent and cursor.fault == "policy")
+        and isinstance(cursor.workload, str)
+        and (cursor.workload == "" or _WORKLOAD_RE.fullmatch(cursor.workload) is not None)
+        and type(cursor.dispatched_at) is int
+        and cursor.dispatched_at >= 0
+        and (dispatched or (cursor.workload, cursor.dispatched_at) == ("", 0))
     )
     if not valid:
         raise CursorError("cursor-invalid")

@@ -147,13 +147,18 @@ class CompiledRuntime:
         self.seal(advanced)
         return self._turn()
 
-    def dispatching(self, request: brain_runtime_client.ActionRequest, operation_id: str) -> None:
-        """Seal the dispatch's logical operation and exact input before its RPC; a replay keeps both."""
+    def dispatching(self, request: brain_runtime_client.ActionRequest, operation_id: str, workload: str = "") -> None:
+        """Seal the dispatch's logical operation, exact input, and workload before its RPC; a replay keeps both."""
         if request.interrupt_id != self.interrupt(self.cursor.step):
             raise CompiledRunError("routine-step-changed")
         try:
             dispatched = routine_cursor.dispatch(
-                self.cursor, self._plan, operation_id, routine_plan.commitment(request.input)
+                self.cursor,
+                self._plan,
+                operation_id,
+                routine_plan.commitment(request.input),
+                workload=workload,
+                dispatched_at=int(time.time()),
             )
         except routine_cursor.CursorError as exc:
             raise CompiledRunError(exc.code) from exc

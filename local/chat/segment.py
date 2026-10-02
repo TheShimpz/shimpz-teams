@@ -156,7 +156,7 @@ def _run_chat_segment_with_metadata(
             raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
         if request.routine is not None:
             # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
-            request.routine.runtime.dispatching(action_request, operation_id)
+            request.routine.runtime.dispatching(action_request, operation_id, active.container_id)
         evidence = action_execution.ActionInvocationEvidence(
             private_inputs,
             transcript,
