@@ -16,9 +16,10 @@ def grant(plan: dict[str, object], revision: int = 1) -> dict[str, object]:
     from routine import grant as routine_grant
 
     def provenance(source: dict[str, object]) -> dict[str, object]:
+        by = {"message": "f" * 64, "receipt": "e" * 64, "revision": revision, "selected": None}
         if source["kind"] == "literal":
-            return {"origins": [{"at": "", "from": "message", "span": [0, 1]}]}
-        return {"instruction": [0, 4]} if source["kind"] == "step_output" else {}
+            return {"proof": {"origins": [{"at": "", "from": "message", "span": [0, 1]}]}, "by": by}
+        return {"proof": {"instruction": [0, 4]} if source["kind"] == "step_output" else {}, "by": by}
 
     return {
         "receipt": "e" * 64,

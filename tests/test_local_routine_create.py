@@ -155,8 +155,10 @@ class DirectCreationTests(LocalContractCase):
         )
         self.assertEqual(grant["message"], hashlib.sha256(MESSAGE.encode()).hexdigest())
         self.assertEqual(MESSAGE[slice(*grant["quote"])], _change()["request"])
-        ((origin,),) = grant["sources"]["zones"]["page"].values()
+        page = grant["sources"]["zones"]["page"]
+        (origin,) = page["proof"]["origins"]
         self.assertEqual((origin["from"], MESSAGE[slice(*origin["span"])]), ("message", "1"))
+        self.assertEqual(page["by"], {"message": grant["message"], "receipt": receipt, "revision": 1, "selected": None})
         self.assertEqual(grant["stored_inputs"], {"zones": []})
 
     def test_citation_text_around_a_value_never_persists_and_a_secret_request_is_refused(self) -> None:
@@ -410,7 +412,39 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(([item.outcome for item in state.notices], len(state.receipts)), (["created"], 1))
         self.assertIsNone(runtime.contexts[1].routines)
         self.assertEqual(routine.grant["selected"], {"field": ["input", "zones", "per_page"], "label": "50"})
-        self.assertEqual(routine.grant["sources"]["zones"]["per_page"], {"origins": [{"at": "", "from": "answer"}]})
+        per_page = routine.grant["sources"]["zones"]["per_page"]
+        self.assertEqual(
+            (per_page["proof"], per_page["by"]["selected"]), ({"origins": [{"at": "", "from": "answer"}]}, "50")
+        )
+
+    def test_an_update_from_another_message_keeps_what_granted_each_kept_input(self) -> None:
+        """A kept input still names the message, receipt, revision, and answer that first granted it."""
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, runtime, answer = self.asked(directory)
+            self.chat(service, _body(answer + "50", nonce="d" * 32))
+            (created,) = service.routine_store.load("team_1").routines
+            other = "Move the zones listing to 10:00 instead"
+            update = _change(
+                op="update",
+                routine_id=created.routine_id,
+                expected_revision=1,
+                request=other,
+                schedule={"kind": "weekly", "weekday": 0, "time": "10:00"},
+            )
+            update["steps"][0]["input"] = {"page": {"kind": "kept"}, "per_page": {"kind": "kept"}}
+            runtime.changes.append(update)
+            self.chat(service, _body(other, nonce="e" * 32))
+            (updated,) = service.routine_store.load("team_1").routines
+        before, after = created.grant, updated.grant
+        self.assertEqual((after["revision"], after["selected"]), (2, None))
+        self.assertEqual(after["message"], hashlib.sha256(other.encode()).hexdigest())
+        self.assertNotEqual(after["receipt"], before["receipt"])
+        # Each kept input keeps its proof against the first message, and the answer selected for it.
+        self.assertEqual(after["sources"], before["sources"])
+        self.assertEqual(
+            after["sources"]["zones"]["per_page"]["by"],
+            {"message": before["message"], "receipt": before["receipt"], "revision": 1, "selected": "50"},
+        )
 
     def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

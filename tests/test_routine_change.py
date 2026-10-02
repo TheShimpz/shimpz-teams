@@ -290,10 +290,12 @@ class CompileTests(unittest.TestCase):
             compiled.sources["publish"], {key: first.sources["publish"][key] for key in ("title", "count")}
         )
         # Provenance is kept as spans of the message, never as the cited words themselves.
-        ((channel,),) = compiled.sources["share"]["channel"].values()
+        (channel,) = compiled.sources["share"]["channel"]["proof"]["origins"]
         self.assertEqual((channel["from"], MESSAGE[slice(*channel["span"])]), ("message", "#general"))
-        self.assertEqual(MESSAGE[slice(*compiled.sources["share"]["post_id"]["instruction"])], "share it")
-        ((title,),) = first.sources["publish"]["title"].values()
+        self.assertEqual(MESSAGE[slice(*compiled.sources["share"]["post_id"]["proof"]["instruction"])], "share it")
+        # New provenance waits for its commit to bind what grants it.
+        self.assertIsNone(compiled.sources["share"]["channel"]["by"])
+        (title,) = first.sources["publish"]["title"]["proof"]["origins"]
         self.assertEqual(
             (title["region"], MESSAGE[slice(*title["span"])], MESSAGE[slice(*title["instruction"])]),
             (0, "Weekly report", "publish"),

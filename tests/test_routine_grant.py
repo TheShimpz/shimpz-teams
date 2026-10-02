@@ -36,21 +36,35 @@ PLAN = {
 
 class GrantTests(unittest.TestCase):
     def test_a_complete_grant_binds_its_receipt_revision_and_plan(self) -> None:
+        first = {"message": "a" * 64, "receipt": "b" * 64, "revision": 1, "selected": "Hoje"}
         sources = {
             "zones": {
                 "page": {
-                    "origins": [
-                        {"at": "", "from": "message", "span": [0, 1]},
-                        {"at": "/a", "from": "quote", "region": 0, "span": [2, 3], "instruction": [4, 5]},
-                        {"at": "/b", "from": "default"},
-                    ]
+                    "proof": {
+                        "origins": [
+                            {"at": "", "from": "message", "span": [0, 1]},
+                            {"at": "/a", "from": "quote", "region": 0, "span": [2, 3], "instruction": [4, 5]},
+                            {"at": "/b", "from": "default"},
+                        ]
+                    },
+                    "by": None,
                 }
             },
-            "records": {"zone": {"instruction": [0, 4]}, "day": {}},
+            # A reference proved now, and a token kept from the first revision with what granted it.
+            "records": {"zone": {"proof": {"instruction": [0, 4]}, "by": None}, "day": {"proof": {}, "by": first}},
         }
         partial = routine_grant.evidence("Every day, list", (0, 9), sources, {"zones": [], "records": ["token", "api"]})
+        partial["selected"] = {"field": ["input", "zones", "page"], "label": "Página 1"}
         complete = routine_grant.complete(partial, "e" * 64, 2, PLAN)
         self.assertTrue(routine_grant.valid(complete, PLAN, 2))
+        message = complete["message"]
+        self.assertEqual(
+            complete["sources"]["zones"]["page"]["by"],
+            {"message": message, "receipt": "e" * 64, "revision": 2, "selected": "Página 1"},
+        )
+        self.assertEqual(complete["sources"]["records"]["zone"]["by"]["selected"], None)
+        self.assertEqual(complete["sources"]["records"]["day"]["by"], first)
+        self.assertEqual(routine_grant.complete({**partial, "sources": []}, "e" * 64, 1, PLAN), {})
         self.assertEqual(complete["stored_inputs"]["records"], ["api", "token"])
         self.assertEqual(routine_grant.complete({"message": "x"}, "e" * 64, 1, PLAN), {})
         self.assertEqual(routine_grant.complete(None, "e" * 64, 1, PLAN), {})
@@ -78,25 +92,41 @@ class GrantTests(unittest.TestCase):
             lambda value: value["sources"]["records"].pop("day"),
             lambda value: value["sources"]["records"].update(day=[]),
             lambda value: value["sources"]["records"].update(day={"origins": [], "instruction": "x"}),
-            lambda value: value["sources"]["records"].update(zone={"instruction": "then share it"}),
-            lambda value: value["sources"]["zones"].update(page={"origins": []}),
-            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": ""}]}),
-            lambda value: value["sources"]["zones"].update(page={"origins": ["x"]}),
-            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": 1, "from": "default"}]}),
-            lambda value: value["sources"]["zones"].update(
-                page={"origins": [{"at": "", "from": "message", "span": [0, 1], "text": "API_KEY=x"}]}
+            lambda value: value["sources"]["records"]["zone"].update(proof={"instruction": "then share it"}),
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": []}),
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": ""}]}),
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": ["x"]}),
+            lambda value: value["sources"]["zones"]["page"].update(proof={"origins": [{"at": 1, "from": "default"}]}),
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "message", "span": [0, 1], "text": "API_KEY=x"}]}
             ),
-            lambda value: value["sources"]["zones"].update(
-                page={"origins": [{"at": "", "from": "message", "span": [3, 3]}]}
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "message", "span": [3, 3]}]}
             ),
-            lambda value: value["sources"]["zones"].update(
-                page={"origins": [{"at": "", "from": "quote", "region": -1, "span": [0, 1], "instruction": [0, 1]}]}
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "quote", "region": -1, "span": [0, 1], "instruction": [0, 1]}]}
             ),
-            lambda value: value["sources"]["zones"].update(
-                page={"origins": [{"at": "", "from": "quote", "region": 0, "span": [0, 1], "instruction": "x"}]}
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "quote", "region": 0, "span": [0, 1], "instruction": "x"}]}
             ),
-            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": "", "from": "default", "x": 1}]}),
-            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": "", "from": "elsewhere"}]}),
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "default", "x": 1}]}
+            ),
+            lambda value: value["sources"]["zones"]["page"].update(
+                proof={"origins": [{"at": "", "from": "elsewhere"}]}
+            ),
+            lambda value: value["sources"]["zones"]["page"].update(proof=[]),
+            lambda value: value["sources"]["records"]["day"].update(by=None),
+            lambda value: value["sources"]["records"]["day"].update(extra=1),
+            lambda value: value["sources"]["records"]["day"]["by"].update(extra=1),
+            lambda value: value["sources"]["records"]["day"]["by"].update(message="x"),
+            lambda value: value["sources"]["records"]["day"]["by"].update(receipt=None),
+            lambda value: value["sources"]["records"]["day"]["by"].update(revision=3),
+            lambda value: value["sources"]["records"]["day"]["by"].update(revision=0),
+            lambda value: value["sources"]["records"]["day"]["by"].update(selected=" padded"),
+            # Whatever this revision proved is bound to exactly its own message and receipt.
+            lambda value: value["sources"]["zones"]["page"]["by"].update(message="c" * 64),
+            lambda value: value["sources"]["zones"]["page"]["by"].update(receipt="c" * 64),
             lambda value: value.update(stored_inputs=[]),
             lambda value: value["stored_inputs"].pop("zones"),
             lambda value: value["stored_inputs"].update(zones="api"),

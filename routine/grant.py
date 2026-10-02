@@ -3,10 +3,11 @@
 Each committed revision keeps minimal Team-owned evidence of what authorized it, bound to the receipt of the request
 that made it, the revision it defines, and its plan digest: a commitment to the user's message, where in that message
 the user's own words state the request, the option a bound question's answer selected, each step input's validated
-provenance, and the Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
-and a Stored Input appears only as its declared id. Provenance is kept only as spans of the committed message, never
-as the cited prose, so words around a value never persist. A Supervisor inspects a Routine through ``steps``, a
-projection of its plan that shows each literal as a bounded preview and every reference by its step and pointer.
+provenance with the message, receipt, revision, and selected answer that first granted it, and the Stored Inputs each
+step's Action uses, by name only. It holds no secret: a literal never holds one, and a Stored Input appears only as
+its declared id. Provenance is kept only as spans of the committed message, never as the cited prose, so words around
+a value never persist. A Supervisor inspects a Routine through ``steps``, a projection of its plan that shows each
+literal as a bounded preview and every reference by its step and pointer.
 """
 
 from __future__ import annotations
@@ -47,15 +48,21 @@ def evidence(
 
 
 def complete(partial: object, receipt: str, revision: int, plan: Mapping[str, object]) -> dict[str, object]:
-    """Bind a revision's evidence to the request receipt, the revision, and the exact plan it authorizes."""
-    if not isinstance(partial, dict) or not set(partial) >= _PARTIAL:
+    """Bind a revision's evidence to the request receipt, the revision, and the exact plan it authorizes.
+
+    Each input this revision proved is bound to its message, receipt, revision, and the answer a bound question
+    selected for it; an input kept from an earlier revision keeps what first granted it.
+    """
+    if not isinstance(partial, dict) or not set(partial) >= _PARTIAL or not isinstance(partial["sources"], dict):
         return {}
-    return {
-        **copy.deepcopy({key: partial[key] for key in _PARTIAL}),
-        "receipt": receipt,
-        "revision": revision,
-        "plan": plan_digest(plan),
-    }
+    value = copy.deepcopy({key: partial[key] for key in _PARTIAL})
+    selected = value["selected"] or {}
+    for step, members in value["sources"].items():
+        for member, entry in members.items() if isinstance(members, dict) else ():
+            if isinstance(entry, dict) and entry.get("by", False) is None:
+                label = selected.get("label") if selected.get("field") == ["input", step, member] else None
+                entry["by"] = {"message": value["message"], "receipt": receipt, "revision": revision, "selected": label}
+    return {**value, "receipt": receipt, "revision": revision, "plan": plan_digest(plan)}
 
 
 def _span(value: object) -> bool:
@@ -83,6 +90,26 @@ def _origin(value: object) -> bool:
             and _span(value["instruction"])
         )
     return set(value) == {"at", "from"} and kind in ("default", "answer")
+
+
+def _granted(value: object, revision: int, message: str, receipt: str) -> bool:
+    """One input's provenance and what granted it: its message, receipt, revision, and any selected answer."""
+    if not isinstance(value, dict) or set(value) != {"proof", "by"} or not _provenance(value["proof"]):
+        return False
+    by = value["by"]
+    if not isinstance(by, dict) or set(by) != {"message", "receipt", "revision", "selected"}:
+        return False
+    current = by["revision"] == revision
+    return (
+        isinstance(by["message"], str)
+        and _HEX64_RE.fullmatch(by["message"]) is not None
+        and isinstance(by["receipt"], str)
+        and _HEX64_RE.fullmatch(by["receipt"]) is not None
+        and type(by["revision"]) is int
+        and 1 <= by["revision"] <= revision
+        and (not current or (by["message"], by["receipt"]) == (message, receipt))
+        and (by["selected"] is None or http_routine.canonical_name(by["selected"]) == by["selected"])
+    )
 
 
 def _provenance(value: object) -> bool:
@@ -139,7 +166,7 @@ def valid(value: object, plan: Mapping[str, object], revision: int) -> bool:
         and all(
             isinstance(sources[step], dict)
             and set(sources[step]) == set(steps[step]["input"])
-            and all(_provenance(item) for item in sources[step].values())
+            and all(_granted(item, revision, value["message"], value["receipt"]) for item in sources[step].values())
             for step in steps
         )
         and isinstance(stored, dict)

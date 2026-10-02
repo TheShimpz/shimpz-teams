@@ -312,6 +312,11 @@ def _literal(
     return {"kind": "literal", "value": copy.deepcopy(value)}
 
 
+def _pending(proof: dict[str, object]) -> dict[str, object]:
+    """New provenance, whose message, receipt, revision, and any selected answer the commit binds."""
+    return {"proof": proof, "by": None}
+
+
 def _plan_source(
     name: str,
     source: Mapping[str, object],
@@ -320,7 +325,11 @@ def _plan_source(
     words: Words,
     selected: bool,
 ) -> tuple[dict[str, object], dict[str, object]]:
-    """One input's plan source and its provenance; a kept member copies both from the current revision."""
+    """One input's plan source and its provenance.
+
+    A kept member copies both from the current revision, with the message, receipt, revision, and selected answer that
+    first granted it.
+    """
     kind = source["kind"]
     if selected and kind != "literal":
         raise ChangeError("routine-change-invalid")
@@ -328,14 +337,14 @@ def _plan_source(
         properties = schema.get("properties", {})
         member = properties.get(name) if isinstance(properties, dict) else None
         literal = _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
-        return literal, {"origins": [_cited_span(origin, words) for origin in source["origins"]]}
+        return literal, _pending({"origins": [_cited_span(origin, words) for origin in source["origins"]]})
     if kind == "run_clock":
-        return {"kind": "run_clock", "format": source["format"]}, {}
+        return {"kind": "run_clock", "format": source["format"]}, _pending({})
     if kind == "step_output":
         relation_span = words.span(source["instruction"])
         if relation_span is None:
             raise ChangeError("routine-reference-unproven")
-        relation = {"instruction": list(relation_span)}
+        relation = _pending({"instruction": list(relation_span)})
         return {"kind": "step_output", "step": source["step"], "pointer": source["pointer"]}, relation
     if kept is None or name not in kept[0] or name not in kept[1]:
         raise ChangeError("routine-kept-invalid")
