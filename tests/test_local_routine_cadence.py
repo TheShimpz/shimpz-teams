@@ -182,6 +182,16 @@ class ServiceLoadTests(RoutineHttpCase):
             service._chat_demand["team_1"] = time.monotonic() - routine_run.CHAT_PRIORITY_SECONDS
             self.assertIsNotNone(service.claim_routine_run())
 
+    def test_a_team_leases_one_run_at_a_time_however_many_of_its_routines_are_due(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            self.continuous_routine(service)
+            self.continuous_routine(service)
+            first = service.claim_routine_run()
+            self.assertIsNotNone(first)
+            # Its other due Routine waits for the leased run's end, which wakes Admin; it is not hinted meanwhile.
+            self.assertEqual((service.claim_routine_run(), service.next_routine_due()), (None, None))
+
     def test_concurrent_http_claims_lease_one_run_per_routine_and_never_overlap(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())

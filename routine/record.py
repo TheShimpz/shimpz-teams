@@ -536,6 +536,11 @@ def _ready(state: TeamRoutines, busy: set[str]) -> list[Routine]:
     ]
 
 
+def _segment_leased(state: TeamRoutines) -> bool:
+    """Whether one of the Team's runs is leased to drive a segment; frozen and held runs hold no slot."""
+    return any(item.status == "leased" for item in state.runs)
+
+
 def _backpressured(state: TeamRoutines) -> bool:
     """Whether the Team must catch up before any run starts: undelivered notices, cleanup, or incident room."""
     return (
@@ -546,8 +551,11 @@ def _backpressured(state: TeamRoutines) -> bool:
 
 
 def claimable(state: TeamRoutines, now: int) -> Routine | None:
-    """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
-    if _backpressured(state):
+    """The Team's oldest due Routine that may start now, or None; the caller has already swept.
+
+    A Team leases one run at a time, so its runs never contend for its one execution slot (ADR-0092 section 9).
+    """
+    if _backpressured(state) or _segment_leased(state):
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
     due = [item for item in _ready(state, busy) if item.next_run_at <= now and free_at(state, item, now) <= now]
@@ -558,9 +566,9 @@ def next_due(state: TeamRoutines, now: int) -> int | None:
     """The earliest instant after ``now`` one of the Team's Routines becomes due to start, or None.
 
     A Routine at its cap is due only when its earliest start leaves the window. A paused, held, busy, deleting, or
-    unconfirmed Routine never wakes anything; its own resolution does.
+    unconfirmed Routine never wakes anything; its own resolution does, as a leased run's end does for its whole Team.
     """
-    if _backpressured(state):
+    if _backpressured(state) or _segment_leased(state):
         # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)

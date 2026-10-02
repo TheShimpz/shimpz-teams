@@ -613,8 +613,13 @@ class IncidentNoticeTests(unittest.TestCase):
         )
         self.assertEqual(record.next_due(state, NINE), NINE + 40)
         # A Routine with a live run or an unresolved incident wakes nothing; its own end or resolution does.
-        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
+        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "frozen", 0),))
         self.assertEqual(record.next_due(busy, NINE), NINE + 50)
+        # A leased run holds the Team's one slot: no other Routine of the Team is claimed or hinted until it ends.
+        leased = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
+        self.assertEqual(record.claimable(busy, NINE).routine_id, ids[0])
+        self.assertIsNone(record.claimable(leased, NINE))
+        self.assertIsNone(record.next_due(leased, NINE))
         held = dataclasses.replace(busy, incidents=(record.Incident("e" * 32, ids[5], "g", 0),))
         self.assertIsNone(record.next_due(held, NINE))
 
