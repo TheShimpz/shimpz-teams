@@ -15,6 +15,7 @@ from action import journal as action_journal
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError
+from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import store as routine_store
@@ -79,11 +80,19 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
         outcome = _recover(service, team_id, value)
         if outcome is not None:
             _audit("routine-recover", outcome, team_id)
+    # A held run finishes its hold from its last durable step, without dispatching anything (ADR-0092).
+    routine_incident.reconcile_team(service, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
-    runs = {item.run_id for item in service.routine_store.load(team_id).runs}
+    # A cursor also stays while its unresolved incident may still resume the run.
+    current = service.routine_store.load(team_id)
+    runs = {item.run_id for item in current.runs}
     for run_id in service.routine_store.continuations(team_id):
         if run_id not in runs:
             service.routine_store.delete_continuation(team_id, run_id)
+    kept = runs | {item.incident_id for item in current.incidents if item.status == "unresolved"}
+    for run_id in service.routine_store.cursors(team_id):
+        if run_id not in kept:
+            service.routine_store.delete_cursor(team_id, run_id)
     routine_manage.settle_team(service, team_id)
 
 

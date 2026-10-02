@@ -37,6 +37,10 @@ _RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
 # Ended runs whose Brain thread, journal generation, and continuation Team has yet to remove. Claims stop while any
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
+# Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
+MAX_UNRESOLVED_INCIDENTS = 32
+# Incident records kept in all; a skipped one gives way, oldest first, but an unresolved one never does.
+MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
 
 
 class RoutineStateError(ValueError):
@@ -59,13 +63,18 @@ class Routine:
     gap_started_at: int = 0
     missed: int = 0
     reported_missed: int = 0
+    # Each authenticated change of the Routine is a new revision, which a compiled cursor binds (ADR-0092).
+    revision: int = 1
+    # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
+    paused: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class Run:
     run_id: str
     routine_id: str
-    # "leased": may run a segment; "frozen": waits for a human; "uncertain": holds an unresolved Action batch.
+    # "leased": may run a segment; "frozen": waits for a human; "uncertain": holds an unresolved Action batch; "held":
+    # fenced for an incident that recovery or a person must resolve (ADR-0092).
     status: str
     scheduled_at: int
     lease_sha256: str = ""
@@ -100,6 +109,22 @@ class Notice:
 
 
 @dataclass(frozen=True, slots=True)
+class Incident:
+    """The compact index of one held run's incident; its evidence is sealed apart, and it never expires.
+
+    It names its Routine even after that Routine is deleted, so it stays resolvable, but resolving it never recreates
+    the Routine or dispatches a cycle.
+    """
+
+    incident_id: str
+    routine_id: str
+    generation: str
+    created_at: int
+    # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown.
+    status: str = "unresolved"
+
+
+@dataclass(frozen=True, slots=True)
 class TeamRoutines:
     routines: tuple[Routine, ...] = ()
     runs: tuple[Run, ...] = ()
@@ -109,6 +134,7 @@ class TeamRoutines:
     starts: int = 0
     # (run_id, generation) of ended runs whose Brain thread, journal generation, and continuation are still held.
     discards: tuple[tuple[str, str], ...] = ()
+    incidents: tuple[Incident, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,15 +366,31 @@ def claimable(state: TeamRoutines, now: int) -> Routine | None:
         undelivered(state) >= MAX_UNDELIVERED_NOTICES
         or starts_today(state, now) >= MAX_DAILY_STARTS
         or len(state.discards) >= MAX_ROUTINES
+        or not incident_capacity(state)
     ):
         return None
-    busy = {item.routine_id for item in state.runs}
+    busy = {item.routine_id for item in state.runs} | held_routines(state)
     due = [
         item
         for item in state.routines
-        if item.next_run_at <= now and not item.needs_reconfirm and not item.deleting and item.routine_id not in busy
+        if item.next_run_at <= now
+        and not item.needs_reconfirm
+        and not item.deleting
+        and not item.paused
+        and item.routine_id not in busy
     ]
     return min(due, key=lambda item: (item.next_run_at, item.routine_id)) if due else None
+
+
+def held_routines(state: TeamRoutines) -> set[str]:
+    """Routines an unresolved incident holds: no cycle of theirs starts, whatever else resumes them."""
+    return {item.routine_id for item in state.incidents if item.status == "unresolved"}
+
+
+def incident_capacity(state: TeamRoutines) -> bool:
+    """Whether one more run may start: each unresolved incident, and each run that could still be held, holds one."""
+    unresolved = sum(item.status == "unresolved" for item in state.incidents)
+    return unresolved + len(state.runs) < MAX_UNRESOLVED_INCIDENTS
 
 
 def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRoutines, Claim | None]:
@@ -559,6 +601,57 @@ def resolve_uncertain(state: TeamRoutines, run_id: str, fingerprint: str) -> Tea
     return _without_run(state, run_id)
 
 
+def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRoutines:
+    """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
+    value = _live(state, run_id, lease, now)
+    if not value.generation:
+        raise RoutineStateError("generation-invalid")
+    held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    return _replace_run(state, held)
+
+
+def settle_hold(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
+    """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
+
+    The run's live state is queued for removal like any ended run's; its archived journal marker stays with the
+    incident. A claim reserved this incident's room, so it never displaces an unresolved one.
+    """
+    value = run(state, run_id)
+    if value.status != "held":
+        raise RoutineStateError("run-not-held")
+    incident = Incident(run_id, value.routine_id, value.generation, now)
+    kept = list(state.incidents)
+    while len(kept) >= MAX_INCIDENTS:
+        skipped = next((item for item in kept if item.status != "unresolved"), None)
+        if skipped is None:
+            raise RoutineStateError("incident-limit")
+        kept.remove(skipped)
+    return _without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id)
+
+
+def incident(state: TeamRoutines, incident_id: str) -> Incident:
+    for item in state.incidents:
+        if item.incident_id == incident_id:
+            return item
+    raise RoutineStateError("incident-not-found")
+
+
+def skip_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:
+    """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved."""
+    value = incident(state, incident_id)
+    if value.status != "unresolved":
+        raise RoutineStateError("incident-not-unresolved")
+    skipped = dataclasses.replace(value, status="skipped")
+    return dataclasses.replace(
+        state, incidents=tuple(skipped if item.incident_id == incident_id else item for item in state.incidents)
+    )
+
+
+def set_paused(state: TeamRoutines, routine_id: str, paused: bool) -> TeamRoutines:
+    """Pausar, or resume: resuming never bypasses an unresolved incident, which still holds the Routine."""
+    return _replace_routine(state, dataclasses.replace(routine(state, routine_id), paused=paused))
+
+
 def acknowledge(state: TeamRoutines, delivered: frozenset[tuple[str, int]]) -> TeamRoutines:
     """Admin delivered these exact notice versions; a notice updated since stays. Delivery never changes a run."""
     return dataclasses.replace(
@@ -585,7 +678,8 @@ def rekeyed(state: TeamRoutines, key_fingerprint: str) -> tuple[Run, ...]:
 def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tuple[Run, ...]]:
     """Mark a Routine as deleting, so it is never claimed or resumed again; its runs are returned for the caller to end.
 
-    An uncertain run refuses the deletion: only a Supervisor's informed resolution of its exact batch releases it.
+    An uncertain run refuses the deletion: only a Supervisor's informed resolution of its exact batch releases it. A
+    held run instead settles into its incident, which outlives the Routine (ADR-0092).
     """
     value = routine(state, routine_id)
     runs = tuple(item for item in state.runs if item.routine_id == routine_id)

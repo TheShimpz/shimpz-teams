@@ -178,6 +178,11 @@ def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
     return tuple(sorted(hosts))
 
 
+def resembles_credential(value: str) -> bool:
+    """Whether text looks like credential material: a bearer token, an assigned secret, a provider key, or a JWT."""
+    return _SECRET_VALUE_RE.search(value) is not None or _JWT_RE.fullmatch(value.strip()) is not None
+
+
 def _identifier(value: object, *, kind: str, maximum: int = MAX_IDENTIFIER_LENGTH) -> str:
     if not isinstance(value, str) or len(value) > maximum or _ID_RE.fullmatch(value) is None:
         raise ManifestError(f"Assistant {kind} identifier is invalid")
@@ -194,7 +199,7 @@ def _public_text(value: object, *, kind: str, maximum: int) -> str:
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
     ):
         raise ManifestError(f"Assistant {kind} is invalid")
-    if _SECRET_VALUE_RE.search(value) or _JWT_RE.fullmatch(value.strip()):
+    if resembles_credential(value):
         raise ManifestError(f"Assistant {kind} resembles credential material")
     return value
 
@@ -564,7 +569,7 @@ def _reject_credential_material(value: object) -> None:
                 pending.append((child, (*path, key), depth + 1))
         elif isinstance(current, list):
             pending.extend((child, path, depth + 1) for child in current)
-        elif isinstance(current, str) and (_SECRET_VALUE_RE.search(current) or _JWT_RE.fullmatch(current.strip())):
+        elif isinstance(current, str) and resembles_credential(current):
             raise ManifestError("Assistant manifest contains credential material")
 
 

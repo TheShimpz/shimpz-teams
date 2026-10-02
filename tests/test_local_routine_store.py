@@ -133,7 +133,7 @@ class TamperTests(StoreCase):
         frozen = next(index for index, item in enumerate(base["runs"]) if item["status"] == "frozen")
         uncertain = next(index for index, item in enumerate(base["runs"]) if item["status"] == "uncertain")
         mutations = {
-            "schema": lambda value: value.update(schema=2),
+            "schema": lambda value: value.update(schema=1),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
             "routine shape": lambda value: value["routines"][0].pop("quote"),

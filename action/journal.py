@@ -882,6 +882,19 @@ class ActionJournal:
             self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
         self._forget_generation(safe_generation)
 
+    def current_batch(self, generation: str) -> tuple[str, str] | None:
+        """The fingerprint and state (open, ended, or archived) of a generation's batch, or None when it holds none."""
+        safe_generation = _safe_id(generation, "generation")
+        with self._guard:
+            self._ensure_open()
+            try:
+                row = self._connection.execute(
+                    "SELECT fingerprint, state FROM batches WHERE generation = ?", (safe_generation,)
+                ).fetchone()
+            except sqlite3.Error as exc:
+                raise ActionJournalError("Action journal state could not be read") from exc
+        return None if row is None else (str(row[0]), str(row[1]))
+
     def uncertain_fingerprint(self, generation: str) -> str | None:
         """The fingerprint of a generation's batch when one of its operations may have acted, else None."""
         safe_generation = _safe_id(generation, "generation")

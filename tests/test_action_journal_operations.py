@@ -253,9 +253,13 @@ class JournalOperationTests(unittest.TestCase):
         journal._connection = mock.Mock()
         journal._connection.execute.side_effect = sqlite3.Error("offline")
         try:
-            with self.assertRaisesRegex(action_journal.ActionJournalError, "could not be read") as caught:
-                journal.snapshot("routine-gen", batch.fingerprint)
-            self.assertNotIsInstance(caught.exception, action_journal.ActionJournalConflictError)
+            for read in (
+                lambda: journal.snapshot("routine-gen", batch.fingerprint),
+                lambda: journal.current_batch("routine-gen"),
+            ):
+                with self.assertRaisesRegex(action_journal.ActionJournalError, "could not be read") as caught:
+                    read()
+                self.assertNotIsInstance(caught.exception, action_journal.ActionJournalConflictError)
         finally:
             journal._connection = connection
 

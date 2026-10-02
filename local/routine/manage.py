@@ -177,10 +177,10 @@ def list_routines(self, team_id: str) -> dict[str, object]:
     }
 
 
-def _discard(self, team_id: str, run_id: str, generation: str) -> None:
-    """Remove one ended run's Brain thread, live journal batch, and continuation; each removal is idempotent.
+def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool) -> None:
+    """Remove one ended run's Brain thread, live journal batch, continuation, and cursor; each removal is idempotent.
 
-    An archive marker its unresolved evidence still needs stays in the journal (ADR-0092).
+    An archive marker and a cursor its incident still needs stay (ADR-0092).
     """
     if generation:
         network_id = generation.removesuffix(f":routine:{run_id}")
@@ -192,6 +192,8 @@ def _discard(self, team_id: str, run_id: str, generation: str) -> None:
                 HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"
             ) from exc
     routine_state.call(lambda: self.routine_store.delete_continuation(team_id, run_id))
+    if not incident:
+        routine_state.call(lambda: self.routine_store.delete_cursor(team_id, run_id))
 
 
 def drain(self, team_id: str) -> None:
@@ -200,8 +202,10 @@ def drain(self, team_id: str) -> None:
     A run's end queues its removal in the same write that ends it, so nothing it held is lost to a crash, and nothing
     is removed while the run could still resume.
     """
-    for run_id, generation in routine_state.load(self, team_id).discards:
-        _discard(self, team_id, run_id, generation)
+    state = routine_state.load(self, team_id)
+    incidents = {item.incident_id for item in state.incidents}
+    for run_id, generation in state.discards:
+        _discard(self, team_id, run_id, generation, incident=run_id in incidents)
         routine_state.update(self, team_id, lambda state, run=run_id: (record.discarded(state, run), None))
 
 
@@ -262,9 +266,10 @@ def delete_routine(
     for value in runs:
         if value.status == "leased":
             self._stop_routine_run(team_id, value.run_id)
-            continue
-        self._cancel_routine_challenge(team_id, value.run_id)
-        end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
+        elif value.status == "frozen":
+            self._cancel_routine_challenge(team_id, value.run_id)
+            end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
+        # A held run settles into its incident, which outlives the Routine; that ending completes the deletion.
     return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
 
 
