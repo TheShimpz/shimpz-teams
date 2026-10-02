@@ -629,7 +629,9 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
 
 
 def _publish(self, run: routine_run._Run, reservation: _Reservation, reason: str) -> None:
-    """Pause the Routine the held run belongs to and say why, once per episode."""
+    """Pause the Routine the held run belongs to and say why, once per episode, unless a person stopped it first."""
+    if not routine_run.unstopped(self, run.token, reservation.expired.is_set):
+        return
     routine_incident.pause(self, run.team_id, run.run_id, reason)
     reservation.published.set()
 
@@ -662,7 +664,7 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
     try:
         if not reservation.seconds:
             # No time is left in either balance: the episode is exhausted before it starts.
-            routine_incident.pause(self, team_id, incident_id, "exhausted")
+            _publish(self, run, reservation, "exhausted")
             return "held"
         with (
             routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds),

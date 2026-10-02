@@ -387,6 +387,16 @@ def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callab
     return _stop_registered(self, team_id, run_id, token, mark)
 
 
+def unstopped(self, token: str, deadline: Callable[[], bool]) -> bool:
+    """Whether an outcome may still be published for this execution: no person stopped it first.
+
+    Decided under the same guard a person's Stop cancels under, so a Stop is either before the decision, and nothing
+    is published, or after it. A cancellation the execution's own ``deadline`` caused is no person's Stop.
+    """
+    with self._active_chat_guard:
+        return token not in self._cancelled_chat_tokens or deadline()
+
+
 def _stop_registered(
     self, team_id: str, run_id: str, expected: str | None, mark: Callable[[], None] | None = None
 ) -> bool:

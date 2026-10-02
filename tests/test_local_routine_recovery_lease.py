@@ -342,3 +342,54 @@ class StopPrecedenceTests(AutomaticCase):
                 self.assertEqual([item.incident_id for item in state.incidents], [run_id])
                 self.assertEqual(state.notices[-1].outcome, "held")
                 self.assertFalse(record.routine(state, value.routine_id).paused)
+
+    def test_a_stop_during_the_reservation_or_just_before_publication_publishes_nothing(self) -> None:
+        def stop(service, token):
+            # What a person's Stop does to the execution, under the guard.
+            with service._active_chat_guard:
+                service._cancelled_chat_tokens.add(token)
+
+        real_reserve = routine_recovery._reserve
+        real_unstopped = routine_run.unstopped
+
+        def reserving(service, team_id, incident_id):
+            reserved = real_reserve(service, team_id, incident_id)
+            stop(service, box[-1])
+            return reserved
+
+        def publishing(service, token, deadline):
+            stop(service, token)
+            return real_unstopped(service, token, deadline)
+
+        cases = {
+            "reserving": (0, mock.patch.object(routine_recovery, "_reserve", side_effect=reserving)),
+            "publishing": (30, mock.patch.object(routine_run, "unstopped", side_effect=publishing)),
+        }
+        for name, (balance, patch) in cases.items():
+            box: list[str] = []
+            assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
+            with tempfile.TemporaryDirectory() as directory, self.subTest(name=name):
+                service, _brain, value, run_id = self.held(directory, assistant)
+                service.routine_store.update(
+                    "team_1",
+                    lambda state, run_id=run_id, balance=balance: (
+                        routine_hold._replace_incident(
+                            state,
+                            dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=balance),
+                        ),
+                        None,
+                    ),
+                )
+                with (
+                    service._exclusive_chat_turn("team_1") as token,
+                    patch,
+                    mock.patch.object(routine_recovery, "verify", return_value="policy"),
+                ):
+                    box.append(token)
+                    run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                    outcome = routine_recovery.automatic(service, run, "k")
+                state = self.state(service)
+                self.assertEqual(outcome, "held")
+                # The person's Stop came first: neither exhaustion nor the policy pause is published.
+                self.assertEqual(state.notices[-1].outcome, "held")
+                self.assertFalse(record.routine(state, value.routine_id).paused)
