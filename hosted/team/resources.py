@@ -416,7 +416,7 @@ class _CleanupResult:
 def _capacity_key(container) -> str:
     team_id = str(container.labels.get("team.id", ""))
     if container.labels.get("team.prepare.runtime"):
-        return f"prepare:{team_id}"
+        return f"prepare:{team_id}:{container.labels.get('team.prepare.key', '')}"
     if container.labels.get("team.assistant.runtime"):
         return f"assistant:{team_id}:{container.labels.get('team.assistant', '')}"
     return f"team:{team_id}"

@@ -59,12 +59,20 @@ def helper(
     stopped: Callable[[object], None] = lambda _container: None,
 ) -> Iterator[preparation_helper.PreparationHelper]:
     """One helper for one preparation segment, removed before the segment continues."""
+
+    def clear_residue() -> None:
+        try:
+            remove_helpers(client, space_id, team_id)
+        except DockerException as exc:
+            raise preparation_helper.HelperUnavailableError("an earlier preparation helper remains") from exc
+
     with preparation_helper.PreparationHelper(
         client,
         lambda: helper_kwargs(client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus),
         transport_errors=(DockerException,),
         started=started,
         stopped=stopped,
+        clear_residue=clear_residue,
     ) as session:
         yield session
 

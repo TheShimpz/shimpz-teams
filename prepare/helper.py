@@ -82,12 +82,15 @@ class PreparationHelper:
         transport_errors: tuple[type[BaseException], ...],
         started: Callable[[object], None] = lambda _container: None,
         stopped: Callable[[object], None] = lambda _container: None,
+        clear_residue: Callable[[], None] = lambda: None,
     ) -> None:
         self._client = client
         self._kwargs = kwargs
         self._transport_errors = transport_errors
         self._started = started
         self._stopped = stopped
+        # Removes every earlier helper of the same owner before a new one may start, raising when one remains.
+        self._clear_residue = clear_residue
         self._container: object | None = None
 
     def __enter__(self) -> PreparationHelper:
@@ -121,8 +124,12 @@ class PreparationHelper:
         return answer if isinstance(answer, dict) else dict(_UNREADABLE)
 
     def close(self) -> None:
-        """Remove the helper container; a removal failure leaves the segment unable to continue."""
-        container, self._container = self._container, None
+        """Remove the helper container, keeping ownership of it until its removal or absence is proved.
+
+        A failed removal raises and leaves the helper owned: it is not reported stopped, a retry removes it again, and
+        no replacement helper starts while it remains.
+        """
+        container = self._container
         if container is None:
             return
         try:
@@ -130,16 +137,19 @@ class PreparationHelper:
         except self._transport_errors as exc:
             if not _absent(exc):
                 raise HelperUnavailableError("the preparation helper could not be removed") from exc
-        finally:
-            self._stopped(container)
+        self._container = None
+        self._stopped(container)
 
     def _running(self) -> object:
         if self._container is not None:
             return self._container
-        container = None
+        self._clear_residue()
         try:
             container = self._client.containers.create(**self._kwargs())
-            self._container = container
+        except self._transport_errors as exc:
+            raise HelperUnavailableError("the preparation helper could not be started") from exc
+        self._container = container
+        try:
             self._started(container)
             container.start()
         except self._transport_errors as exc:

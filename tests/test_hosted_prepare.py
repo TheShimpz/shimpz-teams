@@ -36,22 +36,39 @@ class HostedPrepareTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_the_hosted_helper_runs_under_gvisor_with_team_accounting_labels(self) -> None:
-        kwargs = hosted_prepare.helper_kwargs(self.docker, team_id="team_1", owner="account_1")
+        kwargs = hosted_prepare.helper_kwargs(self.docker, team_id="team_1", owner="account_1", key="k1")
         self.assertEqual(kwargs["runtime"], resources.container_spec.RUNTIME)
         self.assertEqual(kwargs["image"], IMAGE_ID)
         self.assertEqual(kwargs["network_mode"], "none")
         self.assertIn("apparmor=docker-default", kwargs["security_opt"])
         self.assertEqual(
-            kwargs["labels"], {"team.prepare.runtime": "1", "team.id": "team_1", "team.owner": "account_1"}
+            kwargs["labels"],
+            {"team.prepare.runtime": "1", "team.prepare.key": "k1", "team.id": "team_1", "team.owner": "account_1"},
         )
         self.assertEqual(kwargs["mem_limit"], limits.HELPER_MEMORY_BYTES)
 
-    def test_the_helper_reserves_its_memory_for_its_whole_life(self) -> None:
+    def test_each_helper_reserves_its_memory_under_its_own_key(self) -> None:
         with mock.patch.object(resources, "_reserve_capacity") as reserve, hosted_prepare.helper("team_1", "account_1"):
             pass
-        reserve.assert_called_once_with("prepare:team_1", "account_1", limits.HELPER_MEMORY_BYTES, team_slot=False)
-        helper = SimpleNamespace(labels={"team.prepare.runtime": "1", "team.id": "team_1"})
-        self.assertEqual(resources._capacity_key(helper), "prepare:team_1")
+        key, owner, memory = reserve.call_args.args
+        self.assertTrue(key.startswith("prepare:team_1:"))
+        self.assertEqual(
+            (owner, memory, reserve.call_args.kwargs), ("account_1", limits.HELPER_MEMORY_BYTES, {"team_slot": False})
+        )
+        residue = SimpleNamespace(labels={"team.prepare.runtime": "1", "team.prepare.key": "old", "team.id": "team_1"})
+        self.assertEqual(resources._capacity_key(residue), "prepare:team_1:old")
+        self.assertNotEqual(resources._capacity_key(residue), key)
+
+    def test_a_residual_helper_refuses_a_new_one(self) -> None:
+        stuck = SimpleNamespace(remove=mock.Mock(side_effect=harness._docker_errors.DockerException("busy")))
+        self.docker.containers.list.return_value = [stuck]
+        with (
+            mock.patch.object(resources, "_reserve_capacity"),
+            hosted_prepare.helper("team_1", "account_1") as session,
+            self.assertRaises(hosted_prepare.preparation_helper.HelperUnavailableError),
+        ):
+            session.prepare("image", b"x")
+        self.docker.containers.create.assert_not_called()
 
     def test_teardown_removes_every_helper_and_retries_on_failure(self) -> None:
         stale = SimpleNamespace(remove=mock.Mock())

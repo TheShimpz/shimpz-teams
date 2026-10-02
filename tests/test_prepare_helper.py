@@ -129,6 +129,53 @@ class HelperSessionTests(unittest.TestCase):
         self.assertIn(("remove", "helper-1", True), client.events)
         self.assertIn(("remove", "helper-2", True), client.events)
 
+    def test_a_failed_removal_keeps_ownership_and_refuses_a_replacement(self) -> None:
+        client = _Client()
+        failing = _Container(client.events, "x")
+        failing.remove = mock.Mock(side_effect=DockerException("busy"))
+        client.containers.create = mock.Mock(return_value=failing)
+        stopped: list[str] = []
+        helper = self._helper(client, stopped=lambda container: stopped.append(container.id))
+
+        def exchange(*args: object) -> object:
+            args[3].fail_stop()
+            raise action_execution.RpcExchangeError("timeout")
+
+        with (
+            mock.patch.object(action_execution, "rpc_exchange", side_effect=exchange),
+            self.assertRaises(preparation_helper.HelperUnavailableError),
+        ):
+            helper.prepare("pdf", b"x")
+        self.assertEqual(stopped, [])
+        with self.assertRaises(preparation_helper.HelperUnavailableError):
+            helper.close()
+        self.assertEqual(client.containers.create.call_count, 1)
+        self.assertEqual(failing.remove.call_count, 2)
+        failing.remove.side_effect = None
+        helper.close()
+        self.assertEqual(stopped, ["helper-x"])
+        helper.close()
+        self.assertEqual(failing.remove.call_count, 3)
+
+    def test_residue_from_an_earlier_segment_is_cleared_before_a_new_helper_or_refuses_it(self) -> None:
+        client = _Client()
+        order: list[str] = []
+        clear = mock.Mock(side_effect=lambda: order.append("clear"))
+        client.containers.create = mock.Mock(
+            side_effect=lambda **_kwargs: order.append("create") or _Container(client.events, "n")
+        )
+        with (
+            mock.patch.object(action_execution, "rpc_exchange", return_value={}),
+            self._helper(client, clear_residue=clear) as helper,
+        ):
+            helper.prepare("pdf", b"x")
+            helper.prepare("pdf", b"y")
+        self.assertEqual(order, ["clear", "create"])
+        refused = self._helper(client, clear_residue=mock.Mock(side_effect=preparation_helper.HelperUnavailableError))
+        with self.assertRaises(preparation_helper.HelperUnavailableError):
+            refused.prepare("pdf", b"x")
+        self.assertEqual(client.containers.create.call_count, 1)
+
     def test_a_non_object_answer_is_unreadable(self) -> None:
         with mock.patch.object(action_execution, "rpc_exchange", return_value=[1]), self._helper(_Client()) as helper:
             self.assertEqual(helper.prepare("image", b"x"), {"type": "opaque", "reason": "unreadable"})

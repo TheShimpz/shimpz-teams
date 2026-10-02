@@ -21,13 +21,15 @@ from prepare import limits
 from prepare import service as preparation
 
 RUNTIME_LABEL = "team.prepare.runtime"
+# Each helper's own capacity key, so a residual helper is never hidden behind a later helper's reservation.
+KEY_LABEL = "team.prepare.key"
 
 
-def helper_kwargs(client: object, *, team_id: str, owner: str) -> dict[str, object]:
+def helper_kwargs(client: object, *, team_id: str, owner: str, key: str) -> dict[str, object]:
     """The Hosted helper envelope: the controller's exact image under gVisor with Team accounting labels."""
     image = preparation_helper.own_image_id(client, (docker.errors.DockerException,))
-    name = f"team-prepare-{team_id}-{secrets.token_hex(4)}"
-    labels = {RUNTIME_LABEL: "1", "team.id": team_id, "team.owner": owner}
+    name = f"team-prepare-{team_id}-{key}"
+    labels = {RUNTIME_LABEL: "1", KEY_LABEL: key, "team.id": team_id, "team.owner": owner}
     kwargs = preparation_helper.base_kwargs(image, name, labels)
     kwargs.update(
         runtime=container_spec.RUNTIME,
@@ -46,16 +48,29 @@ def helper(
     started: Callable[[object], None] = lambda _container: None,
     stopped: Callable[[object], None] = lambda _container: None,
 ) -> Iterator[preparation_helper.PreparationHelper]:
-    """One helper for one preparation segment, its memory reserved until it is removed."""
+    """One helper for one preparation segment, its memory reserved under its own key until it is removed.
+
+    A helper whose removal fails keeps its labels, so inventory accounts for it once its reservation ends, and no new
+    helper of the Team starts until it is gone.
+    """
     client = runtime_state._docker
+    key = secrets.token_hex(8)
+
+    def clear_residue() -> None:
+        if not remove_helpers(team_id):
+            raise preparation_helper.HelperUnavailableError("an earlier preparation helper remains")
+
     with (
-        hosted_resources._reserve_capacity(f"prepare:{team_id}", owner, limits.HELPER_MEMORY_BYTES, team_slot=False),
+        hosted_resources._reserve_capacity(
+            f"prepare:{team_id}:{key}", owner, limits.HELPER_MEMORY_BYTES, team_slot=False
+        ),
         preparation_helper.PreparationHelper(
             client,
-            lambda: helper_kwargs(client, team_id=team_id, owner=owner),
+            lambda: helper_kwargs(client, team_id=team_id, owner=owner, key=key),
             transport_errors=(docker.errors.DockerException,),
             started=started,
             stopped=stopped,
+            clear_residue=clear_residue,
         ) as session,
     ):
         yield session
