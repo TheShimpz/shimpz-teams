@@ -50,11 +50,15 @@ def routine(routine_id: str) -> record.Routine:
 
 
 def two_runs() -> tuple[record.TeamRoutines, str]:
-    """One run that bound its generation and one that has not started a segment yet."""
+    """One run that bound its generation and froze for a person, and one that has not started a segment yet."""
     state = record.add_routine(record.add_routine(record.TeamRoutines(), routine("a" * 32)), routine("b" * 32))
     state, bound = record.claim(state, NINE, KEY)
-    state = record.bind_generation(state, bound.run.run_id, record.lease_of(bound.lease_token, KEY), NINE, NETWORK)
-    state, _fresh = record.claim(state, NINE, KEY)
+    lease = record.lease_of(bound.lease_token, KEY)
+    state = record.bind_generation(state, bound.run.run_id, lease, NINE, NETWORK)
+    # A frozen run holds no execution slot, so the Team may lease its other due Routine.
+    state = record.freeze(state, bound.run.run_id, lease, NINE, "human", "dns", "replace-dns-record")
+    state, fresh = record.claim(state, NINE, KEY)
+    assert fresh is not None
     return state, bound.run.run_id
 
 
