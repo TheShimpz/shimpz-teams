@@ -334,6 +334,52 @@ class SessionRouteTests(RoutineHttpCase):
                     self.assertIsNone(verify.call_args.kwargs["request"].assurance)
 
 
+class RecoveryRouteTests(RoutineHttpCase):
+    def test_a_session_opens_and_answers_recovery_cards_and_resumes_a_routine(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.serve(directory, Runtime())
+            value = self.routine(service)
+            base = "/v1/teams/team_1/routines"
+            incident = f"{base}/incidents/{'a' * 32}"
+            nonce = '{"nonce":"' + "b" * 32 + '","choice":"skip"}'
+            with mock.patch.object(local_authority, "verify", return_value=self.session):
+                status, _type, raw = self.request("GET", base)
+                listed = json.loads(raw)
+                self.assertEqual((listed["incidents"], listed["routines"][0]["paused"]), ([], False))
+                self.assertIsNotNone(http_routine.canonical_routine_view(listed["routines"][0]))
+                cases = (
+                    (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
+                    (incident + "/card", b'{"x":1}', 422, "invalid-body"),
+                    (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
+                    (incident + "/answer", b'{"nonce":"x","choice":"skip"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"other"}', 422, "invalid-body"),
+                    (incident + "/answer", nonce.encode(), 409, "routine-card-expired"),
+                    (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/{value.routine_id}/resume", b'{"x":1}', 422, "invalid-body"),
+                )
+                for path, body, code, problem in cases:
+                    with self.subTest(path=path, body=body):
+                        status, _type, raw = self.request("POST", path, body)
+                        self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
+                service.routine_store.update(
+                    "team_1", lambda state: (record.set_paused(state, value.routine_id, True), None)
+                )
+                status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/resume", EMPTY)
+                resumed = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
+                self.assertEqual(resumed, {"team_id": "team_1", "routine_id": value.routine_id, "paused": False})
+                self.assertFalse(record.routine(self.state(service), value.routine_id).paused)
+                # An opened card and its answer travel exactly as Team's recovery card produced them.
+                card = {"incident_id": "a" * 32}
+                with mock.patch.object(service, "open_routine_card", return_value=card) as opened:
+                    status, _type, raw = self.request("POST", incident + "/card", EMPTY)
+                self.assertEqual((status, json.loads(raw)["incident_id"]), (200, "a" * 32))
+                self.assertEqual(opened.call_args.args, ("team_1", "a" * 32))
+                with mock.patch.object(service, "answer_routine_card", return_value=card) as answered:
+                    status, _type, raw = self.request("POST", incident + "/answer", nonce.encode())
+                self.assertEqual((status, answered.call_args.args[2]), (200, json.loads(nonce)))
+
+
 class NoticeBacklogTests(RoutineHttpCase):
     def test_a_backlog_of_maximum_notices_drains_in_bounded_batches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -392,7 +438,7 @@ class ProtocolViewTests(RoutineHttpCase):
             with mock.patch.object(local_authority, "verify", return_value=self.session):
                 _status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 listed = body(raw)
-            self.assertEqual(set(listed), {"team_id", "routines", "runs"})
+            self.assertEqual(set(listed), {"team_id", "routines", "runs", "incidents"})
             for item in listed["routines"]:
                 self.assertEqual(http_routine.canonical_routine_view(item), item)
             (run,) = listed["runs"]

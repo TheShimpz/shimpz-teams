@@ -207,7 +207,7 @@ class CardEdgeTests(RecoveryCase):
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 card = self.as_card(service, run_id)
-            self.assertEqual(card["recommended"], "pause")
+            self.assertEqual((card["recommended"], card["choices"]), ("pause", ["pause", "verify", "skip"]))
             routine_incident.skip(service, "team_1", run_id)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)

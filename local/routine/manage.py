@@ -37,6 +37,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
         "next_run_at": _instant(value.next_run_at),
         "needs_reconfirm": value.needs_reconfirm,
         "deleting": value.deleting,
+        "paused": value.paused,
     }
 
 
@@ -53,6 +54,18 @@ def run_view(value: record.Run) -> dict[str, object]:
     }
 
 
+def incident_view(value: record.Incident) -> dict[str, object]:
+    """An unresolved incident a recovery card settles: its Routine, request, and the step whose effect is unknown."""
+    return {
+        "incident_id": value.incident_id,
+        "routine_id": value.routine_id,
+        "quote": value.quote,
+        "created_at": _instant(value.created_at),
+        "assistant_id": value.assistant_id or None,
+        "action": value.action or None,
+    }
+
+
 def list_routines(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     state = routine_state.load(self, team_id)
@@ -60,6 +73,7 @@ def list_routines(self, team_id: str) -> dict[str, object]:
         "team_id": team_id,
         "routines": [routine_view(item) for item in state.routines],
         "runs": [run_view(item) for item in state.runs],
+        "incidents": [incident_view(item) for item in state.incidents if item.status == "unresolved"],
     }
 
 

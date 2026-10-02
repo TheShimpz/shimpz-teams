@@ -462,6 +462,22 @@ CONTROLLER_ROUTES = (
         _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
+    # A held run's recovery card (ADR-0092): open it, then answer it once with Verificar, Pular, or Pausar.
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/incidents/:incident_id/card",
+        "routine-card-open",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/incidents/:incident_id/answer",
+        "routine-card-answer",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume", _LOCAL_CONTROLLER_ONLY
+    ),
     _controller_route(
         "GET",
         "/v1/teams/:team_id/routines/runs/:run_id/diagnostics",

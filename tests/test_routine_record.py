@@ -578,6 +578,18 @@ class IncidentNoticeTests(unittest.TestCase):
         gone = dataclasses.replace(state, routines=())
         self.assertEqual(record.skip_incident(gone, run_id, NINE).notices[-1].quote, routine().quote)
 
+    def test_a_resume_starts_a_fresh_streak_and_a_deleting_routine_never_pauses_or_resumes(self):
+        state = added(routine())
+        state = dataclasses.replace(state, routines=(dataclasses.replace(state.routines[0], failures=3, paused=True),))
+        resumed = record.routine(record.set_paused(state, "a" * 32, False), "a" * 32)
+        self.assertEqual((resumed.paused, resumed.failures), (False, 0))
+        paused = record.routine(record.set_paused(state, "a" * 32, True), "a" * 32)
+        self.assertEqual(paused.failures, 3)
+        deleting, _runs = record.begin_delete(state, "a" * 32)
+        for value in (True, False):
+            with self.subTest(paused=value), self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+                record.set_paused(deleting, "a" * 32, value)
+
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = self.held()
         state = record.settle_hold(state, run_id, NINE + 1)
@@ -642,6 +654,10 @@ class RoutineViewContractTests(unittest.TestCase):
             "notice_batch": http_routine.canonical_notice_batch,
             "claim": http_routine.canonical_claim,
             "claim_request": http_routine.canonical_claim_request,
+            "incident": http_routine.canonical_incident_view,
+            "card": http_routine.canonical_card,
+            "card_answer_request": http_routine.canonical_card_answer_request,
+            "card_answer": http_routine.canonical_card_answer,
         }
         for kind, function in admit.items():
             for value in views[kind]["valid"]:

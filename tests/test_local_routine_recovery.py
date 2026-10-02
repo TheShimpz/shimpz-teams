@@ -18,6 +18,7 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
 from routine import record
 
@@ -204,16 +205,22 @@ class CardTests(RecoveryCase):
 
     def card(self, service, run_id: str) -> dict[str, object]:
         with self.as_person():
-            return service.open_routine_card("team_1", run_id)
+            card = service.open_routine_card("team_1", run_id)
+        # Every card and answer Team produces is in its closed protocol view.
+        self.assertEqual(http_routine.canonical_card(card), card)
+        return card
 
     def answer(self, service, run_id: str, card: dict[str, object], choice: str, principal: str = PRINCIPAL):
         with self.as_person(principal):
-            return service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
+            answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
+        self.assertEqual(http_routine.canonical_card_answer(answered), answered)
+        return answered
 
     def test_verificar_continues_with_no_model_and_no_provider_key(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
         with tempfile.TemporaryDirectory() as directory:
             service, brain, value, run_id = self.held(directory, assistant)
+            (incident,) = service.list_routines("team_1")["incidents"]
             card = self.card(service, run_id)
             answered = self.answer(service, run_id, card, "verify")
             state = self.state(service)
@@ -222,6 +229,11 @@ class CardTests(RecoveryCase):
             (["verify", "skip", "pause"], "verify", ASSISTANT, "create-record", value.revision),
         )
         self.assertEqual((answered["verdict"], answered["status"]), ("occurred", "recovered"))
+        self.assertEqual(http_routine.canonical_incident_view(incident), incident)
+        self.assertEqual(
+            (incident["incident_id"], incident["quote"], incident["assistant_id"], incident["action"]),
+            (run_id, value.quote, ASSISTANT, "create-record"),
+        )
         self.assertEqual((brain.calls, state.incidents, state.notices[-1].outcome), ([], (), "recovered"))
 
     def test_an_inconclusive_verificar_keeps_the_run_held(self) -> None:

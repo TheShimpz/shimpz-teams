@@ -25,6 +25,7 @@ from local.routine import card as local_routine_card
 from local.routine import compiled as local_routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
+from local.routine import incident as local_routine_incident
 from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
@@ -173,6 +174,7 @@ class ChatTurnService:
     _recover_routine_run = local_routine_recovery.automatic
     open_routine_card = local_routine_card.open_card
     answer_routine_card = local_routine_card.answer_card
+    resume_routine = local_routine_incident.resume_routine
     claim_routine_run = local_routine_run.claim_routine_run
     run_routine = local_routine_compiled.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run

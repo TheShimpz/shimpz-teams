@@ -21,9 +21,12 @@ from http import HTTPStatus
 
 from action import journal as action_journal
 from core import strict_json
+from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import state as routine_state
 from local.routine import store as routine_store
+from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
 from routine import plan as routine_plan
 from routine import record
@@ -346,3 +349,13 @@ def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
 
     if not routine_state.update(self, team_id, change):
         raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+
+
+def resume_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
+    """A person resumes a paused Routine; an unresolved incident still holds it until its card settles it."""
+    team_id = validate_team_id(team_id)
+    if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
+        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+    set_paused(self, team_id, routine_id, False)
+    local_audit.record_request("routine-resume", result="ok", team_id=team_id, detail=routine_id)
+    return {"team_id": team_id, "routine_id": routine_id, "paused": False}

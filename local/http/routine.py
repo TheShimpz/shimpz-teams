@@ -36,6 +36,9 @@ BODY_LIMITS = {
     "routine-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "routine-integration-submit": MAX_BODY_BYTES,
     "routine-stop": MAX_BODY_BYTES,
+    "routine-card-open": MAX_BODY_BYTES,
+    "routine-card-answer": MAX_BODY_BYTES,
+    "routine-resume": MAX_BODY_BYTES,
 }
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -82,6 +85,28 @@ def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict
     return service.stop_routine(team_id, run_id)
 
 
+def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
+    incident_id = route.params["incident_id"]
+    if _RUN_ID_RE.fullmatch(incident_id) is None:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", code="routine-incident-unavailable")
+    return incident_id
+
+
+def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    """A person's recovery card of one held run: open it with an empty body, or answer it once."""
+    service = handler.server.controller.chat_turn_service
+    incident_id = _incident_id(route)
+    if route.operation == "routine-card-open":
+        _empty(handler, route.operation)
+        return service.open_routine_card(team_id, incident_id)
+    return service.answer_routine_card(team_id, incident_id, handler._body(max_bytes=BODY_LIMITS[route.operation]))
+
+
+def _resume(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+    _empty(handler, route.operation)
+    return handler.server.controller.chat_turn_service.resume_routine(team_id, route.params["routine_id"])
+
+
 def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
     """A Supervisor's management of the Team's Routines; run decisions go to ``_run``."""
     service = handler.server.controller.chat_turn_service
@@ -89,6 +114,9 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
         "routine-list": lambda: service.list_routines(team_id),
         "routine-diagnostics": lambda: service.routine_run_diagnostics(team_id, _run_id(route), int(time.time())),
         "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
+        "routine-card-open": lambda: _card(handler, route, team_id),
+        "routine-card-answer": lambda: _card(handler, route, team_id),
+        "routine-resume": lambda: _resume(handler, route, team_id),
     }
     operation = operations.get(route.operation)
     return operation() if operation is not None else _run(handler, route, team_id)

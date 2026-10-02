@@ -24,10 +24,11 @@ from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from local.routine import state as routine_state
 from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 from routine import record
 
-CARD_SECONDS = 300
-CHOICES = ("verify", "skip", "pause")
+CARD_SECONDS = http_routine.CARD_SECONDS
+CHOICES = http_routine.CARD_CHOICES
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +124,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     steps = opened.recovery.plan["steps"]
     step = steps[min(opened.cursor.step, len(steps) - 1)]
     verifiable = _verifiable(self, team_id, incident_id)
+    recommended = "verify" if verifiable else "pause"
     card = Card(
         principal,
         opened.recovery.binding.incarnation,
@@ -144,9 +146,9 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
         "action": step["action"],
         "nonce": card.nonce,
         "expires_in": CARD_SECONDS,
-        "choices": list(CHOICES),
         # The recommended available choice leads; an unverifiable step recommends Pausar.
-        "recommended": "verify" if verifiable else "pause",
+        "choices": [recommended, *(choice for choice in CHOICES if choice != recommended)],
+        "recommended": recommended,
     }
 
 
@@ -190,7 +192,8 @@ def _continuable(self, team_id: str, routine_id: str) -> bool:
 def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str, object]:
     """Answer one open recovery card with exactly one of its choices."""
     team_id, principal = validate_team_id(team_id), _principal()
-    if not isinstance(body, dict) or set(body) != {"nonce", "choice"} or body["choice"] not in CHOICES:
+    body = http_routine.canonical_card_answer_request(body)
+    if body is None:
         raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and one choice", "invalid-body")
     card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)
     if card is None:

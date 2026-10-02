@@ -914,8 +914,14 @@ def release_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:
 
 
 def set_paused(state: TeamRoutines, routine_id: str, paused: bool) -> TeamRoutines:
-    """Pausar, or resume: resuming never bypasses an unresolved incident, which still holds the Routine."""
-    return _replace_routine(state, dataclasses.replace(routine(state, routine_id), paused=paused))
+    """Pausar, or resume: resuming never bypasses an unresolved incident, which still holds the Routine.
+
+    A resume starts a fresh failure streak, so the person's decision is not undone by the failures before it.
+    """
+    value = routine(state, routine_id)
+    if value.deleting:
+        raise RoutineStateError("routine-not-found")
+    return _replace_routine(state, dataclasses.replace(value, paused=paused, failures=value.failures if paused else 0))
 
 
 def acknowledge(state: TeamRoutines, delivered: frozenset[tuple[str, int]]) -> TeamRoutines:
