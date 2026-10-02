@@ -531,13 +531,18 @@ def _ready(state: TeamRoutines, busy: set[str]) -> list[Routine]:
     ]
 
 
-def claimable(state: TeamRoutines, now: int) -> Routine | None:
-    """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
-    if (
+def _backpressured(state: TeamRoutines) -> bool:
+    """Whether the Team must catch up before any run starts: undelivered notices, cleanup, or incident room."""
+    return (
         undelivered(state) >= MAX_UNDELIVERED_NOTICES
         or len(state.discards) >= MAX_ROUTINES
         or not incident_capacity(state)
-    ):
+    )
+
+
+def claimable(state: TeamRoutines, now: int) -> Routine | None:
+    """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
+    if _backpressured(state):
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
     due = [item for item in _ready(state, busy) if item.next_run_at <= now and free_at(state, item, now) <= now]
@@ -550,6 +555,9 @@ def next_due(state: TeamRoutines, now: int) -> int | None:
     A Routine at its cap is due only when its earliest start leaves the window. A paused, held, busy, deleting, or
     unconfirmed Routine never wakes anything; its own resolution does.
     """
+    if _backpressured(state):
+        # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
+        return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
     due = [max(item.next_run_at, free_at(state, item, now)) for item in _ready(state, busy)]
     return min((item for item in due if item > now), default=None)

@@ -54,10 +54,22 @@ def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
     return ApiProblem(status, message, code=code)
 
 
+# How long a person's chat message, refused while a Routine held the slot, keeps further runs of its Team waiting.
+CHAT_PRIORITY_SECONDS = 30
+
+
 def _chat_busy(self, team_id: str) -> bool:
-    """Chat has priority at admission: a Routine never starts beside a chat turn or a pending chat challenge."""
+    """Chat has priority at admission (ADR-0092 section 9).
+
+    A Routine never starts beside a chat turn or a pending chat challenge, nor while a person who found the slot held
+    by a Routine is still waiting for their turn: however short a continuous Routine's gap, chat gets the next boundary.
+    """
+    with self._active_chat_guard:
+        demand = self._chat_demand.get(team_id)
+    waiting = demand is not None and time.monotonic() - demand < CHAT_PRIORITY_SECONDS
     return (
-        self._chat_lock(team_id).locked()
+        waiting
+        or self._chat_lock(team_id).locked()
         or self.human_challenges.current(team_id) is not None
         or self.integration_challenges.current(team_id) is not None
     )
