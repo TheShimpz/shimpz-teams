@@ -326,11 +326,18 @@ def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -
 
 
 def register_routine_run(self, team_id: str, run_id: str, token: str, active_seconds: int) -> None:
-    """Register a run's worker; a Stop that already found the run unregistered fences it out instead."""
+    """Register a run's worker; a Stop that already found the run unregistered fences it out instead.
+
+    The same execution registering again, as a recovery's continuation does, keeps a deadline that already cancelled
+    it, so its ending is still recorded as out of time, never as stopped.
+    """
     with self._active_chat_guard:
         if run_id in self._routine_halting:
             raise _problem(HTTPStatus.CONFLICT, "Routine run was stopped", "chat-stopped")
-        self._routine_runs[run_id] = _Registration(team_id, token, time.monotonic() + max(active_seconds, 0))
+        previous = self._routine_runs.get(run_id)
+        overdue = previous is not None and previous.token == token and previous.overdue
+        deadline = time.monotonic() + max(active_seconds, 0)
+        self._routine_runs[run_id] = _Registration(team_id, token, deadline, overdue)
 
 
 def unregister_routine_run(self, run_id: str) -> None:

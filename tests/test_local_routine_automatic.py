@@ -600,3 +600,44 @@ class ContinuationDeadlineTests(BalanceCase):
         self.assertTrue(0 < handed <= 5)
         self.assertEqual(recovery, 55)
         self.assertEqual((state.incidents, state.runs, state.notices[-1].outcome), ((), (), "recovered"))
+
+    def test_a_deadline_just_before_the_continuation_registers_still_holds_and_pauses(self) -> None:
+        fired: list[object] = []
+
+        class Captured:
+            def __init__(self, _seconds, function) -> None:
+                self.daemon = False
+                fired.append(function)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        real_provider = routine_recovery._provider
+        calls: list[str] = []
+
+        def provider(service, team_id):
+            calls.append(team_id)
+            if len(calls) == 2:
+                # The verifier asked first; now the run was reopened, and the deadline passes before its continuation
+                # registers.
+                self.assertEqual(service.routine_store.load(team_id).incidents, ())
+                fired[-1]()
+            return real_provider(service, team_id)
+
+        brain = Brain("retry")
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery, "_provider", side_effect=provider),
+        ):
+            service, value, run_id = self.run_held(directory, assistant, brain)
+            state = self.state(service)
+        # Out of time, not stopped: the partial run is held again and its Routine pauses as exhausted.
+        self.assertEqual(self.status, "held")
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "exhausted"))
+        self.assertTrue(record.routine(state, value.routine_id).paused)
