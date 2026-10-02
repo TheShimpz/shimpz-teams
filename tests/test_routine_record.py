@@ -882,3 +882,24 @@ class ContinuousTests(unittest.TestCase):
         self.assertIsNone(record.claimable(state, boundary - 1))
         self.assertEqual(record.next_due(state, boundary - 1), boundary)
         self.assertEqual(record.claimable(state, boundary).routine_id, "a" * 32)
+
+    def test_a_skipped_hold_ends_the_run_so_the_next_one_waits_its_gap_after_the_skip(self):
+        state = self.continuous(cap=1000)
+        state, claim = record.claim(state, NINE, KEY)
+        run_id = claim.run.run_id
+        lease = record.lease_of(claim.lease_token, KEY)
+        state = record.bind_generation(state, run_id, lease, NINE, "net_1")
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1)
+        # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
+        skipped_at = NINE + 86_400
+        self.assertIsNone(record.claimable(state, skipped_at))
+        skipped = routine_hold.skip_incident(state, run_id, skipped_at)
+        self.assertEqual(record.routine(skipped, "a" * 32).next_run_at, skipped_at + 5)
+        self.assertIsNone(record.claimable(skipped, skipped_at + 4))
+        self.assertEqual(record.next_due(skipped, skipped_at), skipped_at + 5)
+        self.assertEqual(record.claimable(skipped, skipped_at + 5).routine_id, "a" * 32)
+        # A scheduled Routine's next firing is its own and a skip leaves it unchanged.
+        scheduled, _run_id = IncidentNoticeTests().held()
+        before = record.routine(scheduled, "a" * 32).next_run_at
+        self.assertEqual(record.rebase_continuous(scheduled, "a" * 32, NINE + 10), scheduled)
+        self.assertEqual(record.routine(scheduled, "a" * 32).next_run_at, before)

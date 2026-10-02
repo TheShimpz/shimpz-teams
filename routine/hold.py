@@ -158,7 +158,8 @@ def skip_incident(
     """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved.
 
     Its notice says the person skipped it, which is distinct from the Routine's own missed-schedule skip. A card's
-    ``expected`` state is checked in the same write.
+    ``expected`` state is checked in the same write. The skip is the held run's end: a continuous Routine's next run is
+    due its gap after it, however long the run was held.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
@@ -166,6 +167,7 @@ def skip_incident(
     _expect(state, value, expected)
     step = _step_detail((value.assistant_id, value.action))
     state, value = _incident_notice(state, value, "user-skipped", now, step)
+    state = record.rebase_continuous(state, value.routine_id, now)
     return _replace_incident(state, dataclasses.replace(value, status="skipped"))
 
 

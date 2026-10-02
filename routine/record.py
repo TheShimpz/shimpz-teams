@@ -409,10 +409,15 @@ def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
         runs=tuple(item for item in state.runs if item.run_id != run_id),
         discards=(*state.discards, (run_id, value.generation)),
     )
-    current = next((item for item in state.routines if item.routine_id == value.routine_id), None)
-    if current is not None and continuous(current):
-        state = _replace_routine(state, dataclasses.replace(current, next_run_at=now + current.schedule["gap"]))
-    return state
+    return rebase_continuous(state, value.routine_id, now)
+
+
+def rebase_continuous(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
+    """A continuous Routine's run ended at ``now``, so its next one is due its gap later; any other is unchanged."""
+    current = next((item for item in state.routines if item.routine_id == routine_id), None)
+    if current is None or not continuous(current):
+        return state
+    return _replace_routine(state, dataclasses.replace(current, next_run_at=now + current.schedule["gap"]))
 
 
 def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
