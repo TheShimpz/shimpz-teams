@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 
 from action import challenges as action_challenges
 from action import human as action_human
+from action import journal as action_journal
 from assistant import action_schema
 from chat import orchestrator as chat_orchestrator
 from core import strict_json
@@ -27,7 +28,6 @@ MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
 # A turn's wall-clock admission in epoch milliseconds, within the exact JSON integer range.
 MAX_STARTED_MS = 2**53 - 1
-_FILE_ID = re.compile(r"[0-9a-f]{32}\Z")
 _IMAGE = re.compile(r"(?:sha256:[0-9a-f]{64}|[^\s\x00-\x1f\x7f]{1,512}@sha256:[0-9a-f]{64})\Z")
 _NETWORK_ID = re.compile(r"[^\s\x00-\x1f\x7f]{1,256}\Z")
 _CONTAINER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}\Z")
@@ -92,13 +92,13 @@ def _text(
 
 
 def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 80 or brain_runtime_client.ACTION_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 80 or http_payload.ACTION_ID_RE.fullmatch(value) is None:
         raise ContinuationCodecError(f"{label} is malformed")
     return value
 
 
 def _interrupt_id(value: object) -> str:
-    if not isinstance(value, str) or brain_runtime_client.SAFE_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or action_journal.SAFE_ID_RE.fullmatch(value) is None:
         raise ContinuationCodecError("continuation interrupt is malformed")
     return value
 
@@ -486,7 +486,7 @@ def _identity(value: object) -> tuple[object, ...]:
         entry = _mapping(item, {"id", "name", "media_type", "size"}, "continuation file")
         if (
             not isinstance(entry["id"], str)
-            or _FILE_ID.fullmatch(entry["id"]) is None
+            or http_payload.FILE_ID_RE.fullmatch(entry["id"]) is None
             or http_payload.canonical_filename(entry["name"]) is None
             or not isinstance(entry["media_type"], str)
             or not 1 <= len(entry["media_type"]) <= 127
@@ -530,7 +530,7 @@ def _pending(value: object) -> PendingLocalChat:
     file_ids = tuple(
         item
         for item in _sequence(raw["file_ids"], MAX_IDENTITY_FILES, "pending files")
-        if isinstance(item, str) and _FILE_ID.fullmatch(item) is not None
+        if isinstance(item, str) and http_payload.FILE_ID_RE.fullmatch(item) is not None
     )
     if len(file_ids) != len(raw["file_ids"]) or len(file_ids) != len(set(file_ids)):
         raise ContinuationCodecError("pending files are malformed")
@@ -567,7 +567,7 @@ def _human_response(value: object, ordinal: int) -> action_human.HumanResponse:
         or type(raw["ordinal"]) is not int
         or raw["ordinal"] != ordinal
         or not isinstance(fingerprint, str)
-        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or http_payload.SHA256_RE.fullmatch(fingerprint) is None
         or ((kind == "approval" or kind in action_human.AUTH_KINDS) and response_value is not True)
     ):
         raise ContinuationCodecError("human response is malformed")

@@ -12,6 +12,7 @@ from docker.errors import DockerException, ImageNotFound
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.install import source_package
+from protocol.http.v1 import payload as http_payload
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
 LOCAL_STAGE_VALUE = "assistant-v3"
@@ -32,9 +33,7 @@ ICON_PATH = "/opt/shimpz/icon.png"
 RUNTIME_USER = "10001:10001"
 RUNTIME_ENTRYPOINT = ["/opt/shimpz/runtime/bin/python3.14", "-c", "import signal; signal.pause()"]
 MAX_CANDIDATES = 50
-_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CREATED_RE = re.compile(r"^[0-9TZ:+.-]{20,64}$")
-_CAPABILITY_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 _PLATFORMS = {"amd64": "linux/amd64", "x86_64": "linux/amd64", "arm64": "linux/arm64", "aarch64": "linux/arm64"}
 _RECORD_FIELDS = {
     "version",
@@ -124,7 +123,7 @@ def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapsh
             raise
         except LocalSnapshotError as exc:
             image_id = getattr(image, "id", None)
-            if isinstance(image_id, str) and _IMAGE_ID_RE.fullmatch(image_id) is not None:
+            if isinstance(image_id, str) and http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is not None:
                 raise InvalidLabeledSnapshotError(
                     f"Local Assistant snapshot {image_id} carries the Local stage label but failed validation"
                 ) from exc
@@ -137,7 +136,7 @@ def list_candidates(client, *, platform: str | None = None) -> tuple[LocalSnapsh
 
 def admit(client, image_id: str) -> AdmittedLocalSnapshot:
     """Derive one closed local record from an exact staged image without starting it."""
-    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant image id is invalid")
     image = _exact_image(client, image_id)
     platform = _daemon_platform(client)
@@ -165,7 +164,7 @@ def require_candidate(
     platform: str | None = None,
 ) -> LocalSnapshotCandidate:
     """Return one exact staged candidate after validating its immutable identity."""
-    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant image id is invalid")
     image = _exact_image(client, image_id)
     return _candidate(image, _daemon_platform(client) if platform is None else platform)
@@ -226,7 +225,7 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
     created = attrs.get("Created")
     if (
         not isinstance(image_id, str)
-        or _IMAGE_ID_RE.fullmatch(image_id) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None
         or attrs.get("Id") != image_id
         or attrs.get("Architecture") != platform.rpartition("/")[2]
         or not isinstance(created, str)
@@ -262,8 +261,8 @@ def _candidate(image, platform: str) -> LocalSnapshotCandidate:
         raise LocalSnapshotError("the Local Assistant snapshot is not its Assistant's current snapshot")
     if (
         labels.get(LOCAL_STAGE_LABEL) != LOCAL_STAGE_VALUE
-        or _IMAGE_ID_RE.fullmatch(str(labels.get(SOURCE_LABEL))) is None
-        or _IMAGE_ID_RE.fullmatch(str(labels.get(BUILD_LABEL))) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(str(labels.get(SOURCE_LABEL))) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(str(labels.get(BUILD_LABEL))) is None
     ):
         raise LocalSnapshotError("the Local Assistant snapshot labels are invalid")
     return LocalSnapshotCandidate(
@@ -286,7 +285,7 @@ def _capability_ids(value: str, *, maximum: int, required: bool) -> tuple[str, .
         (required and not values)
         or len(values) > maximum
         or values != tuple(sorted(set(values)))
-        or any(len(item) > 80 or _CAPABILITY_ID_RE.fullmatch(item) is None for item in values)
+        or any(len(item) > 80 or http_payload.ASSISTANT_ID_RE.fullmatch(item) is None for item in values)
     ):
         raise LocalSnapshotError("the Local Assistant capability labels are invalid")
     return values
@@ -306,7 +305,7 @@ def _exact_image(client, image_id: str):
 
 def _summary_image(client, summary):
     image_id = summary.get("Id") if isinstance(summary, dict) else None
-    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         raise LocalSnapshotError("the Local Assistant snapshot identity is invalid")
     try:
         return client.images.get(image_id)
@@ -516,7 +515,10 @@ def _validate_record_primitives(
         != [{"id": value.id, "provider": value.provider, "scopes": list(value.scopes)} for value in declarations]
         or record["stored_inputs"] != [value.document() for value in stored_inputs]
         or record["machine_contract"] != machine_contract
-        or any(not isinstance(record[key], str) or _IMAGE_ID_RE.fullmatch(record[key]) is None for key in digests)
+        or any(
+            not isinstance(record[key], str) or http_payload.SOURCE_DIGEST_RE.fullmatch(record[key]) is None
+            for key in digests
+        )
     ):
         raise LocalSnapshotError("the local Assistant record is invalid")
 

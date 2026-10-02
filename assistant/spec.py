@@ -8,9 +8,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from assistant import manifest as assistant_manifest
+from protocol.http.v1 import payload as http_payload
 
 ALL_ZERO_SHA256 = "0" * 64
-ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 DIGEST_IMAGE_RE = re.compile(r"^[a-z0-9.-]+(?::[0-9]{1,5})?/[a-z0-9]+(?:[._/-][a-z0-9]+)*@sha256:[0-9a-f]{64}$")
 
 
@@ -63,7 +63,7 @@ class AssistantSpec:
 
 
 def validate_assistant_id(value: object) -> str:
-    if not isinstance(value, str) or len(value) > 40 or ASSISTANT_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 40 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise AssistantSpecError("the Assistant id is invalid")
     return value
 

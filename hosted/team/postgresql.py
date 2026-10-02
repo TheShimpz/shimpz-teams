@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 POSTGRESQL_SERVICE_URL = os.environ.get("SHIMPZ_POSTGRESQL_SERVICE_URL", "http://postgresql-service:7072")
@@ -26,7 +27,6 @@ PRINCIPAL_DIR = Path(
         "/var/lib/team/postgresql-principals",
     )
 )
-SAFE_TEAM_ID = re.compile(r"^[a-z0-9_]{1,40}$")
 SERVICE_TIMEOUT_SECONDS = 30
 _FENCE = re.compile(rb"[0-9]{1,16}")
 
@@ -60,7 +60,7 @@ def _call(path: str, payload: dict, bearer: str) -> dict:
 
 
 def _principal_path(team_id: str) -> Path:
-    if not SAFE_TEAM_ID.fullmatch(team_id):
+    if not http_payload.TEAM_ID_RE.fullmatch(team_id):
         raise PostgreSQLServiceError("invalid team id for principal path")
     return PRINCIPAL_DIR / f"{team_id}.token"
 

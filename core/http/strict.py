@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import hmac
-import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import BinaryIO
 from urllib.parse import parse_qsl, quote, unquote_to_bytes, urlsplit
 
 from core import strict_json
+from protocol.http.v1 import payload as http_payload
 
 MAX_REQUEST_TARGET_BYTES = 512
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
 FILE_NAME_HEADER = "X-Shimpz-Filename"
-_MEDIA_TYPE_RE = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+\-]*/[a-z0-9][a-z0-9!#$&^_.+\-]*$")
 
 
 class HttpContractError(ValueError):
@@ -159,7 +158,7 @@ def file_upload_metadata(
         not media_type
         or media_type != media_type.lower()
         or len(media_type) > MAX_MEDIA_TYPE_CHARS
-        or _MEDIA_TYPE_RE.fullmatch(media_type) is None
+        or http_payload.MEDIA_TYPE_RE.fullmatch(media_type) is None
     ):
         raise HttpContractError(
             HTTPStatus.UNSUPPORTED_MEDIA_TYPE,

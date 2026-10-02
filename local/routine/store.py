@@ -23,6 +23,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core import strict_json
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from routine import record
 from storage import private_state
@@ -33,11 +34,6 @@ SCHEMA = 1
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
-_TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
-_RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
-_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
 _DAY_RE = re.compile(r"(?:\d{4}-\d{2}-\d{2})?\Z")
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _ROUTINE_FIELDS = frozenset(
@@ -94,13 +90,13 @@ _PRIVATE = private_state.PrivateState(
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise RoutineStoreError("Routine Team is invalid")
     return value
 
 
 def _run_id(value: object) -> str:
-    if not isinstance(value, str) or _RUN_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_routine.ROUTINE_ID_RE.fullmatch(value) is None:
         raise RoutineStoreError("Routine run is invalid")
     return value
 
@@ -164,7 +160,7 @@ def _decode_routine(value: object) -> record.Routine:
             and isinstance(pair[0], str)
             and isinstance(pair[1], str)
             and http_routine.ASSISTANT_ID_RE.fullmatch(pair[0]) is not None
-            and _DIGEST_RE.fullmatch(pair[1]) is not None
+            and http_payload.SOURCE_DIGEST_RE.fullmatch(pair[1]) is not None
             for pair in assistants
         )
         and type(value["needs_reconfirm"]) is bool
@@ -193,7 +189,7 @@ def _decode_run(value: object) -> record.Run:
     _require(all(isinstance(value[name], str) for name in strings) and isinstance(value["generation"], str))
     run_id = value["run_id"]
     _require(
-        _RUN_ID_RE.fullmatch(run_id) is not None
+        http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
         and _generation_of(run_id, value["generation"])
         and isinstance(batch, list)
@@ -212,8 +208,11 @@ def _decode_run(value: object) -> record.Run:
     # Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
     _require(
         {
-            "leased": _HEX64_RE.fullmatch(value["lease_sha256"]) is not None
-            and (value["lease_key"] == record.HUMAN_LEASE or _HEX64_RE.fullmatch(value["lease_key"]) is not None)
+            "leased": http_payload.SHA256_RE.fullmatch(value["lease_sha256"]) is not None
+            and (
+                value["lease_key"] == record.HUMAN_LEASE
+                or http_payload.SHA256_RE.fullmatch(value["lease_key"]) is not None
+            )
             and no_request
             and no_batch,
             "frozen": unleased
@@ -225,7 +224,7 @@ def _decode_run(value: object) -> record.Run:
             and no_request
             and value["generation"] != ""
             and batch[0] == value["generation"]
-            and _HEX64_RE.fullmatch(batch[1]) is not None,
+            and http_payload.SHA256_RE.fullmatch(batch[1]) is not None,
         }.get(value["status"], False)
     )
     return record.Run(
@@ -253,11 +252,11 @@ def _decode_notice(value: object) -> record.Notice:
     _require(
         detail is not None
         and isinstance(value["notice_id"], str)
-        and _RUN_ID_RE.fullmatch(value["notice_id"]) is not None
+        and http_routine.ROUTINE_ID_RE.fullmatch(value["notice_id"]) is not None
         and isinstance(value["routine_id"], str)
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
         and isinstance(value["run_id"], str)
-        and (value["run_id"] == "" or _RUN_ID_RE.fullmatch(value["run_id"]) is not None)
+        and (value["run_id"] == "" or http_routine.ROUTINE_ID_RE.fullmatch(value["run_id"]) is not None)
         and type(value["version"]) is int
         and value["version"] >= 1
         and http_routine.canonical_quote(value["quote"]) is not None
@@ -285,7 +284,7 @@ def _decode_discard(value: object) -> tuple[str, str]:
         isinstance(value, list)
         and len(value) == 2
         and isinstance(value[0], str)
-        and _RUN_ID_RE.fullmatch(value[0]) is not None
+        and http_routine.ROUTINE_ID_RE.fullmatch(value[0]) is not None
         and _generation_of(value[0], value[1])
     )
     return value[0], value[1]
@@ -519,7 +518,7 @@ class RoutineStore:
         """The Team directories under the root; a symlink or file where one belongs fails closed."""
         try:
             with os.scandir(self.root) as entries:
-                owned = [entry for entry in entries if _TEAM_DIR_RE.fullmatch(entry.name)]
+                owned = [entry for entry in entries if http_payload.SHA256_RE.fullmatch(entry.name)]
                 if any(not entry.is_dir(follow_symlinks=False) for entry in owned):
                     raise RoutineStoreError("Routine state failed its ownership contract")
                 return sorted(entry.name for entry in owned)

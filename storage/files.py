@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import secrets
 import shutil
 import sqlite3
@@ -20,14 +19,13 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from protocol.http.v1 import payload as http_payload
+
 DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024
 DATABASE_HEADROOM_BYTES = 8 * 1024 * 1024
 MAX_FILES = 256
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_BYTES = 127
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}")
-_FILE_ID = re.compile(r"[a-f0-9]{32}")
-_MEDIA_TYPE = re.compile(r"[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*")
 _METADATA_SELECTS = (
     "SELECT id,name,media_type,size FROM files WHERE id IN (?)",
     "SELECT id,name,media_type,size FROM files WHERE id IN (?,?)",
@@ -63,13 +61,13 @@ class _MetadataReader:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise StorageError("invalid Team id")
     return value
 
 
 def _file_id(value: object) -> str:
-    if not isinstance(value, str) or _FILE_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.FILE_ID_RE.fullmatch(value) is None:
         raise StorageNotFoundError("file not found")
     return value
 
@@ -93,7 +91,7 @@ def _media_type(value: object) -> str:
         not isinstance(value, str)
         or len(value.encode("ascii", "ignore")) != len(value)
         or len(value) > MAX_MEDIA_TYPE_BYTES
-        or _MEDIA_TYPE.fullmatch(value.lower()) is None
+        or http_payload.MEDIA_TYPE_RE.fullmatch(value.lower()) is None
     ):
         raise StorageInputError("invalid media type")
     return value.lower()

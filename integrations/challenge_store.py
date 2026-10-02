@@ -10,10 +10,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol, TypeVar
 
+from protocol.http.v1 import payload as http_payload
+
 MAX_PENDING_CHALLENGES = 32
 DEFAULT_TTL_SECONDS = 300
-_CHALLENGE_ID = re.compile(r"[0-9a-f]{32}\Z")
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
+CHALLENGE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
 
 class PendingChallenge(Protocol):
@@ -193,11 +194,11 @@ class ChallengeStore[PendingT]:
                 self._by_team.pop(challenge.team_id, None)
 
     def _team_id(self, value: object) -> str:
-        if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+        if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
             raise self._contract.error_class("Team id is invalid")
         return value
 
     def _challenge_id(self, value: object) -> str:
-        if not isinstance(value, str) or _CHALLENGE_ID.fullmatch(value) is None:
+        if not isinstance(value, str) or CHALLENGE_ID_RE.fullmatch(value) is None:
             raise self._contract.not_found_class(f"{self._contract.label} challenge is unavailable")
         return value

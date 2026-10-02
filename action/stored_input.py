@@ -17,6 +17,7 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core import strict_json
+from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-stored-inputs/state/stored-inputs.json")
@@ -27,10 +28,7 @@ MAX_VALUE_BYTES = 16 * 1024
 MAX_PLAINTEXT_BYTES = MAX_VALUE_BYTES + 160
 MAX_STORED_INPUTS_PER_ASSISTANT = 8
 MAX_TOTAL_RECORDS = 4096
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
-_COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
-_ORIGIN = re.compile(r"[0-9a-f]{64}\Z")
 StoredInputStatus = Literal["missing", "stored"]
 
 
@@ -76,13 +74,13 @@ class StoredInputValue:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise StoredInputValidationError("Team id is invalid")
     return value
 
 
 def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise StoredInputValidationError(f"{label} is invalid")
     return value
 
@@ -114,7 +112,7 @@ def _secret_value(value: object) -> str:
 
 
 def _origin(value: object) -> str:
-    if not isinstance(value, str) or _ORIGIN.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.SHA256_RE.fullmatch(value) is None:
         raise StoredInputValidationError("Stored Input origin is invalid")
     return value
 

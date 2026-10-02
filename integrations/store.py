@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core import strict_json
 from integrations import providers as integration_providers
+from protocol.http.v1 import payload as http_payload
 from storage import private_state
 
 STATE_PATH = Path("/var/lib/shimpz-local/assistant-integrations/state/integrations.json")
@@ -39,8 +40,6 @@ MAX_TOTAL_RECORDS = 4096
 MAX_INTEGRATION_ID_BYTES = 256
 MAX_INTEGRATION_TEXT_BYTES = 512
 REFRESH_WINDOW_SECONDS = 60
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
-_COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 _STORED_STATUSES = frozenset({"connected", "reauthorization-required"})
 StoredStatus = Literal["connected", "reauthorization-required"]
@@ -127,13 +126,13 @@ class _TokenGrant:
 
 
 def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise OAuthIntegrationValidationError(f"{label} is invalid")
     return value
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise OAuthIntegrationValidationError("Team id is invalid")
     return value
 

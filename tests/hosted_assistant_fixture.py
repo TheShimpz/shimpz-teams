@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -147,6 +148,8 @@ class _AuthorityEvaluation:
 _stub(
     "hosted.authority",
     EMPTY_SHA256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    # The stub keeps the real module's Account id grammar, which the HTTP server validates owners with.
+    ACCOUNT_ID_RE=re.compile(r"[0-9a-f]{32}\Z"),
     AuthorityDeniedError=_AuthorityDeniedError,
     AuthorityUnavailableError=_AuthorityUnavailableError,
     Evaluation=_AuthorityEvaluation,

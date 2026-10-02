@@ -17,11 +17,11 @@ from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
 from hosted import state as runtime_state
-from hosted import validation as validate
 from hosted.install import publication
 from inference import config as inference_config
 from install import artifact as assistant_artifact
 from install import bindings as dynamic_assistants
+from protocol.http.v1 import payload as http_payload
 
 _CAPACITY_SNAPSHOT_MAX_ATTEMPTS = 8
 _CAPACITY_RETRY_BASE_SECONDS = 0.002
@@ -50,7 +50,7 @@ def _brain_thread_id(team_id: str, anchor_id: str) -> str:
     """Bind hosted conversation state to one immutable Team lifecycle."""
     if (
         not isinstance(team_id, str)
-        or validate.TEAM_ID_RE.fullmatch(team_id) is None
+        or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
         or not isinstance(anchor_id, str)
         or not 12 <= len(anchor_id) <= 64
         or any(character not in "0123456789abcdef" for character in anchor_id)

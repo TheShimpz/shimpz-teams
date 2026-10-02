@@ -5,20 +5,17 @@ from __future__ import annotations
 import fcntl
 import json
 import os
-import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from install import bindings
+from protocol.http.v1 import payload as http_payload
 
 _UPDATE_FORMAT_VERSION = 2
 _RESIDUE_FORMAT_VERSION = 1
 _MAX_BYTES = 2 * 1024 * 1024
-_TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-_ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
-_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +53,7 @@ class AssistantUpdateStore:
         successor = _successor_binding(previous, successor_document, self._local_record_validator)
         if successor.assistant_id != previous.assistant_id or successor == previous:
             raise bindings.DynamicAssistantConflictError("the Assistant update transaction is invalid")
-        if _DIGEST_RE.fullmatch(previous_image_id) is None:
+        if http_payload.SOURCE_DIGEST_RE.fullmatch(previous_image_id) is None:
             raise bindings.DynamicAssistantConflictError("the previous Assistant image id is invalid")
         update = AssistantUpdate(previous.team_id, previous.assistant_id, previous, successor, previous_image_id)
         path = self._path(update.team_id, update.assistant_id)
@@ -106,10 +103,10 @@ class AssistantUpdateStore:
     def _path(self, team_id: str, assistant_id: str) -> Path:
         if (
             not isinstance(team_id, str)
-            or _TEAM_ID_RE.fullmatch(team_id) is None
+            or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
             or not isinstance(assistant_id, str)
             or len(assistant_id) > 40
-            or _ASSISTANT_ID_RE.fullmatch(assistant_id) is None
+            or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
         ):
             raise bindings.DynamicAssistantError("Assistant update identity is invalid")
         return self._root / f"{team_id}--{assistant_id}.json"
@@ -269,7 +266,7 @@ def _decode(
     if (
         value["version"] != _UPDATE_FORMAT_VERSION
         or not isinstance(value["previous_image_id"], str)
-        or _DIGEST_RE.fullmatch(value["previous_image_id"]) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(value["previous_image_id"]) is None
     ):
         raise bindings.DynamicAssistantError("Assistant update transaction is malformed")
     previous = bindings._decode_binding(value["previous"], local_record_validator)
@@ -331,6 +328,6 @@ def _sync_directory(path: Path) -> None:
 
 
 def _image_id(value: object) -> str:
-    if not isinstance(value, str) or _DIGEST_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(value) is None:
         raise bindings.DynamicAssistantError("Assistant residue image id is invalid")
     return value

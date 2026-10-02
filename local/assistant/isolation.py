@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
 from egress import policy as egress_policy
 from local.install.runtime import is_digest_ref
-
-_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+from protocol.http.v1 import payload as http_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +121,7 @@ def _installed_image_valid(installed: object, identity: ImageIdentity) -> bool:
     if identity.provenance == "local":
         return (
             isinstance(installed, str)
-            and _IMAGE_ID_RE.fullmatch(installed) is not None
+            and http_payload.SOURCE_DIGEST_RE.fullmatch(installed) is not None
             and installed == identity.reviewed
         )
     return False

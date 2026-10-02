@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
+from action import journal as action_journal
 from core import strict_json
 from inference import usage as brain_usage
 from protocol.http.v1 import payload as http_payload
@@ -47,8 +48,6 @@ MAX_CONVERSATION_ENTRIES = 8
 MAX_CONVERSATION_TEXT_CHARS = 512
 MAX_CONVERSATION_CHARS = 4_096
 _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
-SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
-ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
@@ -465,11 +464,11 @@ class BrainRuntimeClient:
             action_input = raw["input"]
             if (
                 not isinstance(interrupt_id, str)
-                or SAFE_ID_RE.fullmatch(interrupt_id) is None
+                or action_journal.SAFE_ID_RE.fullmatch(interrupt_id) is None
                 or not isinstance(assistant_id, str)
-                or ACTION_ID_RE.fullmatch(assistant_id) is None
+                or http_payload.ACTION_ID_RE.fullmatch(assistant_id) is None
                 or not isinstance(action, str)
-                or ACTION_ID_RE.fullmatch(action) is None
+                or http_payload.ACTION_ID_RE.fullmatch(action) is None
                 or not isinstance(action_input, dict)
             ):
                 raise BrainRuntimeError("Brain runtime returned an invalid response")
@@ -563,9 +562,11 @@ class BrainRuntimeClient:
             integrations = candidate.integrations
             if (
                 not isinstance(candidate.id, str)
-                or ACTION_ID_RE.fullmatch(candidate.id) is None
+                or http_payload.ACTION_ID_RE.fullmatch(candidate.id) is None
                 or not isinstance(actions, tuple)
-                or any(not isinstance(item, str) or ACTION_ID_RE.fullmatch(item) is None for item in actions)
+                or any(
+                    not isinstance(item, str) or http_payload.ACTION_ID_RE.fullmatch(item) is None for item in actions
+                )
                 or not 1 <= len(actions) <= MAX_CAPABILITY_ACTIONS
                 or actions != tuple(sorted(set(actions)))
                 or not isinstance(integrations, tuple)
@@ -573,9 +574,9 @@ class BrainRuntimeClient:
                 or any(
                     not isinstance(item, RuntimeCapabilityIntegration)
                     or not isinstance(item.id, str)
-                    or ACTION_ID_RE.fullmatch(item.id) is None
+                    or http_payload.ACTION_ID_RE.fullmatch(item.id) is None
                     or not isinstance(item.provider, str)
-                    or ACTION_ID_RE.fullmatch(item.provider) is None
+                    or http_payload.ACTION_ID_RE.fullmatch(item.provider) is None
                     for item in integrations
                 )
             ):
@@ -625,7 +626,7 @@ class BrainRuntimeClient:
     ) -> RuntimeLifecycleReference | None:
         if value is None:
             return None
-        if not isinstance(value, RuntimeLifecycleReference) or ACTION_ID_RE.fullmatch(value.id) is None:
+        if not isinstance(value, RuntimeLifecycleReference) or http_payload.ACTION_ID_RE.fullmatch(value.id) is None:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         return RuntimeLifecycleReference(
             value.id,
@@ -699,7 +700,10 @@ class BrainRuntimeClient:
             raise BrainRuntimeError("Brain runtime intent route request is invalid")
         admitted: list[RuntimeDirectoryCandidate] = []
         for candidate in candidates:
-            if not isinstance(candidate, RuntimeDirectoryCandidate) or ACTION_ID_RE.fullmatch(candidate.id) is None:
+            if (
+                not isinstance(candidate, RuntimeDirectoryCandidate)
+                or http_payload.ACTION_ID_RE.fullmatch(candidate.id) is None
+            ):
                 raise BrainRuntimeError("Brain runtime intent route request is invalid")
             name = cls._capability_text(candidate.name, MAX_INTENT_ROUTE_NAME_CHARS)
             summary = candidate.summary
@@ -826,7 +830,7 @@ class BrainRuntimeClient:
         return http_payload.canonical_purpose(rest["purpose"])
 
     def delete_thread(self, thread_id: str) -> None:
-        if not isinstance(thread_id, str) or SAFE_ID_RE.fullmatch(thread_id) is None:
+        if not isinstance(thread_id, str) or action_journal.SAFE_ID_RE.fullmatch(thread_id) is None:
             raise BrainRuntimeError("Brain runtime thread ID is invalid")
         response = self._post("/v1/threads/delete", {"thread_id": thread_id})
         if not isinstance(response, dict) or response != {"status": "deleted"}:
@@ -844,14 +848,14 @@ class BrainRuntimeClient:
         if (
             provider not in {"anthropic", "openai"}
             or not isinstance(model, str)
-            or SAFE_ID_RE.fullmatch(model) is None
+            or action_journal.SAFE_ID_RE.fullmatch(model) is None
             or not isinstance(api_key, str)
             or not api_key
             or len(api_key) > 16 * 1024
             or "\0" in api_key
             or http_payload.canonical_locale(locale) is None
             or not 1 <= len(action_ids) <= MAX_ACTION_LABELS
-            or any(ACTION_ID_RE.fullmatch(action_id) is None for action_id in action_ids)
+            or any(http_payload.ACTION_ID_RE.fullmatch(action_id) is None for action_id in action_ids)
             or len(set(action_ids)) != len(action_ids)
         ):
             raise BrainRuntimeError("Brain runtime Action label request is invalid")
@@ -877,7 +881,7 @@ class BrainRuntimeClient:
         if (
             provider not in {"anthropic", "openai"}
             or not isinstance(model, str)
-            or SAFE_ID_RE.fullmatch(model) is None
+            or action_journal.SAFE_ID_RE.fullmatch(model) is None
             or not isinstance(api_key, str)
             or not api_key
             or len(api_key) > 16 * 1024
@@ -927,7 +931,7 @@ class BrainRuntimeClient:
         if (
             provider not in {"anthropic", "openai"}
             or not isinstance(model, str)
-            or SAFE_ID_RE.fullmatch(model) is None
+            or action_journal.SAFE_ID_RE.fullmatch(model) is None
             or not isinstance(api_key, str)
             or not api_key
             or len(api_key) > 16 * 1024

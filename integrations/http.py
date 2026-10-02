@@ -16,14 +16,14 @@ from typing import Protocol
 from urllib.parse import urlencode, urlsplit
 
 from core import strict_json
+from integrations import pkce as integration_pkce
 from integrations import providers as integration_providers
 
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
 HOSTED_REDIRECT_URI = "https://shimpz.com/api/oauth/cloudflare/callback"
-_CLIENT_ID = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
-_STATE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
 _PKCE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 MAX_CLIENT_SECRET_BYTES = 1024
 
@@ -102,7 +102,7 @@ class FixedHTTPSTransport:
 
 
 def _client_id(value: object) -> str:
-    if not isinstance(value, str) or _CLIENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or CLIENT_ID_RE.fullmatch(value) is None:
         raise OAuthHTTPError("OAuth client configuration is invalid")
     return value
 
@@ -184,7 +184,7 @@ def authorization_url(
     provider = _confidential_provider(provider_id)
     client = _client_id(client_id)
     redirect = _redirect_uri(provider.id, redirect_uri)
-    if not isinstance(state, str) or _STATE.fullmatch(state) is None:
+    if not isinstance(state, str) or integration_pkce.STATE_RE.fullmatch(state) is None:
         raise OAuthHTTPError("OAuth challenge is invalid")
     if not isinstance(code_challenge, str) or _PKCE.fullmatch(code_challenge) is None:
         raise OAuthHTTPError("OAuth challenge is invalid")

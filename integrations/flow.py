@@ -8,15 +8,16 @@ envelope only at the last private boundary before an Assistant invocation.
 from __future__ import annotations
 
 import math
-import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Protocol
 
+from assistant import manifest as assistant_manifest
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import providers as integration_providers
+from protocol.http.v1 import payload as http_payload
 
 MAX_BATCH_ACTIONS = 64
 MAX_INTEGRATION_REQUIREMENTS = 64
@@ -25,9 +26,6 @@ MAX_INVENTORY_INTEGRATIONS = 256
 MAX_INTEGRATIONS_PER_ACTION = 16
 MAX_ACCESS_TOKEN_BYTES = 16 * 1024
 MAX_PUBLIC_TEXT_BYTES = 512
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
-_COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-_SEMANTIC_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _FORBIDDEN_PUBLIC_FIELDS = frozenset(
     {
         "access_token",
@@ -112,13 +110,13 @@ RefreshCallback = Callable[[str, tuple[str, ...], str, str | None], object]
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise IntegrationFlowError("Team id is invalid")
     return value
 
 
 def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise IntegrationFlowError(f"{label} is invalid")
     return value
 
@@ -418,7 +416,7 @@ def inventory_payload(
             summary = spec.summary
         except (AttributeError, TypeError) as exc:
             raise IntegrationFlowError("Assistant integration contract is unavailable") from exc
-        if not isinstance(version, str) or _SEMANTIC_VERSION.fullmatch(version) is None:
+        if not isinstance(version, str) or assistant_manifest.VERSION_RE.fullmatch(version) is None:
             raise IntegrationFlowError("Assistant version is invalid")
         _public_text(summary, "Assistant summary")
         if spec.assistant_id in seen:

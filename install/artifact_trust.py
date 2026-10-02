@@ -6,7 +6,6 @@ import base64
 import binascii
 import json
 import os
-import re
 import stat
 import tempfile
 import time
@@ -15,13 +14,14 @@ from typing import Any
 
 import docker
 
+from protocol.http.v1 import payload as http_payload
+
 from . import registry_auth
 
 SIGNER_IDENTITY = "https://github.com/TheShimpz/shimpz-developers/.github/workflows/build-assistant.yml@refs/heads/main"
 OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 TRUST_REPOSITORY = "ghcr.io/theshimpz/shimpz-assistant-trust"
 RELEASE_PROXY_URL = "http://shimpz-assistant-release:8888"
-_OCI_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 _MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 _TIMEOUT_SECONDS = 90
 _TIMEOUT_EXIT_CODES = frozenset({124, 137})
@@ -172,11 +172,10 @@ class ArtifactTrustVerifier:
 
 def _attachment_tag(oci_digest: str, *, attestation: bool) -> str:
     """Derive the pinned Cosign v3 attachment tag without spawning its CLI."""
-    match = _OCI_DIGEST.fullmatch(oci_digest)
-    if match is None:
+    if http_payload.SOURCE_DIGEST_RE.fullmatch(oci_digest) is None:
         raise ArtifactTrustError("Assistant OCI digest is invalid")
     suffix = "att" if attestation else "sig"
-    return f"{TRUST_REPOSITORY}:sha256-{match.group(1)}.{suffix}"
+    return f"{TRUST_REPOSITORY}:sha256-{oci_digest.removeprefix('sha256:')}.{suffix}"
 
 
 def _ensure_private_directory(path: Path) -> Path:

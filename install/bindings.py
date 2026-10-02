@@ -6,7 +6,6 @@ import fcntl
 import hashlib
 import json
 import os
-import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,13 +14,11 @@ from typing import Any, Literal
 
 from core.container import network as network_policy
 from install.contract import ContractValidationError, ContractValidator
+from protocol.http.v1 import payload as http_payload
 
 _FORMAT_VERSION = 2
 _MAX_BINDINGS = 4096
 _MAX_FILE_BYTES = 8 * 1024 * 1024
-_TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
-_ASSISTANT_ID_RE = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
-_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTRACTS = ContractValidator()
 _PUBLISHED = "published"
 _LOCAL = "local"
@@ -135,7 +132,7 @@ class DynamicAssistantStore:
         replacement: DynamicAssistantBinding,
         expected_binding_digest: str,
     ) -> DynamicAssistantBinding:
-        if _DIGEST_RE.fullmatch(expected_binding_digest) is None:
+        if http_payload.SOURCE_DIGEST_RE.fullmatch(expected_binding_digest) is None:
             raise DynamicAssistantConflictError("the expected Assistant binding digest is invalid")
         with self._exclusive_lock():
             bindings = self._read()
@@ -175,7 +172,7 @@ class DynamicAssistantStore:
 
     def delete_if_matches(self, team_id: str, assistant_id: str, expected_binding_digest: str) -> bool:
         _validate_identity(team_id, assistant_id)
-        if _DIGEST_RE.fullmatch(expected_binding_digest) is None:
+        if http_payload.SOURCE_DIGEST_RE.fullmatch(expected_binding_digest) is None:
             raise DynamicAssistantConflictError("the expected Assistant binding digest is invalid")
         with self._exclusive_lock():
             bindings = self._read()
@@ -399,13 +396,17 @@ def _find(
 
 
 def _validate_team_id(team_id: object) -> None:
-    if not isinstance(team_id, str) or _TEAM_ID_RE.fullmatch(team_id) is None:
+    if not isinstance(team_id, str) or http_payload.TEAM_ID_RE.fullmatch(team_id) is None:
         raise DynamicAssistantError("the Team id is invalid")
 
 
 def _validate_identity(team_id: object, assistant_id: object) -> None:
     _validate_team_id(team_id)
-    if not isinstance(assistant_id, str) or len(assistant_id) > 40 or _ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
+    if (
+        not isinstance(assistant_id, str)
+        or len(assistant_id) > 40
+        or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
+    ):
         raise DynamicAssistantError("the Assistant id is invalid")
 
 

@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import json
-import re
 
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
-
-ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*")
 
 
 def build_prompt(

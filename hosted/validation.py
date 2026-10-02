@@ -9,10 +9,7 @@ from __future__ import annotations
 
 import re
 
-# The id becomes the DB project "team_<id>"; Postgres identifiers are 63 bytes and dbname/role are
-# "proj_team_" + this, so cap it well under the limit. It also names the container/network/volumes,
-# so keep it to the Docker-safe [a-z0-9_] set.
-TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
+from protocol.http.v1 import payload as http_payload
 
 
 class ValidationError(Exception):
@@ -24,11 +21,14 @@ def sanitize(name: str) -> str:
     return lowered.strip("_")
 
 
+# The id becomes the DB project "team_<id>"; Postgres identifiers are 63 bytes and dbname/role are
+# "proj_team_" + this, so the Team HTTP protocol caps it well under the limit. It also names the
+# container/network/volumes, so it stays in the Docker-safe [a-z0-9_] set.
 def validate_team_id(name: object) -> str:
     if not isinstance(name, str) or not name:
         raise ValidationError(f"team id must be a non-empty string: {name!r}")
     sanitized = sanitize(name)
-    if not sanitized or not TEAM_ID_RE.match(sanitized):
+    if not sanitized or not http_payload.TEAM_ID_RE.match(sanitized):
         raise ValidationError(f"team id sanitizes to empty or invalid: {name!r} -> {sanitized!r}")
     return sanitized
 

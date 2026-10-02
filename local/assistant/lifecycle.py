@@ -1,7 +1,6 @@
 """Local Assistant container install, update, and uninstall lifecycle."""
 
 import logging
-import re
 from collections.abc import Callable
 from contextlib import suppress
 from http import HTTPStatus
@@ -18,6 +17,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.install import snapshots as local_snapshots
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
+from protocol.http.v1 import payload as http_payload
 
 ASSISTANT_MEMORY = local_container_policy.ASSISTANT_MEMORY
 ASSISTANT_NANO_CPUS = local_container_policy.ASSISTANT_NANO_CPUS
@@ -25,7 +25,6 @@ ASSISTANT_PIDS = local_container_policy.ASSISTANT_PIDS
 ASSISTANT_TMPFS = local_container_policy.ASSISTANT_TMPFS
 ASSISTANT_ULIMITS = local_container_policy.ASSISTANT_ULIMITS
 log = logging.getLogger("shimpz.team.local.assistant.lifecycle")
-_IMAGE_ID_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
@@ -34,7 +33,7 @@ def _is_replaceable_readiness_failure(problem: ApiProblem) -> bool:
 
 def _retired_image_id(container) -> str | None:
     image_id = container.attrs.get("Image")
-    if not isinstance(image_id, str) or _IMAGE_ID_RE.fullmatch(image_id) is None:
+    if not isinstance(image_id, str) or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None:
         return None
     return image_id
 

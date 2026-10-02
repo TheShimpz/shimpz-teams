@@ -6,9 +6,9 @@ from http import HTTPStatus
 
 from inference import config as inference_config
 from local.errors import ApiProblemError
+from protocol.http.v1 import payload as http_payload
+from protocol.http.v1 import routine as http_routine
 
-TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}")
-ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 SPACE_ID_RE = re.compile(r"[a-z0-9][a-z0-9]*(?:-[a-z0-9]+)*")
 DOCKER_ID_RE = re.compile(r"[0-9a-f]{12,64}")
 MAX_TEAM_ID_LENGTH = 40
@@ -20,7 +20,7 @@ MAX_API_KEY_BYTES = 8 * 1024
 
 
 def validate_team_id(value: str) -> str:
-    if len(value) > MAX_TEAM_ID_LENGTH or TEAM_ID_RE.fullmatch(value) is None:
+    if len(value) > MAX_TEAM_ID_LENGTH or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise ApiProblemError(HTTPStatus.UNPROCESSABLE_ENTITY, "invalid Team id", code="invalid-team-id")
     return value
 
@@ -41,7 +41,11 @@ def validate_team_name(value: object) -> str:
 
 
 def validate_assistant_id(value: object) -> str:
-    if not isinstance(value, str) or len(value) > MAX_ASSISTANT_ID_LENGTH or ASSISTANT_ID_RE.fullmatch(value) is None:
+    if (
+        not isinstance(value, str)
+        or len(value) > MAX_ASSISTANT_ID_LENGTH
+        or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None
+    ):
         raise ApiProblemError(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "invalid Assistant id",
@@ -167,7 +171,7 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
         or SPACE_ID_RE.fullmatch(space_id) is None
         or not isinstance(team_id, str)
         or len(team_id) > MAX_TEAM_ID_LENGTH
-        or TEAM_ID_RE.fullmatch(team_id) is None
+        or http_payload.TEAM_ID_RE.fullmatch(team_id) is None
         or not isinstance(network_id, str)
         or DOCKER_ID_RE.fullmatch(network_id) is None
     ):
@@ -181,7 +185,7 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
 
 def routine_thread_id(space_id: str, team_id: str, network_id: str, run_id: str) -> str:
     """One Routine run's own Brain thread, beside the Team's conversation in the same network generation."""
-    if not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None:
+    if not isinstance(run_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(run_id) is None:
         raise ApiProblemError(
             HTTPStatus.CONFLICT,
             "Team identity failed its persisted contract",

@@ -18,12 +18,13 @@ import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from protocol.http.v1 import payload as http_payload
+
 STATE_DIR = Path(os.environ.get("SHIMPZ_TEAM_CLEANUP_DIR", "/var/lib/team/cleanup"))
 MAX_RECORDS = int(os.environ.get("SHIMPZ_TEAM_CLEANUP_MAX_RECORDS", "128"))
 MAX_RECORD_BYTES = 4096
 VERSION = 1
 
-_TEAM_ID_RE = re.compile(r"^[a-z0-9_]{1,40}$")
 _RUNTIME_ID_RE = re.compile(r"^(?:[a-f0-9]{12,64})?$")
 _NONCE_RE = re.compile(r"^[a-f0-9]{32}$")
 _guard = threading.RLock()
@@ -52,7 +53,7 @@ def _validate_record(record: Record) -> Record:
         or isinstance(record.version, bool)
         or record.version != VERSION
         or not isinstance(record.team_id, str)
-        or _TEAM_ID_RE.fullmatch(record.team_id) is None
+        or http_payload.TEAM_ID_RE.fullmatch(record.team_id) is None
     ):
         raise CleanupStateError("cleanup record has an invalid identity")
     if not isinstance(record.owner, str) or len(record.owner) > 256 or any(ord(char) < 32 for char in record.owner):
@@ -74,7 +75,7 @@ def _validate_record(record: Record) -> Record:
 
 
 def _path(team_id: str) -> Path:
-    if _TEAM_ID_RE.fullmatch(team_id) is None:
+    if http_payload.TEAM_ID_RE.fullmatch(team_id) is None:
         raise CleanupStateError("invalid Team id for cleanup state")
     return STATE_DIR / f"{team_id}.json"
 

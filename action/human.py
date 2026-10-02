@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+from protocol.http.v1 import payload as http_payload
 
 MAX_REQUESTS_PER_ACTION = 8
 MAX_REQUESTS_PER_TURN = 16
@@ -27,9 +28,6 @@ AUTH_KINDS = frozenset(
 )
 AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
 _BASE_FIELDS = frozenset({"kind", "ordinal", "title", "description"})
-_STORED_INPUT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-# Exactly the lowercase ASCII hex SHA-256 the canonical request produces; anything else never reaches compare_digest.
-_FINGERPRINT = re.compile(r"[0-9a-f]{64}\Z")
 
 
 class HumanRequestError(ValueError):
@@ -201,7 +199,8 @@ def validate_request(
         or not isinstance(kind, str)
         or kind not in capabilities
         or not isinstance(fingerprint, str)
-        or _FINGERPRINT.fullmatch(fingerprint) is None
+        # Exactly the lowercase ASCII hex SHA-256 the canonical request produces; nothing else reaches compare_digest.
+        or http_payload.SHA256_RE.fullmatch(fingerprint) is None
     ):
         raise HumanRequestError("Assistant Action human request is invalid")
     expected = _fingerprint(request)
@@ -324,7 +323,8 @@ def _length_error(request: dict[str, object], limit: int) -> str | None:
     if set(request) != expected or not _input_base(request):
         return "shape"
     if "stored_input" in request and (
-        not isinstance(request["stored_input"], str) or _STORED_INPUT_ID.fullmatch(request["stored_input"]) is None
+        not isinstance(request["stored_input"], str)
+        or http_payload.ASSISTANT_ID_RE.fullmatch(request["stored_input"]) is None
     ):
         return "stored-input"
     placeholder = request["placeholder"]

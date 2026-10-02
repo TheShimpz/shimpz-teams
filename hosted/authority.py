@@ -31,7 +31,7 @@ MAX_RESPONSE_BYTES = 8 * 1024
 MAX_BINDING_BYTES = 8 * 1024
 EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
-_ACCOUNT_ID = re.compile(r"[0-9a-f]{32}\Z")
+ACCOUNT_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _CAPABILITY = re.compile(rb"[0-9a-f]{64}\Z")
 _PROTOCOL = Path(__file__).resolve().parents[1] / "protocol" / "account" / "authority" / "v1"
 _REQUEST_VALIDATOR = Draft202012Validator(json.loads((_PROTOCOL / "evaluation-request.schema.json").read_bytes()))
@@ -193,7 +193,7 @@ def _evaluation(response: dict[str, object], binding: dict[str, object], expecte
         raise AuthorityUnavailableError("Account authority response binding is invalid")
     account_id = response["account_id"]
     supervisor = response["supervisor"]
-    if not isinstance(account_id, str) or _ACCOUNT_ID.fullmatch(account_id) is None or type(supervisor) is not bool:
+    if not isinstance(account_id, str) or ACCOUNT_ID_RE.fullmatch(account_id) is None or type(supervisor) is not bool:
         raise AuthorityUnavailableError("Account authority response is invalid")
     owner = response.get("owner_account_id")
     if binding["operation"] == "team-create":

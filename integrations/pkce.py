@@ -17,14 +17,13 @@ import time
 from dataclasses import dataclass
 
 from integrations import providers as integration_providers
+from protocol.http.v1 import payload as http_payload
 
 DEFAULT_TTL_SECONDS = 600
 MAX_PENDING_CHALLENGES = 128
 MAX_PENDING_PER_SESSION = 4
 MAX_PENDING_PER_TEAM = 16
-_STATE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
-_COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
+STATE_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 
 
 class OAuthChallengeError(RuntimeError):
@@ -98,19 +97,19 @@ def _session_digest(value: object) -> bytes:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise OAuthChallengeError("OAuth Team binding is invalid")
     return value
 
 
 def _component_id(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise OAuthChallengeError(f"OAuth {label} binding is invalid")
     return value
 
 
 def _state(value: object) -> str:
-    if not isinstance(value, str) or _STATE.fullmatch(value) is None:
+    if not isinstance(value, str) or STATE_RE.fullmatch(value) is None:
         raise OAuthChallengeNotFoundError("OAuth challenge is unavailable")
     return value
 

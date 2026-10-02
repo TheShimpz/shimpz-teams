@@ -14,17 +14,15 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from integrations import broker as integration_broker
+from integrations import challenge_store as integration_challenge_store
 from integrations import challenges as integration_challenges
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import providers as integration_providers
 from integrations import store as integration_store
+from protocol.http.v1 import payload as http_payload
 
-_CLIENT_ID = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
 _CLIENT_SECRET = re.compile(r"[!-~]{16,1024}\Z")
-_COMPONENT_ID = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
-_PENDING_ID = re.compile(r"[0-9a-f]{32}\Z")
 _REDIRECT_URIS = frozenset({integration_http.HOSTED_REDIRECT_URI})
 MAX_REQUIREMENTS = 32
 MAX_INTEGRATIONS_PER_REQUIREMENT = 16
@@ -71,7 +69,7 @@ class _Selection:
 
 
 def _identifier(value: object, label: str) -> str:
-    if not isinstance(value, str) or len(value) > 64 or _COMPONENT_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > 64 or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise OAuthIntegrationServiceError(f"pending OAuth {label} is unavailable")
     return value
 
@@ -102,9 +100,9 @@ def _candidates(
         not isinstance(pending.requirements, tuple)
         or not 1 <= len(pending.requirements) <= MAX_REQUIREMENTS
         or not isinstance(pending.team_id, str)
-        or _TEAM_ID.fullmatch(pending.team_id) is None
+        or http_payload.TEAM_ID_RE.fullmatch(pending.team_id) is None
         or not isinstance(pending.id, str)
-        or _PENDING_ID.fullmatch(pending.id) is None
+        or integration_challenge_store.CHALLENGE_ID_RE.fullmatch(pending.id) is None
         or not isinstance(pending.expires_at, int | float)
         or isinstance(pending.expires_at, bool)
         or pending.expires_at <= time.monotonic()
@@ -430,7 +428,7 @@ class OAuthIntegrationService:
     def _client_configuration(self) -> tuple[str, str, str]:
         if (
             not isinstance(self._client_id, str)
-            or _CLIENT_ID.fullmatch(self._client_id) is None
+            or integration_http.CLIENT_ID_RE.fullmatch(self._client_id) is None
             or not isinstance(self._client_secret, str)
             or _CLIENT_SECRET.fullmatch(self._client_secret) is None
         ):

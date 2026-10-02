@@ -17,7 +17,6 @@ from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
-from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
@@ -32,6 +31,7 @@ from inference import usage as brain_usage
 from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import store as integration_store
+from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
 # ── Controller-owned Assistant chat ─────────────────────────────────────────────────────────────
@@ -683,7 +683,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
     action = request.action
     if (
         not isinstance(action, str)
-        or assistant_chat.ACTION_ID_RE.fullmatch(action) is None
+        or http_payload.ACTION_ID_RE.fullmatch(action) is None
         or action not in contract.actions
     ):
         raise runtime_state.ApiError(

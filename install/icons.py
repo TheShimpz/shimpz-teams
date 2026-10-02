@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import re
 import stat
 import tempfile
 import threading
@@ -16,8 +15,8 @@ from pathlib import Path
 from typing import Any
 
 from install.bindings import DynamicAssistantBinding
+from protocol.http.v1 import payload as http_payload
 
-_DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 _MAX_ICON_BYTES = 1024 * 1024
 
 
@@ -138,10 +137,10 @@ class AssistantIconStore:
             _unlink(path)
 
     def _path(self, identity: _IconIdentity) -> Path:
-        match = _DIGEST.fullmatch(identity.key)
-        if match is None or identity.namespace not in {"published", "local"}:
+        digest = http_payload.SOURCE_DIGEST_RE.fullmatch(identity.key)
+        if digest is None or identity.namespace not in {"published", "local"}:
             raise AssistantIconError("the Assistant icon key is invalid")
-        return self._root / f"{identity.namespace}-{match.group(1)}.png"
+        return self._root / f"{identity.namespace}-{identity.key.removeprefix('sha256:')}.png"
 
     def _write(self, destination: Path, contents: bytes) -> None:
         temporary: Path | None = None
@@ -174,9 +173,9 @@ def _publication_identity(resolution: dict[str, Any]) -> _IconIdentity:
     expected = resolution.get("icon_digest")
     if (
         not isinstance(source, str)
-        or _DIGEST.fullmatch(source) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(source) is None
         or not isinstance(expected, str)
-        or _DIGEST.fullmatch(expected) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(expected) is None
     ):
         raise AssistantIconError("the Assistant icon identity is invalid")
     return _IconIdentity("published", source, expected)
@@ -187,9 +186,9 @@ def _local_identity(record: dict[str, Any]) -> _IconIdentity:
     expected = record.get("icon_digest")
     if (
         not isinstance(image_id, str)
-        or _DIGEST.fullmatch(image_id) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(image_id) is None
         or not isinstance(expected, str)
-        or _DIGEST.fullmatch(expected) is None
+        or http_payload.SOURCE_DIGEST_RE.fullmatch(expected) is None
     ):
         raise AssistantIconError("the Local Assistant icon identity is invalid")
     return _IconIdentity("local", image_id, expected)

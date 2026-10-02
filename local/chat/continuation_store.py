@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import re
 import secrets
 import stat
 import threading
@@ -19,6 +18,8 @@ from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from core import strict_json
+from integrations import challenge_store as integration_challenge_store
+from protocol.http.v1 import payload as http_payload
 
 STATE_PATH = Path("/var/lib/shimpz-local/chat-continuations/state/continuations.json")
 KEY_PATH = Path("/var/lib/shimpz-local/chat-continuations/key/aes256.key")
@@ -29,8 +30,6 @@ MAX_STATE_BYTES = 12 * 1024 * 1024
 MAX_BINDINGS = 64
 MAX_BINDING_BYTES = 640
 MAX_TTL_SECONDS = 900
-_TEAM_ID = re.compile(r"[a-z0-9_]{1,40}\Z")
-_CHALLENGE_ID = re.compile(r"[0-9a-f]{32}\Z")
 _KINDS = frozenset({"human", "integrations"})
 
 
@@ -54,7 +53,7 @@ class StoredContinuation:
 
 
 def _team_id(value: object) -> str:
-    if not isinstance(value, str) or _TEAM_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or http_payload.TEAM_ID_RE.fullmatch(value) is None:
         raise ContinuationStoreError("continuation Team is invalid")
     return value
 
@@ -66,7 +65,7 @@ def _kind(value: object) -> str:
 
 
 def _challenge_id(value: object) -> str:
-    if not isinstance(value, str) or _CHALLENGE_ID.fullmatch(value) is None:
+    if not isinstance(value, str) or integration_challenge_store.CHALLENGE_ID_RE.fullmatch(value) is None:
         raise ContinuationStoreError("continuation challenge is invalid")
     return value
 

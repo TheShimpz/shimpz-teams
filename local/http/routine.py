@@ -6,7 +6,6 @@ under a routine assertion; a Supervisor session manages Routines and answers, re
 
 from __future__ import annotations
 
-import re
 from http import HTTPStatus
 
 from action import human as action_human
@@ -38,7 +37,6 @@ BODY_LIMITS = {
     "routine-resolve": MAX_BODY_BYTES,
     "routine-stop": MAX_BODY_BYTES,
 }
-_RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
 
 def _empty(handler, operation: str) -> None:
@@ -48,7 +46,7 @@ def _empty(handler, operation: str) -> None:
 
 def _run_id(route: strict_http.ControllerRouteMatch) -> str:
     run_id = route.params["run_id"]
-    if _RUN_ID_RE.fullmatch(run_id) is None:
+    if http_routine.ROUTINE_ID_RE.fullmatch(run_id) is None:
         raise ApiProblem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", code="routine-run-not-found")
     return run_id
 

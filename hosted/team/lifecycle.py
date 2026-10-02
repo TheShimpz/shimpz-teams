@@ -9,7 +9,6 @@ import docker.errors
 
 from action import journal as action_journal
 from action import stored_input as action_stored_input
-from assistant import spec as assistant_registry
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
@@ -24,6 +23,7 @@ from inference import config as inference_config
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
 from integrations import store as integration_store
+from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
 _TEAM_RESIDUE_ABSENCE = frozenset(
@@ -154,7 +154,7 @@ def _teardown_assistants(team_id: str) -> bool:
     cleanup_complete = True
     for assistant_container in assistant_containers:
         assistant_id = assistant_container.labels.get("team.assistant", "")
-        if not isinstance(assistant_id, str) or assistant_registry.ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
+        if not isinstance(assistant_id, str) or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None:
             cleanup_complete = False
             continue
         result = assistant_lifecycle._teardown_assistant(

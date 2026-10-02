@@ -6,7 +6,6 @@ import contextlib
 import functools
 import hashlib
 import json
-import re
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
@@ -39,12 +38,9 @@ from inference import usage as brain_usage
 from install import artifact_trust
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
+from integrations import challenge_store as integration_challenge_store
 from protocol.http.v1 import payload as team_http_contract
 
-_SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_ACCOUNT_ID = re.compile(r"^[0-9a-f]{32}$")
-_CHALLENGE_ID = re.compile(r"^[0-9a-f]{32}$")
-_FILE_ID = re.compile(r"^[0-9a-f]{32}$")
 _JSON_BODY_LIMITS = {
     "assistant-install": runtime_state.MAX_TEAM_JSON_BODY_BYTES,
     "assistant-integration-authorize": runtime_state.MAX_JSON_BODY_BYTES,
@@ -292,9 +288,12 @@ class Handler(BaseHTTPRequestHandler):
         for field in ("assistant_id", "integration_id"):
             if field in params:
                 params[field] = assistant_registry.validate_assistant_id(params[field])
-        if "challenge_id" in params and _CHALLENGE_ID.fullmatch(params["challenge_id"]) is None:
+        if (
+            "challenge_id" in params
+            and integration_challenge_store.CHALLENGE_ID_RE.fullmatch(params["challenge_id"]) is None
+        ):
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "OAuth challenge id is invalid")
-        if "file_id" in params and _FILE_ID.fullmatch(params["file_id"]) is None:
+        if "file_id" in params and team_http_contract.FILE_ID_RE.fullmatch(params["file_id"]) is None:
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "file id is invalid")
         return params
 
@@ -318,7 +317,9 @@ class Handler(BaseHTTPRequestHandler):
         if set(body) - {"team_name", "provider", "model", "owner_account_id"}:
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team creation request is invalid")
         owner = body.get("owner_account_id")
-        if owner is not None and (not isinstance(owner, str) or _ACCOUNT_ID.fullmatch(owner) is None):
+        if owner is not None and (
+            not isinstance(owner, str) or account_authority.ACCOUNT_ID_RE.fullmatch(owner) is None
+        ):
             raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "Team Owner Account is invalid")
         return owner
 
@@ -814,7 +815,7 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_team_body({"assistant_id", "source_digest"})
         assistant_id = assistant_registry.validate_assistant_id(body["assistant_id"])
         source_digest = body["source_digest"]
-        if not isinstance(source_digest, str) or _SOURCE_DIGEST.fullmatch(source_digest) is None:
+        if not isinstance(source_digest, str) or team_http_contract.SOURCE_DIGEST_RE.fullmatch(source_digest) is None:
             raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, "source digest is invalid")
         runtime_state._enforce_rate("install", request.principal)
         client, trust = self._publication_dependencies()

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import contextlib
-import re
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+
+from protocol.http.v1 import payload as http_payload
 
 PHASES = frozenset(
     {
@@ -21,7 +22,6 @@ MAX_SEQUENCE = 2_048
 MAX_ELAPSED_MS = 24 * 60 * 60 * 1_000
 MAX_ASSISTANT_ID_CHARS = 40
 MAX_ACTION_ID_CHARS = 80
-_IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 
 EventSink = Callable[[dict[str, object]], None]
 Clock = Callable[[], int]
@@ -41,8 +41,8 @@ def _validate_identity(phase: str, assistant_id: str | None, action: str | None)
         or action is None
         or len(assistant_id) > MAX_ASSISTANT_ID_CHARS
         or len(action) > MAX_ACTION_ID_CHARS
-        or _IDENTIFIER_RE.fullmatch(assistant_id) is None
-        or _IDENTIFIER_RE.fullmatch(action) is None
+        or http_payload.ASSISTANT_ID_RE.fullmatch(assistant_id) is None
+        or http_payload.ASSISTANT_ID_RE.fullmatch(action) is None
     ):
         raise ValueError("invalid chat progress identity")
 

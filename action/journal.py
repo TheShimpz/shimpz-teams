@@ -28,6 +28,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from protocol.http.v1 import payload as http_payload
+
 SCHEMA_VERSION = 1
 APPLICATION_ID = 0x53484A31  # SHJ1
 MAX_GENERATIONS = 1024
@@ -41,8 +43,7 @@ MAX_JSON_NODES = 4096
 WAL_AUTOCHECKPOINT_PAGES = 32
 MAX_ACKNOWLEDGED_TRANSITIONS_AT_RISK = WAL_AUTOCHECKPOINT_PAGES - 1
 
-_SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
-_FINGERPRINT_RE = re.compile(r"[a-f0-9]{64}\Z")
+SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _STATES = frozenset({"prepared", "executing", "completed"})
 _OPEN = "open"
 _ENDED = "ended"
@@ -96,7 +97,7 @@ def _positive_limit(value: int, name: str) -> int:
 
 
 def _safe_id(value: object, name: str) -> str:
-    if not isinstance(value, str) or _SAFE_ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or SAFE_ID_RE.fullmatch(value) is None:
         raise ActionJournalConflictError(f"{name} is invalid")
     return value
 
@@ -105,7 +106,7 @@ def _operation(value: object) -> Operation:
     if not isinstance(value, Operation):
         raise ActionJournalConflictError("operation is invalid")
     _safe_id(value.interrupt_id, "operation interrupt id")
-    if not isinstance(value.fingerprint, str) or _FINGERPRINT_RE.fullmatch(value.fingerprint) is None:
+    if not isinstance(value.fingerprint, str) or http_payload.SHA256_RE.fullmatch(value.fingerprint) is None:
         raise ActionJournalConflictError("operation fingerprint is invalid")
     return value
 
@@ -366,7 +367,7 @@ class ActionJournal:
         if not isinstance(batch, Batch):
             raise ActionJournalConflictError("Action batch handle is invalid")
         _safe_id(batch.generation, "generation")
-        if not isinstance(batch.fingerprint, str) or _FINGERPRINT_RE.fullmatch(batch.fingerprint) is None:
+        if not isinstance(batch.fingerprint, str) or http_payload.SHA256_RE.fullmatch(batch.fingerprint) is None:
             raise ActionJournalConflictError("Action batch fingerprint is invalid")
         if not isinstance(batch.operations, tuple) or not batch.operations:
             raise ActionJournalConflictError("Action batch operations are invalid")

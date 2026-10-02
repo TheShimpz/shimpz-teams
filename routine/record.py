@@ -10,10 +10,11 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import hashlib
-import re
 import secrets
 from dataclasses import dataclass
 
+from action import journal as action_journal
+from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
 from routine import schedule
 
@@ -28,9 +29,6 @@ MAX_GRACE_SECONDS = 12 * 3600
 MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
-_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
-_SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 _RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
@@ -176,7 +174,7 @@ def _admitted(value: Routine) -> Routine:
         or list(assistants) != sorted(set(assistants))
         or len({assistant for assistant, _digest in assistants}) != len(assistants)
         or not all(
-            http_routine.ASSISTANT_ID_RE.fullmatch(assistant) and _DIGEST_RE.fullmatch(digest)
+            http_routine.ASSISTANT_ID_RE.fullmatch(assistant) and http_payload.SOURCE_DIGEST_RE.fullmatch(digest)
             for assistant, digest in assistants
         )
         or type(value.anchor) is not int
@@ -357,7 +355,7 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
     Its next firing moves past ``now`` so it can never be claimed twice; only this late firing is made up, and any
     others since it join the Routine's gap, which ends here.
     """
-    if _FINGERPRINT_RE.fullmatch(key_fingerprint) is None:
+    if http_payload.SHA256_RE.fullmatch(key_fingerprint) is None:
         raise RoutineStateError("routine-key-invalid")
     # Sweep first, so a firing too late to start is skipped here even if no sweep ran since it was due.
     state = sweep(state, now)
@@ -425,7 +423,7 @@ def bind_generation(state: TeamRoutines, run_id: str, lease: Lease, now: int, ne
     """Bind the run's own journal generation, derived from the Team's trusted network id, once; it never changes."""
     value = _live(state, run_id, lease, now)
     generation = generation_for(network_id, run_id)
-    if _SAFE_ID_RE.fullmatch(generation) is None or value.generation not in {"", generation}:
+    if action_journal.SAFE_ID_RE.fullmatch(generation) is None or value.generation not in {"", generation}:
         raise RoutineStateError("generation-invalid")
     return _replace_run(state, dataclasses.replace(value, generation=generation))
 
@@ -488,7 +486,7 @@ def thaw(state: TeamRoutines, run_id: str, now: int) -> tuple[TeamRoutines, str]
 
 
 def _hold(state: TeamRoutines, value: Run, fingerprint: str, now: int, detail: dict[str, object]) -> TeamRoutines:
-    if not value.generation or _FINGERPRINT_RE.fullmatch(fingerprint) is None:
+    if not value.generation or http_payload.SHA256_RE.fullmatch(fingerprint) is None:
         raise RoutineStateError("batch-invalid")
     state, value = _run_notice(state, value, "uncertain", now, detail)
     held = dataclasses.replace(

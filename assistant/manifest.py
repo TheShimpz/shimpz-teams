@@ -55,8 +55,7 @@ HUMAN_REQUEST_KINDS = frozenset(
     }
 )
 AUTHORIZATION_REQUEST_KINDS = frozenset({"approval", "auth:passkey", "auth:password", "auth:totp"})
-_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
-_VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
+VERSION_RE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 _CREATOR_RE = re.compile(r"@[a-z0-9][a-z0-9-]{1,30}[a-z0-9]\Z")
 _GITHUB_RE = re.compile(
     r"https://github\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/"
@@ -175,7 +174,7 @@ def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
 
 
 def _identifier(value: object, *, kind: str, maximum: int = MAX_IDENTIFIER_LENGTH) -> str:
-    if not isinstance(value, str) or len(value) > maximum or _ID_RE.fullmatch(value) is None:
+    if not isinstance(value, str) or len(value) > maximum or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise ManifestError(f"Assistant {kind} identifier is invalid")
     return value
 
@@ -588,7 +587,7 @@ def parse_manifest_contract(raw: bytes) -> ManifestContract:
     if assistant_id in {"postgres", "assistant-egress", "shimpz-assistant-egress"}:
         raise ManifestError("Assistant id is reserved")
     version = metadata["version"]
-    if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
+    if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")
     _public_text(metadata["name"], kind="name", maximum=80)
     _public_text(metadata["summary"], kind="summary", maximum=160)
@@ -656,7 +655,7 @@ def canonical_manifest_identity(
     summary: object,
 ) -> ManifestIdentity:
     """Canonicalize persisted identity fields without accepting publication attribution."""
-    if not isinstance(version, str) or _VERSION_RE.fullmatch(version) is None:
+    if not isinstance(version, str) or VERSION_RE.fullmatch(version) is None:
         raise ManifestError("Assistant version is invalid")
     return ManifestIdentity(
         assistant_id=_identifier(assistant_id, kind="id", maximum=40),

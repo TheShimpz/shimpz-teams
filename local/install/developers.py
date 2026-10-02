@@ -5,11 +5,11 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
-import re
 import ssl
 from typing import Any
 
 from install.contract import ContractValidationError, ContractValidator
+from protocol.http.v1 import payload as http_payload
 
 _HOST = "developers.shimpz.com"
 _PORT = 443
@@ -17,7 +17,6 @@ _RELEASE_PROXY_HOST = "shimpz-assistant-release"
 _RELEASE_PROXY_PORT = 8888
 _TIMEOUT_SECONDS = 10
 _MAX_RESPONSE_BYTES = 1024 * 1024
-_SOURCE_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TLS_CONTEXT = ssl.create_default_context(cafile="/etc/ssl/certs/ca-certificates.crt")
 _CONTRACTS = ContractValidator()
 
@@ -36,7 +35,7 @@ class PublicationNotInstallableError(DevelopersError):
 
 class DevelopersClient:
     def resolve(self, source_digest: str) -> dict[str, Any]:
-        if _SOURCE_DIGEST.fullmatch(source_digest) is None:
+        if http_payload.SOURCE_DIGEST_RE.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}")
         value = _resolution(status, raw)
@@ -46,14 +45,17 @@ class DevelopersClient:
 
     def latest(self, source_digest: str) -> dict[str, Any]:
         """Resolve the newest public approved candidate for one installed public digest."""
-        if _SOURCE_DIGEST.fullmatch(source_digest) is None:
+        if http_payload.SOURCE_DIGEST_RE.fullmatch(source_digest) is None:
             raise PublicationNotInstallableError("publication digest is invalid")
         status, raw = self._request(f"/api/v1/assistant-publications/{source_digest}/latest")
         return _resolution(status, raw)
 
     def icon(self, source_digest: str, icon_digest: str) -> bytes:
         """Fetch one canonical publication icon and verify its exact digest."""
-        if _SOURCE_DIGEST.fullmatch(source_digest) is None or _SOURCE_DIGEST.fullmatch(icon_digest) is None:
+        if (
+            http_payload.SOURCE_DIGEST_RE.fullmatch(source_digest) is None
+            or http_payload.SOURCE_DIGEST_RE.fullmatch(icon_digest) is None
+        ):
             raise PublicationNotInstallableError("publication icon digest is invalid")
         status, raw = self._request(
             f"/api/v1/assistant-publications/{source_digest}/icon.png",
