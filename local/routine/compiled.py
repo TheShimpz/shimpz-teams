@@ -320,6 +320,11 @@ def progress(self, team_id: str, value: record.Run) -> str:
     return "done" if finished else "partial"
 
 
+def _sealed_done(self, team_id: str, value: record.Run) -> bool:
+    """Whether the run's sealed cursor proves every step of its sealed plan complete."""
+    return progress(self, team_id, value) == "done"
+
+
 def _uncertain(self, value: record.Run, batches: list) -> bool:
     """Whether a dispatch of the run may have acted without its outcome being known; unreadable counts as yes."""
     if batches and batches[-1].held:
@@ -345,6 +350,9 @@ def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: A
             registration = self._routine_runs.get(run.run_id)
         if registration is not None and registration.overdue:
             code = "active-time-exceeded"
+            if progress(self, run.team_id, value) == "done":
+                # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
+                return routine_run.complete(self, run, value)
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and progress(self, run.team_id, value) == "none":
@@ -370,7 +378,7 @@ def execute(
         return _ended(self, run, value, [] if segment is None else segment.batches, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
-        return routine_run.finished(self, run, value)
+        return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value))
     return routine_run.suspended(self, run, outcome)
 
 

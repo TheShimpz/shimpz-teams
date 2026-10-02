@@ -689,3 +689,96 @@ class ContinuationDeadlineTests(BalanceCase):
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             self.assertEqual(routine_recovery.automatic(service, run, API_KEY), "held")
         self.assertNotIn("find-record", [action for action, _id in assistant.calls])
+
+    def cut_after_the_last_step(self, cause: str):
+        """Run a retried continuation and cancel it, by its deadline or a person, once every step is sealed complete."""
+        fired: list[object] = []
+        box: list[object] = []
+
+        class Captured:
+            def __init__(self, _seconds, function) -> None:
+                self.daemon = False
+                fired.append(function)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        real_resume = routine_recovery.routine_compiled.CompiledRuntime.resume
+
+        def resume(runtime, context, results):
+            turn = real_resume(runtime, context, results)
+            if runtime.cursor.segment and runtime.cursor.step == 2:
+                # Every step is sealed complete; the cancellation lands before the run's end is recorded.
+                if cause == "deadline":
+                    fired[-1]()
+                elif cause == "person":
+                    routine_recovery.routine_run.stop_routine_run(box[0], "team_1", runtime.cursor.binding.run_id)
+            return turn
+
+        def commit(team_id, token):
+            # The deadline passes exactly as the completed run commits its end.
+            if cause == "commit" and box[0]._routine_runs:
+                fired[-1]()
+            return real_commit[0](team_id, token)
+
+        real_commit: list[object] = []
+
+        original = self.service
+
+        def service(*args, **kwargs):
+            controller, value = original(*args, **kwargs)
+            box.append(value)
+            real_commit.append(value._commit_chat_terminal)
+            value._commit_chat_terminal = commit
+            return controller, value
+
+        real_routine = self.routine
+
+        def failing_streak(service, **kwargs):
+            # Two no-effect failures already ran before this cycle.
+            value = real_routine(service, **kwargs)
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    record._replace_routine(
+                        state, dataclasses.replace(record.routine(state, value.routine_id), failures=2)
+                    ),
+                    None,
+                ),
+            )
+            return value
+
+        assistant = Assistant([failed(), RECORD], [{"outcome": "not_occurred"}])
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(self, "service", service),
+            mock.patch.object(self, "routine", failing_streak),
+            mock.patch.object(routine_recovery.threading, "Timer", Captured),
+            mock.patch.object(routine_recovery.routine_compiled.CompiledRuntime, "resume", resume),
+        ):
+            service_value, value, _run_id = self.run_held(directory, assistant, Brain("retry"))
+            state = self.state(service_value)
+        return state, record.routine(state, value.routine_id)
+
+    def test_a_deadline_after_the_last_step_records_completion_from_the_sealed_cursor(self) -> None:
+        state, routine_value = self.cut_after_the_last_step("deadline")
+        self.assertEqual((self.status, state.incidents), ("recovered", ()))
+        # Recorded complete from the sealed cursor, with its Actions, and its failure streak reset.
+        self.assertEqual(state.notices[-1].outcome, "recovered")
+        self.assertEqual(state.notices[-1].detail["actions"][-1], ["shimpz-cloudflare", "create-record"])
+        self.assertEqual((routine_value.failures, routine_value.paused), (0, False))
+
+    def test_a_persons_stop_after_the_last_step_still_stops_the_run(self) -> None:
+        state, routine_value = self.cut_after_the_last_step("person")
+        self.assertEqual((self.status, state.incidents, state.notices[-1].outcome), ("stopped", (), "stopped"))
+        # A person's Stop is neither success nor failure: the streak stays as it was.
+        self.assertEqual(routine_value.failures, 2)
+
+    def test_a_deadline_as_the_completed_run_commits_its_end_still_records_completion(self) -> None:
+        state, routine_value = self.cut_after_the_last_step("commit")
+        self.assertEqual(
+            (self.status, state.notices[-1].outcome, routine_value.failures), ("recovered", "recovered", 0)
+        )
