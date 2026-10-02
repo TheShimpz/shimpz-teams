@@ -5,8 +5,8 @@ read-only, no network). Run with SHIMPZ_RUN_DOCKER_TESTS=1 and SHIMPZ_SDK_WHEEL 
 the output of ``uv build --wheel`` in the SDK's ``python`` directory. The cases cover the maximum 8 MiB delivery and a
 1 MiB one after the authorization replay, a withheld file the person denies, Stop during a delivery, and a delivery
 whose workload outlives its deadline, each ended and cleaned up within its bound. Each case prints its measurements:
-wall time, the longest silent interval on the exec socket, the controller's traced peak, and the workload cgroup's
-``memory.peak``.
+wall time, the longest silent interval on the exec socket, the controller's traced Python allocation peak (not
+RSS), and the workload cgroup's ``memory.peak``.
 """
 
 from __future__ import annotations
@@ -176,7 +176,7 @@ class RealFileDeliveryTests(unittest.TestCase):
         measured = {
             "wall_seconds": round(finished - started, 3),
             "longest_silence_seconds": round(max(b - a for a, b in itertools.pairwise(moments)), 3),
-            "controller_traced_peak_mib": round(peak / MIB, 1),
+            "controller_traced_python_peak_mib": round(peak / MIB, 1),
             "workload_memory_peak_mib": round(peak_bytes[0] / MIB, 1),
         }
         return raw, files, measured
