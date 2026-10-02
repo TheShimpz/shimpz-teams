@@ -21,6 +21,7 @@ DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 HOURLY = {"kind": "hourly", "every": 1}
 WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
+CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 1000}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 
 
@@ -197,11 +198,12 @@ class AddTests(unittest.TestCase):
             with self.subTest(candidate=candidate), self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
                 record.add_routine(record.TeamRoutines(), candidate)
 
-    def test_a_team_holds_at_most_eight_routines_and_24_scheduled_runs_a_day(self):
+    def test_a_team_holds_at_most_eight_routines_whose_caps_fit_its_daily_ceiling(self):
         state = added(*(routine(f"{index:032x}") for index in range(record.MAX_ROUTINES)))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-limit"):
             record.add_routine(state, routine("f" * 32))
-        busy = added(routine("b" * 32, HOURLY))
+        # A continuous Routine's cap of 1,000 runs a day leaves no room for another Routine's single daily run.
+        busy = added(routine("b" * 32, CONTINUOUS))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
             record.add_routine(busy, routine())
         with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
@@ -237,17 +239,21 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual(record.rekeyed(state, "f" * 64), (value,))
         self.assertEqual(record.rekeyed(state, KEY), ())
 
-    def test_the_oldest_due_routine_wins_and_the_daily_start_cap_holds(self):
+    def test_the_oldest_due_routine_wins_and_the_rolling_team_ceiling_holds_to_the_second(self):
         eleven = epoch(2026, 10, 1, 23)
         state = at(at(added(routine("a" * 32), routine("b" * 32)), "a" * 32, eleven), "b" * 32, eleven - 60)
         self.assertEqual(record.claimable(state, eleven).routine_id, "b" * 32)
-        capped = dataclasses.replace(state, starts_day="2026-10-01", starts=record.MAX_DAILY_STARTS)
+        # The Team's ceiling counts every start in the last 24 hours, whatever Routine made it, even a deleted one.
+        first = eleven - 86_400 + 30
+        full = tuple(("c" * 32, first + index) for index in range(record.routine_starts.TEAM_CEILING))
+        capped = dataclasses.replace(state, starts=full)
         self.assertIsNone(record.claimable(capped, eleven))
-        # The cap is per UTC day: the same late firings may start once the next day begins, within their grace.
-        next_day = epoch(2026, 10, 2, 0, 30)
-        after, claim = record.claim(capped, next_day, KEY)
-        self.assertEqual((after.starts_day, after.starts, after.served_at), ("2026-10-02", 1, next_day))
-        self.assertEqual(claim.run.routine_id, "b" * 32)
+        # The window rolls to the second: the oldest start leaves it exactly 24 hours after it was made.
+        self.assertIsNone(record.claimable(capped, first + 86_400 - 1))
+        self.assertEqual(record.next_due(capped, eleven), first + 86_400)
+        after, claim = record.claim(capped, first + 86_400, KEY)
+        self.assertEqual((claim.run.routine_id, len(after.starts)), ("b" * 32, record.routine_starts.TEAM_CEILING))
+        self.assertEqual(after.starts[-1], ("b" * 32, first + 86_400))
 
     def test_reconfirmation_and_deletion_stop_claims(self):
         state = record.mark_scope_changed(at(added(routine()), "a" * 32, NINE), "a" * 32, NINE, ["dns"])
@@ -518,7 +524,7 @@ class FailureStreakTests(unittest.TestCase):
                     routine_fixture.DONE,
                 )
             )
-            state = dataclasses.replace(state, discards=(), starts=0)
+            state = dataclasses.replace(state, discards=(), starts=())
             current = record.routine(state, "a" * 32)
             with self.subTest(index=index):
                 self.assertEqual(current.failures, (1, 2, 0, 1, 2, 3)[index])
@@ -768,7 +774,7 @@ class CompiledChangeTests(unittest.TestCase):
             record.update(state, changed, 2, NINE, RECEIPT, NINE + 900)
         with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
             record.update(
-                added(routine(), routine("b" * 32, {"kind": "hourly", "every": 2})),
+                added(routine(), routine("b" * 32, {"kind": "continuous", "gap": 5, "cap": 990})),
                 record.scheduled(dataclasses.replace(routine(), schedule=HOURLY), NINE),
                 1,
                 NINE,
@@ -828,3 +834,48 @@ class HoldTimeTests(unittest.TestCase):
         for target, seconds in ((("x", generation), 5), ((run_id, "other"), 5), ((run_id, generation), 0)):
             with self.subTest(target=target):
                 self.assertIs(routine_hold.refund_incident(charged, *target, seconds), charged)
+
+
+class ContinuousTests(unittest.TestCase):
+    """A continuous Routine runs again its gap after each run ends, never overlapping, within its rolling cap."""
+
+    def continuous(self, cap: int = 3) -> record.TeamRoutines:
+        value = routine(schedule={"kind": "continuous", "gap": 5, "cap": cap})
+        return at(added(value), "a" * 32, NINE)
+
+    def test_the_next_run_is_due_its_gap_after_the_previous_one_ended_and_never_overlaps(self):
+        state = self.continuous()
+        state, claim = record.claim(state, NINE, KEY)
+        run_id = claim.run.run_id
+        # While it runs nothing else of it starts, however long it takes.
+        for later in (NINE + 5, NINE + 600):
+            self.assertIsNone(record.claimable(state, later))
+        self.assertIsNone(record.next_due(state, NINE + 600))
+        lease = record.lease_of(claim.lease_token, KEY)
+        ended = record.finish(state, run_id, lease, NINE + 40, "done", routine_fixture.DONE)
+        self.assertEqual(record.routine(ended, "a" * 32).next_run_at, NINE + 45)
+        self.assertIsNone(record.claimable(ended, NINE + 44))
+        self.assertEqual(record.next_due(ended, NINE + 40), NINE + 45)
+        self.assertEqual(record.claimable(ended, NINE + 45).routine_id, "a" * 32)
+        # Any ending counts, a Team-decided one included.
+        state, claim = record.claim(ended, NINE + 45, KEY)
+        stopped = record.end(state, claim.run.run_id, NINE + 50, "stopped", {"actions": []})
+        self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 55)
+
+    def test_a_continuous_routine_never_skips_a_backlog_and_waits_out_its_cap_to_the_second(self):
+        state = self.continuous(cap=2)
+        # A long outage reports no missed runs: it simply starts when it may.
+        swept = record.sweep(state, NINE + 7 * 86_400)
+        self.assertEqual((swept.notices, record.routine(swept, "a" * 32).missed), ((), 0))
+        starts = []
+        for _index in range(2):
+            now = NINE + 100 * len(starts)
+            state = at(state, "a" * 32, now)
+            state, claim = record.claim(state, now, KEY)
+            starts.append(now)
+            state = record.end(state, claim.run.run_id, now + 1, "stopped", {"actions": []})
+        # Its third start waits until its first leaves the rolling window, exactly.
+        boundary = starts[0] + 86_400
+        self.assertIsNone(record.claimable(state, boundary - 1))
+        self.assertEqual(record.next_due(state, boundary - 1), boundary)
+        self.assertEqual(record.claimable(state, boundary).routine_id, "a" * 32)

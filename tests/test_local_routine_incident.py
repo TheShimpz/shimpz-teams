@@ -606,14 +606,14 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_four_admits_held_runs_incidents_plans_grants_and_receipts(self) -> None:
+    def test_routine_state_version_five_admits_held_runs_incidents_plans_grants_and_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, _generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 4)
+            self.assertEqual(document["schema"], 5)
             self.assertEqual(document["routines"][0]["plan"]["version"], 1)
             receipt = ["c" * 64, 2_000_000_000]
             document["receipts"] = [receipt]

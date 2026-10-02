@@ -186,8 +186,13 @@ class TamperTests(StoreCase):
             "too many discards": lambda value: value.update(
                 discards=[[f"{index:032x}", ""] for index in range(record.MAX_DISCARDS + 1)]
             ),
-            "starts day": lambda value: value.update(starts_day="yesterday"),
-            "starts": lambda value: value.update(starts=record.MAX_DAILY_STARTS + 1),
+            "starts shape": lambda value: value.update(starts=[["a" * 32]]),
+            "start routine": lambda value: value.update(starts=[["not-a-routine", 5]]),
+            "start instant": lambda value: value.update(starts=[["a" * 32, -1]]),
+            "starts out of order": lambda value: value.update(starts=[["a" * 32, 9], ["a" * 32, 5]]),
+            "too many starts": lambda value: value.update(
+                starts=[["a" * 32, index] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+            ),
         }
         for name, mutate in mutations.items():
             with self.subTest(name=name):

@@ -68,6 +68,26 @@ class ScheduleContractTests(unittest.TestCase):
         self.assertEqual(http_routine.daily_rate({"kind": "daily", "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_rate({"kind": "weekly", "weekday": 0, "time": "09:00"}), Fraction(1, 7))
         self.assertEqual(http_routine.daily_rate({"kind": "monthly", "day": 1, "time": "09:00"}), Fraction(1, 28))
+        continuous = {"kind": "continuous", "gap": 5, "cap": 300}
+        self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (300, 300))
+        self.assertEqual(http_routine.daily_cap({"kind": "weekly", "weekday": 0, "time": "09:00"}), 1)
+        self.assertEqual(http_routine.daily_cap({"kind": "hourly", "every": 5}), 5)
+
+    def test_a_continuous_schedule_is_bounded_in_gap_and_cap(self):
+        for gap, cap in ((5, 1), (86_400, 1000)):
+            value = {"kind": "continuous", "gap": gap, "cap": cap}
+            self.assertEqual(http_routine.canonical_schedule(value), value)
+        for value in (
+            {"kind": "continuous", "gap": 4, "cap": 10},
+            {"kind": "continuous", "gap": 86_401, "cap": 10},
+            {"kind": "continuous", "gap": 5, "cap": 0},
+            {"kind": "continuous", "gap": 5, "cap": 1001},
+            {"kind": "continuous", "gap": 5.0, "cap": 10},
+            {"kind": "continuous", "gap": 5, "cap": True},
+            {"kind": "continuous", "gap": 5},
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(http_routine.canonical_schedule(value))
 
 
 def upcoming(value, timezone, anchor, after, count):
@@ -95,6 +115,13 @@ class NextRunTests(unittest.TestCase):
         daily = {"kind": "daily", "time": "09:00"}
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 8, 59)), at(2026, 9, 30, 9))
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 9)), at(2026, 10, 1, 9))
+
+    def test_a_continuous_run_is_due_its_gap_after_an_instant_never_before_the_anchor(self):
+        continuous = {"kind": "continuous", "gap": 5, "cap": 10}
+        self.assertEqual(schedule.next_run(continuous, "UTC", ANCHOR, at(2026, 9, 30)), at(2026, 9, 30, 0, 0, 5))
+        self.assertEqual(
+            schedule.next_run(continuous, "UTC", at(2026, 10, 1), at(2026, 9, 30)), at(2026, 10, 1, 0, 0, 5)
+        )
 
     def test_hourly_counts_elapsed_hours_from_the_anchor(self):
         every_six = {"kind": "hourly", "every": 6}

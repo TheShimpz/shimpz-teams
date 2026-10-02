@@ -103,22 +103,25 @@ skill), then its new skill, which becomes the newest while the oldest give way b
 forgets is not learned again.
 
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
-hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in
-an IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads). `routine.daily_rate` is
-a schedule's average runs per day; a Team's Routines may sum to at most 24. A Routine is created or changed only from
-the authenticated user's own chat message, without a confirmation card (ADR-0092): Team validates the Brain's compiled
-change against that message and the exact installed contracts, and commits the Routine, its notice, and the request's
-receipt together with the reply. That notice has the Routine outcome `created` or `changed`, no run id, and exactly
-`{name, steps, schedule, timezone}` (`routine.canonical_notice`): the Routine's name (`routine.canonical_name`, 1 to
-80 NFC printable characters on one line), its plan's safe projection, its schedule, and its zone. The projection
-(`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant, action, inputs, stored_inputs}`: each
-input, sorted by member, is a `literal` whose `value` is `routine.literal_preview` of its JSON (at most 120 characters,
-every control or invisible character escaped), a `run_clock` whose `value` is its format, or a `step_output` naming an
-earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the step's Action uses by id only, never
-a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`) carries the same name and projection.
-Team also keeps, never on the wire, the evidence of the request that granted each revision: its receipt, revision,
-plan digest, a commitment to the message, the quote's span, each input's validated provenance, and any answer a bound
-Routine question selected.
+hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
+IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
+for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the previous one ended, never overlapping,
+with at most `cap` (1 to 1,000) starts in any rolling 24 hours (ADR-0092). `routine.daily_rate` is a schedule's runs per
+day and `routine.daily_cap` its whole rolling 24-hour cap; a Team's Routines' caps may sum to at most
+`routine.MAX_DAILY_RUNS` (1,000), which also bounds the Team's starts in any rolling 24 hours, whatever Routine made
+them. A Routine is created or changed only from the authenticated user's own chat message, without a confirmation card
+(ADR-0092): Team validates the Brain's compiled change against that message and the exact installed contracts, and
+commits the Routine, its notice, and the request's receipt together with the reply. That notice has the Routine outcome
+`created` or `changed`, no run id, and exactly `{name, steps, schedule, timezone}` (`routine.canonical_notice`): the
+Routine's name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its plan's safe projection, its
+schedule, and its zone. The projection (`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant,
+action, inputs, stored_inputs}`: each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview`
+of its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is its
+format, or a `step_output` naming an earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the
+step's Action uses by id only, never a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`)
+carries the same name and projection. Team also keeps, never on the wire, the evidence of the request that granted each
+revision: its receipt, revision, plan digest, a commitment to the message, the quote's span, each input's validated
+provenance, and any answer a bound Routine question selected.
 
 A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine.canonical_notice_detail`
 closes each outcome's detail). `done` and `recovered` name the ordered `actions`, `[assistant, action]` pairs of the

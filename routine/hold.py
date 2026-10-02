@@ -50,7 +50,7 @@ def settle_hold(
         if released is None:
             raise record.RoutineStateError("incident-limit")
         kept.remove(released)
-    return record._without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id)
+    return record._without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
 
 
 def incident(state: record.TeamRoutines, incident_id: str) -> record.Incident:
