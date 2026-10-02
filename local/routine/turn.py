@@ -85,14 +85,11 @@ def _current(self, team_id: str, change: routine_change.Change) -> record.Routin
     return found
 
 
-def admit_change(
-    self, response: object, proposed: dict[str, object], excluded: tuple[tuple[int, int], ...] = ()
-) -> Callable[[], None]:
+def admit_change(self, response: object, proposed: dict[str, object]) -> Callable[[], None]:
     """Admit a completed turn's compiled change and return the write that commits it with the reply.
 
     The caller holds the Team lifecycle lock from here to the commit, so a changed Assistant, a destroy, or a reset
-    cannot cross it. ``excluded`` marks the spans of the message the Team's clarification lineage says are not the
-    user's own words.
+    cannot cross it. Spans the Team's clarification lineage marks as the model's are never the user's own words.
     """
     team_id, segment, request = response.team_id, response.segment, response.routine_request
     now = int(time.time())
@@ -112,7 +109,7 @@ def admit_change(
     try:
         compiled = routine_change.compile_change(
             change,
-            routine_change.Words(request.message, excluded),
+            routine_change.Words(request.message, request.excluded),
             _contracts(assistants, request.locale or "en"),
             None if existing is None else existing.plan,
             request.timezone or DEFAULT_TIMEZONE,

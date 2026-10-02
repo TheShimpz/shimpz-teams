@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import tempfile
 import threading
 import time
@@ -17,6 +18,7 @@ from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
 from local.routine import turn as routine_turn
+from protocol.http.v1 import payload as http_payload
 from routine import record
 
 PRINCIPAL = "a" * 32
@@ -266,6 +268,42 @@ class DirectCreationTests(LocalContractCase):
                 self.chat(service, _body())
             self.assertEqual(caught.exception.code, "routine-request-expired")
             self.assertEqual(service.routine_store.load("team_1").routines, ())
+
+    def test_a_clarification_question_never_becomes_the_users_grant(self) -> None:
+        original = "Every Monday at 9:00, list my zones, page 1"
+        question = "How many zones per page, 25 or 50?"
+        clarification = {
+            "question": question,
+            "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
+            "default_index": 0,
+        }
+
+        class Asking(Runtime):
+            def start(self, context, message, *, conversation=()):
+                if json.loads(message)["message"] == original:
+                    self.contexts.append(context)
+                    reply = http_payload.render_clarification(clarification)
+                    return brain_runtime_client.RuntimeTurn("completed", reply, (), clarification=clarification)
+                return super().start(context, message, conversation=conversation)
+
+        from_question = copy.deepcopy(_change(request=original))
+        from_answer = copy.deepcopy(_change(request=original))
+        from_answer["steps"][0]["input"]["per_page"]["value"] = 50
+        from_answer["steps"][0]["input"]["per_page"]["origins"] = [_origin("50")]
+        answer = f"{original}\n\nPergunta: {question}\nResposta: 50"
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Asking(from_question, from_answer)
+            _controller, service = self.controller(directory, runtime)
+            for change, code in ((from_question, "routine-literal-unproven"), (from_answer, None)):
+                self.chat(service, _body(original, nonce=("c" if code else "d") * 32))
+                if code is None:
+                    self.chat(service, _body(answer, nonce="e" * 32))
+                    continue
+                with self.subTest(change=change), self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service, _body(answer, nonce="f" * 32))
+                self.assertEqual(caught.exception.code, code)
+            (routine,) = service.routine_store.load("team_1").routines
+            self.assertEqual(routine.plan["steps"][0]["input"]["per_page"]["value"], 50)
 
     def test_a_changed_team_refuses_the_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

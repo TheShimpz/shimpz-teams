@@ -17,6 +17,7 @@ from inference import client as brain_runtime_client
 from local.errors import ApiProblemError
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
+from local.routine import lineage as routine_lineage
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
 from routine import record
@@ -70,6 +71,7 @@ class RoutineLifecycleTests(unittest.TestCase):
             brain_runtime=SimpleNamespace(delete_thread=lambda thread_id: self.events.append(("thread", thread_id))),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
+            routine_lineage=routine_lineage.LineageBook(),
         )
 
     def test_a_teams_routine_threads_generations_and_state_are_deleted(self):

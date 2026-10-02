@@ -26,6 +26,8 @@ class Request:
     timezone: str | None = None
     # The interface language of the turn, which pins the language pack a Routine's requests render in.
     locale: str | None = None
+    # Spans of the message the Team's clarification lineage marks as not the user's own words.
+    excluded: tuple[tuple[int, int], ...] = ()
 
     def fresh(self, now: int) -> bool:
         """Whether the identity may still change a Routine: issued at most 900 s ago and not far ahead of Team."""

@@ -92,6 +92,9 @@ def _segment_response(
         self._delete_chat_continuation(team_id)
         if not commit(terminal):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
+        if terminal.clarification is not None and response.routine_request is not None:
+            # The answer will quote this question; the lineage keeps it from ever counting as the user's words.
+            self.routine_lineage.record(team_id, response.routine_request, terminal.clarification["question"])
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
@@ -193,7 +196,15 @@ def chat(
         routine_request = (
             None
             if principal is None
-            else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale)
+            else RoutineRequest(
+                principal,
+                message,
+                identity["issued_at"],
+                identity["nonce"],
+                timezone,
+                locale,
+                self.routine_lineage.take(team_id, principal, message),
+            )
         )
         segment = self._run_chat_segment(
             _ChatSegmentRequest(

@@ -23,6 +23,7 @@ from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
+from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
 from local.routine import run as local_routine_run
@@ -49,6 +50,7 @@ class ChatTurnService:
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
         self.routine_diagnostics = dependencies.routine_diagnostics
+        self.routine_lineage = dependencies.routine_lineage or local_routine_lineage.LineageBook()
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
         self.routine_human_challenges = dependencies.routine_human_challenges or action_challenges.HumanChallengeStore()
         self._lock = dependencies.lock_for
