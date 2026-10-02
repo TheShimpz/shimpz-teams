@@ -6,9 +6,7 @@ import io
 import json
 import re
 import tarfile
-import threading
 import tomllib
-from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -20,6 +18,7 @@ from jsonschema.exceptions import ValidationError
 from referencing.exceptions import Unresolvable
 
 from assistant import action_schema
+from assistant import cache as assistant_cache
 from core import strict_json
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
@@ -779,9 +778,9 @@ class ManifestContractCache:
     def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
         if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries < 1:
             raise ValueError("Assistant manifest cache size must be positive")
-        self._max_entries = max_entries
-        self._entries: OrderedDict[str, ManifestContract] = OrderedDict()
-        self._lock = threading.Lock()
+        self._cache: assistant_cache.ContainerReadCache[ManifestContract] = assistant_cache.ContainerReadCache(
+            max_entries
+        )
 
     def get(self, container, reviewed: object) -> ManifestContract:
         """Return declared intent only when it exactly matches controller review."""
@@ -795,23 +794,14 @@ class ManifestContractCache:
             raise ManifestError("Assistant container identity is invalid")
         if not isinstance(reviewed, ManifestContract):
             raise ManifestError("Assistant reviewed manifest contract is invalid")
-        with self._lock:
-            declared = self._entries.get(container_id)
-            if declared is None:
-                declared = read_container_manifest_contract(container)
-                self._entries[container_id] = declared
-                while len(self._entries) > self._max_entries:
-                    self._entries.popitem(last=False)
-            else:
-                self._entries.move_to_end(container_id)
+        declared = self._cache.get(container_id, lambda: read_container_manifest_contract(container))
         if declared != reviewed:
             raise ManifestError("Assistant manifest does not match its reviewed contract")
         return declared
 
     def discard(self, container_id: object) -> None:
         if isinstance(container_id, str):
-            with self._lock:
-                self._entries.pop(container_id, None)
+            self._cache.discard(container_id)
 
 
 class MachineContractCache:
@@ -820,9 +810,9 @@ class MachineContractCache:
     def __init__(self, max_entries: int = DEFAULT_CACHE_ENTRIES) -> None:
         if not isinstance(max_entries, int) or isinstance(max_entries, bool) or max_entries < 1:
             raise ValueError("Assistant machine contract cache size must be positive")
-        self._max_entries = max_entries
-        self._entries: OrderedDict[str, dict[str, Any]] = OrderedDict()
-        self._lock = threading.Lock()
+        self._cache: assistant_cache.ContainerReadCache[dict[str, Any]] = assistant_cache.ContainerReadCache(
+            max_entries
+        )
 
     def get(
         self,
@@ -840,24 +830,14 @@ class MachineContractCache:
             or any(not character.isalnum() and character not in {"-", "_", "."} for character in container_id)
         ):
             raise ManifestError("Assistant container identity is invalid")
-        with self._lock:
-            declared = self._entries.get(container_id)
-            if declared is None:
-                declared = read_container_machine_contract(
-                    container,
-                    declared_integrations,
-                    declared_stored_inputs,
-                )
-                self._entries[container_id] = declared
-                while len(self._entries) > self._max_entries:
-                    self._entries.popitem(last=False)
-            else:
-                self._entries.move_to_end(container_id)
+        declared = self._cache.get(
+            container_id,
+            lambda: read_container_machine_contract(container, declared_integrations, declared_stored_inputs),
+        )
         if declared != reviewed:
             raise ManifestError("Assistant machine contract does not match controller review")
         return declared
 
     def discard(self, container_id: object) -> None:
         if isinstance(container_id, str):
-            with self._lock:
-                self._entries.pop(container_id, None)
+            self._cache.discard(container_id)

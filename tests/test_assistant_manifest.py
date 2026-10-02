@@ -822,7 +822,7 @@ class AssistantManifestTests(unittest.TestCase):
         second = Container("second", manifest())
         cache.get(first, expected)
         cache.get(second, expected)
-        self.assertEqual(tuple(cache._entries), ("second",))
+        self.assertEqual(tuple(cache._cache._entries), ("second",))
         cache.discard(None)
 
         reviewed = _reviewed_catalog()["shimpz-cloudflare"]
@@ -842,7 +842,7 @@ class AssistantManifestTests(unittest.TestCase):
             reviewed.stored_inputs,
             reviewed.machine_contract,
         )
-        self.assertEqual(tuple(machine._entries), ("second",))
+        self.assertEqual(tuple(machine._cache._entries), ("second",))
         machine.discard(None)
 
 

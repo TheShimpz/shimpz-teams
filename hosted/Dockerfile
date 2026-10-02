@@ -98,7 +98,7 @@ COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign
 COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
      hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
      hosted/validation.py ./hosted/
-COPY assistant/__init__.py assistant/action_schema.py assistant/genesis.py assistant/manifest.py assistant/spec.py \
+COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/genesis.py assistant/manifest.py assistant/spec.py \
     ./assistant/
 COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
