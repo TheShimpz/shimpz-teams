@@ -76,7 +76,7 @@ class RecoveryCase(CompiledRunCase):
             ("create", "create-record", {"zone_id": ZONE, "name": "www"}),
         )
         value = self.routine(service, plan=plan)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         self.assertEqual(self.run_without_key(service, claim)["status"], "held")
         return service, brain, value, claim["run_id"]
 
@@ -176,7 +176,7 @@ class VerificationTests(RecoveryCase):
 
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, value = self.compiled(directory, invoke)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertEqual(self.run_without_key(service, claim)["status"], "held")
             self.assertEqual(self.verify(service, value, claim["run_id"]), "absent")
         self.assertEqual(brain.calls, [])

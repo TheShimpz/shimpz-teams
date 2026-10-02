@@ -103,22 +103,25 @@ skill), then its new skill, which becomes the newest while the oldest give way b
 forgets is not learned again.
 
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
-hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in
-an IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads). `routine.daily_rate` is
-a schedule's average runs per day; a Team's Routines may sum to at most 24. A Routine is created or changed only from
-the authenticated user's own chat message, without a confirmation card (ADR-0092): Team validates the Brain's compiled
-change against that message and the exact installed contracts, and commits the Routine, its notice, and the request's
-receipt together with the reply. That notice has the Routine outcome `created` or `changed`, no run id, and exactly
-`{name, steps, schedule, timezone}` (`routine.canonical_notice`): the Routine's name (`routine.canonical_name`, 1 to
-80 NFC printable characters on one line), its plan's safe projection, its schedule, and its zone. The projection
-(`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant, action, inputs, stored_inputs}`: each
-input, sorted by member, is a `literal` whose `value` is `routine.literal_preview` of its JSON (at most 120 characters,
-every control or invisible character escaped), a `run_clock` whose `value` is its format, or a `step_output` naming an
-earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the step's Action uses by id only, never
-a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`) carries the same name and projection.
-Team also keeps, never on the wire, the evidence of the request that granted each revision: its receipt, revision,
-plan digest, a commitment to the message, the quote's span, each input's validated provenance, and any answer a bound
-Routine question selected.
+hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
+IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
+for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the previous one ended, never overlapping,
+with at most `cap` (1 to 1,000) starts in any rolling 24 hours (ADR-0092). `routine.daily_rate` is a schedule's runs per
+day and `routine.daily_cap` its whole rolling 24-hour cap; a Team's Routines' caps may sum to at most
+`routine.MAX_DAILY_RUNS` (1,000), which also bounds the Team's starts in any rolling 24 hours, whatever Routine made
+them. A Routine is created or changed only from the authenticated user's own chat message, without a confirmation card
+(ADR-0092): Team validates the Brain's compiled change against that message and the exact installed contracts, and
+commits the Routine, its notice, and the request's receipt together with the reply. That notice has the Routine outcome
+`created` or `changed`, no run id, and exactly `{name, steps, schedule, timezone}` (`routine.canonical_notice`): the
+Routine's name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its plan's safe projection, its
+schedule, and its zone. The projection (`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant,
+action, inputs, stored_inputs}`: each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview`
+of its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is its
+format, or a `step_output` naming an earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the
+step's Action uses by id only, never a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`)
+carries the same name and projection. Team also keeps, never on the wire, the evidence of the request that granted each
+revision: its receipt, revision, plan digest, a commitment to the message, the quote's span, each input's validated
+provenance, and any answer a bound Routine question selected.
 
 A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine.canonical_notice_detail`
 closes each outcome's detail). `done` and `recovered` name the ordered `actions`, `[assistant, action]` pairs of the
@@ -229,13 +232,17 @@ Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routi
 `team-local-routine`; `supervisor.canonical_claims(value, audience=ROUTINE_AUDIENCE)` admits the same request, body,
 model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
 `authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
-Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{providers}`
-(`routine.canonical_claim_request`); the answer (`routine.canonical_claim`) is one run with its lease token, lease
-expiry, provider, and the Routine `revision` and `plan_digest` it was claimed at, or `null` with `next_due_at`, the
-earliest epoch second a Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then
-while still reconciling on its own interval. The run's signed segment request,
-`POST /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly that `{revision, plan_digest}`
-(`routine.canonical_segment_request`); any other is refused as `routine-revision-stale` before anything runs.
+Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{}`
+(`routine.canonical_claim_request`): no model key gates a claim, because a healthy compiled run needs none (ADR-0092),
+and any Team with a configured model may be claimed. The answer (`routine.canonical_claim`) is one run with its lease
+token, lease expiry, the Team's configured provider, and the Routine `revision`, `plan_digest`, and `mode` (`scheduled`
+or `continuous`, `routine.RUN_MODES`) it was claimed at, or `null` with `next_due_at`, the earliest epoch second a
+Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while still reconciling on its
+own interval. The run's signed segment request, `POST /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly
+that `{revision, plan_digest, mode}` (`routine.canonical_segment_request`); any other is refused as
+`routine-revision-stale` before anything runs. The run's segment and its frozen answers carry the private model
+credential only when Admin holds the Team's key; it then travels whole and the assertion binds it, and without it a held
+run's recovery pauses as `unavailable`.
 
 An intent-route classification (never selection, chat, or any other request) may also carry one Supervisor-configured
 TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor assertion then binds its digest as

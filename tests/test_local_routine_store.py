@@ -186,8 +186,13 @@ class TamperTests(StoreCase):
             "too many discards": lambda value: value.update(
                 discards=[[f"{index:032x}", ""] for index in range(record.MAX_DISCARDS + 1)]
             ),
-            "starts day": lambda value: value.update(starts_day="yesterday"),
-            "starts": lambda value: value.update(starts=record.MAX_DAILY_STARTS + 1),
+            "starts shape": lambda value: value.update(starts=[["a" * 32]]),
+            "start routine": lambda value: value.update(starts=[["not-a-routine", 5]]),
+            "start instant": lambda value: value.update(starts=[["a" * 32, -1]]),
+            "starts out of order": lambda value: value.update(starts=[["a" * 32, 9], ["a" * 32, 5]]),
+            "too many starts": lambda value: value.update(
+                starts=[["a" * 32, index] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+            ),
         }
         for name, mutate in mutations.items():
             with self.subTest(name=name):
@@ -415,3 +420,36 @@ class ExclusionTests(StoreCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConcurrentReadTests(StoreCase):
+    def test_a_listing_read_that_races_a_replace_reads_again_and_a_lasting_failure_still_fails(self) -> None:
+        put(self.store, "team_1", busy_state())
+        real = routine_store._PRIVATE.read_private_file
+        failures = [routine_store.RoutineStoreError("Routine state failed its ownership contract")] * 2
+
+        def racing(path, maximum, label):
+            if failures:
+                raise failures.pop()
+            return real(path, maximum, label)
+
+        with mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=racing):
+            self.assertEqual(self.store.teams(), ("team_1",))
+        broken = routine_store.RoutineStoreError("Routine state failed its ownership contract")
+        with (
+            mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=broken),
+            self.assertRaisesRegex(routine_store.RoutineStoreError, "ownership"),
+        ):
+            self.store.teams()
+
+
+class StartWindowTests(StoreCase):
+    def test_alternating_routines_persist_their_starts_in_time_order(self) -> None:
+        first = 1_790_000_000
+        starts: record.routine_starts.Starts = ()
+        for routine_id, offset in (("a" * 32, 0), ("b" * 32, 3), ("a" * 32, 8), ("b" * 32, 11)):
+            starts = record.routine_starts.started(starts, routine_id, first + offset)
+        self.assertEqual([at - first for _routine_id, at in starts], [0, 3, 8, 11])
+        state = dataclasses.replace(busy_state(), starts=starts)
+        put(self.store, "team_1", state)
+        self.assertEqual(self.store.load("team_1").starts, starts)

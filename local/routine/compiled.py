@@ -33,6 +33,7 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
 from routine import grant as routine_grant
 from routine import pin as routine_pin
@@ -352,7 +353,7 @@ def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: A
             code = "active-time-exceeded"
             if progress(self, run.team_id, value) == "done":
                 # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
-                return routine_run.complete(self, run, value)
+                return routine_run.complete_sealed(self, run)
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and progress(self, run.team_id, value) == "none":
@@ -387,7 +388,7 @@ def run_routine(
     team_id: str,
     run_id: str,
     evidence: local_authority.RoutineEvidence,
-    claimed: tuple[int, str],
+    claimed: tuple[int, str, str],
     credentials: tuple[str, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
@@ -399,9 +400,12 @@ def run_routine(
     """
     team_id = validate_team_id(team_id)
     provider, api_key = credentials
+    # Without a key Admin holds, the run uses the Team's configured provider; it needs no key unless it is held.
+    provider = provider or routine_run.team_provider(self, team_id) or ""
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
-    if claimed != (routine.revision, routine_grant.plan_digest(routine.plan)):
+    current = (routine.revision, routine_grant.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
+    if claimed != current:
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,

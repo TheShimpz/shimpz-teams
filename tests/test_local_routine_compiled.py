@@ -67,7 +67,11 @@ class CompiledRunCase(RoutineServiceCase):
     def run_without_key(service, claim: dict[str, object]) -> dict[str, object]:
         evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
         return service.run_routine(
-            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]), ("openai", "")
+            "team_1",
+            claim["run_id"],
+            evidence,
+            (claim["revision"], claim["plan_digest"], claim["mode"]),
+            ("openai", ""),
         )
 
 
@@ -91,7 +95,7 @@ class ExecutionTests(CompiledRunCase):
             def binding(run_id: str) -> routine_cursor.Binding:
                 return routine_cursor.Binding(network, value.routine_id, value.revision, run_id)
 
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             result = self.run_without_key(service, claim)
             state = self.state(service)
             leftovers = (service.routine_store.cursors("team_1"), service.routine_store.recoveries("team_1"))
@@ -120,7 +124,7 @@ class ExecutionTests(CompiledRunCase):
 
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, invoke)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertEqual(self.run_without_key(service, claim)["status"], "held")
             opened = routine_incident.open_recovery(service, "team_1", claim["run_id"])
         self.assertEqual((actions, brain.calls), (["list-zones", "list-dns-records"], []))
@@ -131,13 +135,13 @@ class ExecutionTests(CompiledRunCase):
     def test_a_missing_reference_holds_and_nothing_runs_when_the_plan_no_longer_admits(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, lambda *_args: {"result": LOOKUP_RESULT})
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertEqual(self.run_without_key(service, claim)["status"], "held")
             self.assertEqual(brain.calls, [])
         invoked: list[object] = []
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _brain, _value = self.compiled(directory, lambda *args: invoked.append(args))
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 self.assertEqual(self.run_without_key(service, claim)["status"], "failed")
             state = self.state(service)
@@ -155,7 +159,7 @@ class ExecutionTests(CompiledRunCase):
 
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, value = self.compiled(directory, invoke)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", claim["run_id"], "pt")
             answer = {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}
@@ -181,7 +185,7 @@ class ExecutionTests(CompiledRunCase):
 
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, brain, _value = self.compiled(directory, invoke)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             run_id = claim["run_id"]
             self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
             opened = service.open_routine_challenge("team_1", run_id, "pt")
@@ -210,7 +214,7 @@ class DiagnosticTests(CompiledRunCase):
             return {"result": ZONES}
 
         _controller, service, _brain, _value = self.compiled(directory, invoke)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         self.assertEqual(self.run_without_key(service, claim)["status"], "held")
         # A restarted Team opens its diagnostics with a fresh store over the same encrypted family.
         service.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
@@ -296,7 +300,7 @@ class WatchdogRecoveryTests(CompiledRunCase):
             return {"result": ZONES if action == "list-zones" else RECORDS}
 
         _controller, service, brain, _value = self.compiled(directory, invoke)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         with patch(service), self.assertRaises(Crash):
             self.run_without_key(service, claim)
         self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
@@ -418,7 +422,7 @@ class RealRpcTests(CompiledRunCase):
             controller, service, brain, value = self.compiled(directory, None)
             controller.assistant_lifecycle.invoke = controller.invoke
             controller.assistant_lifecycle.client = SimpleNamespace(api=process)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             result = self.run_without_key(service, claim)
             state = self.state(service)
         self.assertEqual((result["status"], brain.calls), ("done", []))
@@ -440,7 +444,7 @@ class StopTests(CompiledRunCase):
 
         with tempfile.TemporaryDirectory() as directory:
             controller, service, brain, _value = self.compiled(directory, invoke)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with mock.patch.object(controller.assistant_lifecycle, "_fail_stop_action"):
                 outcome = self.run_without_key(service, claim)["status"]
             state = self.state(service)
@@ -460,7 +464,7 @@ class StopTests(CompiledRunCase):
 
 class RuntimeTests(CompiledRunCase):
     def runtime(self, service, value: record.Routine) -> routine_compiled.CompiledRuntime:
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         network = "a" * 64
         run = record.Run(
             claim["run_id"], value.routine_id, "leased", 0, generation=f"{network}:routine:{claim['run_id']}"

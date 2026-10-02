@@ -54,10 +54,23 @@ def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
     return ApiProblem(status, message, code=code)
 
 
+# How long after a Routine frees the slot a person's chat message, refused while that Routine held it, keeps further
+# runs of its Team waiting for the person's turn.
+CHAT_PRIORITY_SECONDS = 30
+
+
 def _chat_busy(self, team_id: str) -> bool:
-    """Chat has priority at admission: a Routine never starts beside a chat turn or a pending chat challenge."""
+    """Chat has priority at admission (ADR-0092 section 9).
+
+    A Routine never starts beside a chat turn or a pending chat challenge, nor while a person who found the slot held
+    by a Routine is still waiting for their turn: however short a continuous Routine's gap, chat gets the next boundary.
+    """
+    with self._active_chat_guard:
+        demand = self._chat_demand.get(team_id)
+    waiting = demand is not None and time.monotonic() - demand < CHAT_PRIORITY_SECONDS
     return (
-        self._chat_lock(team_id).locked()
+        waiting
+        or self._chat_lock(team_id).locked()
         or self.human_challenges.current(team_id) is not None
         or self.integration_challenges.current(team_id) is not None
     )
@@ -81,13 +94,16 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     return record.claim(state, now, key)
 
 
-def _provider(self, team_id: str, providers: tuple[str, ...]) -> str | None:
-    """The Team's configured model provider when Admin holds its key; otherwise the Team is not claimed."""
+def team_provider(self, team_id: str) -> str | None:
+    """The Team's configured model provider, or None when it has none; a Team with none is not claimed.
+
+    No key is needed to claim or run a healthy compiled run (ADR-0092); only a held run's recovery uses the Team's
+    model, with the key Admin sends when it holds one.
+    """
     try:
-        provider = self.inference_store.load(team_id).provider
+        return self.inference_store.load(team_id).provider
     except inference_config.InferenceConfigError:
         return None
-    return provider if provider in providers else None
 
 
 def _state_unavailable(team_id: str) -> None:
@@ -117,11 +133,10 @@ def _claim_team(self, team_id: str, now: int, key: str):
             return None
 
 
-def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | None:
+def claim_routine_run(self) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
-    Only a Team whose model provider is among ``providers``, the ones Admin holds a key for, is claimed, so no lease
-    is taken for a run that could not reach its model.
+    Any Team with a configured model may be claimed, whether or not Admin holds its key: a healthy run needs none.
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -130,7 +145,7 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
     for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
-        provider = _provider(self, team_id, providers)
+        provider = team_provider(self, team_id)
         if provider is None or _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
@@ -151,15 +166,16 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
                 "provider": provider,
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
+                "mode": claim.mode,
             }
     return None
 
 
-def next_routine_due(self, providers: tuple[str, ...]) -> int | None:
+def next_routine_due(self) -> int | None:
     """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
-    due = [record.next_due(state, now) for team_id, state in states.items() if _provider(self, team_id, providers)]
+    due = [record.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
     return min((item for item in due if item is not None), default=None)
 
 
@@ -191,9 +207,32 @@ def finished(self, run: _Run, value: record.Run, sealed_done: Callable[[], bool]
     """
     if not self._commit_chat_terminal(run.team_id, run.token):
         if _deadline_cut(self, run) and sealed_done():
-            return complete(self, run, value)
+            return complete_sealed(self, run)
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     return complete(self, run, value)
+
+
+def complete_sealed(self, run: _Run) -> str:
+    """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
+
+    It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
+    on it, because a deadline exhausts both: the run is done or recovered, names its Actions, and resets the failure
+    streak. The caller has proven sealed completion; a run whose lease changed since is never touched.
+    """
+    now = int(time.time())
+
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
+        current = next((item for item in state.runs if item.run_id == run.run_id), None)
+        try:
+            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now)
+        except record.RoutineStateError:
+            return state, None
+        return completed, record.completed(current)
+
+    outcome = routine_state.update(self, run.team_id, change)
+    if outcome is None:
+        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+    return outcome
 
 
 def complete(self, run: _Run, value: record.Run) -> str:
@@ -403,14 +442,18 @@ def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callab
     return _stop_registered(self, team_id, run_id, token, mark)
 
 
-def unstopped(self, token: str, deadline: Callable[[], bool]) -> bool:
-    """Whether an outcome may still be published for this execution: no person stopped it first.
+def unstopped(self, token: str, deadline: Callable[[], bool], commit: Callable[[], None]) -> bool:
+    """Commit an outcome for this execution only if no person stopped it first; whether it was committed.
 
-    Decided under the same guard a person's Stop cancels under, so a Stop is either before the decision, and nothing
-    is published, or after it. A cancellation the execution's own ``deadline`` caused is no person's Stop.
+    The decision and ``commit`` both run under the same guard a person's Stop cancels under, as a chat reply's commit
+    does, so a Stop is either before the decision, and nothing is committed, or after the commit. A cancellation the
+    execution's own ``deadline`` caused is no person's Stop.
     """
     with self._active_chat_guard:
-        return token not in self._cancelled_chat_tokens or deadline()
+        if token in self._cancelled_chat_tokens and not deadline():
+            return False
+        commit()
+        return True
 
 
 def _stop_registered(

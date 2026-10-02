@@ -29,23 +29,25 @@ from routine import cursor as routine_cursor
 from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
+from routine import starts as routine_starts
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 4
+SCHEMA = 5
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
 # Holds the compact evidence and the recovery snapshot it copies: a 64 KiB plan plus its binding and grant.
 MAX_INCIDENT_BYTES = 192 * 1024
+# Reads of one state file that may race its atomic replace before a failure is taken as real.
+UNLOCKED_READ_ATTEMPTS = 3
 MAX_RECOVERY_BYTES = 128 * 1024
 _TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
-_DAY_RE = re.compile(r"(?:\d{4}-\d{2}-\d{2})?\Z")
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
 _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
@@ -112,13 +114,26 @@ _STATE_FIELDS = frozenset(
         "runs",
         "notices",
         "served_at",
-        "starts_day",
         "starts",
         "discards",
         "incidents",
         "receipts",
     }
 )
+
+
+def _read_unlocked(path: Path) -> bytes | None:
+    """A state file read without its Team's lock, which the Team is only known from once it is read.
+
+    A writer's atomic replace can unlink the very file a reader just opened, which then fails the ownership contract
+    for that one read; reading again sees the replacement, and a file that keeps failing really breaks it.
+    """
+    for _attempt in range(UNLOCKED_READ_ATTEMPTS - 1):
+        try:
+            return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
+        except RoutineStoreError:
+            continue
+    return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
 
 
 class RoutineStoreError(RuntimeError):
@@ -176,8 +191,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "runs": [run_value(item) for item in state.runs],
         "notices": [{name: getattr(item, name) for name in _NOTICE_FIELDS} for item in state.notices],
         "served_at": state.served_at,
-        "starts_day": state.starts_day,
-        "starts": state.starts,
+        "starts": [list(item) for item in state.starts],
         "discards": [list(item) for item in state.discards],
         "incidents": [{name: getattr(item, name) for name in _INCIDENT_FIELDS} for item in state.incidents],
         "receipts": [list(item) for item in state.receipts],
@@ -370,6 +384,16 @@ def _decode_incident(value: object) -> record.Incident:
     )
 
 
+def _decode_start(value: object) -> tuple[str, int]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and http_routine.ROUTINE_ID_RE.fullmatch(value[0]) is not None
+    )
+    return value[0], _instant(value[1])
+
+
 def _decode_receipt(value: object) -> tuple[str, int]:
     _require(
         isinstance(value, list)
@@ -396,10 +420,8 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and len(value["runs"]) <= record.MAX_ROUTINES
         and isinstance(value["notices"], list)
         and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES
-        and isinstance(value["starts_day"], str)
-        and _DAY_RE.fullmatch(value["starts_day"]) is not None
-        and type(value["starts"]) is int
-        and 0 <= value["starts"] <= record.MAX_DAILY_STARTS
+        and isinstance(value["starts"], list)
+        and len(value["starts"]) <= routine_starts.TEAM_CEILING
         and isinstance(value["discards"], list)
         and len(value["discards"]) <= record.MAX_DISCARDS
         and isinstance(value["incidents"], list)
@@ -412,8 +434,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         runs=tuple(_decode_run(item) for item in value["runs"]),
         notices=tuple(_decode_notice(item) for item in value["notices"]),
         served_at=_instant(value["served_at"]),
-        starts_day=value["starts_day"],
-        starts=value["starts"],
+        starts=tuple(_decode_start(item) for item in value["starts"]),
         discards=tuple(_decode_discard(item) for item in value["discards"]),
         incidents=tuple(_decode_incident(item) for item in value["incidents"]),
         receipts=tuple(_decode_receipt(item) for item in value["receipts"]),
@@ -421,6 +442,7 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
     identifiers = [item.routine_id for item in state.routines]
     _require(
         len(set(identifiers)) == len(identifiers)
+        and [at for _routine_id, at in state.starts] == sorted(at for _routine_id, at in state.starts)
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
         and len(set(state.discards)) == len(state.discards)
@@ -489,8 +511,10 @@ class RoutineStore:
         return self.root / hashlib.sha256(team_id.encode()).hexdigest()
 
     def load(self, team_id: object) -> record.TeamRoutines:
+        """The Team's current state, read under its lock so a concurrent atomic replace is never seen half-done."""
         team = _team_id(team_id)
-        payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
+        with self.lock(team):
+            payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
         return record.TeamRoutines() if payload is None else _decode(payload, team)
 
     def _save(self, team: str, state: record.TeamRoutines) -> None:
@@ -542,7 +566,7 @@ class RoutineStore:
         teams = []
         for name in self._owned_directories():
             directory = self.root / name
-            payload = _PRIVATE.read_private_file(directory / "state.json", MAX_STATE_BYTES, "Routine state")
+            payload = _read_unlocked(directory / "state.json")
             if payload is None:
                 continue
             try:

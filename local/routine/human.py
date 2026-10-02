@@ -209,6 +209,8 @@ def resume_routine_human(
         _end_changed(self, team_id, value, "denied", "denied")
         return {"team_id": team_id, "run_id": value.run_id, "status": "denied"}
     pending = decoded.pending
+    # Without a key Admin holds, the replay goes on with the provider the run froze with; only recovery needs a key.
+    provider = provider or pending.provider
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
     try:
@@ -240,6 +242,7 @@ def resume_routine_integrations(
     if value.request_kind != "integrations":
         raise _problem(HTTPStatus.CONFLICT, "Routine run is waiting for an answer", "routine-run-not-frozen")
     pending = _decoded(self, team_id, value.run_id).pending
+    provider = provider or pending.provider
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
     return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), None, progress)

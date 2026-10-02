@@ -19,9 +19,9 @@ from protocol.http.v1 import routine as http_routine
 from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import schedule
+from routine import starts as routine_starts
 
 MAX_ROUTINES = http_routine.MAX_ROUTINES
-MAX_DAILY_STARTS = 24
 MAX_FROZEN_RUNS = 8
 MAX_UNDELIVERED_NOTICES = 32
 LEASE_SECONDS = 900
@@ -163,8 +163,8 @@ class TeamRoutines:
     runs: tuple[Run, ...] = ()
     notices: tuple[Notice, ...] = ()
     served_at: int = 0
-    starts_day: str = ""
-    starts: int = 0
+    # (routine_id, instant) of every start in the last rolling 24 hours (ADR-0092 section 9).
+    starts: routine_starts.Starts = ()
     # (run_id, generation) of ended runs whose journal generation, continuation, and cursor are still held.
     discards: tuple[tuple[str, str], ...] = ()
     incidents: tuple[Incident, ...] = ()
@@ -179,6 +179,7 @@ class Claim:
     # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
     revision: int = 1
     plan_digest: str = ""
+    mode: str = "scheduled"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -214,6 +215,10 @@ def next_after(routine_value: Routine, after: int) -> int:
             routine_value.schedule, routine_value.timezone, _instant(routine_value.anchor), _instant(after)
         ).timestamp()
     )
+
+
+def continuous(routine_value: Routine) -> bool:
+    return routine_value.schedule["kind"] == "continuous"
 
 
 def grace_seconds(routine_value: Routine) -> int:
@@ -351,7 +356,8 @@ def update(
 
 
 def daily_rate_allows(routines: tuple[Routine, ...], schedule_value: dict[str, object]) -> bool:
-    total = sum((http_routine.daily_rate(item.schedule) for item in routines), http_routine.daily_rate(schedule_value))
+    """Whether the Routines' rolling 24-hour caps, with this schedule's, fit under the Team ceiling together."""
+    total = sum((http_routine.daily_cap(item.schedule) for item in routines), http_routine.daily_cap(schedule_value))
     return total <= http_routine.MAX_DAILY_RUNS
 
 
@@ -392,14 +398,26 @@ def _replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
     )
 
 
-def _without_run(state: TeamRoutines, run_id: str) -> TeamRoutines:
-    """Remove an ended run and, in the same write, queue the removal of everything it held."""
+def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
+    """Remove an ended run and, in the same write, queue the removal of everything it held.
+
+    A continuous Routine's next run becomes due its gap after this one ended, so its runs never overlap.
+    """
     value = run(state, run_id)
-    return dataclasses.replace(
+    state = dataclasses.replace(
         state,
         runs=tuple(item for item in state.runs if item.run_id != run_id),
         discards=(*state.discards, (run_id, value.generation)),
     )
+    return rebase_continuous(state, value.routine_id, now)
+
+
+def rebase_continuous(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
+    """A continuous Routine's run ended at ``now``, so its next one is due its gap later; any other is unchanged."""
+    current = next((item for item in state.routines if item.routine_id == routine_id), None)
+    if current is None or not continuous(current):
+        return state
+    return _replace_routine(state, dataclasses.replace(current, next_run_at=now + current.schedule["gap"]))
 
 
 def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
@@ -488,6 +506,9 @@ def _miss(routine_value: Routine, first: int, count: int, next_run_at: int) -> R
 def sweep(state: TeamRoutines, now: int) -> TeamRoutines:
     """Skip every firing too late to start; a Routine's continuous gap is one notice, updated as it grows."""
     for item in state.routines:
+        if continuous(item):
+            # A continuous Routine has no backlog to skip: it starts again once it may.
+            continue
         cutoff = now - grace_seconds(item)
         if item.next_run_at < cutoff:
             count, next_run_at = _count_before(item, item.next_run_at, cutoff)
@@ -497,52 +518,62 @@ def sweep(state: TeamRoutines, now: int) -> TeamRoutines:
     return state
 
 
-def _utc_day(now: int) -> str:
-    return _instant(now).date().isoformat()
+def free_at(state: TeamRoutines, routine_value: Routine, now: int) -> int:
+    """The earliest instant a due Routine may start under the Team ceiling and, for a continuous one, its own cap.
+
+    A scheduled Routine's own firings already bound its starts, and a late start never delays the next firing.
+    """
+    cap = http_routine.daily_cap(routine_value.schedule) if continuous(routine_value) else None
+    return routine_starts.free_at(state.starts, routine_value.routine_id, cap, now)
 
 
-def starts_today(state: TeamRoutines, now: int) -> int:
-    return state.starts if state.starts_day == _utc_day(now) else 0
+def _ready(state: TeamRoutines, busy: set[str]) -> list[Routine]:
+    """The Routines that may start once due and under their caps: listed, confirmed, not paused, held, or running."""
+    return [
+        item
+        for item in state.routines
+        if not item.needs_reconfirm and not item.deleting and not item.paused and item.routine_id not in busy
+    ]
+
+
+def _segment_leased(state: TeamRoutines) -> bool:
+    """Whether one of the Team's runs is leased to drive a segment; frozen and held runs hold no slot."""
+    return any(item.status == "leased" for item in state.runs)
+
+
+def _backpressured(state: TeamRoutines) -> bool:
+    """Whether the Team must catch up before any run starts: undelivered notices, cleanup, or incident room."""
+    return (
+        undelivered(state) >= MAX_UNDELIVERED_NOTICES
+        or len(state.discards) >= MAX_ROUTINES
+        or not incident_capacity(state)
+    )
 
 
 def claimable(state: TeamRoutines, now: int) -> Routine | None:
-    """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
-    if (
-        undelivered(state) >= MAX_UNDELIVERED_NOTICES
-        or starts_today(state, now) >= MAX_DAILY_STARTS
-        or len(state.discards) >= MAX_ROUTINES
-        or not incident_capacity(state)
-    ):
+    """The Team's oldest due Routine that may start now, or None; the caller has already swept.
+
+    A Team leases one run at a time, so its runs never contend for its one execution slot (ADR-0092 section 9).
+    """
+    if _backpressured(state) or _segment_leased(state):
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [
-        item
-        for item in state.routines
-        if item.next_run_at <= now
-        and not item.needs_reconfirm
-        and not item.deleting
-        and not item.paused
-        and item.routine_id not in busy
-    ]
+    due = [item for item in _ready(state, busy) if item.next_run_at <= now and free_at(state, item, now) <= now]
     return min(due, key=lambda item: (item.next_run_at, item.routine_id)) if due else None
 
 
 def next_due(state: TeamRoutines, now: int) -> int | None:
     """The earliest instant after ``now`` one of the Team's Routines becomes due to start, or None.
 
-    A paused, held, busy, deleting, or unconfirmed Routine never wakes anything; its own resolution does.
+    A Routine at its cap is due only when its earliest start leaves the window. A paused, held, busy, deleting, or
+    unconfirmed Routine never wakes anything; its own resolution does, as a leased run's end does for its whole Team.
     """
+    if _backpressured(state) or _segment_leased(state):
+        # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
+        return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [
-        item.next_run_at
-        for item in state.routines
-        if item.next_run_at > now
-        and not item.needs_reconfirm
-        and not item.deleting
-        and not item.paused
-        and item.routine_id not in busy
-    ]
-    return min(due, default=None)
+    due = [max(item.next_run_at, free_at(state, item, now)) for item in _ready(state, busy)]
+    return min((item for item in due if item > now), default=None)
 
 
 def held_routines(state: TeamRoutines) -> set[str]:
@@ -577,9 +608,13 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         # The swept state is still returned: its skipped notices and advanced schedules must be persisted.
         return state, None
     scheduled_at = due.next_run_at
-    following = next_after(due, scheduled_at)
-    extra, next_run_at = _count_before(due, following, now + 1)
-    due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
+    if continuous(due):
+        # Provisional: the run's end sets the next one its gap after it, and nothing starts while it runs.
+        due = dataclasses.replace(due, next_run_at=next_after(due, now))
+    else:
+        following = next_after(due, scheduled_at)
+        extra, next_run_at = _count_before(due, following, now + 1)
+        due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
     state = _report_gap(_replace_routine(state, due), due, now, in_flight=True)
     ended = dataclasses.replace(routine(state, due.routine_id), gap_started_at=0, missed=0, reported_missed=0)
     token = secrets.token_urlsafe(32)
@@ -596,10 +631,10 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         _replace_routine(state, ended),
         runs=(*state.runs, leased),
         served_at=now,
-        starts_day=_utc_day(now),
-        starts=starts_today(state, now) + 1,
+        starts=routine_starts.started(state.starts, due.routine_id, now),
     )
-    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan))
+    mode = http_routine.run_mode(due.schedule)
+    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan), mode)
 
 
 def require_lease(value: Run, lease: Lease, now: int) -> None:
@@ -722,7 +757,7 @@ def finish(
     if outcome not in _RUN_OUTCOMES:
         raise RoutineStateError("invalid-outcome")
     state, _value = _run_notice(state, value, outcome, now, detail)
-    return _without_run(state, run_id)
+    return _without_run(state, run_id, now)
 
 
 def end(
@@ -747,7 +782,7 @@ def end(
     if outcome not in allowed:
         raise RoutineStateError("invalid-outcome")
     state, _value = _run_notice(state, value, outcome, now, detail)
-    return _without_run(state, run_id)
+    return _without_run(state, run_id, now)
 
 
 def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRoutines:
@@ -781,7 +816,7 @@ def complete_recovered(state: TeamRoutines, run_id: str, lease_sha256: str, now:
         raise RoutineStateError("run-changed")
     actions = plan_actions(routine(state, value.routine_id).plan)
     state, _value = _run_notice(state, value, completed(value), now, {"actions": actions})
-    return _without_run(state, run_id)
+    return _without_run(state, run_id, now)
 
 
 def plan_actions(plan: dict[str, object]) -> list[list[str]]:

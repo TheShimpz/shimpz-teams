@@ -293,12 +293,13 @@ class DirectCreationTests(LocalContractCase):
     def test_a_team_without_room_refuses_the_change_inside_the_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.controller(directory, Runtime(_change()))
+            # A continuous Routine whose cap fills the Team's daily ceiling leaves no room for another.
             hourly = routine_fixture.granted(
                 record.Routine(
                     record.new_id(),
-                    "Hourly",
-                    "Every hour, check",
-                    {"kind": "hourly", "every": 1},
+                    "Continuous",
+                    "Continuously, check",
+                    {"kind": "continuous", "gap": 5, "cap": 1000},
                     "UTC",
                     (("dns", "sha256:" + "c" * 64),),
                     routine_fixture.plan_document(),

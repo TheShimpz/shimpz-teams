@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import secrets
 import threading
+import time
 import weakref
 from contextlib import contextmanager
 from http import HTTPStatus
@@ -76,6 +78,9 @@ class ChatTurnService:
         self._routine_runs: dict[str, object] = {}
         # Leased runs a Stop is ending before any worker registered them; a worker registering meanwhile is refused.
         self._routine_halting: set[str] = set()
+        # A person who found the Team's slot held by a Routine: chat goes first at the next boundary. Infinite while
+        # that Routine still holds the slot; its bounded grace starts only when the segment frees it.
+        self._chat_demand: dict[str, float] = {}
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -123,6 +128,9 @@ class ChatTurnService:
         if not lock.acquire(blocking=False):
             with self._active_chat_guard:
                 routine = team_id in self._routine_holders
+                if routine and routine_id is None:
+                    # A person waits on a Routine: no further run of the Team starts until chat had its turn.
+                    self._chat_demand[team_id] = math.inf
             if routine:
                 raise ApiProblem(HTTPStatus.CONFLICT, "Team is running a Routine", code="routine-active")
             raise ApiProblem(
@@ -138,6 +146,8 @@ class ChatTurnService:
             self._brain_aborts[token] = brain_abort
             if routine_id is not None:
                 self._routine_holders[team_id] = routine_id
+            else:
+                self._chat_demand.pop(team_id, None)
         try:
             with request_abort.abortable(brain_abort):
                 yield token
@@ -146,6 +156,8 @@ class ChatTurnService:
                 self._brain_aborts.pop(token, None)
                 if routine_id is not None:
                     self._routine_holders.pop(team_id, None)
+                    if team_id in self._chat_demand:
+                        self._chat_demand[team_id] = time.monotonic()
                 if self._active_chat_tokens.get(team_id) == token:
                     self._active_chat_tokens.pop(team_id, None)
                 active = self._active_action_containers.get(team_id)

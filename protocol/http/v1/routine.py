@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import datetime
 import json
+import math
 import re
 import unicodedata
 from fractions import Fraction
@@ -14,7 +15,11 @@ MAX_ROUTINE_QUOTE_CHARS = 500
 MAX_ROUTINE_NAME_CHARS = 80
 # The ordered Actions of a compiled plan (ADR-0092 section 3).
 MAX_ROUTINE_STEPS = 8
-MAX_DAILY_RUNS = 24
+# A Team's starts in any rolling 24 hours, and the bound on the sum of its Routines' caps (ADR-0092 section 9).
+MAX_DAILY_RUNS = 1000
+# A continuous Routine starts its next run this long, at least, after the previous one ended; at most a day.
+MIN_CONTINUOUS_GAP_SECONDS = 5
+MAX_CONTINUOUS_GAP_SECONDS = 86_400
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 OUTCOMES = frozenset(
@@ -47,7 +52,7 @@ ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
 ERROR_CODE_RE = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 # The interface languages: the same closed set as payload.CHAT_LOCALES, pinned equal by a Team test.
 LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
-SCHEDULE_KINDS = frozenset({"hourly", "daily", "weekly", "monthly"})
+SCHEDULE_KINDS = frozenset({"hourly", "daily", "weekly", "monthly", "continuous"})
 ROUTINE_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 # An IANA zone name such as "UTC" or "America/Argentina/Buenos_Aires"; Team also requires that it loads.
 TIMEZONE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_+-]{0,31}(?:/[A-Za-z0-9][A-Za-z0-9_+-]{0,31}){0,2}\Z")
@@ -57,6 +62,7 @@ _FIELDS = {
     "daily": frozenset({"kind", "time"}),
     "weekly": frozenset({"kind", "weekday", "time"}),
     "monthly": frozenset({"kind", "day", "time"}),
+    "continuous": frozenset({"kind", "gap", "cap"}),
 }
 
 
@@ -75,11 +81,22 @@ def _wall_clock(value: dict[str, object]) -> bool:
 
 
 def canonical_schedule(value: object) -> dict[str, object] | None:
-    """The exact schedule, or None: hourly every 1..24 hours, daily, weekly (0 = Monday), or monthly on day 1..28."""
+    """The exact schedule, or None.
+
+    Hourly every 1..24 hours, daily, weekly (0 = Monday), monthly on day 1..28, or continuous: ``gap`` seconds (5 to
+    86,400) after each run ends, and at most ``cap`` (1 to 1,000) starts in any rolling 24 hours.
+    """
     kind = value.get("kind") if isinstance(value, dict) else None
     if not isinstance(kind, str) or kind not in SCHEDULE_KINDS or set(value) != _FIELDS[kind]:
         return None
-    valid = _whole(value["every"], 1, 24) if value["kind"] == "hourly" else _wall_clock(value)
+    if kind == "continuous":
+        valid = _whole(value["gap"], MIN_CONTINUOUS_GAP_SECONDS, MAX_CONTINUOUS_GAP_SECONDS) and _whole(
+            value["cap"], 1, MAX_DAILY_RUNS
+        )
+    elif kind == "hourly":
+        valid = _whole(value["every"], 1, 24)
+    else:
+        valid = _wall_clock(value)
     return dict(value) if valid else None
 
 
@@ -113,11 +130,21 @@ def canonical_timezone(value: object) -> str | None:
 
 
 def daily_rate(schedule: dict[str, object]) -> Fraction:
-    """The average runs per day a canonical schedule fires; a Team's Routines may sum to at most MAX_DAILY_RUNS."""
+    """The runs per day a canonical schedule allows, its cap for a continuous one.
+
+    A Team's Routines may sum to at most MAX_DAILY_RUNS.
+    """
     kind = schedule["kind"]
+    if kind == "continuous":
+        return Fraction(schedule["cap"])
     if kind == "hourly":
         return Fraction(24, schedule["every"])
     return {"daily": Fraction(1), "weekly": Fraction(1, 7), "monthly": Fraction(1, 28)}[kind]
+
+
+def daily_cap(schedule: dict[str, object]) -> int:
+    """The most runs a Routine may start in any rolling 24 hours: its cap, or its schedule's whole daily rate."""
+    return math.ceil(daily_rate(schedule))
 
 
 def _actions(value: object) -> bool:
@@ -516,18 +543,17 @@ def canonical_challenge_open(value: object) -> dict[str, str] | None:
 
 
 def canonical_claim_request(value: object) -> dict[str, object] | None:
-    """Admin's claim: the model providers it holds a key for, sorted; only a Team using one of them is claimed."""
-    providers = value.get("providers") if isinstance(value, dict) and set(value) == {"providers"} else None
-    valid = (
-        isinstance(providers, list)
-        and 0 < len(providers) <= len(MODEL_PROVIDERS)
-        and all(item in MODEL_PROVIDERS for item in providers)
-        and providers == sorted(set(providers))
-    )
-    return {"providers": list(providers)} if valid else None
+    """Admin's claim is exactly an empty object: no model key gates it, because a healthy run needs none."""
+    return {} if value == {} else None
 
 
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+# How a claimed run was scheduled: by its firings, or continuously after the previous run ended (ADR-0092).
+RUN_MODES = ("scheduled", "continuous")
+
+
+def run_mode(schedule: dict[str, object]) -> str:
+    return "continuous" if schedule["kind"] == "continuous" else "scheduled"
 
 
 def _revision(value: object) -> bool:
@@ -550,7 +576,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     valid = (
         hint is None
         and isinstance(run, dict)
-        and set(run) == fields | {"revision", "plan_digest"}
+        and set(run) == fields | {"revision", "plan_digest", "mode"}
         and _identity(run["team_id"], TEAM_ID_RE)
         and _identity(run["run_id"], ROUTINE_ID_RE)
         and _identity(run["routine_id"], ROUTINE_ID_RE)
@@ -560,16 +586,21 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and run["provider"] in MODEL_PROVIDERS
         and _revision(run["revision"])
         and _identity(run["plan_digest"], PLAN_DIGEST_RE)
+        and run["mode"] in RUN_MODES
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_segment_request(value: object) -> dict[str, object] | None:
     """A leased run's segment request: exactly the revision and plan digest its claim named, under the signature."""
-    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest"}:
+    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest", "mode"}:
         return None
-    valid = _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-    return {"revision": value["revision"], "plan_digest": value["plan_digest"]} if valid else None
+    valid = (
+        _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE) and value["mode"] in RUN_MODES
+    )
+    return (
+        {"revision": value["revision"], "plan_digest": value["plan_digest"], "mode": value["mode"]} if valid else None
+    )
 
 
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,

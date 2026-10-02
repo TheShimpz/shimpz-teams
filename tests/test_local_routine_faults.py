@@ -64,7 +64,7 @@ class RunFaultTests(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         return controller, service, claim
 
     def test_an_unanswerable_authentication_ends_the_run_instead_of_freezing(self) -> None:
@@ -95,7 +95,7 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime(acting(), completed("Connected and listed.")))
             controller.assistant_integrations.delete_assistant("team_1", ASSISTANT)
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
             frozen = record.run(self.state(service), claim["run_id"])
             self.assertEqual(frozen.request_kind, "integrations")
@@ -114,7 +114,7 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime())
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with mock.patch.object(service, "_commit_chat_terminal", return_value=False):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
             self.assertEqual(self.state(service).notices[-1].detail, {"actions": []})
@@ -122,7 +122,7 @@ class RunFaultTests(RoutineServiceCase):
             controller, service = self.service(directory, Runtime())
             controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with mock.patch.object(record, "finish", side_effect=record.RoutineStateError("lease-invalid")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "lease-expired")
@@ -131,7 +131,7 @@ class RunFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with (
                 mock.patch.object(record, "bind_generation", side_effect=record.RoutineStateError("lease-invalid")),
                 self.assertRaises(local_app.ApiProblem) as lost,
@@ -147,7 +147,7 @@ class RunFaultTests(RoutineServiceCase):
             self.routine(service)
             missing = inference_config.InferenceConfigMissingError("none")
             with mock.patch.object(service.inference_store, "load", side_effect=missing):
-                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+                self.assertIsNone(service.claim_routine_run())
             self.assertEqual(self.state(service).runs, ())
 
     def test_stopping_a_running_run_aborts_its_brain_request_and_fail_stops_its_action(self) -> None:
@@ -179,7 +179,7 @@ class FrozenFaultTests(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return controller, service, claim
 
@@ -317,7 +317,7 @@ class FrozenFaultTests(RoutineServiceCase):
                 )
             self.assertEqual(other.exception.code, "human-request-expired")
             self.routine(service)
-            leased = service.claim_routine_run(("anthropic", "openai"))
+            leased = service.claim_routine_run()
             with self.assertRaises(local_app.ApiProblem) as not_frozen:
                 service.open_routine_challenge("team_1", leased["run_id"], "en")
             self.assertEqual(not_frozen.exception.code, "routine-run-not-frozen")
@@ -328,7 +328,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             deleting = service.delete_routine("team_1", value.routine_id)
             self.assertFalse(deleting["deleted"])
@@ -357,7 +357,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             network = controller.assistant_lifecycle._network("team_1").id
             lease = record.lease_of(claim["lease_token"], KEY)
             now = int(time.time())
@@ -378,13 +378,13 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                     routine_manage.drain(service, "team_1")
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")
                 self.assertEqual(len(self.state(service).discards), 1)
-                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+                self.assertIsNone(service.claim_routine_run())
                 # The watchdog's periodic pass audits the Team's failure and retries it later; startup stays fatal.
                 routine_watchdog.check(service)
                 self.assertEqual(len(self.state(service).discards), 1)
                 with self.assertRaises(local_app.ApiProblem):
                     routine_watchdog.check(service, startup=True)
-            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertIsNotNone(service.claim_routine_run())
             self.assertEqual(self.state(service).discards, ())
 
     def test_notices_and_stops_refuse_unknown_runs_and_stop_a_running_one(self) -> None:
@@ -394,7 +394,7 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                 service.stop_routine("team_1", "0" * 32)
             self.assertEqual(missing.exception.code, "routine-run-not-found")
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             self.assertIn("token", service._cancelled_chat_tokens)
@@ -410,7 +410,7 @@ class WatchdogFaultTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            service.claim_routine_run(("anthropic", "openai"))
+            service.claim_routine_run()
             with mock.patch.object(
                 local_authority, "routine_key_fingerprint", side_effect=local_authority.SupervisorUnavailableError
             ):
@@ -447,7 +447,7 @@ class TeamIsolationTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.expire(service, claim["run_id"])
             self.break_team(service)
             self.assertEqual(set(service.routine_store.teams()), {"team_1", "team_2"})
@@ -482,7 +482,7 @@ class TeamIsolationTests(RoutineServiceCase):
             self.routine(service)
             self.break_team(service)
 
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
 
             self.assertEqual(claim["team_id"], "team_1")
             local_app.local_audit.record_request.assert_any_call(
@@ -494,11 +494,11 @@ class TeamIsolationTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
             with mock.patch.object(service.routine_store, "update", side_effect=routine_store.RoutineStoreError("x")):
-                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+                self.assertIsNone(service.claim_routine_run())
             local_app.local_audit.record_request.assert_any_call(
                 "routine-claim", result="error", team_id="team_1", detail="routine-state-unavailable"
             )
-            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertIsNotNone(service.claim_routine_run())
 
     def test_a_team_whose_due_run_cannot_transition_is_audited_and_passed_over(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -507,11 +507,11 @@ class TeamIsolationTests(RoutineServiceCase):
             # The state reads, but the record rules refuse its claim transition (e.g. an inconsistent notice).
             refused = routine_run.record.RoutineStateError("notice-invalid")
             with mock.patch.object(routine_run, "_claim", side_effect=refused):
-                self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
+                self.assertIsNone(service.claim_routine_run())
             local_app.local_audit.record_request.assert_any_call(
                 "routine-claim", result="error", team_id="team_1", detail="routine-state-unavailable"
             )
-            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertIsNotNone(service.claim_routine_run())
 
     def test_one_overdue_run_that_cannot_be_stopped_never_keeps_another_running(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
