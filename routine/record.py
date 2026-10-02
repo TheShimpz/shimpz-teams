@@ -53,6 +53,8 @@ MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
 MAX_RECEIPTS = 256
 # A new or changed Routine never fires sooner than this after it is durable.
 INITIAL_DELAY_SECONDS = 30
+# Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
+MAX_FAILURE_STREAK = 3
 
 
 class RoutineStateError(ValueError):
@@ -85,6 +87,8 @@ class Routine:
     paused: bool = False
     # The evidence of the request that granted this revision, bound to its receipt, revision, and plan (grant.py).
     grant: dict[str, object] | None = None
+    # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
+    failures: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,9 +399,18 @@ def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines
 
 
 def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
-    """Publish the next version of the run's one notice; returns the state and the run carrying that version."""
+    """Publish the next version of the run's one notice; returns the state and the run carrying that version.
+
+    A completed run resets its Routine's failure streak; a failed one, which had no effect, extends it, and the third
+    in a row pauses the Routine.
+    """
     version = value.notice_version + 1
     state = _notice(state, Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version))
+    if outcome in {"done", "failed"}:
+        current = routine(state, value.routine_id)
+        failures = 0 if outcome == "done" else current.failures + 1
+        paused = current.paused or failures >= MAX_FAILURE_STREAK
+        state = _replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
     return state, dataclasses.replace(value, notice_version=version)
 
 

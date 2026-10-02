@@ -523,6 +523,44 @@ def _replace(value, path, replaced):
     return copied
 
 
+class FailureStreakTests(unittest.TestCase):
+    def test_three_failures_in_a_row_pause_the_routine_and_a_success_resets_the_streak(self):
+        state = added(routine())
+        for index, outcome in enumerate(("failed", "failed", "done", "failed", "failed", "failed")):
+            claimed_state, claim = record.claim(at(state, "a" * 32, NINE), NINE, KEY)
+            state = (
+                record.end(claimed_state, claim.run.run_id, NINE + index, outcome, {"code": "x", "actions": []})
+                if (outcome == "failed")
+                else record.finish(
+                    claimed_state,
+                    claim.run.run_id,
+                    record.lease_of(claim.lease_token, KEY),
+                    NINE,
+                    "done",
+                    {"reply": "ok"},
+                )
+            )
+            state = dataclasses.replace(state, discards=(), starts=0)
+            current = record.routine(state, "a" * 32)
+            with self.subTest(index=index):
+                self.assertEqual(current.failures, (1, 2, 0, 1, 2, 3)[index])
+                self.assertEqual(current.paused, index == 5)
+        # A Stop or a denial is no execution failure.
+        claimed_state, claim = record.claim(
+            at(
+                dataclasses.replace(
+                    state, routines=(dataclasses.replace(record.routine(state, "a" * 32), paused=False, failures=2),)
+                ),
+                "a" * 32,
+                NINE,
+            ),
+            NINE,
+            KEY,
+        )
+        stopped = record.end(claimed_state, claim.run.run_id, NINE, "stopped", {"actions": []})
+        self.assertEqual(record.routine(stopped, "a" * 32).failures, 2)
+
+
 class RecoveredRunTests(unittest.TestCase):
     """The watchdog's lease-less endings touch only the exact leased run it read."""
 

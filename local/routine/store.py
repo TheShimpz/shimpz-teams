@@ -68,6 +68,7 @@ _ROUTINE_FIELDS = frozenset(
         "revision",
         "paused",
         "grant",
+        "failures",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -225,6 +226,7 @@ def _decode_routine(value: object) -> record.Routine:
         revision=value["revision"],
         paused=value["paused"],
         grant=value["grant"],
+        failures=_count(value["failures"]),
     )
 
 
