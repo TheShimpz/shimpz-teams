@@ -114,7 +114,7 @@ def _segment_response(
         usage = None if response.usage is None else response.usage.joined().wire()
         if usage is not None:
             body["usage"] = usage
-        return body
+        return chat_turn_engine.with_restricted_actions(body, terminal)
 
     try:
         return chat_turn_engine.dispatch(

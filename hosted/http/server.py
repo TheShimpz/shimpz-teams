@@ -149,6 +149,11 @@ class Handler(BaseHTTPRequestHandler):
                         "team_id": result["team_id"],
                         "team_name": result["team_name"],
                         **({"usage": result["usage"]} if "usage" in result else {}),
+                        **(
+                            {"restricted_actions": result["restricted_actions"]}
+                            if "restricted_actions" in result
+                            else {}
+                        ),
                     }
                 )
                 emit(terminal)

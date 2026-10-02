@@ -44,6 +44,8 @@ class ChatOutcome:
     clarification: dict[str, object] | None = None
     memory: tuple[dict[str, str], ...] = ()
     routine: object | None = None
+    # The selected Actions the turn withheld for its readable attachment content, for Admin's guidance (ADR-0093).
+    restricted_actions: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +229,7 @@ def _drive(
                 clarification=turn.clarification,
                 memory=turn.memory,
                 routine=turn.routine,
+                restricted_actions=chat_attachments.restricted_actions(context),
             )
         if _round == MAX_ACTION_ROUNDS:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")

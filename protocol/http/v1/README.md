@@ -97,6 +97,16 @@ nothing, and the intent route and capability plan that Admin requests before the
 it. `payload.canonical_turn_usage` validates it; a consumer refuses a terminal whose `usage` breaks the shape. It is
 presentation metadata only: it carries no price, prompt, reply, or credential and authorizes nothing.
 
+A completed Team chat terminal body may also carry `restricted_actions` (ADR-0093): while readable attachment content
+(text or an image) was in the turn, Team offered and admitted only Actions that declare an authorization capability,
+and this names the selected Assistants' Actions it withheld for that reason, so Admin can explain them in the
+interface language with an attachment-free next step. It is exactly `{actions, total}`: `actions` lists 1 to 16
+distinct `{assistant, action}` identities in identity order, the first of all withheld that fit; `total` counts every
+withheld Action, from the listed count up to 2,048; the canonical JSON is at most 2,048 bytes
+(`payload.canonical_restricted_actions`). It is absent when nothing was withheld, including every turn
+whose attachments were all opaque, and a resumed turn reports what its final segment withheld. It is presentation
+only: it never resends a message, removes an attachment, or grants any Action.
+
 A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
 line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry changes
 (`payload.canonical_memory_changes`): `remember` with a preference replaces its topic and becomes newest, `forget`

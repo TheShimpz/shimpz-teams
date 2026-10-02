@@ -14,6 +14,7 @@ from assistant.spec import ActionSpec
 from inference import client as brain_runtime_client
 from prepare import service as preparation
 from protocol.assistant.v1.validators import input_file as input_file_validator
+from protocol.http.v1 import payload as http_payload
 
 READABLE = frozenset({"text", "image"})
 
@@ -77,3 +78,33 @@ def admitted_actions(
         for action in assistant.actions
         if not restricted or action.authorization
     }
+
+
+def restricted_actions(context: brain_runtime_client.RuntimeContext) -> dict[str, object] | None:
+    """The selected Actions this turn withheld because readable attachment content was in it, or None (ADR-0093).
+
+    Derived from the pinned contracts the turn offered, so a resumed turn reports what its final segment withheld; a
+    turn whose attachments were all opaque withheld nothing.
+    """
+    if not reads_content(context.attachments):
+        return None
+    withheld = sorted(
+        {
+            (assistant.id, action.id)
+            for assistant in context.assistants
+            for action in assistant.actions
+            if not action.authorization
+        }
+    )
+    if not withheld:
+        return None
+    total = min(len(withheld), http_payload.MAX_RESTRICTED_ACTION_TOTAL)
+    listed = withheld[: http_payload.MAX_RESTRICTED_ACTIONS]
+    while True:
+        # The first withheld Actions that fit the byte bound are named; the total still counts every one.
+        restricted = http_payload.canonical_restricted_actions(
+            {"actions": [{"assistant": assistant, "action": action} for assistant, action in listed], "total": total}
+        )
+        if restricted is not None or len(listed) == 1:
+            return restricted
+        listed = listed[:-1]

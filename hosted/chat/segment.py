@@ -704,7 +704,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
         usage = None if request.usage is None else request.usage.joined().wire()
         if usage is not None:
             body["usage"] = usage
-        return body
+        return chat_turn_engine.with_restricted_actions(body, terminal)
 
     try:
         return chat_turn_engine.dispatch(

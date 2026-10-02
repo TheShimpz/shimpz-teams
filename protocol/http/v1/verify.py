@@ -201,6 +201,7 @@ for name, admit in (
     ("chat_request_identity", payload.canonical_request_identity),
     ("help_url", payload.canonical_help_url),
     ("file_disclosure", payload.canonical_file_disclosure),
+    ("restricted_actions", payload.canonical_restricted_actions),
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),
     ("snapshot_summary", payload.canonical_snapshot_summary),

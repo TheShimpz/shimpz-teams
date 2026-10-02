@@ -98,5 +98,79 @@ class AuthorizationGateTests(unittest.TestCase):
         self.assertEqual(invoked, ["hello"])
 
 
+class RestrictedActionTests(unittest.TestCase):
+    def test_a_completed_turn_names_exactly_the_actions_its_content_withheld(self) -> None:
+        outcome = chat_orchestrator.run(
+            FakeRuntime([completed()]), _gated_context(TEXT, OPAQUE), "Summarize", strategy(accept_input, dict)
+        )
+        self.assertEqual(
+            outcome.restricted_actions,
+            {"actions": [{"assistant": "hello-pulse", "action": "hello"}], "total": 1},
+        )
+        for attachments in ((OPAQUE,), ()):
+            with self.subTest(attachments=attachments):
+                plain = chat_orchestrator.run(
+                    FakeRuntime([completed()]), _gated_context(*attachments), "Greet", strategy(accept_input, dict)
+                )
+                self.assertIsNone(plain.restricted_actions)
+
+    def test_only_authorizing_selected_actions_withhold_nothing(self) -> None:
+        authorizing = dataclasses.replace(
+            context(brain_runtime_client.RuntimeAction("publish", "Publish.", {"type": "object"}, authorization=True)),
+            attachments=(IMAGE,),
+        )
+        self.assertIsNone(chat_attachments.restricted_actions(authorizing))
+
+    def test_the_list_is_ordered_capped_and_counts_every_withheld_action(self) -> None:
+        actions = tuple(
+            brain_runtime_client.RuntimeAction(f"read-{index:02d}", "Read.", {"type": "object"}) for index in range(20)
+        )
+        many = dataclasses.replace(context(*reversed(actions)), attachments=(TEXT,))
+        restricted = chat_attachments.restricted_actions(many)
+        self.assertEqual(restricted["total"], 20)
+        self.assertEqual(
+            [item["action"] for item in restricted["actions"]], [f"read-{index:02d}" for index in range(16)]
+        )
+
+    def test_both_profiles_carry_it_on_the_completed_terminal(self) -> None:
+        from chat import turn as chat_turn
+
+        restricted = {"actions": [{"assistant": "docs", "action": "find"}], "total": 1}
+        outcome = chat_orchestrator.ChatOutcome("Done", (), restricted_actions=restricted)
+        self.assertEqual(
+            chat_turn.with_restricted_actions({"reply": "Done"}, outcome)["restricted_actions"], restricted
+        )
+        plain = chat_orchestrator.ChatOutcome("Done", ())
+        self.assertNotIn("restricted_actions", chat_turn.with_restricted_actions({"reply": "Done"}, plain))
+
+
+class RestrictedActionVectorTests(unittest.TestCase):
+    def test_every_published_vector_is_admitted_exactly_or_refused(self) -> None:
+        import json
+        from pathlib import Path
+
+        from protocol.http.v1 import payload as http_payload
+
+        vectors = json.loads((Path(__file__).resolve().parents[1] / "protocol/http/v1/vectors.json").read_bytes())
+        for value in vectors["restricted_actions"]["valid"]:
+            self.assertEqual(http_payload.canonical_restricted_actions(value), value)
+        for value in vectors["restricted_actions"]["invalid"]:
+            with self.subTest(value=str(value)[:60]):
+                self.assertIsNone(http_payload.canonical_restricted_actions(value))
+        long_ids = {
+            "actions": [{"assistant": "a" * 80, "action": "b" * 120 + f"-{index:02d}"} for index in range(16)],
+            "total": 16,
+        }
+        self.assertIsNone(http_payload.canonical_restricted_actions(long_ids))
+        long_actions = tuple(
+            brain_runtime_client.RuntimeAction("b" * 125 + f"-{index:02d}", "Read.", {"type": "object"})
+            for index in range(16)
+        )
+        trimmed = chat_attachments.restricted_actions(dataclasses.replace(context(*long_actions), attachments=(TEXT,)))
+        self.assertEqual(trimmed["total"], 16)
+        self.assertLess(len(trimmed["actions"]), 16)
+        self.assertEqual(http_payload.canonical_restricted_actions(trimmed), trimmed)
+
+
 if __name__ == "__main__":
     unittest.main()

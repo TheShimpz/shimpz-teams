@@ -312,6 +312,47 @@ def _turn_usage_model(value: object) -> tuple[str, str] | None:
     return provider, model
 
 
+# The Actions a turn withheld because readable attachment content was in it (ADR-0093): listed first by identity,
+# at most this many, within this many canonical JSON bytes, with the turn's total beside them.
+MAX_RESTRICTED_ACTIONS = 16
+MAX_RESTRICTED_ACTION_TOTAL = 2_048
+MAX_RESTRICTED_ACTIONS_BYTES = 2_048
+
+
+def canonical_restricted_actions(value: object) -> dict[str, object] | None:
+    """Return the exact Actions a completed turn withheld for its attachment content, or None.
+
+    ``actions`` holds 1 to 16 distinct ``{assistant, action}`` identities in identity order, within the byte bound;
+    ``total`` counts every withheld Action, at least as many as are listed. It names capabilities only and grants
+    nothing.
+    """
+    if not isinstance(value, dict) or set(value) != {"actions", "total"}:
+        return None
+    actions, total = value["actions"], value["total"]
+    if (
+        not isinstance(actions, list)
+        or not 1 <= len(actions) <= MAX_RESTRICTED_ACTIONS
+        or type(total) is not int
+        or not len(actions) <= total <= MAX_RESTRICTED_ACTION_TOTAL
+    ):
+        return None
+    identities = []
+    for item in actions:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"assistant", "action"}
+            or canonical_assistant_id(item["assistant"]) is None
+            or canonical_action_id(item["action"]) is None
+        ):
+            return None
+        identities.append((item["assistant"], item["action"]))
+    if identities != sorted(set(identities)):
+        return None
+    projected = {"actions": [{"assistant": a, "action": b} for a, b in identities], "total": total}
+    encoded = json.dumps(projected, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return projected if len(encoded) <= MAX_RESTRICTED_ACTIONS_BYTES else None
+
+
 def canonical_turn_usage(value: object) -> dict[str, object] | None:
     """Return one exact completed-turn usage, or None when it breaks the closed shape.
 
