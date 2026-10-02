@@ -68,6 +68,26 @@ def same_minute_change() -> tuple[list[list[dict[str, object]]], record.TeamRout
     return deliveries, acknowledged(state, batch)
 
 
+def backward_clock() -> tuple[list[list[dict[str, object]]], record.TeamRoutines]:
+    """Two delivered minutes, a completion whose clock fell back into the first, then one back in the second."""
+    deliveries: list[list[dict[str, object]]] = []
+    state = continuous()
+    for start, end in ((MINUTE, MINUTE + 1), (MINUTE + 10, MINUTE + 11), (MINUTE + 60, MINUTE + 61)):
+        state = run_once(state, start, end)
+        if end != MINUTE + 1:
+            deliveries.append(delivery(state))
+            state = acknowledged(state, deliveries[-1])
+    state = run_once(state, MINUTE + 30, MINUTE + 31)
+    (individual,) = state.notices
+    if individual.outcome != "done":
+        raise AssertionError(individual.outcome)
+    deliveries.append(delivery(state))
+    state = record.acknowledge(state, frozenset({(individual.notice_id, individual.version)}))
+    state = run_once(state, MINUTE + 70, MINUTE + 71)
+    deliveries.append(delivery(state))
+    return deliveries, acknowledged(state, deliveries[-1])
+
+
 # The exact rollup deliveries Team makes in these cases; Admin replays them through its real transcript.
 DELIVERY = json.loads((Path(http_routine.__file__).parent / "vectors.json").read_text()).get(
     "routine_rollup_delivery", {}
@@ -82,6 +102,22 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual((last["notice_id"], last["version"], last["detail"]), (first["notice_id"], 3, {"runs": 3}))
         self.assertEqual(record.routine(state, ROUTINE_ID).revision, 2)
         self.assertEqual([item.outcome for item in state.notices], ["changed"])
+
+    def test_a_clock_stepped_back_into_a_delivered_minute_never_republishes_it(self):
+        deliveries, state = backward_clock()
+        self.assertEqual(deliveries, DELIVERY["backward_clock"]["deliveries"])
+        # The earlier minute is never published again; the later one goes on counting from where it was.
+        self.assertEqual(
+            [[(item["created_at"], item["version"]) for item in batch] for batch in deliveries],
+            [
+                [("2026-10-01T09:00:00Z", 2)],
+                [("2026-10-01T09:01:00Z", 1)],
+                [],
+                [("2026-10-01T09:01:00Z", 2)],
+            ],
+        )
+        current = record.routine(state, ROUTINE_ID)
+        self.assertEqual((current.rollup_minute, current.rollup_runs, state.notices), (MINUTE + 60, 2, ()))
 
 
 class RollupTests(unittest.TestCase):

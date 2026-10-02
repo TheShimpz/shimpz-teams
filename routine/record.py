@@ -781,8 +781,9 @@ def _healthy(state: TeamRoutines, value: Run, now: int) -> TeamRoutines | None:
         return None
     minute = now - now % 60
     runs = current.rollup_runs + 1 if current.rollup_minute == minute else 1
-    if runs > http_routine.MAX_ROLLUP_RUNS:
-        # Only a clock stepped back can end more runs in one minute than gaps allow: each keeps its own notice.
+    # The rollup minute only moves forward: a clock stepped back into an earlier minute, which may already be
+    # delivered, or past the count gaps allow, gives the run its own notice and leaves the counters as they are.
+    if minute < current.rollup_minute or runs > http_routine.MAX_ROLLUP_RUNS:
         return None
     notice_id = hashlib.sha256(f"healthy:{current.routine_id}:{minute}".encode()).hexdigest()[:32]
     state = _replace_routine(state, dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, failures=0))
