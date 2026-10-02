@@ -246,8 +246,42 @@ class StoreTests(unittest.TestCase):
             self.store.delete("team_1")
         inference_config.InferenceConfigStore(self.root / "absent").delete_all()
 
+    def test_one_turn_forgets_every_memory_and_every_skill_together(self):
+        memory = [{"op": "remember", "topic": f"t{index}", "preference": "x"} for index in range(32)]
+        self.store.apply_knowledge("team_1", memory, None)
+        for count in range(http_payload.MAX_SKILLS):
+            self.store.apply_knowledge("team_1", [], chat_knowledge.learned_skill(_steps(count)))
+        memories, skills = self.store.load_knowledge("team_1")
+        self.assertEqual((len(memories), len(skills)), (http_payload.MAX_MEMORIES, http_payload.MAX_SKILLS))
+        forget = _forget_all(memories, skills)
+        self.assertEqual(len(forget), http_payload.MAX_MEMORY_CHANGES)
+        self.assertEqual(self.store.apply_knowledge("team_1", forget, None), ([], []))
+        self.assertEqual(list(self.root.glob("*.knowledge.json")), [])
+        with self.assertRaises(inference_config.InferenceConfigError):
+            self.store.apply_knowledge("team_1", [*forget, dict(forget[0], topic="extra")], None)
+
+
+def _steps(count: int) -> tuple[chat_orchestrator.InvokedAction, ...]:
+    return (*(_invoked("search-web", "query", assistant_id="shimpz-exa") for _ in range(count + 1)), _invoked("read"))
+
+
+def _forget_all(memories: list[dict[str, str]], skills: list[dict[str, object]]) -> list[dict[str, str]]:
+    topics = [entry["topic"] for entry in memories] + [str(skill["key"]) for skill in skills]
+    return [{"op": "forget", "topic": topic, "preference": ""} for topic in topics]
+
 
 class ClientTests(RuntimeClientCase):
+    def test_a_completed_turn_may_forget_every_memory_and_skill_but_no_more(self):
+        topics = [f"t{index}" for index in range(http_payload.MAX_MEMORIES)]
+        skills = [{"key": f"procedure-{index:012x}"} for index in range(http_payload.MAX_SKILLS)]
+        forget = _forget_all([{"topic": topic} for topic in topics], skills)
+        payload = {"status": "completed", "reply": "Ok.", "actions": [], "clarification": None}
+        client, _connection = self.client(_Response({**payload, "memory": forget}))
+        self.assertEqual(client.start(context(self.secret), "Oi", conversation=()).memory, tuple(forget))
+        client, _connection = self.client(_Response({**payload, "memory": [*forget, dict(forget[0], topic="extra")]}))
+        with self.assertRaises(brain_runtime_client.BrainRuntimeError):
+            client.start(context(self.secret), "Oi", conversation=())
+
     def test_the_turn_carries_knowledge_and_only_a_completed_turn_may_change_memory(self):
         payload = {"status": "completed", "reply": "Ok.", "actions": [], "clarification": None}
         client, connection = self.client(_Response({**payload, "memory": [REMEMBER_LANGUAGE]}))

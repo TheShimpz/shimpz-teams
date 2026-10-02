@@ -57,10 +57,11 @@ it. `payload.canonical_turn_usage` validates it; a consumer refuses a terminal w
 presentation metadata only: it carries no price, prompt, reply, or credential and authorizes nothing.
 
 A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
-line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry changes
-(`payload.canonical_memory_changes`): `remember` with a preference replaces its topic and becomes newest, `forget`
-with an empty preference removes it, and `payload.apply_memory_changes` applies them in order, dropping the oldest
-entries beyond the bound. Memory has no browser route; it carries no Action authority.
+line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry at most 40 changes
+(`payload.canonical_memory_changes`), enough to forget every memory and every skill at once: `remember` with a
+preference replaces its topic and becomes newest, `forget` with an empty preference removes it, and
+`payload.apply_memory_changes` applies them in order, dropping the oldest entries beyond the bound. A Brain refuses a
+proposal that would exceed the bound instead of truncating, and Team refuses a longer change list whole. Memory has no browser route; it carries no Action authority.
 
 A Team's learned skills (ADR-0085) are structure only (`payload.canonical_skills`, at most 8): each has 2 to 16
 ordered steps naming an Assistant, an Action, and the sorted input names it used, the `sha256:` contract fingerprint

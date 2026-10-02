@@ -61,6 +61,8 @@ MAX_MEMORIES = 32
 MAX_MEMORY_PREFERENCE_CHARS = 280
 MEMORY_TOPIC_RE = re.compile(r"[a-z][a-z0-9-]{0,39}\Z")
 MAX_SKILLS = 8
+# One completed turn may forget every memory and every skill at once, and never change more.
+MAX_MEMORY_CHANGES = MAX_MEMORIES + MAX_SKILLS
 MIN_SKILL_STEPS = 2
 MAX_SKILL_STEPS = 16
 MAX_SKILL_INPUTS = 32
@@ -327,8 +329,11 @@ def canonical_memory(value: object) -> list[dict[str, str]] | None:
 
 
 def canonical_memory_changes(value: object) -> list[dict[str, str]] | None:
-    """Return one completed turn's exact memory changes, or None: `remember` carries a preference, `forget` none."""
-    if not isinstance(value, list) or len(value) > MAX_MEMORIES:
+    """Return one completed turn's exact memory changes, or None: `remember` carries a preference, `forget` none.
+
+    At most 40 changes, enough to forget all 32 memories and all 8 skills in one turn.
+    """
+    if not isinstance(value, list) or len(value) > MAX_MEMORY_CHANGES:
         return None
     try:
         changes = []
