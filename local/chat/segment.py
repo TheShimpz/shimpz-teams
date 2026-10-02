@@ -1,5 +1,6 @@
 """Local chat segment orchestration operations."""
 
+import time
 from dataclasses import dataclass, field
 
 from action import challenges as action_challenges
@@ -19,6 +20,7 @@ from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
 from routine import pin as routine_pin
 from routine import record as routine_record
+from routine.request import Request as RoutineRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +57,9 @@ class SegmentRequest:
     # A Routine run (ADR-0086) runs in its own Brain thread and journal generation, both in the Team's current network,
     # and holds an uncertain batch for a human instead of abandoning it.
     routine: RoutineSegment | None = None
+    # The authenticated request of a new chat turn; only while it may still change a Routine, and only without files,
+    # does the Brain see the Team's Routines and its Routine tool (ADR-0092).
+    routine_request: RoutineRequest | None = None
 
 
 def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_client.RuntimeAssistant:
@@ -103,6 +108,12 @@ def _human_requirement(
         copy,
         help_url=action_challenges.declared_help_url(human_request, active.spec.stored_inputs),
     )
+
+
+def _routine_mutable(request: SegmentRequest) -> bool:
+    """Whether this turn may change a Routine: a new chat turn's fresh authenticated request without files."""
+    grant = request.routine_request
+    return request.routine is None and grant is not None and not request.file_ids and grant.fresh(int(time.time()))
 
 
 def _run_chat_segment(
@@ -191,7 +202,7 @@ def _run_chat_segment_with_metadata(
                 for active in assistants
             )
         )
-        routines = None if routine is not None else self._chat_routines(request.team_id)
+        routines = self._chat_routines(request.team_id) if _routine_mutable(request) else None
         context = brain_runtime_client.RuntimeContext(
             thread_id=thread_id,
             team_name=display_name,

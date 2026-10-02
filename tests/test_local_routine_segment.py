@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 from http import HTTPStatus
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from local import app as local_app
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
+from routine.request import Request as RoutineRequest
 
 RUN = "f" * 32
 TURN = "turn-" + "0" * 32
@@ -29,6 +31,7 @@ class Runtime:
 
 class RoutineSegmentTests(LocalContractCase):
     def request(self, controller, routine: RoutineSegment | None) -> SegmentRequest:
+        message = "Every Monday, check the DNS records."
         return SegmentRequest(
             team_id="team_1",
             file_ids=[],
@@ -36,8 +39,9 @@ class RoutineSegmentTests(LocalContractCase):
             provider="openai",
             api_key="sk-test-0123456789",
             token=TURN,
-            message="Every Monday, check the DNS records.",
+            message=message,
             routine=routine,
+            routine_request=RoutineRequest("a" * 32, message, int(time.time()), "b" * 32),
         )
 
     def test_a_routine_segment_runs_in_its_own_thread_and_generation_with_read_only_knowledge(self) -> None:

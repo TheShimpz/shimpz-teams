@@ -365,7 +365,15 @@ class LocalSupervisorHttpTests(unittest.TestCase):
     def test_chat_accepts_the_public_multibyte_message_boundary(self) -> None:
         message = "界" * 16_000
         raw = json.dumps(
-            {"message": message, "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+            {
+                "message": message,
+                "files": [],
+                "assistant_ids": [],
+                "conversation": [],
+                "locale": None,
+                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                "timezone": None,
+            },
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")

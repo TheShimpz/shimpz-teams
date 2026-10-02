@@ -384,6 +384,23 @@
     "valid": ["ar", "de", "en", "es", "fr", "ja", "pt", "zh"],
     "invalid": ["EN", "pt-BR", "it", "", " en", null, 1]
   },
+  "chat_request_identity": {
+    "valid": [
+      {"issued_at": 2200000000, "nonce": "0123456789abcdef0123456789abcdef"},
+      {"issued_at": 1, "nonce": "ffffffffffffffffffffffffffffffff"}
+    ],
+    "invalid": [
+      {"issued_at": 2200000000, "nonce": "0123456789ABCDEF0123456789ABCDEF"},
+      {"issued_at": 2200000000, "nonce": "0123456789abcdef"},
+      {"issued_at": 0, "nonce": "0123456789abcdef0123456789abcdef"},
+      {"issued_at": 1099511627776, "nonce": "0123456789abcdef0123456789abcdef"},
+      {"issued_at": true, "nonce": "0123456789abcdef0123456789abcdef"},
+      {"issued_at": 2200000000.0, "nonce": "0123456789abcdef0123456789abcdef"},
+      {"issued_at": 2200000000, "nonce": "0123456789abcdef0123456789abcdef", "extra": 1},
+      {"nonce": "0123456789abcdef0123456789abcdef"},
+      null
+    ]
+  },
   "help_url": {
     "valid": [
       "https://dashboard.exa.ai/api-keys",

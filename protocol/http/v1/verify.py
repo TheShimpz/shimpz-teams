@@ -198,6 +198,7 @@ if not applied or any(
 action_label_text = vectors.get("action_label_text", {})
 for name, admit in (
     ("chat_locale", payload.canonical_locale),
+    ("chat_request_identity", payload.canonical_request_identity),
     ("help_url", payload.canonical_help_url),
     ("purpose", payload.canonical_purpose),
     ("pack_digest", payload.canonical_pack_digest),

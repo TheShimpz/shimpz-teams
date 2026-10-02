@@ -16,6 +16,8 @@ from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
+from routine import schedule as routine_schedule
+from routine.request import Request as RoutineRequest
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
 
@@ -125,6 +127,17 @@ def _segment_response(
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc), code="internal-error") from exc
 
 
+def _timezone(value: object) -> str | None:
+    """The browser's IANA zone, which must load, or None when it named none."""
+    if value is None:
+        return None
+    try:
+        routine_schedule.zone(value)
+    except routine_schedule.ScheduleError as exc:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "timezone is invalid", code="invalid-timezone") from exc
+    return value
+
+
 def chat(
     self,
     team_id: str,
@@ -134,12 +147,16 @@ def chat(
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
+    if not isinstance(body, dict) or set(body) != http_payload.LOCAL_CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Team chat requires only message, files, assistant_ids, conversation, and locale",
+            "Team chat requires only message, files, assistant_ids, conversation, locale, request, and timezone",
             code="invalid-body",
         )
+    identity = http_payload.canonical_request_identity(body["request"])
+    if identity is None:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request identity is invalid", code="invalid-request")
+    timezone = _timezone(body["timezone"])
     locale = body["locale"]
     if locale is not None and http_payload.canonical_locale(locale) is None:
         raise ApiProblem(
@@ -173,6 +190,7 @@ def chat(
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
+        principal = local_audit.human_principal()
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,
@@ -185,6 +203,9 @@ def chat(
                 conversation=conversation,
                 locale=locale,
                 progress=progress or chat_progress.Reporter(),
+                routine_request=None
+                if principal is None
+                else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale),
             )
         )
         return self._segment_response(

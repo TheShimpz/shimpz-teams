@@ -168,7 +168,14 @@ class LocalTurnUsageTests(LocalContractCase):
                 raise action_human.HumanRequestSuspensionError(_approval())
             return {"result": LOOKUP_RESULT}
 
-        body = {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []}
+        body = {
+            "message": "List zones",
+            "files": [],
+            "assistant_ids": ["shimpz-cloudflare"],
+            "conversation": [],
+            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+            "timezone": None,
+        }
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             controller.assistant_lifecycle.invoke = invoke

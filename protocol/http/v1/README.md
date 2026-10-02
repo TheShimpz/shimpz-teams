@@ -172,6 +172,15 @@ by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role
 characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
 Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
+A Local chat body also carries `request` and `timezone` (`payload.LOCAL_CHAT_BODY_FIELDS`, ADR-0092); Hosted keeps
+the exact body above. `request` is the identity Local Admin issues once per sent message
+(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. Admin keeps
+the same identity across a transport retry and an ADR-0081 resend of that message. Team binds it to the Supervisor
+principal, the Team incarnation, and the canonical message, and a Routine change carried by the request commits at most
+once with it: only while `issued_at` is at most 900 seconds old and at most 60 seconds ahead of Team's clock, and only
+while the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
+receipt. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
+default zone of a Routine the message creates.
 
 A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
 Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routine-v1` and the audience

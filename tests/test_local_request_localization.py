@@ -24,7 +24,14 @@ LOOKUP_RESULT = {
     "pagination": {"page": 1, "per_page": 25, "count": 0, "total_count": 0, "total_pages": 0},
 }
 PURPOSE = "To list your zones, I need to read them in Cloudflare."
-CHAT = {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []}
+CHAT = {
+    "message": "List zones",
+    "files": [],
+    "assistant_ids": ["shimpz-cloudflare"],
+    "conversation": [],
+    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+    "timezone": None,
+}
 
 
 class _Runtime:

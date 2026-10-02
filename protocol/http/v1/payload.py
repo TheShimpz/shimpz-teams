@@ -71,6 +71,14 @@ SKILL_KEY_PREFIX = "procedure-"
 SKILL_KEY_RE = re.compile(r"procedure-[0-9a-f]{12}\Z")
 SKILL_INPUT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
+# A Local chat body adds what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
+# message and keeps across a transport retry or a resend, and the user's IANA timezone, or null.
+LOCAL_CHAT_BODY_FIELDS = CHAT_BODY_FIELDS | {"request", "timezone"}
+REQUEST_IDENTITY_FIELDS = frozenset({"issued_at", "nonce"})
+# How long a request identity may mutate a Routine after Admin issued it, and how far ahead of Team's clock it may be.
+REQUEST_IDENTITY_SECONDS = 900
+REQUEST_IDENTITY_SKEW_SECONDS = 60
+REQUEST_NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 # The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
 SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
@@ -140,6 +148,22 @@ def canonical_action_id(value: object) -> str | None:
 def canonical_locale(value: object) -> str | None:
     """Return one closed interface language code, or None."""
     return value if isinstance(value, str) and value in CHAT_LOCALES else None
+
+
+def canonical_request_identity(value: object) -> dict[str, object] | None:
+    """Return one exact chat request identity, or None: a whole-second issue instant and a 32-hex nonce.
+
+    The identity names one sent message; Team binds it to the principal, the Team incarnation, and the message, and a
+    Routine change it carries commits at most once while it is fresh (ADR-0092).
+    """
+    if not isinstance(value, dict) or set(value) != REQUEST_IDENTITY_FIELDS:
+        return None
+    issued_at, nonce = value["issued_at"], value["nonce"]
+    if type(issued_at) is not int or not 0 < issued_at < 2**40:
+        return None
+    if not isinstance(nonce, str) or REQUEST_NONCE_RE.fullmatch(nonce) is None:
+        return None
+    return {"issued_at": issued_at, "nonce": nonce}
 
 
 def canonical_help_url(value: object) -> str | None:

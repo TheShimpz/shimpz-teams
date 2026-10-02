@@ -515,6 +515,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
             "conversation": [],
+            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+            "timezone": None,
             "locale": "en",
         }
         handler._body = mock.Mock(return_value=exact_body)

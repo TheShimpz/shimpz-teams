@@ -101,6 +101,8 @@ class ChatProposalTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["shimpz-cloudflare"],
                     "conversation": [],
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
                     "locale": None,
                 },
                 "openai",

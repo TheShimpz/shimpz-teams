@@ -249,7 +249,15 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
                 local_chat_api.chat(
                     subject,
                     "team_1",
-                    {"message": message, "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                    {
+                        "message": message,
+                        "files": [],
+                        "assistant_ids": [],
+                        "conversation": [],
+                        "locale": None,
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
+                    },
                     "openai",
                     "key",
                 )
@@ -261,7 +269,15 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "key",
             ),
@@ -275,7 +291,15 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "key",
             ),

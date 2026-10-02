@@ -150,7 +150,15 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Summarize", "files": [file_id], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Summarize",
+                    "files": [file_id],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -191,6 +199,8 @@ class LocalChatScopeTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["account-helper", "shimpz-cloudflare"],
                     "conversation": [],
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
                     "locale": None,
                 },
                 "openai",
@@ -225,7 +235,15 @@ class LocalChatScopeTests(LocalContractCase):
             controller.team_names.save("team_1", "a" * 64, "Growth")
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -250,7 +268,15 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -272,7 +298,15 @@ class LocalChatScopeTests(LocalContractCase):
             window = [{"role": "user", "text": "List my DNS zones", "truncated": False}]
             controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": window, "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": window,
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -288,6 +322,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": [],
                         "conversation": [{"role": [], "text": "x", "truncated": False}],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -298,7 +334,15 @@ class LocalChatScopeTests(LocalContractCase):
                 with self.subTest(locale=locale), self.assertRaises(local_app.ApiProblem) as refused:
                     controller.chat_turn_service.chat(
                         "team_1",
-                        {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": locale},
+                        {
+                            "message": "Hello",
+                            "files": [],
+                            "assistant_ids": [],
+                            "conversation": [],
+                            "locale": locale,
+                            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                            "timezone": None,
+                        },
                         "openai",
                         "sk-test-0123456789",
                     )
@@ -326,6 +370,8 @@ class LocalChatScopeTests(LocalContractCase):
                             "files": [],
                             "assistant_ids": assistant_ids,
                             "conversation": [],
+                            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                            "timezone": None,
                             "locale": None,
                         },
                         "openai",
@@ -341,6 +387,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["account-helper"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -376,6 +424,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["shimpz-cloudflare"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -471,6 +521,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["shimpz-cloudflare"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",

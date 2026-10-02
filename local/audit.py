@@ -71,6 +71,12 @@ def bind_request_principal(principal: AuditPrincipal) -> Iterator[None]:
         _REQUEST_PRINCIPAL.reset(token)
 
 
+def human_principal() -> str | None:
+    """The verified human principal of the current request, or None when a machine or nobody made it."""
+    principal = _REQUEST_PRINCIPAL.get()
+    return principal.principal_id if principal is not None and principal.principal_class == "human" else None
+
+
 def record_request(
     operation: str,
     *,
