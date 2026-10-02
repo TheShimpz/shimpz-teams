@@ -489,6 +489,8 @@ class _Reservation:
     started: float
     # Set by the deadline timer when the reservation ran out, whatever the episode was doing.
     expired: threading.Event = dataclasses.field(default_factory=threading.Event)
+    # Set once the time left was handed to the continuation, which then accounts for it as the run's own.
+    transferred: threading.Event = dataclasses.field(default_factory=threading.Event)
 
     @property
     def deadline(self) -> float:
@@ -519,8 +521,11 @@ def _reserve(self, team_id: str, incident_id: str) -> _Reservation | None:
 def _release(self, team_id: str, incident_id: str, reservation: _Reservation) -> None:
     """Return the reserved time the episode did not use to both balances; at least one second is always charged.
 
-    The run's active time goes back only to the same held run; once it continued, its continuation was charged.
+    The run's active time goes back only to the same held run; time already handed to a continuation is the run's
+    own, and none of it ever returns to the recovery budget.
     """
+    if reservation.transferred.is_set():
+        return
     unused = reservation.seconds - min(reservation.seconds, max(1, math.ceil(_clock() - reservation.started)))
     if unused <= 0:
         return
@@ -610,6 +615,14 @@ def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> 
     if not left:
         routine_incident.pause(self, team_id, incident_id, "exhausted")
         return "held"
+    # The time left is handed to the held run durably, so its continuation may start: never more than was reserved,
+    # and never back to either budget.
+    routine_state.update(
+        self,
+        team_id,
+        lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, left), None),
+    )
+    reservation.transferred.set()
     outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
     if outcome == "held" and reservation.expired.is_set():
         routine_incident.pause(self, team_id, incident_id, "exhausted")
