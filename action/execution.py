@@ -289,9 +289,13 @@ class ActionBatch:
             self._executing_here.discard(operation.interrupt_id)
             raise
         except Exception as exc:
-            # A handled failure of a reviewed read-only Action had no business effect; every other failure, and any
-            # failure of a mutating Action, stays uncertain in the journal (ADR-0092).
-            if action_failure.failure_of(exc) is not None and self._strategy.effect(request) == "read_only":
+            # Team refused the RPC before its workload process started, so this attempt never ran. A handled failure
+            # of a reviewed read-only Action had no business effect; every other failure, and any failure of a
+            # mutating Action, stays uncertain in the journal (ADR-0092).
+            if never_dispatched(exc):
+                self._journal.not_dispatched(self._batch, operation)
+                self._executing_here.discard(operation.interrupt_id)
+            elif action_failure.failure_of(exc) is not None and self._strategy.effect(request) == "read_only":
                 self._journal.fail_without_effect(self._batch, operation)
                 self._executing_here.discard(operation.interrupt_id)
             raise
@@ -499,8 +503,27 @@ class RpcExchangeStrategy:
     deadline: float | None = None
 
 
-class _DispatchExpiredError(RuntimeError):
-    """The RPC's deadline passed, or Docker capacity stayed saturated, before its workload process was started."""
+class DispatchRefusedError(RuntimeError):
+    """Team refused an RPC before its workload process was started.
+
+    Its deadline passed or Docker capacity stayed saturated. Nothing ran, so the attempt is settled as never dispatched
+    rather than left uncertain.
+    """
+
+
+def never_dispatched(exc: BaseException | None) -> bool:
+    """Whether a failed attempt was refused by Team before its workload process started.
+
+    Only the setup refusal is chained to a ``DispatchRefusedError``; a refusal after the exchange started, such as an
+    exit inspection that found no capacity, is raised without it and stays uncertain.
+    """
+    for _depth in range(8):
+        if exc is None:
+            return False
+        if isinstance(exc, DispatchRefusedError):
+            return True
+        exc = exc.__cause__
+    return False
 
 
 # Docker calls of every Action RPC run on one shared bounded pool. A call that outlives its budget keeps its slot until
@@ -515,7 +538,7 @@ def _bounded_call[T](call: Callable[[], T], deadline: float) -> concurrent.futur
     """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget."""
     remaining = deadline - time.monotonic()
     if remaining <= 0 or not _DOCKER_CALL_SLOTS.acquire(timeout=remaining):
-        raise _DispatchExpiredError("the Action deadline passed before its Docker call could run")
+        raise DispatchRefusedError("the Action deadline passed before its Docker call could run")
     try:
         future = _DOCKER_CALLS.submit(call)
     except BaseException:
@@ -546,7 +569,7 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
         )
         exec_id = created["Id"]
         if time.monotonic() >= deadline:
-            raise _DispatchExpiredError("the Action deadline passed before dispatch")
+            raise DispatchRefusedError("the Action deadline passed before dispatch")
         return exec_id, strategy.api.exec_start(exec_id, socket=True)
 
     future = _bounded_call(setup, deadline)
@@ -561,8 +584,12 @@ def _inspect_exec(exec_id: str, strategy: RpcExchangeStrategy, deadline: float) 
     """The exec's exit details within the same deadline; an answer that comes too late is no answer."""
     try:
         future = _bounded_call(lambda: strategy.api.exec_inspect(exec_id), deadline)
+    except DispatchRefusedError:
+        # The workload already ran, so this refusal must never read as a never-dispatched attempt.
+        raise TimeoutError("the Action exit status was not read within its deadline") from None
+    try:
         details = future.result(timeout=max(0.0, deadline - time.monotonic()))
-    except (_DispatchExpiredError, concurrent.futures.TimeoutError) as exc:
+    except concurrent.futures.TimeoutError as exc:
         raise TimeoutError("the Action exit status was not read within its deadline") from exc
     if time.monotonic() > deadline:
         raise TimeoutError("the Action exit status arrived after its deadline")
@@ -598,7 +625,7 @@ def rpc_exchange(
             stdout, stderr = exchange_rpc_frames(raw_socket, encoded, deadline, strategy.maximum)
         finally:
             strategy.close_stream(stream)
-    except _DispatchExpiredError as exc:
+    except DispatchRefusedError as exc:
         # No workload process started, so there is nothing to stop.
         strategy.cancelled(exc)
         raise RpcExchangeError("timeout", "deadline-expired-before-dispatch") from exc

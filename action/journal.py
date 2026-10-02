@@ -748,11 +748,22 @@ class ActionJournal:
 
     def suspend(self, batch: Batch, operation: Operation) -> None:
         """Return only one proven human-request suspension to deterministic replay; its operation id is kept."""
+        self._reprepare(batch, operation, "suspension")
+
+    def not_dispatched(self, batch: Batch, operation: Operation) -> None:
+        """Return an attempt Team refused before its workload process started to prepared; nothing ran.
+
+        Only Team's own pre-dispatch refusal may settle an attempt this way; any dispatch or inspection ambiguity
+        stays uncertain.
+        """
+        self._reprepare(batch, operation, "dispatch refusal")
+
+    def _reprepare(self, batch: Batch, operation: Operation, settlement: str) -> None:
         batch = self._validate_handle(batch)
         operation = _operation(operation)
         if operation not in batch.operations:
             raise ActionJournalConflictError("operation does not belong to this Action batch")
-        with self._writing("Action suspension could not be committed"):
+        with self._writing(f"Action {settlement} could not be committed"):
             persisted = self._load_operation(batch, operation)
             if persisted[3:5] != ("executing", None):
                 raise ActionJournalConflictError("Action operation was not executing")
@@ -761,7 +772,7 @@ class ActionJournal:
                    WHERE generation = ? AND interrupt_id = ? AND state = 'executing' AND result IS NULL""",
                 (batch.generation, operation.interrupt_id),
             )
-            self._require_changed("Action operation changed before suspension")
+            self._require_changed(f"Action operation changed before {settlement}")
 
     def _current(self, batch: Batch, replaced: str) -> bool:
         """Whether the exact batch is still the generation's; absent is False, and another batch is refused."""
