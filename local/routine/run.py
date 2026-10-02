@@ -366,10 +366,26 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
 
 def stop_routine_run(self, team_id: str, run_id: str) -> bool:
     """Stop exactly one running Routine run: cancel its turn, abort its Brain request, fail-stop its Action."""
+    return _stop_registered(self, team_id, run_id, None)
+
+
+def expire_routine_run(self, team_id: str, run_id: str, token: str) -> bool:
+    """A deadline's Stop of exactly the execution it was set for, identified by its token.
+
+    Checking the registration and cancelling it is one step under the guard, so a late deadline never reaches another
+    execution registered for the same run since, nor one that already ended.
+    """
+    return _stop_registered(self, team_id, run_id, token)
+
+
+def _stop_registered(self, team_id: str, run_id: str, expected: str | None) -> bool:
     with self._active_chat_guard:
         running = self._routine_runs.get(run_id)
-        if running is None or running.team_id != team_id:
+        if running is None or running.team_id != team_id or expected not in (None, running.token):
             return False
+        if expected is not None:
+            # A deadline, not a person: the run's ending records it as out of time, never as stopped.
+            self._routine_runs[run_id] = dataclasses.replace(running, overdue=True)
         token = running.token
         self._cancelled_chat_tokens.add(token)
         brain_abort = self._brain_aborts.get(token)
