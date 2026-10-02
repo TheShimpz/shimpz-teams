@@ -209,6 +209,10 @@ def admitted(
             raise FileRpcCancelledError("the turn was stopped while its file delivery waited")
         if time.monotonic() >= deadline:
             raise FileRpcBusyError("another file-bearing Action is still running")
+    if cancelled():
+        # Stop may win while the wait succeeds; the slot is released before anything is journaled.
+        _FILE_RPC_SLOT.release()
+        raise FileRpcCancelledError("the turn was stopped while its file delivery waited")
     token = _DEADLINE.set(deadline)
     try:
         yield

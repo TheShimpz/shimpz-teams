@@ -232,6 +232,40 @@ class FileRpcAdmissionTests(unittest.TestCase):
         self.assertIsInstance(outcomes[1], action_files.FileRpcCancelledError)
         self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
 
+    def test_stop_that_wins_while_the_slot_frees_is_refused_and_releases_the_slot(self) -> None:
+        stopped = threading.Event()
+        held = threading.Event()
+        release = threading.Event()
+        outcome: list[BaseException] = []
+
+        def holder() -> None:
+            with action_files.admitted(self.file, ("approval",), _approved(), lambda: False):
+                held.set()
+                release.wait(5)
+
+        def waiter() -> None:
+            try:
+                with action_files.admitted(self.file, ("approval",), _approved(), stopped.is_set):
+                    outcome.append(AssertionError("admitted after Stop"))
+            except action_files.FileRpcCancelledError as exc:
+                outcome.append(exc)
+
+        first = threading.Thread(target=holder)
+        first.start()
+        held.wait(5)
+        # Stop wins and the slot frees in the same instant: the waiter acquires it, and must still refuse.
+        with mock.patch.object(action_files, "_SLOT_POLL_SECONDS", 5.0):
+            second = threading.Thread(target=waiter)
+            second.start()
+            time.sleep(0.1)
+            stopped.set()
+            release.set()
+            first.join(5)
+            second.join(5)
+        self.assertEqual(len(outcome), 1)
+        self.assertIsInstance(outcome[0], action_files.FileRpcCancelledError)
+        self.assertEqual(action_files._FILE_RPC_SLOT._value, 1)
+
 
 class BatchAdmissionTests(unittest.TestCase):
     def test_a_refused_admission_never_begins_the_journaled_attempt(self) -> None:
