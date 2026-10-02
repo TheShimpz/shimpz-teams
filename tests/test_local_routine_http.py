@@ -289,6 +289,13 @@ class SessionRouteTests(RoutineHttpCase):
                 ):
                     status, _type, raw = self.request("GET", path)
                 self.assertEqual((status, json.loads(raw)["diagnostics"]), (200, []))
+                # A corrupted body of the current incarnation is never silently left out.
+                [sealed] = controller.routine_diagnostics._team_dir("team_1").iterdir()
+                envelope = json.loads(sealed.read_bytes())
+                envelope["ciphertext"] = ("B" if envelope["ciphertext"][0] == "A" else "A") + envelope["ciphertext"][1:]
+                sealed.write_text(json.dumps(envelope))
+                status, _type, raw = self.request("GET", path)
+                self.assertEqual((status, json.loads(raw)["code"]), (503, "routine-state-unavailable"))
             with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
                 status, _type, raw = self.request("GET", path)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))

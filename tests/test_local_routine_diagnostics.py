@@ -81,13 +81,15 @@ class DiagnosticStoreTests(unittest.TestCase):
 
     def test_aad_binds_team_incarnation_routine_run_operation_attempt_and_instant(self) -> None:
         self.store.record("team_1", INCARNATION, _diagnostic(), ())
+        # An authentic body of another incarnation is left out; it is never shown, and never mistaken for corruption.
         self.assertEqual(self.store.read("team_1", OTHER_INCARNATION, RUN, NOW), ())
         [sealed] = self.files()
         moved = self.store._team_dir("team_2")
         moved.mkdir(mode=0o700)
         (moved / sealed.name).write_bytes(sealed.read_bytes())
         (moved / sealed.name).chmod(0o600)
-        self.assertEqual(self.store.read("team_2", INCARNATION, RUN, NOW), ())
+        with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "authentication"):
+            self.store.read("team_2", INCARNATION, RUN, NOW)
         for renamed in (
             sealed.name.replace(".1.diagnostic", ".2.diagnostic"),
             sealed.name.replace(OPERATION, "7a2d3c9f-4b5e-4d6f-8a70-829304b5c6d7"),
@@ -98,8 +100,10 @@ class DiagnosticStoreTests(unittest.TestCase):
                 target = sealed.with_name(renamed)
                 target.write_bytes(sealed.read_bytes())
                 target.chmod(0o600)
-                self.assertEqual(self.store.read("team_1", INCARNATION, RUN, NOW + 2), (_diagnostic(),))
+                with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "authentication"):
+                    self.store.read("team_1", INCARNATION, RUN, NOW + 2)
                 target.unlink()
+        self.assertEqual(self.store.read("team_1", INCARNATION, RUN, NOW + 2), (_diagnostic(),))
 
     def test_a_tampered_or_malformed_body_never_reads_as_evidence(self) -> None:
         self.store.record("team_1", INCARNATION, _diagnostic(), ())
@@ -107,10 +111,23 @@ class DiagnosticStoreTests(unittest.TestCase):
         envelope = json.loads(sealed.read_bytes())
         ciphertext = bytearray(diagnostics.base64.b64decode(envelope["ciphertext"]))
         ciphertext[0] ^= 1
-        envelope["ciphertext"] = diagnostics.base64.b64encode(bytes(ciphertext)).decode()
-        sealed.write_text(json.dumps(envelope))
-        self.assertEqual(self.store.read("team_1", INCARNATION, RUN, NOW), ())
-        for malformed in (b"not json", json.dumps({"algorithm": "AES-128-GCM"}).encode()):
+        flipped = {**envelope, "ciphertext": diagnostics.base64.b64encode(bytes(ciphertext)).decode()}
+        relabeled = {**envelope, "incarnation": OTHER_INCARNATION}
+        # A bit flip in the current incarnation's body, or a body relabeled to look foreign, fails closed.
+        for tampered in (flipped, relabeled):
+            with self.subTest(tampered=sorted(tampered.items())[1]):
+                sealed.write_text(json.dumps(tampered))
+                with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "authentication"):
+                    self.store.read("team_1", INCARNATION, RUN, NOW)
+                with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "authentication"):
+                    self.store.read("team_1", OTHER_INCARNATION, RUN, NOW)
+        for malformed in (
+            b"not json",
+            json.dumps({"algorithm": "AES-128-GCM"}).encode(),
+            json.dumps({**envelope, "incarnation": "A" * 64}).encode(),
+            json.dumps({**envelope, "incarnation": None}).encode(),
+            json.dumps({key: value for key, value in envelope.items() if key != "incarnation"}).encode(),
+        ):
             with self.subTest(malformed=malformed), self.assertRaises(diagnostics.DiagnosticStoreError):
                 sealed.write_bytes(malformed)
                 self.store.read("team_1", INCARNATION, RUN, NOW)
@@ -122,6 +139,7 @@ class DiagnosticStoreTests(unittest.TestCase):
                     json.dumps(
                         {
                             "algorithm": "AES-256-GCM",
+                            "incarnation": INCARNATION,
                             "nonce": diagnostics.base64.b64encode(nonce).decode(),
                             "ciphertext": diagnostics.base64.b64encode(
                                 diagnostics.AESGCM(key).encrypt(

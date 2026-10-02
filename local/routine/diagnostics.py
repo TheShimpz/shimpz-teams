@@ -3,9 +3,11 @@
 Each attempt's Team-sanitized failure diagnostic, or its safe transport condition, is one AES-256-GCM file in its own
 Team-owned blob family, apart from plaintext Routine state, continuations, and their keyring. The AAD binds the Team
 and its incarnation (its network id), the Routine, run, logical operation, attempt, and recording instant, so a body is
-readable only by the same incarnation of the same Team as exactly that attempt. A body is at most 16 KiB, expires
-after seven days, and a Team keeps at most 10 MiB, the oldest giving way first: bodies are diagnostics, never the
-compact safety evidence an incident keeps. A body never holds a password or any other value Team injected.
+readable only by the same incarnation of the same Team as exactly that attempt. Each body names its incarnation under
+that authentication, so another incarnation's authentic body is left out while any corrupted body fails the read. A
+body is at most 16 KiB, expires after seven days, and a Team keeps at most 10 MiB, the oldest giving way first: bodies
+are diagnostics, never the compact safety evidence an incident keeps. A body never holds a password or any other value
+Team injected.
 """
 
 from __future__ import annotations
@@ -137,6 +139,9 @@ class DiagnosticStore:
             envelope = json.dumps(
                 {
                     "algorithm": "AES-256-GCM",
+                    # The authenticated origin: the AAD binds it, so a reader can tell another incarnation's body
+                    # from a corrupted one.
+                    "incarnation": incarnation,
                     "nonce": base64.b64encode(nonce).decode("ascii"),
                     "ciphertext": base64.b64encode(
                         AESGCM(key).encrypt(nonce, payload, _aad(team, incarnation, name))
@@ -189,7 +194,12 @@ class DiagnosticStore:
         return tuple(found[-http_routine.MAX_RUN_DIAGNOSTICS :])
 
     def _open(self, path: Path, team: str, incarnation: str, name: str) -> dict[str, object] | None:
-        """Decrypt one body; another incarnation's body does not open and is never shown."""
+        """Decrypt one body under the incarnation it names; another incarnation's authentic body is never shown.
+
+        The body names its incarnation and the AAD binds that name with the Team, the file name, and the content, so
+        only an authentic body of another incarnation is left out: any corruption, including a changed incarnation,
+        Team, or name, fails authentication and closes the read.
+        """
         raw = _PRIVATE.read_private_file(path, MAX_FILE_BYTES, "Routine diagnostic")
         if raw is None:
             return None
@@ -199,17 +209,21 @@ class DiagnosticStore:
             raise DiagnosticStoreError("Routine diagnostic is malformed") from exc
         if (
             not isinstance(envelope, dict)
-            or set(envelope) != {"algorithm", "nonce", "ciphertext"}
+            or set(envelope) != {"algorithm", "incarnation", "nonce", "ciphertext"}
             or envelope["algorithm"] != "AES-256-GCM"
+            or not isinstance(envelope["incarnation"], str)
+            or _INCARNATION_RE.fullmatch(envelope["incarnation"]) is None
         ):
             raise DiagnosticStoreError("Routine diagnostic is malformed")
         try:
             payload = AESGCM(_PRIVATE.key(self.key_path, "Routine diagnostic keyring")).decrypt(
                 _PRIVATE.decode_part(envelope["nonce"], expected=12),
                 _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=MAX_PLAINTEXT_BYTES + 16),
-                _aad(team, incarnation, name),
+                _aad(team, envelope["incarnation"], name),
             )
-        except InvalidTag:
+        except InvalidTag as exc:
+            raise DiagnosticStoreError("Routine diagnostic authentication failed") from exc
+        if envelope["incarnation"] != incarnation:
             return None
         try:
             view = http_routine.canonical_diagnostic(strict_json.loads(payload))
