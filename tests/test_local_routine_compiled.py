@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import dataclasses
+import json
+import struct
 import tempfile
+import threading
 from http import HTTPStatus
+from socket import socketpair
 from types import SimpleNamespace
 from unittest import mock
 
@@ -150,6 +154,57 @@ class ExecutionTests(CompiledRunCase):
         )
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
+        self.assertEqual(state.notices[-1].detail, {"reply": value.name})
+
+
+class AssistantProcess:
+    """The Assistant's side of Docker's exec attach: it reads one invocation frame and answers one result frame."""
+
+    def __init__(self) -> None:
+        self.invocations: list[dict[str, object]] = []
+
+    def exec_create(self, _container, argv, **_kwargs):
+        return {"Id": argv[-1]}
+
+    def exec_start(self, exec_id, socket: bool):
+        team_side, assistant_side = socketpair()
+
+        def serve() -> None:
+            raw = b""
+            while chunk := assistant_side.recv(65536):
+                raw += chunk
+            invocation = json.loads(raw)
+            self.invocations.append({"action": exec_id, **invocation})
+            result = ZONES if exec_id == "list-zones" else RECORDS
+            payload = json.dumps({"type": "result", "result": result}).encode()
+            assistant_side.sendall(struct.pack(">BxxxL", 1, len(payload)) + payload)
+            assistant_side.close()
+
+        threading.Thread(target=serve, daemon=True).start()
+        return SimpleNamespace(_sock=team_side, close=team_side.close)
+
+    @staticmethod
+    def exec_inspect(_exec_id):
+        return {"ExitCode": 0}
+
+
+class RealRpcTests(CompiledRunCase):
+    def test_a_run_reaches_the_assistant_over_its_real_rpc_with_no_brain_and_no_key(self) -> None:
+        process = AssistantProcess()
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service, brain, value = self.compiled(directory, None)
+            controller.assistant_lifecycle.invoke = controller.invoke
+            controller.assistant_lifecycle.client = SimpleNamespace(api=process)
+            claim = service.claim_routine_run(("anthropic", "openai"))
+            result = self.run_without_key(service, claim)
+            state = self.state(service)
+        self.assertEqual((result["status"], brain.calls), ("done", []))
+        first, second = process.invocations
+        self.assertEqual((first["action"], first["input"]), ("list-zones", LOOKUP_INPUT))
+        self.assertEqual((second["action"], second["input"]), ("list-dns-records", {**LOOKUP_INPUT, "zone_id": ZONE}))
+        # Each step is its own logical operation, and the Integration token reached only the Assistant.
+        self.assertNotEqual(first["operation_id"], second["operation_id"])
+        self.assertEqual(set(first["integrations"]), {"cloudflare"})
         self.assertEqual(state.notices[-1].detail, {"reply": value.name})
 
 
