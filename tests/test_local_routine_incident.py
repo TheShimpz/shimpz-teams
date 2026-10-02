@@ -21,6 +21,7 @@ from local.routine import manage as routine_manage
 from local.routine import store as routine_store
 from local.routine import watchdog as routine_watchdog
 from routine import cursor as routine_cursor
+from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
 from tests.test_routine_plan import CONTRACTS, _document
@@ -154,7 +155,7 @@ class HoldTests(IncidentCase):
                 routine_incident.reconcile(service, "team_1", run_id)
             self.assertEqual(caught.exception.code, "action-state-unavailable")
             self.assertEqual(record.run(self.state(service), run_id).status, "held")
-            with mock.patch.object(record, "settle_hold", side_effect=record.RoutineStateError("run-not-held")):
+            with mock.patch.object(routine_hold, "settle_hold", side_effect=record.RoutineStateError("run-not-held")):
                 self.assertFalse(routine_incident.reconcile(service, "team_1", run_id))
 
 
@@ -191,7 +192,7 @@ class ResolutionTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id, 0), None))
+            service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
             with (
                 mock.patch.object(
                     service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("down")
@@ -430,7 +431,7 @@ class RecoverySnapshotTests(IncidentCase):
             with self.assertRaises(local_app.ApiProblem):
                 routine_incident.read_evidence(routine_incident.evidence(run_id, held, None, (), foreign), run_id)
             with self.assertRaises(record.RoutineStateError):
-                record.settle_hold(self.state(service), run_id, 0, 0)
+                routine_hold.settle_hold(self.state(service), run_id, 0, 0)
             for payload in (b"", None, b"x" * (routine_store.MAX_RECOVERY_BYTES + 1)):
                 with self.subTest(payload=payload), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
                     service.routine_store.put_recovery("team_1", run_id, payload)
@@ -503,7 +504,7 @@ class CapacityTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id, 0), None))
+            service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
             service.action_state.release_archive(generation, batch.fingerprint)
             service.routine_store.delete_incident("team_1", run_id)
             routine_incident.reconcile_team(service, "team_1")
@@ -667,7 +668,7 @@ class IncidentRecordTests(IncidentCase):
         self.assertIsNone(record.claimable(full, 10))
         held = record.Run("c" * 32, "a" * 32, "held", 0, generation=f"{'b' * 64}:routine:{'c' * 32}")
         with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
-            record.settle_hold(dataclasses.replace(full, runs=(held,), incidents=unresolved * 2), "c" * 32, 1)
+            routine_hold.settle_hold(dataclasses.replace(full, runs=(held,), incidents=unresolved * 2), "c" * 32, 1)
 
         def renamed(status: str) -> tuple[record.Incident, ...]:
             return tuple(
@@ -677,8 +678,8 @@ class IncidentRecordTests(IncidentCase):
 
         # A skipped incident whose cleanup is pending never gives way; a released one does, oldest first.
         with self.assertRaisesRegex(record.RoutineStateError, "incident-limit"):
-            record.settle_hold(dataclasses.replace(full, runs=(held,), incidents=renamed("skipped")), "c" * 32, 1)
-        settled = record.settle_hold(
+            routine_hold.settle_hold(dataclasses.replace(full, runs=(held,), incidents=renamed("skipped")), "c" * 32, 1)
+        settled = routine_hold.settle_hold(
             dataclasses.replace(full, runs=(held,), incidents=renamed("released")), "c" * 32, 1
         )
         self.assertEqual(len(settled.incidents), record.MAX_INCIDENTS)
@@ -688,17 +689,17 @@ class IncidentRecordTests(IncidentCase):
         self.assertFalse(record.incident_capacity(pending))
         self.assertTrue(record.incident_capacity(dataclasses.replace(pending, incidents=renamed("released"))))
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
-            record.release_incident(full, unresolved[0].incident_id)
-        released = record.release_incident(
-            record.skip_incident(full, unresolved[0].incident_id, 1), unresolved[0].incident_id
+            routine_hold.release_incident(full, unresolved[0].incident_id)
+        released = routine_hold.release_incident(
+            routine_hold.skip_incident(full, unresolved[0].incident_id, 1), unresolved[0].incident_id
         )
-        self.assertEqual(record.release_incident(released, unresolved[0].incident_id), released)
+        self.assertEqual(routine_hold.release_incident(released, unresolved[0].incident_id), released)
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
-            record.settle_hold(
+            routine_hold.settle_hold(
                 dataclasses.replace(full, runs=(dataclasses.replace(held, status="frozen"),)), "c" * 32, 1
             )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
-            record.skip_incident(full, "f" * 32, 1)
+            routine_hold.skip_incident(full, "f" * 32, 1)
         unbound = record.Run(
             "d" * 32, "a" * 32, "leased", 0, lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
         )

@@ -12,6 +12,7 @@ import routine_fixture
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from routine import hold as routine_hold
 from routine import record
 
 UTC = datetime.UTC
@@ -548,8 +549,8 @@ class IncidentNoticeTests(unittest.TestCase):
 
     def test_a_hold_names_its_step_and_its_notice_goes_on_through_the_incident(self):
         state, run_id = self.held()
-        state = record.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
-        held = record.incident(state, run_id)
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        held = routine_hold.incident(state, run_id)
         self.assertEqual((held.quote, held.assistant_id, held.action), (routine().quote, "dns", "replace-dns-record"))
         notice = state.notices[-1]
         self.assertEqual(
@@ -557,26 +558,26 @@ class IncidentNoticeTests(unittest.TestCase):
             (run_id, "held", {"assistant_id": "dns", "action": "replace-dns-record"}, 1),
         )
         self.assertEqual(held.notice_version, 1)
-        paused = record.pause_incident(state, run_id, NINE + 2, "decided")
+        paused = routine_hold.pause_incident(state, run_id, NINE + 2, "decided")
         self.assertTrue(record.routine(paused, "a" * 32).paused)
         self.assertEqual(
             (paused.notices[-1].outcome, paused.notices[-1].detail, paused.notices[-1].version),
             ("paused", {"assistant_id": "dns", "action": "replace-dns-record", "reason": "decided"}, 2),
         )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
-            record.pause_incident(state, run_id, NINE, "bored")
+            routine_hold.pause_incident(state, run_id, NINE, "bored")
         # Pular is the person's skip of this run, never the Routine's missed-schedule skip.
-        skipped = record.skip_incident(paused, run_id, NINE + 3)
-        self.assertEqual(record.incident(skipped, run_id).status, "skipped")
+        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3)
+        self.assertEqual(routine_hold.incident(skipped, run_id).status, "skipped")
         self.assertEqual(
             (skipped.notices[-1].outcome, skipped.notices[-1].run_id, skipped.notices[-1].version),
             ("user-skipped", run_id, 3),
         )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
-            record.pause_incident(skipped, run_id, NINE, "person")
+            routine_hold.pause_incident(skipped, run_id, NINE, "person")
         # A deleted Routine's incident still says what it was, from its own quote.
         gone = dataclasses.replace(state, routines=())
-        self.assertEqual(record.skip_incident(gone, run_id, NINE).notices[-1].quote, routine().quote)
+        self.assertEqual(routine_hold.skip_incident(gone, run_id, NINE).notices[-1].quote, routine().quote)
 
     def test_a_resume_starts_a_fresh_streak_and_a_deleting_routine_never_pauses_or_resumes(self):
         state = added(routine())
@@ -613,7 +614,7 @@ class IncidentNoticeTests(unittest.TestCase):
 
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = self.held()
-        state = record.settle_hold(state, run_id, NINE + 1)
+        state = routine_hold.settle_hold(state, run_id, NINE + 1)
         self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None})
 
     def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
@@ -800,12 +801,14 @@ class HoldTimeTests(unittest.TestCase):
         state, claim, lease = bound()
         run_id = claim.run.run_id
         state = record.spend(state, run_id, lease, NINE, 250)
-        state = record.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
-        self.assertEqual(record.incident(state, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
-        reopened, _token = record.reopen_incident(state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
+        reopened, _token = routine_hold.reopen_incident(
+            state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1")
+        )
         self.assertEqual(record.run(reopened, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
         spent = dataclasses.replace(
-            state, incidents=(dataclasses.replace(record.incident(state, run_id), active_seconds_left=0),)
+            state, incidents=(dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0),)
         )
         with self.assertRaisesRegex(record.RoutineStateError, "run-time-exhausted"):
-            record.reopen_incident(spent, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))
+            routine_hold.reopen_incident(spent, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))

@@ -15,6 +15,7 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from routine import hold as routine_hold
 from routine import record
 
 PERSON = local_audit.AuditPrincipal("a" * 32, "human")
@@ -152,12 +153,12 @@ class AtomicCardTests(AutomaticCase):
                     card = self.card(service, run_id)
                     if change == "generation":
                         # A continuation and a new hold since the card opened leave the same incident id.
-                        held = record.incident(self.state(service), run_id)
+                        held = routine_hold.incident(self.state(service), run_id)
                         moved = record.generation_for(record.network_of(held.generation, run_id), run_id, "s1")
                         service.routine_store.update(
                             "team_1",
                             lambda state, held=held, moved=moved: (
-                                record._replace_incident(state, dataclasses.replace(held, generation=moved)),
+                                routine_hold._replace_incident(state, dataclasses.replace(held, generation=moved)),
                                 None,
                             ),
                         )
@@ -179,7 +180,7 @@ class AtomicCardTests(AutomaticCase):
                         mock.patch.object(
                             routine_card,
                             "_bound",
-                            side_effect=lambda _service, _team, bound: record.Expected(
+                            side_effect=lambda _service, _team, bound: routine_hold.Expected(
                                 bound.revision, bound.generation, bound.current
                             ),
                         ),

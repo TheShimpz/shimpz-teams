@@ -14,6 +14,7 @@ from unittest import mock
 import routine_fixture
 
 from local.routine import store as routine_store
+from routine import hold as routine_hold
 from routine import record
 
 UTC = datetime.UTC
@@ -201,7 +202,7 @@ class TamperTests(StoreCase):
     def test_an_altered_incident_fails_closed(self):
         state = busy_state()
         held = next(item for item in state.runs if item.status == "held")
-        put(self.store, "team_1", record.settle_hold(state, held.run_id, NINE, 1, ("dns", "replace-dns-record")))
+        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, ("dns", "replace-dns-record")))
         base = json.loads(self.state_file().read_text())
         self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
         mutations = {

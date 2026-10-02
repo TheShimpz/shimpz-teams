@@ -38,6 +38,7 @@ from local.routine import state as routine_state
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from routine import cursor as routine_cursor
+from routine import hold as routine_hold
 from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
@@ -318,7 +319,7 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
         if self._chat_cancelled(token):
             return state, "routine-recovery-stopped"
         try:
-            reopened, lease_token = record.reopen_incident(state, incident_id, now, generation)
+            reopened, lease_token = routine_hold.reopen_incident(state, incident_id, now, generation)
         except record.RoutineStateError as exc:
             return state, str(exc)
         routine = record.routine(reopened, opened.recovery.binding.routine_id)

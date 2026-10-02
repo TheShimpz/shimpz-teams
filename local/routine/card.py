@@ -26,6 +26,7 @@ from local.routine import run as routine_run
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
+from routine import hold as routine_hold
 from routine import record
 
 CARD_SECONDS = http_routine.CARD_SECONDS
@@ -103,7 +104,7 @@ def _current_revision(self, team_id: str, routine_id: str) -> int:
 
 def _unresolved(self, team_id: str, incident_id: str) -> record.Incident:
     try:
-        value = record.incident(routine_state.load(self, team_id), incident_id)
+        value = routine_hold.incident(routine_state.load(self, team_id), incident_id)
     except record.RoutineStateError as exc:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable") from exc
     if value.status != "unresolved":
@@ -163,7 +164,7 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     }
 
 
-def _bound(self, team_id: str, card: Card) -> record.Expected:
+def _bound(self, team_id: str, card: Card) -> routine_hold.Expected:
     """The card still names exactly this Team incarnation, incident, revision, generation, and operation.
 
     It is checked in the Team's execution slot, where nothing else moves the cursor, and returns what the card's state
@@ -178,7 +179,7 @@ def _bound(self, team_id: str, card: Card) -> record.Expected:
         or opened.cursor.operation_id != card.operation_id
     ):
         raise _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
-    return record.Expected(card.revision, card.generation, card.current)
+    return routine_hold.Expected(card.revision, card.generation, card.current)
 
 
 def _verify(self, team_id: str, card: Card, token: str) -> dict[str, object]:

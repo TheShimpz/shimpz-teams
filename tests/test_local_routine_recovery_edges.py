@@ -18,6 +18,7 @@ from local.routine import manage as routine_manage
 from local.routine import recovery as routine_recovery
 from local.routine import store as routine_store
 from routine import cursor as routine_cursor
+from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
 
@@ -123,12 +124,12 @@ class ContinuationEdgeTests(RecoveryCase):
     def test_reopening_refuses_a_settled_incident_a_changed_routine_or_a_busy_one(self) -> None:
         state = record.TeamRoutines()
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
-            record.reopen_incident(state, "a" * 32, 0, "")
+            routine_hold.reopen_incident(state, "a" * 32, 0, "")
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             state = self.state(service)
             generation = record.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
-            skipped = record.skip_incident(state, run_id, 0)
+            skipped = routine_hold.skip_incident(state, run_id, 0)
             changed = record._replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )
@@ -140,7 +141,7 @@ class ContinuationEdgeTests(RecoveryCase):
                 (state, "elsewhere", "routine-busy"),
             ):
                 with self.subTest(code=code), self.assertRaisesRegex(record.RoutineStateError, code):
-                    record.reopen_incident(subject, run_id, 0, target)
+                    routine_hold.reopen_incident(subject, run_id, 0, target)
 
     def test_a_continuation_hold_replaces_evidence_its_resume_left_behind(self) -> None:
         assistant = Assistant([failed(), failed()], [{"outcome": "not_occurred"}])
@@ -272,7 +273,7 @@ class RunTimeTests(RecoveryCase):
         with tempfile.TemporaryDirectory() as directory:
             with mock.patch.object(routine_compiled, "time", clock):
                 service, _brain, value, run_id = self.held_with(directory, assistant, service_box)
-            held = record.incident(self.state(service), run_id)
+            held = routine_hold.incident(self.state(service), run_id)
             self.assertEqual(self.verify(service, value, run_id), "absent")
             self.assertEqual(self.resume(service, value, run_id), "recovered")
         # The failed segment's 100 seconds were charged before the hold, and the continuation started from the rest.

@@ -28,6 +28,7 @@ from local.routine import store as routine_store
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
+from routine import hold as routine_hold
 from routine import plan as routine_plan
 from routine import record
 
@@ -221,7 +222,7 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
 
     def settle(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:
-            return record.settle_hold(state, run_id, now, revision, step), True
+            return routine_hold.settle_hold(state, run_id, now, revision, step), True
         except record.RoutineStateError:
             return state, False
 
@@ -263,7 +264,7 @@ def _transition_problem(code: str) -> ApiProblem:
     return _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
 
 
-def skip(self, team_id: str, incident_id: str, expected: record.Expected | None = None) -> None:
+def skip(self, team_id: str, incident_id: str, expected: routine_hold.Expected | None = None) -> None:
     """Pular: the incident stops holding its Routine, then its cursor, evidence, and archive marker are released.
 
     It never replays or fabricates output, and never recreates a deleted Routine; any effect the run may have had
@@ -272,10 +273,10 @@ def skip(self, team_id: str, incident_id: str, expected: record.Expected | None 
 
     def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | str]:
         try:
-            skipped = record.skip_incident(state, incident_id, int(time.time()), expected)
+            skipped = routine_hold.skip_incident(state, incident_id, int(time.time()), expected)
         except record.RoutineStateError as exc:
             return state, str(exc)
-        return skipped, record.incident(skipped, incident_id)
+        return skipped, routine_hold.incident(skipped, incident_id)
 
     skipped = routine_state.update(self, team_id, mark)
     if isinstance(skipped, str):
@@ -298,7 +299,7 @@ def _release(self, team_id: str, item: record.Incident) -> None:
                 raise _journal_unavailable() from exc
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.incident_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
-    routine_state.update(self, team_id, lambda state: (record.release_incident(state, item.incident_id), None))
+    routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.incident_id), None))
 
 
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
@@ -309,7 +310,7 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     """
     state = routine_state.load(self, team_id)
     try:
-        indexed = record.incident(state, incident_id)
+        indexed = routine_hold.incident(state, incident_id)
     except record.RoutineStateError as exc:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine incident is unavailable", "routine-incident-unavailable") from exc
     if indexed.status != "unresolved":
@@ -331,12 +332,12 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     return OpenedRecovery(snapshot, cursor)
 
 
-def pause(self, team_id: str, incident_id: str, reason: str, expected: record.Expected | None = None) -> None:
+def pause(self, team_id: str, incident_id: str, reason: str, expected: routine_hold.Expected | None = None) -> None:
     """Pause the Routine an unresolved incident holds, and say why on the held run's notice."""
 
     def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            return record.pause_incident(state, incident_id, int(time.time()), reason, expected), None
+            return routine_hold.pause_incident(state, incident_id, int(time.time()), reason, expected), None
         except record.RoutineStateError as exc:
             return state, str(exc)
 
