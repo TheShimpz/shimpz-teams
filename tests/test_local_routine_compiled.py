@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import struct
@@ -16,6 +17,7 @@ from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from test_local_routine_service import KEY, RoutineServiceCase, approval
 
 from action import human as action_human
+from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import authority as local_authority
@@ -155,6 +157,34 @@ class ExecutionTests(CompiledRunCase):
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
         self.assertEqual(state.notices[-1].detail, {"reply": value.name})
+
+    def test_a_reopened_run_that_cannot_read_its_cursor_is_held_with_its_completed_prefix(self) -> None:
+        """Whether a run already acted comes from durable state, never from a runtime that failed to open it."""
+        calls: list[str] = []
+
+        def invoke(_team, _assistant, action, _payload, evidence):
+            calls.append(action)
+            if action == "list-dns-records" and not evidence.transcript.responses:
+                raise action_human.HumanRequestSuspensionError(approval())
+            return {"result": ZONES if action == "list-zones" else RECORDS}
+
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, brain, _value = self.compiled(directory, invoke)
+            claim = service.claim_routine_run(("anthropic", "openai"))
+            run_id = claim["run_id"]
+            self.assertEqual(self.run_without_key(service, claim)["status"], "frozen")
+            opened = service.open_routine_challenge("team_1", run_id, "pt")
+            answer = {"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}
+            unreadable = routine_store.RoutineStoreError("Routine cursor could not be read")
+            with mock.patch.object(service.routine_store, "cursor", side_effect=unreadable):
+                resumed = service.resume_routine_human("team_1", run_id, answer, "openai", "")
+            state = self.state(service)
+            recovered = routine_incident.open_recovery(service, "team_1", run_id)
+        self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
+        self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
+        self.assertEqual(recovered.cursor.step, 1)
+        self.assertIsNotNone(recovered.cursor.operation_id)
 
 
 class AssistantProcess:
@@ -309,3 +339,43 @@ class RuntimeTests(CompiledRunCase):
             ):
                 routine_compiled.runtime(service, "team_1", run, value)
             self.assertEqual(changed.exception.code, "cursor-plan-changed")
+
+    def test_progress_is_read_from_the_sealed_snapshot_cursor_and_journal_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = self.runtime(service, value)
+            run_id = compiled.cursor.binding.run_id
+            run = record.Run(
+                run_id,
+                value.routine_id,
+                "leased",
+                0,
+                generation=f"{compiled.cursor.binding.incarnation}:routine:{run_id}",
+            )
+            store, journal = service.routine_store, service.action_state
+            batch = ("f" * 64, "open")
+            dispatched = dataclasses.replace(compiled.cursor, operation_id="0" * 32)
+            completed = dataclasses.replace(compiled.cursor, step=2)
+            cases = (
+                ({}, run, "none"),
+                ({}, dataclasses.replace(run, generation=""), "none"),
+                ({}, dataclasses.replace(run, routine_id="0" * 32), "partial"),
+                ({"current_batch": batch}, run, "partial"),
+                ({"recovery": None}, run, "none"),
+                ({"recovery": None, "current_batch": batch}, run, "partial"),
+                ({"cursor": None}, run, "none"),
+                ({"cursor": dispatched}, run, "partial"),
+                ({"cursor": completed}, run, "done"),
+                ({"cursor": dataclasses.replace(completed, step=1)}, run, "partial"),
+            )
+            for patched, subject, expected in cases:
+                with contextlib.ExitStack() as stack, self.subTest(patched=patched, expected=expected):
+                    for name, result in patched.items():
+                        owner = journal if name == "current_batch" else store
+                        stack.enter_context(mock.patch.object(owner, name, return_value=result))
+                    self.assertEqual(routine_compiled.progress(service, "team_1", subject), expected)
+            failing = action_journal.ActionJournalError("journal unavailable")
+            with mock.patch.object(journal, "current_batch", side_effect=failing):
+                self.assertEqual(routine_compiled.progress(service, "team_1", run), "partial")
+            with mock.patch.object(journal, "uncertain_fingerprint", side_effect=failing):
+                self.assertTrue(routine_compiled._uncertain(service, run, []))

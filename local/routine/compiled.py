@@ -17,6 +17,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
@@ -113,10 +114,6 @@ class CompiledRuntime:
             raise CompiledRunError(exc.code) from exc
         self.seal(dispatched)
 
-    def dispatched(self) -> bool:
-        """Whether this run ever sealed a dispatch: before that, nothing of it can have had an effect."""
-        return self.cursor.step > 0 or self.cursor.operation_id is not None
-
     @staticmethod
     def purpose(_context, _request, _assistant_name, _summary) -> None:
         """A compiled run asks no model why it pauses."""
@@ -185,11 +182,58 @@ def request(
     )
 
 
-def _ended(
-    self, run: routine_run._Run, compiled: CompiledRuntime | None, batches: list, exc: ApiProblem | CompiledRunError
-) -> str:
-    """How a segment that raised ends: stopped, failed with nothing dispatched, or held for recovery."""
-    uncertain = bool(batches) and bool(batches[-1].held)
+def _sealed(self, team_id: str, value: record.Run):
+    """The run's journal batch, sealed recovery snapshot, and cursor; raises when any is unreadable or not the run's."""
+    batch = self.action_state.current_batch(value.generation)
+    payload = self.routine_store.recovery(team_id, value.run_id)
+    if payload is None:
+        return batch, None, None
+    snapshot = routine_incident.read_recovery(payload, value.run_id)
+    if (
+        snapshot.binding.routine_id != value.routine_id
+        or record.generation_for(snapshot.binding.incarnation, value.run_id) != value.generation
+    ):
+        raise routine_store.RoutineStoreError("Routine recovery snapshot names another run")
+    return batch, snapshot, self.routine_store.cursor(team_id, snapshot.binding)
+
+
+def progress(self, team_id: str, value: record.Run) -> str:
+    """What durable state proves about one compiled run, never what a segment remembers in memory.
+
+    ``none``: nothing of it can have been dispatched, because every dispatch is sealed in its cursor before the RPC and
+    its journal holds no batch. ``done``: its sealed cursor completed every step of its sealed plan. ``partial``:
+    anything else, including state that cannot be read, so evidence of an effect is never cleaned up as a failure.
+    """
+    if not value.generation:
+        # A run binds its journal generation before anything of it can run.
+        return "none"
+    try:
+        batch, snapshot, cursor = _sealed(self, team_id, value)
+    except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
+        return "partial"
+    if cursor is None or (cursor.step == 0 and cursor.operation_id is None):
+        return "none" if batch is None else "partial"
+    finished = cursor.operation_id is None and cursor.step == len(snapshot.plan["steps"])
+    return "done" if finished else "partial"
+
+
+def _uncertain(self, value: record.Run, batches: list) -> bool:
+    """Whether a dispatch of the run may have acted without its outcome being known; unreadable counts as yes."""
+    if batches and batches[-1].held:
+        return True
+    try:
+        return self.action_state.uncertain_fingerprint(value.generation) is not None
+    except action_journal.ActionJournalError:
+        return True
+
+
+def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: ApiProblem | CompiledRunError) -> str:
+    """How a segment that raised ends: stopped, failed with nothing dispatched, or held for recovery.
+
+    Whether anything was dispatched is read from the run's sealed cursor, snapshot, and journal, never from a runtime
+    that may have failed to open them, so a reopened run that already acted is never cleaned up as a failure.
+    """
+    uncertain = _uncertain(self, value, batches)
     code = exc.code
     if code == "chat-stopped":
         with self._active_chat_guard:
@@ -198,7 +242,7 @@ def _ended(
             code = "active-time-exceeded"
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
-    if not uncertain and (compiled is None or not compiled.dispatched()):
+    if not uncertain and progress(self, run.team_id, value) == "none":
         return routine_run._end(self, run.team_id, run.run_id, "failed", {"code": code, "actions": []})
     routine_incident.hold(self, run.team_id, run.run_id, run.lease)
     return "held"
@@ -215,8 +259,7 @@ def execute(
         segment = segment_request.routine
         outcome = self._run_chat_segment(segment_request)
     except (ApiProblem, CompiledRunError) as exc:
-        runtime_value = None if segment is None else segment.runtime
-        return _ended(self, run, runtime_value, [] if segment is None else segment.batches, exc)
+        return _ended(self, run, value, [] if segment is None else segment.batches, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
         return routine_run.finished(self, run)
