@@ -359,7 +359,7 @@ def refusal(cursor: routine_cursor.Cursor) -> str | None:
     return None if cursor.remaining("retries") else "routine-retry-exhausted"
 
 
-def continue_run(self, team_id: str, incident_id: str, token: str, progress=None) -> str:
+def continue_run(self, team_id: str, incident_id: str, token: str, progress=None, *, seconds: int | None = None) -> str:
     """Resume a held run as a continuation in its next generation; returns how that continuation ended.
 
     It never passes an uncertain operation: only a completed step or a proven absence with its retry left continues.
@@ -394,7 +394,8 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
     run = routine_run._Run(team_id, incident_id, lease, token, _provider(self, team_id), routine)
-    with routine_run.registered(self, team_id, incident_id, token, value.active_seconds_left):
+    active = value.active_seconds_left if seconds is None else min(seconds, value.active_seconds_left)
+    with routine_run.registered(self, team_id, incident_id, token, active):
         outcome = routine_compiled.execute(self, run, value, progress)
     routine_run._after_run(self, team_id, incident_id, routine.routine_id, outcome)
     return outcome
@@ -476,24 +477,46 @@ _PAUSES = {
 _GO_ON = frozenset({"occurred", "none", "retry"})
 
 
-def _reserve(self, team_id: str, incident_id: str) -> int | None:
-    """Spend the run's one episode and reserve all its remaining active time, durably, before any work.
+@dataclass(frozen=True, slots=True)
+class _Reservation:
+    """The time an episode reserved from both the run's recovery budget and its remaining active time."""
 
-    None when no episode may open. Whatever a crash leaves reserved stays spent, so a restart never refills it.
+    seconds: int
+    generation: str
+    started: float
+
+    @property
+    def deadline(self) -> float:
+        return self.started + self.seconds
+
+
+def _reserve(self, team_id: str, incident_id: str) -> _Reservation | None:
+    """Spend the run's one episode and reserve its time from both balances, durably, before any work.
+
+    The reservation is the smaller of the recovery budget and the held run's remaining active time, so recovery never
+    outlasts the run. None when no episode may open. A crash keeps it spent, so a restart never refills either.
     """
     try:
         cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
-        reserved = cursor.remaining("recovery_seconds")
-        cursor = routine_cursor.spend(routine_cursor.spend(cursor, "episodes", 1), "recovery_seconds", reserved)
-        _seal(self, team_id, cursor)
-    except ApiProblem, routine_cursor.CursorError:
+        held = routine_hold.incident(routine_state.load(self, team_id), incident_id)
+        seconds = max(0, min(cursor.remaining("recovery_seconds"), held.active_seconds_left))
+        cursor = routine_cursor.spend(cursor, "episodes", 1)
+        _seal(self, team_id, routine_cursor.spend(cursor, "recovery_seconds", seconds) if seconds else cursor)
+    except ApiProblem, routine_cursor.CursorError, record.RoutineStateError:
         return None
-    return reserved
+    if seconds:
+        routine_state.update(
+            self, team_id, lambda state: (routine_hold.charge_incident(state, incident_id, seconds), None)
+        )
+    return _Reservation(seconds, held.generation, _clock())
 
 
-def _release(self, team_id: str, incident_id: str, reserved: int, started: float) -> None:
-    """Return the reserved time the episode did not use; at least one second is always charged."""
-    unused = reserved - min(reserved, max(1, math.ceil(_clock() - started)))
+def _release(self, team_id: str, incident_id: str, reservation: _Reservation) -> None:
+    """Return the reserved time the episode did not use to both balances; at least one second is always charged.
+
+    The run's active time goes back only to the same held run; once it continued, its continuation was charged.
+    """
+    unused = reservation.seconds - min(reservation.seconds, max(1, math.ceil(_clock() - reservation.started)))
     if unused <= 0:
         return
     try:
@@ -501,6 +524,11 @@ def _release(self, team_id: str, incident_id: str, reserved: int, started: float
         _seal(self, team_id, routine_cursor.refund(cursor, "recovery_seconds", unused))
     except ApiProblem, routine_cursor.CursorError:
         return
+    routine_state.update(
+        self,
+        team_id,
+        lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, unused), None),
+    )
 
 
 def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool:
@@ -524,24 +552,29 @@ def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool
 def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
-    The episode and its whole time budget are reserved durably first, and it runs registered with that deadline, so
-    Stop, deletion, and the watchdog reach it and a restart never refills it. Linked verification comes first and
-    needs no model; only a proven absence asks the Brain, once, whether the same step should be retried. The unused
-    time is returned before the already-authorized run goes on under its own active time.
+    The episode and its time are reserved durably from both the recovery budget and the run's active time first, and
+    it runs registered with that deadline, so Stop, deletion, and the watchdog reach it and a restart never refills
+    it. Linked verification comes first and needs no model; only a proven absence asks the Brain, once, whether the
+    same step should be retried, and that retry runs inside the same allowance. Unused time is returned at the end.
     """
     team_id, incident_id = run.team_id, run.run_id
-    reserved = _reserve(self, team_id, incident_id)
-    if reserved is None:
+    reservation = _reserve(self, team_id, incident_id)
+    if reservation is None:
         return "held"
-    started = _clock()
     try:
-        with routine_run.registered(self, team_id, incident_id, run.token, reserved):
+        if not reservation.seconds:
+            # No time is left in either balance: the episode is exhausted before it starts.
+            routine_incident.pause(self, team_id, incident_id, "exhausted")
+            return "held"
+        with routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds):
             try:
-                go_on = _episode(self, run, api_key, started + reserved)
+                go_on = _episode(self, run, api_key, reservation.deadline)
+                if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
+                    return "held"
+                # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
+                left = max(0, math.floor(reservation.deadline - _clock()))
+                return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
             finally:
-                _release(self, team_id, incident_id, reserved, started)
-            if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor) is not None:
-                return "held"
-            return continue_run(self, team_id, incident_id, run.token, progress)
+                _release(self, team_id, incident_id, reservation)
     except ApiProblem:
         return "held"

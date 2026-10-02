@@ -812,3 +812,19 @@ class HoldTimeTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(record.RoutineStateError, "run-time-exhausted"):
             routine_hold.reopen_incident(spent, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))
+
+    def test_recovery_time_is_charged_and_refunded_only_against_the_same_held_run(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        charged = routine_hold.charge_incident(state, run_id, 60)
+        self.assertEqual(routine_hold.incident(charged, run_id).active_seconds_left, record.ACTIVE_SECONDS - 60)
+        for seconds in (0, -1, True, record.ACTIVE_SECONDS + 1):
+            with self.subTest(seconds=seconds), self.assertRaisesRegex(record.RoutineStateError, "time-invalid"):
+                routine_hold.charge_incident(state, run_id, seconds)
+        generation = routine_hold.incident(state, run_id).generation
+        refunded = routine_hold.refund_incident(charged, run_id, generation, 1_000)
+        self.assertEqual(routine_hold.incident(refunded, run_id).active_seconds_left, record.ACTIVE_SECONDS)
+        for target, seconds in ((("x", generation), 5), ((run_id, "other"), 5), ((run_id, generation), 0)):
+            with self.subTest(target=target):
+                self.assertIs(routine_hold.refund_incident(charged, *target, seconds), charged)
