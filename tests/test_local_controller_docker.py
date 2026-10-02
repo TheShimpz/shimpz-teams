@@ -652,8 +652,9 @@ class DockerFlowTests(
             "DELETE",
             "/v1/teams/demo_team/assistants/shimpz-cloudflare",
         )
-        self.assertEqual(removed_again_status, 404)
-        self.assertEqual(removed_again["code"], "assistant-not-allowlisted")
+        # A repeated uninstall confirms the already-absent Assistant instead of failing.
+        self.assertEqual(removed_again_status, 200)
+        self.assertFalse(removed_again["uninstalled"])
         proxy_networks_after_uninstall = json.loads(self._run("inspect", flow.egress_proxy).stdout)[0][
             "NetworkSettings"
         ]["Networks"]
