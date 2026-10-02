@@ -158,6 +158,23 @@ class ServiceLoadTests(RoutineHttpCase):
                 pass
             self.assertIsNotNone(service.claim_routine_run())
 
+    def test_a_person_refused_early_in_a_long_segment_keeps_priority_until_after_it_ends(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.service(directory, Runtime())
+            value = self.continuous_routine(service)
+            clock = [1000.0]
+            with mock.patch.object(time, "monotonic", side_effect=lambda: clock[0]):
+                with service._exclusive_chat_turn("team_1", value.routine_id):
+                    with self.assertRaises(routine_run.ApiProblem), service._exclusive_chat_turn("team_1"):
+                        pass
+                    # The segment keeps running well past the bounded grace.
+                    clock[0] += routine_run.CHAT_PRIORITY_SECONDS * 4
+                # The slot is free: the person still goes first for the bounded grace, measured from now.
+                clock[0] += routine_run.CHAT_PRIORITY_SECONDS - 1
+                self.assertIsNone(service.claim_routine_run())
+                clock[0] += 1
+                self.assertIsNotNone(service.claim_routine_run())
+
     def test_a_waiting_person_holds_runs_back_only_for_a_bounded_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())

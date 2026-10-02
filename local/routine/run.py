@@ -54,7 +54,8 @@ def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
     return ApiProblem(status, message, code=code)
 
 
-# How long a person's chat message, refused while a Routine held the slot, keeps further runs of its Team waiting.
+# How long after a Routine frees the slot a person's chat message, refused while that Routine held it, keeps further
+# runs of its Team waiting for the person's turn.
 CHAT_PRIORITY_SECONDS = 30
 
 
