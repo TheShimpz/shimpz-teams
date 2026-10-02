@@ -182,14 +182,30 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
     return routine_state.update(self, run.team_id, finish)
 
 
-def finished(self, run: _Run, value: record.Run) -> str:
+def finished(self, run: _Run, value: record.Run, sealed_done: Callable[[], bool]) -> str:
     """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
-    Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it.
+    Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it. A
+    deadline is no person's Stop: when it, not a person, cut a run whose sealed cursor proves every step complete, the
+    run is recorded complete like the watchdog would, which also resets its failure streak.
     """
     if not self._commit_chat_terminal(run.team_id, run.token):
+        if _deadline_cut(self, run) and sealed_done():
+            return complete(self, run, value)
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
+    return complete(self, run, value)
+
+
+def complete(self, run: _Run, value: record.Run) -> str:
+    """Record a run whose every step completed: done, or recovered for a continuation, naming its Actions."""
     return _finish(self, run, record.completed(value), {"actions": record.plan_actions(run.routine.plan)})
+
+
+def _deadline_cut(self, run: _Run) -> bool:
+    """Whether this execution was cancelled by its own deadline, not by a person."""
+    with self._active_chat_guard:
+        registration = self._routine_runs.get(run.run_id)
+        return registration is not None and registration.token == run.token and registration.overdue
 
 
 def suspended(self, run: _Run, segment) -> str:
@@ -326,11 +342,18 @@ def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -
 
 
 def register_routine_run(self, team_id: str, run_id: str, token: str, active_seconds: int) -> None:
-    """Register a run's worker; a Stop that already found the run unregistered fences it out instead."""
+    """Register a run's worker; a Stop that already found the run unregistered fences it out instead.
+
+    The same execution registering again, as a recovery's continuation does, keeps a deadline that already cancelled
+    it, so its ending is still recorded as out of time, never as stopped.
+    """
     with self._active_chat_guard:
         if run_id in self._routine_halting:
             raise _problem(HTTPStatus.CONFLICT, "Routine run was stopped", "chat-stopped")
-        self._routine_runs[run_id] = _Registration(team_id, token, time.monotonic() + max(active_seconds, 0))
+        previous = self._routine_runs.get(run_id)
+        overdue = previous is not None and previous.token == token and previous.overdue
+        deadline = time.monotonic() + max(active_seconds, 0)
+        self._routine_runs[run_id] = _Registration(team_id, token, deadline, overdue)
 
 
 def unregister_routine_run(self, run_id: str) -> None:
@@ -378,6 +401,16 @@ def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callab
     person's Stop: the deadline then does nothing, and ``mark`` records the deadline as the cause only when it is.
     """
     return _stop_registered(self, team_id, run_id, token, mark)
+
+
+def unstopped(self, token: str, deadline: Callable[[], bool]) -> bool:
+    """Whether an outcome may still be published for this execution: no person stopped it first.
+
+    Decided under the same guard a person's Stop cancels under, so a Stop is either before the decision, and nothing
+    is published, or after it. A cancellation the execution's own ``deadline`` caused is no person's Stop.
+    """
+    with self._active_chat_guard:
+        return token not in self._cancelled_chat_tokens or deadline()
 
 
 def _stop_registered(
