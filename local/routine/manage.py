@@ -41,7 +41,7 @@ def routine_view(value: record.Routine) -> dict[str, object]:
 
 
 def run_view(value: record.Run) -> dict[str, object]:
-    """What a Supervisor may act on: a frozen run's request, or an uncertain run's exact batch to resolve."""
+    """What a Supervisor may act on: a frozen run's request; a leased or held run only shows that it is live."""
     return {
         "run_id": value.run_id,
         "routine_id": value.routine_id,
@@ -50,8 +50,6 @@ def run_view(value: record.Run) -> dict[str, object]:
         "request_kind": value.request_kind or None,
         "assistant_id": value.assistant_id or None,
         "action": value.action or None,
-        "batch_fingerprint": value.batch[1] or None,
-        "actions": [list(pair) for pair in value.held_actions],
     }
 
 
@@ -135,7 +133,7 @@ def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, 
 
 
 def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
-    """Delete a Routine: stop its running run and end a frozen one; an uncertain run must be resolved first.
+    """Delete a Routine: stop its running run and end a frozen one; a held run settles into its incident.
 
     Marking the Routine deleting and reading its runs is one write, and a deleting Routine never resumes a run, so each
     frozen run seen here stays frozen until it is ended. A running segment is stopped and ends itself, and its end
@@ -152,8 +150,6 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
             return state, str(exc)
 
     runs = routine_state.update(self, team_id, begin)
-    if runs == "routine-run-uncertain":
-        raise _problem(HTTPStatus.CONFLICT, "Resolve the Routine's uncertain run first", "routine-run-uncertain")
     if isinstance(runs, str):
         raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
     for value in runs:

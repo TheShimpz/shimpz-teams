@@ -1,7 +1,8 @@
 """Local Team Routine routes (ADR-0086).
 
 Admin's scheduler claims runs and delivers notices under the Team bearer; its routine identity runs one leased run
-under a routine assertion; a Supervisor session manages Routines and answers, resolves, or stops their runs.
+under a routine assertion; a Supervisor session manages Routines, answers or stops their runs, and settles held runs
+through their recovery cards (ADR-0092).
 """
 
 from __future__ import annotations
@@ -34,7 +35,6 @@ BODY_LIMITS = {
     "routine-challenge-open": MAX_BODY_BYTES,
     "routine-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
     "routine-integration-submit": MAX_BODY_BYTES,
-    "routine-resolve": MAX_BODY_BYTES,
     "routine-stop": MAX_BODY_BYTES,
 }
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -65,12 +65,10 @@ def _machine(handler, operation: str) -> dict[str, object]:
 
 
 def _run(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A Supervisor's decision on one run: resolve its uncertain batch, open its challenge, or stop it."""
+    """A Supervisor's decision on one run: open its challenge, or stop it."""
     service = handler.server.controller.chat_turn_service
     run_id = _run_id(route)
     body = handler._body(max_bytes=BODY_LIMITS[route.operation])
-    if route.operation == "routine-resolve":
-        return service.resolve_routine_run(team_id, run_id, body)
     if route.operation == "routine-challenge-open":
         # The challenge renders its request copy in the Admin interface language (ADR-0091).
         opening = http_routine.canonical_challenge_open(body)

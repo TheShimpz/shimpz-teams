@@ -98,13 +98,11 @@ class ContractTests(unittest.TestCase):
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
             "done": {"reply": "Updated."},
-            "needs-input": {"question": "Which zone?"},
             "skipped": {"missed": 3},
             "scope-changed": {"assistants": ["dns"]},
             "failed": {"code": "assistant-rpc-failed", "actions": [["dns", "list-zones"]]},
             "denied": {"actions": []},
             "stopped": {"actions": [["dns", "list-zones"]]},
-            "uncertain": {"actions": [["dns", "replace-dns-record"]]},
             "frozen": {"request_kind": "human", "assistant_id": "dns", "action": "replace-dns-record"},
             "created": DEFINED,
             "changed": DEFINED,
@@ -117,7 +115,6 @@ class ContractTests(unittest.TestCase):
             ("done", {"reply": ""}),
             ("done", {"reply": " padded "}),
             ("done", {"reply": "x", "result": {"ip": "1.2.3.4"}}),
-            ("needs-input", {"question": "x" * 241}),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
             ("scope-changed", {"assistants": []}),
@@ -325,7 +322,6 @@ class RunLifecycleTests(unittest.TestCase):
             lambda value: record.spend(state, run_id, value, NINE + 1, 1),
             lambda value: record.freeze(state, run_id, value, NINE + 1, "human", "dns", "replace-dns-record"),
             lambda value: record.finish(state, run_id, value, NINE + 1, "done", {"reply": "Done."}),
-            lambda value: record.hold_uncertain(state, run_id, value, NINE + 1, "d" * 64, {"actions": [["dns", "x"]]}),
             lambda value: record.bind_generation(state, run_id, value, NINE + 1, "net_2"),
         )
         for attempt in attempts:
@@ -392,40 +388,10 @@ class RunLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "frozen-limit"):
             record.freeze(state, claim.run.run_id, lease, NINE, "human", "dns", "replace-dns-record")
 
-    def test_only_a_resolution_of_the_exact_batch_releases_an_uncertain_run(self):
-        state, claim, lease = bound()
-        run_id = claim.run.run_id
-        uncertain = {"actions": [["dns", "replace-dns-record"]]}
-        unbound, unbound_claim, unbound_lease = claimed()
-        with self.assertRaisesRegex(record.RoutineStateError, "batch-invalid"):
-            record.hold_uncertain(unbound, unbound_claim.run.run_id, unbound_lease, NINE, "d" * 64, uncertain)
-        with self.assertRaisesRegex(record.RoutineStateError, "batch-invalid"):
-            record.hold_uncertain(state, run_id, lease, NINE, "short", uncertain)
-        state = record.hold_uncertain(state, run_id, lease, NINE + 5, "d" * 64, uncertain)
-        held = record.run(state, run_id)
-        self.assertEqual((held.status, held.batch), ("uncertain", (record.generation_for("net_1", run_id), "d" * 64)))
-        # Neither another outcome nor delivering its notice releases it.
-        for outcome in ("done", "stopped", "uncertain"):
-            with self.subTest(outcome=outcome), self.assertRaises(record.RoutineStateError):
-                record.end(state, run_id, NINE, outcome, {"actions": []})
-        state = record.acknowledge(state, frozenset((item.notice_id, item.version) for item in state.notices))
-        self.assertEqual((state.notices, record.claimable(state, epoch(2026, 10, 2, 9))), ((), None))
-        with self.assertRaisesRegex(record.RoutineStateError, "run-not-uncertain"):
-            record.resolve_uncertain(state, run_id, "e" * 64)
-        leased, running, _lease = bound()
-        with self.assertRaisesRegex(record.RoutineStateError, "run-not-uncertain"):
-            record.resolve_uncertain(leased, running.run.run_id, "d" * 64)
-        state = record.resolve_uncertain(state, run_id, "d" * 64)
-        self.assertEqual(record.claimable(state, epoch(2026, 10, 2, 9)).routine_id, "a" * 32)
-
     def test_team_ends_runs_without_their_lease_by_state(self):
         state, claim, _lease = bound()
         run_id = claim.run.run_id
         self.assertEqual(record.end(state, run_id, NINE, "stopped", {"actions": []}).runs, ())
-        held = record.end(state, run_id, NINE, "uncertain", {"actions": [["dns", "x"]]}, "d" * 64)
-        self.assertEqual(record.run(held, run_id).status, "uncertain")
-        with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-            record.end(state, run_id, NINE, "stopped", {"actions": []}, "d" * 64)
         for outcome in ("done", "denied", "uncertain"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 record.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})

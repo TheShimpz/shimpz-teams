@@ -56,7 +56,7 @@ def busy_state() -> record.TeamRoutines:
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
-    state = record.hold_uncertain(state, second.run.run_id, lease, now, "d" * 64, {"actions": [["dns", "x"]]})
+    state = record.fence(state, second.run.run_id, lease, now)
     state, third = record.claim(state, now, KEY)
     lease = record.lease_of(third.lease_token, KEY)
     state = record.bind_generation(state, third.run.run_id, lease, now, NETWORK)
@@ -137,7 +137,7 @@ class TamperTests(StoreCase):
     def test_every_altered_field_fails_closed(self):
         base = self.baseline()
         frozen = next(index for index, item in enumerate(base["runs"]) if item["status"] == "frozen")
-        uncertain = next(index for index, item in enumerate(base["runs"]) if item["status"] == "uncertain")
+        held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
             "schema": lambda value: value.update(schema=1),
             "team": lambda value: value.update(team_id="team_2"),
@@ -152,25 +152,23 @@ class TamperTests(StoreCase):
             "run status": lambda value: value["runs"][0].update(status="running"),
             "lease key": lambda value: value["runs"][0].update(lease_key="short"),
             "frozen with lease": lambda value: value["runs"][frozen].update(lease_sha256="d" * 64, lease_key=KEY),
-            "uncertain without batch": lambda value: value["runs"][uncertain].update(batch=["", ""]),
-            "uncertain with a request": lambda value: value["runs"][uncertain].update(request_kind="human"),
-            "frozen with a batch": lambda value: value["runs"][frozen].update(batch=["x", "d" * 64]),
+            "held without a generation": lambda value: value["runs"][held].update(generation=""),
+            "held with a request": lambda value: value["runs"][held].update(request_kind="human"),
+            "held with a lease": lambda value: value["runs"][held].update(lease_key=KEY),
             "frozen without an action": lambda value: value["runs"][frozen].update(action=""),
             "frozen without an assistant": lambda value: value["runs"][frozen].update(assistant_id=""),
-            "arbitrary generation": lambda value: value["runs"][uncertain].update(generation="other:routine:x"),
+            "arbitrary generation": lambda value: value["runs"][held].update(generation="other:routine:x"),
             "generation of another run": lambda value: value["runs"][frozen].update(
                 generation=NETWORK + ":routine:" + "0" * 32
             ),
             "unknown status": lambda value: value["runs"][0].update(status="paused"),
-            "batch generation": lambda value: value["runs"][uncertain].update(batch=["other:routine:x", "d" * 64]),
             "orphan run": lambda value: value["runs"][0].update(routine_id="f" * 32),
             "active time": lambda value: value["runs"][0].update(active_seconds_left=record.ACTIVE_SECONDS + 1),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
             "notice quote": lambda value: value["notices"][0].update(quote=""),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
-            "held actions on a live run": lambda value: value["runs"][frozen].update(held_actions=[["dns", "x"]]),
-            "held action shape": lambda value: value["runs"][uncertain].update(held_actions=[["dns"]]),
+            "retired run field": lambda value: value["runs"][held].update(batch=["", ""]),
             "discard shape": lambda value: value["discards"][0].append("x"),
             "discard run": lambda value: value["discards"][0].__setitem__(0, "not-a-run"),
             "discard of another generation": lambda value: value["discards"][0].__setitem__(

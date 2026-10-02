@@ -299,7 +299,7 @@ class ActionBatchTests(unittest.TestCase):
 
 
 class HeldActionBatchTests(unittest.TestCase):
-    """A Routine run's batch keeps an uncertain outcome for a human and names it; it never abandons it (ADR-0086)."""
+    """A Routine run's batch holds an uncertain outcome for recovery; it never abandons it (ADR-0092)."""
 
     def test_an_uncertain_batch_is_held_and_named_never_abandoned(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
@@ -327,7 +327,6 @@ class HeldActionBatchTests(unittest.TestCase):
                 batch.invoke(request)
             self.assertFalse(batch.terminate())
             self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
-            self.assertEqual(batch.held_actions, (("assistant", "write"),))
             # The journal still holds the uncertain batch: fresh-turn cleanup refuses to end it.
             self.assertFalse(journal.end_settled("net:routine:" + "f" * 32))
             with closing(sqlite3.connect(journal.path)) as connection:

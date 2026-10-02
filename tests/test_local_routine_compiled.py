@@ -442,21 +442,13 @@ class StopTests(CompiledRunCase):
             (outcome, [item.incident_id for item in state.incidents], brain.calls), ("held", [claim["run_id"]], [])
         )
 
-    def test_an_uncertain_run_needs_a_resolution_not_a_stop(self) -> None:
+    def test_a_held_run_is_never_stopped_out_of_its_recovery(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _brain, value = self.compiled(directory, None)
-            uncertain = record.Run(
-                "d" * 32,
-                value.routine_id,
-                "uncertain",
-                0,
-                generation=f"{'a' * 64}:routine:{'d' * 32}",
-                batch=(f"{'a' * 64}:routine:{'d' * 32}", "e" * 64),
-            )
-            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(uncertain,)), None))
-            with self.assertRaises(local_app.ApiProblem) as caught:
-                service.stop_routine("team_1", "d" * 32)
-            self.assertEqual(caught.exception.code, "routine-run-uncertain")
+            held = record.Run("d" * 32, value.routine_id, "held", 0, generation=f"{'a' * 64}:routine:{'d' * 32}")
+            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=(held,)), None))
+            self.assertFalse(service.stop_routine("team_1", "d" * 32)["stopped"])
+            self.assertEqual(self.state(service).runs, (held,))
 
 
 class RuntimeTests(CompiledRunCase):

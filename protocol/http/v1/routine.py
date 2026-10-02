@@ -16,7 +16,6 @@ MAX_ROUTINE_NAME_CHARS = 80
 MAX_ROUTINE_STEPS = 8
 MAX_DAILY_RUNS = 24
 MAX_NOTICE_REPLY_CHARS = 16_000
-MAX_NOTICE_QUESTION_CHARS = 240
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 OUTCOMES = frozenset(
@@ -24,11 +23,9 @@ OUTCOMES = frozenset(
         "done",
         "failed",
         "denied",
-        "uncertain",
         "stopped",
         "skipped",
         "scope-changed",
-        "needs-input",
         "frozen",
         "created",
         "changed",
@@ -249,11 +246,9 @@ def _frozen(detail: dict[str, object]) -> bool:
     )
 
 
-# Each outcome's exact detail fields and their check. denied, stopped, and uncertain name the Actions that completed or
-# whose effects are unknown; after a restart an uncertain run may not know them, and its notice then says only that.
+# Each outcome's exact detail fields and their check. denied and stopped name the Actions that completed.
 _DETAILS = {
     "done": ({"reply"}, lambda detail: _text(detail["reply"], MAX_NOTICE_REPLY_CHARS)),
-    "needs-input": ({"question"}, lambda detail: _text(detail["question"], MAX_NOTICE_QUESTION_CHARS)),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "scope-changed": ({"assistants"}, _scope_changed),
     "frozen": ({"request_kind", "assistant_id", "action"}, _frozen),
@@ -263,7 +258,6 @@ _DETAILS = {
     ),
     "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
-    "uncertain": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "created": ({"name", "steps", "schedule", "timezone"}, _defined),
     "changed": ({"name", "steps", "schedule", "timezone"}, _defined),
 }
@@ -282,12 +276,11 @@ MAX_NOTICE_BATCH = 1024
 # The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. A
 # notice at its bound, a 16,000-character reply whose every character JSON-escapes to six bytes, is about 96.5 KB.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
-RUN_STATUSES = frozenset({"leased", "frozen", "uncertain"})
+RUN_STATUSES = frozenset({"leased", "frozen", "held"})
 # The model providers a Local Team can use; a claim names its Team's, so Admin sends that provider's key.
 MODEL_PROVIDERS = ("anthropic", "openai")
 TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 LEASE_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
-_HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _INSTANT_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z")
 
 
@@ -343,9 +336,9 @@ def canonical_routine_view(value: object) -> dict[str, object] | None:
 
 
 def canonical_run_view(value: object) -> dict[str, object] | None:
-    """One live run: a frozen run names its request, an uncertain one its batch and the Actions it may have run."""
+    """One live run: a frozen run names the request it waits for; a leased or held one only that it is live."""
     fields = {"run_id", "routine_id", "status", "scheduled_at", "request_kind", "assistant_id", "action"}
-    if not isinstance(value, dict) or set(value) != fields | {"batch_fingerprint", "actions"}:
+    if not isinstance(value, dict) or set(value) != fields:
         return None
     status = value["status"]
     request = (value["request_kind"], value["assistant_id"], value["action"])
@@ -358,14 +351,9 @@ def canonical_run_view(value: object) -> dict[str, object] | None:
         _identity(value["run_id"], ROUTINE_ID_RE)
         and _identity(value["routine_id"], ROUTINE_ID_RE)
         and _instant(value["scheduled_at"])
+        and isinstance(status, str)
+        and status in RUN_STATUSES
         and (frozen if status == "frozen" else request == (None, None, None))
-        and (
-            _identity(value["batch_fingerprint"], _HEX64_RE)
-            if status == "uncertain"
-            else isinstance(status, str) and status in RUN_STATUSES and value["batch_fingerprint"] is None
-        )
-        and _actions(value["actions"])
-        and (status == "uncertain" or value["actions"] == [])
     )
     return copy.deepcopy(value) if valid else None
 

@@ -461,9 +461,6 @@ CONTROLLER_ROUTES = (
         "routine-integration-submit",
         _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route(
-        "POST", "/v1/teams/:team_id/routines/runs/:run_id/resolve", "routine-resolve", _LOCAL_CONTROLLER_ONLY
-    ),
     _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
     _controller_route(
         "GET",

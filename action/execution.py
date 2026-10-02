@@ -311,24 +311,17 @@ class ActionBatch:
 
 
 class HeldActionBatch(ActionBatch):
-    """A Routine run's batch: an uncertain outcome is held for a human, never abandoned in-band (ADR-0086).
+    """A Routine run's batch: an uncertain outcome is held for recovery, never abandoned in-band (ADR-0092).
 
-    ``held`` is the fingerprint of the batch left uncertain, so the run can record exactly which batch a Supervisor must
-    later resolve.
+    ``held`` is the fingerprint of the batch left uncertain, so the run is held and its recovery verifies it.
     """
 
     archivable = True
 
     held: str = ""
-    held_actions: tuple[tuple[str, str], ...] = ()
-
-    def prepare(self, requests: tuple[object, ...]) -> None:
-        super().prepare(requests)
-        self._names = {request.interrupt_id: (request.assistant_id, request.action) for request in requests}
 
     def _abandon_uncertain(self) -> bool:
         self.held = self._batch.fingerprint
-        self.held_actions = tuple(sorted(self._names[interrupt] for interrupt in self._executing_here))
         return False
 
 

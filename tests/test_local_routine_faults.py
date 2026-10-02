@@ -326,7 +326,7 @@ class FrozenFaultTests(RoutineServiceCase):
 class ManageAndNoticeFaultTests(RoutineServiceCase):
     def test_deleting_a_routine_ends_each_kind_of_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            controller, service = self.service(directory, Runtime())
+            _controller, service = self.service(directory, Runtime())
             value = self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
@@ -352,29 +352,6 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
             self.assertEqual(unavailable.exception.code, "routine-state-unavailable")
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
-            uncertain = self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
-            network = controller.assistant_lifecycle._network("team_1").id
-            lease = record.lease_of(claim["lease_token"], KEY)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (record.bind_generation(state, claim["run_id"], lease, int(time.time()), network), None),
-            )
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record.hold_uncertain(state, claim["run_id"], lease, int(time.time()), "d" * 64, {"actions": []}),
-                    None,
-                ),
-            )
-            # Only the Supervisor's resolution of that exact batch releases an uncertain run; deletion never does.
-            with self.assertRaises(local_app.ApiProblem) as held:
-                service.delete_routine("team_1", uncertain.routine_id)
-            self.assertEqual(held.exception.code, "routine-run-uncertain")
-            self.assertFalse(record.routine(self.state(service), uncertain.routine_id).deleting)
-            service.resolve_routine_run("team_1", claim["run_id"], {"batch_fingerprint": "d" * 64})
-            self.assertTrue(service.delete_routine("team_1", uncertain.routine_id)["deleted"])
-            self.assertEqual(self.state(service).discards, ())
 
     def test_run_state_that_cannot_be_removed_stays_queued_and_holds_back_new_runs(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

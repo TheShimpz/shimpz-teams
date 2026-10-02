@@ -85,9 +85,7 @@ _RUN_FIELDS = frozenset(
         "assistant_id",
         "action",
         "generation",
-        "batch",
         "notice_version",
-        "held_actions",
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
@@ -157,10 +155,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         return value
 
     def run_value(item: record.Run) -> dict[str, object]:
-        value = {name: getattr(item, name) for name in _RUN_FIELDS}
-        value["batch"] = list(item.batch)
-        value["held_actions"] = [list(pair) for pair in item.held_actions]
-        return value
+        return {name: getattr(item, name) for name in _RUN_FIELDS}
 
     payload = {
         "schema": SCHEMA,
@@ -232,7 +227,6 @@ def _decode_routine(value: object) -> record.Routine:
 
 def _decode_run(value: object) -> record.Run:
     _require(isinstance(value, dict) and set(value) == _RUN_FIELDS)
-    batch = value["batch"]
     strings = ("run_id", "routine_id", "status", "lease_sha256", "lease_key", "request_kind", "assistant_id", "action")
     _require(all(isinstance(value[name], str) for name in strings) and isinstance(value["generation"], str))
     run_id = value["run_id"]
@@ -240,37 +234,24 @@ def _decode_run(value: object) -> record.Run:
         _RUN_ID_RE.fullmatch(run_id) is not None
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
         and _generation_of(run_id, value["generation"])
-        and isinstance(batch, list)
-        and len(batch) == 2
-        and all(isinstance(part, str) for part in batch)
         and type(value["active_seconds_left"]) is int
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and type(value["notice_version"]) is int
         and value["notice_version"] >= 0
-        and http_routine.canonical_notice_detail("uncertain", {"actions": value["held_actions"]}) is not None
-        and (value["status"] == "uncertain" or value["held_actions"] == [])
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     no_request = value["request_kind"] == "" and value["assistant_id"] == "" and value["action"] == ""
-    no_batch = batch == ["", ""]
     # Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
     _require(
         {
             "leased": _HEX64_RE.fullmatch(value["lease_sha256"]) is not None
             and (value["lease_key"] == record.HUMAN_LEASE or _HEX64_RE.fullmatch(value["lease_key"]) is not None)
-            and no_request
-            and no_batch,
+            and no_request,
             "frozen": unleased
             and value["request_kind"] in {"human", "integrations"}
             and http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
-            and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
-            and no_batch,
-            "uncertain": unleased
-            and no_request
-            and value["generation"] != ""
-            and batch[0] == value["generation"]
-            and _HEX64_RE.fullmatch(batch[1]) is not None,
-            "held": unleased and no_request and value["generation"] != "" and no_batch,
+            and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None,
+            "held": unleased and no_request and value["generation"] != "",
         }.get(value["status"], False)
     )
     return record.Run(
@@ -286,9 +267,7 @@ def _decode_run(value: object) -> record.Run:
         assistant_id=value["assistant_id"],
         action=value["action"],
         generation=value["generation"],
-        batch=(batch[0], batch[1]),
         notice_version=value["notice_version"],
-        held_actions=tuple((pair[0], pair[1]) for pair in value["held_actions"]),
     )
 
 

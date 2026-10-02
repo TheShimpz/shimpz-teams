@@ -232,8 +232,9 @@ class SessionRouteTests(RoutineHttpCase):
                 opened = json.loads(raw)
                 self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
                 challenge_id = opened["challenge_id"]
+                # The retired release of an uncertain run stays absent.
                 status, _type, raw = self.request("POST", run + "/resolve", b'{"batch_fingerprint":"x"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (409, "routine-run-not-uncertain"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
                 status, _type, raw = self.request("POST", run + "/human", answer, self.model())
                 self.assertEqual(self.terminal(raw)["body"]["status"], "denied")

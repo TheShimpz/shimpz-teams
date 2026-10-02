@@ -95,8 +95,8 @@ class Routine:
 class Run:
     run_id: str
     routine_id: str
-    # "leased": may run a segment; "frozen": waits for a human; "uncertain": holds an unresolved Action batch; "held":
-    # fenced for an incident that recovery or a person must resolve (ADR-0092).
+    # "leased": may run a segment; "frozen": waits for a human; "held": fenced for an incident that recovery or a
+    # person must resolve (ADR-0092).
     status: str
     scheduled_at: int
     lease_sha256: str = ""
@@ -106,14 +106,10 @@ class Run:
     request_kind: str = ""
     assistant_id: str = ""
     action: str = ""
-    # The run's own Action journal generation, bound at its first segment, and the batch an uncertain run holds.
+    # The run's own Action journal generation, bound at its first segment, or its continuation's after a hold.
     generation: str = ""
-    batch: tuple[str, str] = ("", "")
     # A run has one notice, keyed by its id; each freeze and its end update it, so Admin replaces one transcript row.
     notice_version: int = 0
-    # The Assistant Actions an uncertain run's batch may have run, shown to the Supervisor who resolves it; empty when
-    # recovery after a restart cannot know them.
-    held_actions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -687,38 +683,15 @@ def thaw(state: TeamRoutines, run_id: str, now: int) -> tuple[TeamRoutines, str]
     return _replace_run(state, resumed), token
 
 
-def _hold(state: TeamRoutines, value: Run, fingerprint: str, now: int, detail: dict[str, object]) -> TeamRoutines:
-    if not value.generation or _FINGERPRINT_RE.fullmatch(fingerprint) is None:
-        raise RoutineStateError("batch-invalid")
-    state, value = _run_notice(state, value, "uncertain", now, detail)
-    held = dataclasses.replace(
-        value,
-        status="uncertain",
-        lease_sha256="",
-        lease_key="",
-        lease_expires_at=0,
-        batch=(value.generation, fingerprint),
-        held_actions=tuple((assistant, action) for assistant, action in detail["actions"]),
-    )
-    return _replace_run(state, held)
-
-
 def finish(
     state: TeamRoutines, run_id: str, lease: Lease, now: int, outcome: str, detail: dict[str, object]
 ) -> TeamRoutines:
     """A worker ends its leased run with a durable notice; only its live lease may."""
     value = _live(state, run_id, lease, now)
-    if outcome not in _RUN_OUTCOMES - {"uncertain"}:
+    if outcome not in _RUN_OUTCOMES:
         raise RoutineStateError("invalid-outcome")
     state, _value = _run_notice(state, value, outcome, now, detail)
     return _without_run(state, run_id)
-
-
-def hold_uncertain(
-    state: TeamRoutines, run_id: str, lease: Lease, now: int, fingerprint: str, detail: dict[str, object]
-) -> TeamRoutines:
-    """A worker's batch in the run's own generation may have acted: hold the run until a human resolves it."""
-    return _hold(state, _live(state, run_id, lease, now), fingerprint, now, detail)
 
 
 def end(
@@ -727,35 +700,22 @@ def end(
     now: int,
     outcome: str,
     detail: dict[str, object],
-    fingerprint: str = "",
     *,
     status: str = "",
 ) -> TeamRoutines:
     """Team itself ends a run without its lease: a human Stop or answer, an expired lease or deadline, or recovery.
 
-    A leased run ends stopped or failed, or is held uncertain when ``fingerprint`` names a batch that may have acted in
-    its generation; a frozen run ends denied, stopped, or failed. With ``status``, the run must still be in it, so an
-    ending decided on an earlier read never lands on a run that changed since.
+    A leased run ends stopped or failed; a frozen run ends denied, stopped, or failed. A run that may have acted is
+    held for recovery instead (``fence``). With ``status``, the run must still be in it, so an ending decided on an
+    earlier read never lands on a run that changed since.
     """
     value = run(state, run_id)
     if status and value.status != status:
         raise RoutineStateError("run-changed")
-    if value.status == "leased" and fingerprint:
-        if outcome != "uncertain":
-            raise RoutineStateError("invalid-outcome")
-        return _hold(state, value, fingerprint, now, detail)
     allowed = {"leased": frozenset({"stopped", "failed"}), "frozen": _FROZEN_OUTCOMES}.get(value.status, frozenset())
     if outcome not in allowed:
         raise RoutineStateError("invalid-outcome")
     state, _value = _run_notice(state, value, outcome, now, detail)
-    return _without_run(state, run_id)
-
-
-def resolve_uncertain(state: TeamRoutines, run_id: str, fingerprint: str) -> TeamRoutines:
-    """A Supervisor's informed resolution of that exact batch: the only transition that releases its Routine."""
-    value = run(state, run_id)
-    if value.status != "uncertain" or value.batch != (value.generation, fingerprint):
-        raise RoutineStateError("run-not-uncertain")
     return _without_run(state, run_id)
 
 
@@ -916,13 +876,10 @@ def rekeyed(state: TeamRoutines, key_fingerprint: str) -> tuple[Run, ...]:
 def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tuple[Run, ...]]:
     """Mark a Routine as deleting, so it is never claimed or resumed again; its runs are returned for the caller to end.
 
-    An uncertain run refuses the deletion: only a Supervisor's informed resolution of its exact batch releases it. A
-    held run instead settles into its incident, which outlives the Routine (ADR-0092).
+    A held run settles into its incident, which outlives the Routine (ADR-0092).
     """
     value = routine(state, routine_id)
     runs = tuple(item for item in state.runs if item.routine_id == routine_id)
-    if any(item.status == "uncertain" for item in runs):
-        raise RoutineStateError("routine-run-uncertain")
     return _replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 

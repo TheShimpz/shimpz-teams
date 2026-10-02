@@ -152,11 +152,9 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     return None
 
 
-def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object], fingerprint: str = "") -> str:
+def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:
     now = int(time.time())
-    routine_state.update(
-        self, team_id, lambda state: (record.end(state, run_id, now, outcome, detail, fingerprint), None)
-    )
+    routine_state.update(self, team_id, lambda state: (record.end(state, run_id, now, outcome, detail), None))
     return outcome
 
 

@@ -1,7 +1,7 @@
-"""Routine run outcomes for delivery, and the human decisions that end or release a run (ADR-0086).
+"""Routine run outcomes for delivery, and a person's Stop of a run (ADR-0086).
 
-Admin's automatic delivery only reads notices and acknowledges exact versions; it never changes a run. Releasing an
-uncertain run is a separate, informed Supervisor resolution of that run's exact batch.
+Admin's automatic delivery only reads notices and acknowledges exact versions; it never changes a run. A held run is
+settled through its recovery card instead (ADR-0092).
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import datetime
 from http import HTTPStatus
 
-from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import human as routine_human
 from local.routine import manage as routine_manage
@@ -93,35 +92,10 @@ def _run(self, team_id: str, run_id: object) -> record.Run:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine run is unavailable", "routine-run-not-found") from exc
 
 
-def resolve_routine_run(self, team_id: str, run_id: str, body: object) -> dict[str, object]:
-    """A Supervisor's informed resolution of an uncertain run's exact batch; only this releases its Routine."""
-    team_id = validate_team_id(team_id)
-    fingerprint = (
-        body.get("batch_fingerprint") if isinstance(body, dict) and set(body) == {"batch_fingerprint"} else None
-    )
-    value = _run(self, team_id, run_id)
-
-    def resolve(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        try:
-            return record.resolve_uncertain(
-                state, value.run_id, fingerprint if isinstance(fingerprint, str) else ""
-            ), True
-        except record.RoutineStateError:
-            return state, False
-
-    if not routine_state.update(self, team_id, resolve):
-        raise _problem(HTTPStatus.CONFLICT, "Routine run has no such uncertain batch", "routine-run-not-uncertain")
-    routine_manage.settle(self, team_id, value.routine_id)
-    local_audit.record_request("routine-resolve", result="ok", team_id=team_id, detail=value.run_id)
-    return {"team_id": team_id, "run_id": value.run_id, "resolved": True}
-
-
 def stop_routine(self, team_id: str, run_id: str) -> dict[str, object]:
     """Stop exactly one run: a running one ends itself once stopped; a frozen one ends now."""
     team_id = validate_team_id(team_id)
     value = _run(self, team_id, run_id)
-    if value.status == "uncertain":
-        raise _problem(HTTPStatus.CONFLICT, "An uncertain run needs a resolution, not Stop", "routine-run-uncertain")
     if value.status == "leased":
         return {
             "team_id": team_id,
