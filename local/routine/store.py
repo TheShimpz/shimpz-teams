@@ -71,6 +71,8 @@ _ROUTINE_FIELDS = frozenset(
         "paused",
         "grant",
         "failures",
+        "rollup_minute",
+        "rollup_runs",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -175,6 +177,11 @@ def _count(value: object) -> int:
     return value
 
 
+def _rollup_runs(value: object) -> int:
+    _require(type(value) is int and 0 <= value <= http_routine.MAX_ROLLUP_RUNS)
+    return value
+
+
 def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
     def routine_value(item: record.Routine) -> dict[str, object]:
         value = {name: getattr(item, name) for name in _ROUTINE_FIELDS}
@@ -248,6 +255,8 @@ def _decode_routine(value: object) -> record.Routine:
         paused=value["paused"],
         grant=value["grant"],
         failures=_count(value["failures"]),
+        rollup_minute=_instant(value["rollup_minute"]),
+        rollup_runs=_rollup_runs(value["rollup_runs"]),
     )
 
 

@@ -92,6 +92,9 @@ class Routine:
     grant: dict[str, object] | None = None
     # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
     failures: int = 0
+    # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
+    rollup_minute: int = 0
+    rollup_runs: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -756,8 +759,29 @@ def finish(
     value = _live(state, run_id, lease, now)
     if outcome not in _RUN_OUTCOMES:
         raise RoutineStateError("invalid-outcome")
-    state, _value = _run_notice(state, value, outcome, now, detail)
+    rolled = _healthy(state, value, now) if outcome == "done" else None
+    state = rolled if rolled is not None else _run_notice(state, value, outcome, now, detail)[0]
     return _without_run(state, run_id, now)
+
+
+def _healthy(state: TeamRoutines, value: Run, now: int) -> TeamRoutines | None:
+    """Roll a continuous Routine's healthy run into the one versioned notice of the minute it ended in, or None.
+
+    A healthy run completed with no earlier notice of its own; any other run, such as one a person answered, keeps its
+    own notice, as do failures and holds. Its count doubles as the notice version Admin acknowledges, so a notice
+    delivered and acknowledged mid-minute is replaced by the next version (ADR-0092 section 9).
+    """
+    current = routine(state, value.routine_id)
+    if value.notice_version or not continuous(current):
+        return None
+    minute = now - now % 60
+    runs = current.rollup_runs + 1 if current.rollup_minute == minute else 1
+    if runs > http_routine.MAX_ROLLUP_RUNS:
+        # Only a clock stepped back can end more runs in one minute than gaps allow: each keeps its own notice.
+        return None
+    notice_id = hashlib.sha256(f"healthy:{current.routine_id}:{minute}".encode()).hexdigest()[:32]
+    state = _replace_routine(state, dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, failures=0))
+    return _notice(state, Notice(notice_id, current.routine_id, "", "healthy", minute, {"runs": runs}, runs))
 
 
 def end(
