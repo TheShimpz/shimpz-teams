@@ -179,6 +179,7 @@ class Claim:
     # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
     revision: int = 1
     plan_digest: str = ""
+    mode: str = "scheduled"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -611,7 +612,8 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now),
     )
-    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan))
+    mode = http_routine.run_mode(due.schedule)
+    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan), mode)
 
 
 def require_lease(value: Run, lease: Lease, now: int) -> None:

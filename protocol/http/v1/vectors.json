@@ -1868,24 +1868,27 @@
     "claim": {
       "valid": [
         {"run": null, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": null, "next_due_at": 1790000300}
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": null, "next_due_at": 1790000300},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "continuous"}, "next_due_at": null}
       ],
       "invalid": [
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "short", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": true, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "extra": 1, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "short", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": true, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "extra": 1, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
         {"run": null, "extra": 1},
         {},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "other", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "other", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
         {"run": null},
         {"run": null, "next_due_at": 0},
         {"run": null, "next_due_at": "2026-10-05T12:00:00Z"},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": 1790000300},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 0, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null},
-        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2}, "next_due_at": null}
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": 1790000300},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 0, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "mode": "scheduled"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "burst"}, "next_due_at": null},
+        {"run": {"team_id": "team_1", "run_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "routine_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "lease_token": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "lease_expires_at": 1790000000, "provider": "openai", "revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "next_due_at": null}
       ]
     },
     "claim_request": {
@@ -1972,14 +1975,17 @@
     },
     "segment_request": {
       "valid": [
-        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
+        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"},
+        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "continuous"}
       ],
       "invalid": [
         {},
         {"revision": 2},
-        {"revision": true, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
-        {"revision": 2, "plan_digest": "sha256:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD"},
-        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"}
+        {"revision": true, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled"},
+        {"revision": 2, "plan_digest": "sha256:DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", "mode": "scheduled"},
+        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "scheduled", "extra": 1},
+        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "mode": "burst"},
+        {"revision": 2, "plan_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}
       ]
     }
   },

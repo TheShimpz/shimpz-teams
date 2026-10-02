@@ -33,6 +33,7 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.validation import validate_team_id
+from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
 from routine import grant as routine_grant
 from routine import pin as routine_pin
@@ -387,7 +388,7 @@ def run_routine(
     team_id: str,
     run_id: str,
     evidence: local_authority.RoutineEvidence,
-    claimed: tuple[int, str],
+    claimed: tuple[int, str, str],
     credentials: tuple[str, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
@@ -401,7 +402,8 @@ def run_routine(
     provider, api_key = credentials
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
-    if claimed != (routine.revision, routine_grant.plan_digest(routine.plan)):
+    current = (routine.revision, routine_grant.plan_digest(routine.plan), http_routine.run_mode(routine.schedule))
+    if claimed != current:
         raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,

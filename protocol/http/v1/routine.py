@@ -555,6 +555,12 @@ def canonical_claim_request(value: object) -> dict[str, object] | None:
 
 
 PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+# How a claimed run was scheduled: by its firings, or continuously after the previous run ended (ADR-0092).
+RUN_MODES = ("scheduled", "continuous")
+
+
+def run_mode(schedule: dict[str, object]) -> str:
+    return "continuous" if schedule["kind"] == "continuous" else "scheduled"
 
 
 def _revision(value: object) -> bool:
@@ -577,7 +583,7 @@ def canonical_claim(value: object) -> dict[str, object] | None:
     valid = (
         hint is None
         and isinstance(run, dict)
-        and set(run) == fields | {"revision", "plan_digest"}
+        and set(run) == fields | {"revision", "plan_digest", "mode"}
         and _identity(run["team_id"], TEAM_ID_RE)
         and _identity(run["run_id"], ROUTINE_ID_RE)
         and _identity(run["routine_id"], ROUTINE_ID_RE)
@@ -587,16 +593,21 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and run["provider"] in MODEL_PROVIDERS
         and _revision(run["revision"])
         and _identity(run["plan_digest"], PLAN_DIGEST_RE)
+        and run["mode"] in RUN_MODES
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_segment_request(value: object) -> dict[str, object] | None:
     """A leased run's segment request: exactly the revision and plan digest its claim named, under the signature."""
-    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest"}:
+    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest", "mode"}:
         return None
-    valid = _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE)
-    return {"revision": value["revision"], "plan_digest": value["plan_digest"]} if valid else None
+    valid = (
+        _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE) and value["mode"] in RUN_MODES
+    )
+    return (
+        {"revision": value["revision"], "plan_digest": value["plan_digest"], "mode": value["mode"]} if valid else None
+    )
 
 
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,

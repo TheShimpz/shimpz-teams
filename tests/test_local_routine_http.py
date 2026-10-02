@@ -68,7 +68,11 @@ class RoutineHttpCase(RoutineServiceCase):
         lease = hashlib.sha256(claim["lease_token"].encode("ascii")).hexdigest()
         evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
         return service.run_routine(
-            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]), ("openai", API_KEY)
+            "team_1",
+            claim["run_id"],
+            evidence,
+            (claim["revision"], claim["plan_digest"], claim["mode"]),
+            ("openai", API_KEY),
         )
 
     def serve(self, directory: str, runtime: Runtime):
@@ -178,7 +182,9 @@ class RunRouteTests(RoutineHttpCase):
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            segment = json.dumps({"revision": claim["revision"], "plan_digest": claim["plan_digest"]}).encode()
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            self.assertEqual(claim["mode"], "scheduled")
+            segment = json.dumps(bound).encode()
             status, _type, raw = self.request("POST", path, segment, self.model())
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
             forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate(), body=segment)
@@ -187,10 +193,11 @@ class RunRouteTests(RoutineHttpCase):
             other_lease = self.routine_headers(path, "another-lease", body=segment)
             status, _type, raw = self.request("POST", path, segment, other_lease)
             self.assertEqual(self.terminal(raw)["body"]["code"], "routine-lease-invalid")
-            # A segment that names another revision or plan than its claim is refused before anything runs.
+            # A segment that names another revision, plan, or mode than its claim is refused before anything runs.
             for stale in (
-                {"revision": claim["revision"] + 1, "plan_digest": claim["plan_digest"]},
-                {"revision": claim["revision"], "plan_digest": "sha256:" + "0" * 64},
+                {**bound, "revision": claim["revision"] + 1},
+                {**bound, "plan_digest": "sha256:" + "0" * 64},
+                {**bound, "mode": "continuous"},
             ):
                 body = json.dumps(stale).encode()
                 status, _type, raw = self.request(

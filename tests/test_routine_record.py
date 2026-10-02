@@ -847,6 +847,9 @@ class ContinuousTests(unittest.TestCase):
         state = self.continuous()
         state, claim = record.claim(state, NINE, KEY)
         run_id = claim.run.run_id
+        # The claim names how the run was scheduled; a scheduled Routine's claim says scheduled.
+        self.assertEqual(claim.mode, "continuous")
+        self.assertEqual(record.claim(at(added(routine()), "a" * 32, NINE), NINE, KEY)[1].mode, "scheduled")
         # While it runs nothing else of it starts, however long it takes.
         for later in (NINE + 5, NINE + 600):
             self.assertIsNone(record.claimable(state, later))

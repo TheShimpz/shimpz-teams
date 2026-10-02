@@ -151,6 +151,7 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
                 "provider": provider,
                 "revision": claim.revision,
                 "plan_digest": claim.plan_digest,
+                "mode": claim.mode,
             }
     return None
 

@@ -203,7 +203,7 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         provider, api_key = handler._model_credential_headers()
-        binding = (claimed["revision"], claimed["plan_digest"])
+        binding = (claimed["revision"], claimed["plan_digest"], claimed["mode"])
         return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, (provider, api_key), reporter)
 
     with local_audit.bind_request_principal(request_audit.principal()):
