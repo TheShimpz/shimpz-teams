@@ -61,7 +61,9 @@ def _machine(handler, operation: str) -> dict[str, object]:
         claim = http_routine.canonical_claim_request(handler._body(max_bytes=BODY_LIMITS[operation]))
         if claim is None:
             raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "Routine claim is invalid", code="invalid-body")
-        return {"run": service.claim_routine_run(tuple(claim["providers"]))}
+        providers = tuple(claim["providers"])
+        run = service.claim_routine_run(providers)
+        return {"run": run, "next_due_at": None if run is not None else service.next_routine_due(providers)}
     if operation == "routine-notices":
         return service.routine_notices()
     return service.acknowledge_routine_notices(handler._body(max_bytes=BODY_LIMITS[operation]))
@@ -190,14 +192,19 @@ def run(handler, parts: list[str], route: strict_http.ControllerRouteMatch, requ
         ) from exc
     request_audit.routine()
     request_audit.record("routine-authority", result="ok")
-    _empty(handler, route.operation)
     team_id = validate_team_id(route.params["team_id"])
     run_id = _run_id(route)
+    claimed = http_routine.canonical_segment_request(handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    if claimed is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "a segment names the claimed revision and plan", code="invalid-body"
+        )
     service = handler.server.controller.chat_turn_service
 
     def execute(reporter: chat_progress.Reporter) -> tuple[HTTPStatus, dict[str, object]]:
         provider, api_key = handler._model_credential_headers()
-        return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, provider, api_key, reporter)
+        binding = (claimed["revision"], claimed["plan_digest"])
+        return HTTPStatus.OK, service.run_routine(team_id, run_id, evidence, binding, (provider, api_key), reporter)
 
     with local_audit.bind_request_principal(request_audit.principal()):
         local_http_stream.respond(handler, route.operation, team_id, request_audit, execute)

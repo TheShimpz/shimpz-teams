@@ -255,6 +255,7 @@ admit_view = {
     "card": routine.canonical_card,
     "card_answer_request": routine.canonical_card_answer_request,
     "card_answer": routine.canonical_card_answer,
+    "segment_request": routine.canonical_segment_request,
 }
 if set(views) != set(admit_view) or any(
     not views[kind].get("valid") or not views[kind].get("invalid") for kind in views

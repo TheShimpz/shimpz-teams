@@ -33,6 +33,7 @@ from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.validation import validate_team_id
 from routine import cursor as routine_cursor
+from routine import grant as routine_grant
 from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
@@ -337,17 +338,22 @@ def run_routine(
     team_id: str,
     run_id: str,
     evidence: local_authority.RoutineEvidence,
-    provider: str,
-    api_key: str,
+    claimed: tuple[int, str],
+    credentials: tuple[str, str],
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     """Run one segment of a leased compiled run in the Team's execution slot.
 
-    A healthy run never uses the model key; only a held run's one automatic recovery may ask the Brain with it.
+    The signed request names the Routine revision and plan digest the run was claimed at; any other is refused before
+    anything runs. A healthy run never uses the model key of ``credentials``; only a held run's one automatic recovery
+    may ask the Brain with it.
     """
     team_id = validate_team_id(team_id)
+    provider, api_key = credentials
     lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
     value, routine = routine_run._live_run(self, team_id, run_id, lease)
+    if claimed != (routine.revision, routine_grant.plan_digest(routine.plan)):
+        raise ApiProblem(409, "Routine revision changed since the claim", code="routine-revision-stale")
     with (
         self._exclusive_chat_turn(team_id, routine.routine_id) as token,
         routine_run.registered(self, team_id, run_id, token, value.active_seconds_left),

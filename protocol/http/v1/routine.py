@@ -514,17 +514,30 @@ def canonical_claim_request(value: object) -> dict[str, object] | None:
     return {"providers": list(providers)} if valid else None
 
 
+PLAN_DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+def _revision(value: object) -> bool:
+    return type(value) is int and 1 <= value < 2**31
+
+
 def canonical_claim(value: object) -> dict[str, object] | None:
-    """A claim's answer: no run, or one run with the lease token Admin's routine identity signs for."""
-    if not isinstance(value, dict) or set(value) != {"run"}:
+    """A claim's answer: one run with the lease token Admin's routine identity signs for, or none and a wake hint.
+
+    A run names the Routine revision and plan digest it was claimed at, which its segment request binds. With no run,
+    ``next_due_at`` is the earliest epoch second a Routine Admin can run becomes due, or null; Admin still reconciles
+    on its own interval, since a hint can be missed.
+    """
+    if not isinstance(value, dict) or set(value) != {"run", "next_due_at"}:
         return None
-    run = value["run"]
+    run, hint = value["run"], value["next_due_at"]
     if run is None:
-        return {"run": None}
+        return {"run": None, "next_due_at": hint} if hint is None or (type(hint) is int and hint > 0) else None
     fields = {"team_id", "run_id", "routine_id", "lease_token", "lease_expires_at", "provider"}
     valid = (
-        isinstance(run, dict)
-        and set(run) == fields
+        hint is None
+        and isinstance(run, dict)
+        and set(run) == fields | {"revision", "plan_digest"}
         and _identity(run["team_id"], TEAM_ID_RE)
         and _identity(run["run_id"], ROUTINE_ID_RE)
         and _identity(run["routine_id"], ROUTINE_ID_RE)
@@ -532,8 +545,18 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and type(run["lease_expires_at"]) is int
         and run["lease_expires_at"] > 0
         and run["provider"] in MODEL_PROVIDERS
+        and _revision(run["revision"])
+        and _identity(run["plan_digest"], PLAN_DIGEST_RE)
     )
     return copy.deepcopy(value) if valid else None
+
+
+def canonical_segment_request(value: object) -> dict[str, object] | None:
+    """A leased run's segment request: exactly the revision and plan digest its claim named, under the signature."""
+    if not isinstance(value, dict) or set(value) != {"revision", "plan_digest"}:
+        return None
+    valid = _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE)
+    return {"revision": value["revision"], "plan_digest": value["plan_digest"]} if valid else None
 
 
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,

@@ -35,6 +35,7 @@ from local.routine import diagnostics as routine_diagnostics
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
+from routine import grant as routine_grant
 from routine import record
 from tests import human_request_fixtures
 
@@ -66,7 +67,9 @@ class RoutineHttpCase(RoutineServiceCase):
     def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
         lease = hashlib.sha256(claim["lease_token"].encode("ascii")).hexdigest()
         evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
-        return service.run_routine("team_1", claim["run_id"], evidence, "openai", API_KEY)
+        return service.run_routine(
+            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]), ("openai", API_KEY)
+        )
 
     def serve(self, directory: str, runtime: Runtime):
         controller, service = self.service(directory, runtime)
@@ -96,7 +99,9 @@ class RoutineHttpCase(RoutineServiceCase):
     def model(self) -> dict[str, str]:
         return {"X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
 
-    def routine_headers(self, path: str, lease_token: str, *, key: Ed25519PrivateKey | None = None) -> dict[str, str]:
+    def routine_headers(
+        self, path: str, lease_token: str, *, key: Ed25519PrivateKey | None = None, body: bytes = EMPTY
+    ) -> dict[str, str]:
         now = int(time.time())
         claims = _claims(
             aud=contract.ROUTINE_AUDIENCE,
@@ -107,7 +112,7 @@ class RoutineHttpCase(RoutineServiceCase):
             exp=now + contract.ASSERTION_MAX_TTL_SECONDS,
             method="POST",
             path=path,
-            body={"kind": "json", "length": len(EMPTY), "sha256": hashlib.sha256(EMPTY).hexdigest()},
+            body={"kind": "json", "length": len(body), "sha256": hashlib.sha256(body).hexdigest()},
             model={"provider": "openai", "key_sha256": API_KEY_SHA256},
         )
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
@@ -120,7 +125,7 @@ class SchedulerRouteTests(RoutineHttpCase):
     def test_the_scheduler_claims_and_delivers_under_the_team_bearer_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
-            self.routine(service)
+            value = self.routine(service)
             status, _type, _raw = self.request("POST", "/v1/routines/claim", CLAIM, {"Authorization": "Bearer x"})
             self.assertEqual(status, 401)
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
@@ -135,13 +140,25 @@ class SchedulerRouteTests(RoutineHttpCase):
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
             # A Team whose model provider Admin holds no key for is never claimed.
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"providers":["anthropic"]}')
-            self.assertIsNone(json.loads(raw)["run"])
+            self.assertEqual(json.loads(raw)["run"], None)
+            # Nor does its Routine wake Admin: the hint names only Routines Admin can run.
+            self.assertIsNone(json.loads(raw)["next_due_at"])
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
-            claim = json.loads(raw)["run"]
-            self.assertEqual(claim["provider"], "openai")
+            claimed = json.loads(raw)
+            claim = claimed["run"]
+            self.assertEqual((claim["provider"], claimed["next_due_at"]), ("openai", None))
+            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_grant.plan_digest(value.plan)))
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
-            self.assertIsNone(json.loads(raw)["run"])
+            # Nothing to claim: the hint is the Routine's next firing, which the claim moved past now.
+            idle = json.loads(raw)
+            next_run_at = record.routine(self.state(service), value.routine_id).next_run_at
+            self.assertEqual((idle["run"], idle["next_due_at"]), (None, None))
+            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=()), None))
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
+            self.assertEqual(
+                json.loads(raw), {"run": None, "next_due_at": next_run_at, "trace_id": json.loads(raw)["trace_id"]}
+            )
             status, _type, raw = self.request("GET", "/v1/routines/notices")
             self.assertEqual((status, json.loads(raw)["notices"]), (200, []))
             status, _type, raw = self.request("POST", "/v1/routines/notices/ack", b'{"deliveries":[]}')
@@ -161,19 +178,33 @@ class RunRouteTests(RoutineHttpCase):
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            status, _type, raw = self.request("POST", path, EMPTY, self.model())
+            segment = json.dumps({"revision": claim["revision"], "plan_digest": claim["plan_digest"]}).encode()
+            status, _type, raw = self.request("POST", path, segment, self.model())
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate())
-            status, _type, raw = self.request("POST", path, EMPTY, forged)
+            forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate(), body=segment)
+            status, _type, raw = self.request("POST", path, segment, forged)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            other_lease = self.routine_headers(path, "another-lease")
-            status, _type, raw = self.request("POST", path, EMPTY, other_lease)
+            other_lease = self.routine_headers(path, "another-lease", body=segment)
+            status, _type, raw = self.request("POST", path, segment, other_lease)
             self.assertEqual(self.terminal(raw)["body"]["code"], "routine-lease-invalid")
-            headers = self.routine_headers(path, claim["lease_token"])
-            status, content_type, raw = self.request("POST", path, EMPTY, headers)
+            # A segment that names another revision or plan than its claim is refused before anything runs.
+            for stale in (
+                {"revision": claim["revision"] + 1, "plan_digest": claim["plan_digest"]},
+                {"revision": claim["revision"], "plan_digest": "sha256:" + "0" * 64},
+            ):
+                body = json.dumps(stale).encode()
+                status, _type, raw = self.request(
+                    "POST", path, body, self.routine_headers(path, claim["lease_token"], body=body)
+                )
+                self.assertEqual(self.terminal(raw)["body"]["code"], "routine-revision-stale")
+            self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
+            status, _type, raw = self.request("POST", path, EMPTY, self.routine_headers(path, claim["lease_token"]))
+            self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
+            headers = self.routine_headers(path, claim["lease_token"], body=segment)
+            status, content_type, raw = self.request("POST", path, segment, headers)
             self.assertEqual((status, content_type), (200, "application/x-ndjson"))
             self.assertEqual(self.terminal(raw)["body"]["status"], "done")
-            status, _type, raw = self.request("POST", path, EMPTY, headers)
+            status, _type, raw = self.request("POST", path, segment, headers)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
             # The compiled run never reached the Brain.
             self.assertEqual(runtime.contexts, [])

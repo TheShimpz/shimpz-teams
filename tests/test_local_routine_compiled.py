@@ -66,7 +66,9 @@ class CompiledRunCase(RoutineServiceCase):
     @staticmethod
     def run_without_key(service, claim: dict[str, object]) -> dict[str, object]:
         evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
-        return service.run_routine("team_1", claim["run_id"], evidence, "openai", "")
+        return service.run_routine(
+            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]), ("openai", "")
+        )
 
 
 class ExecutionTests(CompiledRunCase):

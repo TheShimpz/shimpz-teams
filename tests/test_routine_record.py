@@ -590,6 +590,27 @@ class IncidentNoticeTests(unittest.TestCase):
             with self.subTest(paused=value), self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
                 record.set_paused(deleting, "a" * 32, value)
 
+    def test_the_wake_hint_is_the_earliest_future_firing_of_a_routine_that_may_start(self):
+        ids = [f"{index:x}" * 32 for index in range(1, 7)]
+        state = added(*(routine(routine_id) for routine_id in ids))
+        changes = {
+            ids[0]: {"next_run_at": NINE - 1},
+            ids[1]: {"next_run_at": NINE + 10, "paused": True},
+            ids[2]: {"next_run_at": NINE + 20, "deleting": True},
+            ids[3]: {"next_run_at": NINE + 30, "needs_reconfirm": True},
+            ids[4]: {"next_run_at": NINE + 40},
+            ids[5]: {"next_run_at": NINE + 50},
+        }
+        state = dataclasses.replace(
+            state, routines=tuple(dataclasses.replace(item, **changes[item.routine_id]) for item in state.routines)
+        )
+        self.assertEqual(record.next_due(state, NINE), NINE + 40)
+        # A Routine with a live run or an unresolved incident wakes nothing; its own end or resolution does.
+        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
+        self.assertEqual(record.next_due(busy, NINE), NINE + 50)
+        held = dataclasses.replace(busy, incidents=(record.Incident("e" * 32, ids[5], "g", 0),))
+        self.assertIsNone(record.next_due(held, NINE))
+
     def test_a_hold_without_a_sealed_cursor_names_no_step(self):
         state, run_id = self.held()
         state = record.settle_hold(state, run_id, NINE + 1)
@@ -658,6 +679,7 @@ class RoutineViewContractTests(unittest.TestCase):
             "card": http_routine.canonical_card,
             "card_answer_request": http_routine.canonical_card_answer_request,
             "card_answer": http_routine.canonical_card_answer,
+            "segment_request": http_routine.canonical_segment_request,
         }
         for kind, function in admit.items():
             for value in views[kind]["valid"]:

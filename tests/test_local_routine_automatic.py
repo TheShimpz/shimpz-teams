@@ -57,7 +57,9 @@ class AutomaticCase(RecoveryCase):
         value = self.routine(service, plan=plan)
         claim = service.claim_routine_run(("anthropic", "openai"))
         evidence = local_authority.RoutineEvidence(KEY, record.lease_sha256(claim["lease_token"]), "a" * 32, 0)
-        self.status = service.run_routine("team_1", claim["run_id"], evidence, "openai", key)["status"]
+        self.status = service.run_routine(
+            "team_1", claim["run_id"], evidence, (claim["revision"], claim["plan_digest"]), ("openai", key)
+        )["status"]
         return service, brain, value, claim["run_id"]
 
 

@@ -148,8 +148,18 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
                 "lease_token": claim.lease_token,
                 "lease_expires_at": claim.run.lease_expires_at,
                 "provider": provider,
+                "revision": claim.revision,
+                "plan_digest": claim.plan_digest,
             }
     return None
+
+
+def next_routine_due(self, providers: tuple[str, ...]) -> int | None:
+    """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
+    now = int(time.time())
+    states = _readable_states(self, routine_state.call(self.routine_store.teams))
+    due = [record.next_due(state, now) for team_id, state in states.items() if _provider(self, team_id, providers)]
+    return min((item for item in due if item is not None), default=None)
 
 
 def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:

@@ -174,6 +174,9 @@ class TeamRoutines:
 class Claim:
     run: Run
     lease_token: str
+    # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
+    revision: int = 1
+    plan_digest: str = ""
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -522,6 +525,24 @@ def claimable(state: TeamRoutines, now: int) -> Routine | None:
     return min(due, key=lambda item: (item.next_run_at, item.routine_id)) if due else None
 
 
+def next_due(state: TeamRoutines, now: int) -> int | None:
+    """The earliest instant after ``now`` one of the Team's Routines becomes due to start, or None.
+
+    A paused, held, busy, deleting, or unconfirmed Routine never wakes anything; its own resolution does.
+    """
+    busy = {item.routine_id for item in state.runs} | held_routines(state)
+    due = [
+        item.next_run_at
+        for item in state.routines
+        if item.next_run_at > now
+        and not item.needs_reconfirm
+        and not item.deleting
+        and not item.paused
+        and item.routine_id not in busy
+    ]
+    return min(due, default=None)
+
+
 def held_routines(state: TeamRoutines) -> set[str]:
     """Routines an unresolved incident holds: no cycle of theirs starts, whatever else resumes them."""
     return {item.routine_id for item in state.incidents if item.status == "unresolved"}
@@ -576,7 +597,7 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         starts_day=_utc_day(now),
         starts=starts_today(state, now) + 1,
     )
-    return state, Claim(leased, token)
+    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan))
 
 
 def require_lease(value: Run, lease: Lease, now: int) -> None:

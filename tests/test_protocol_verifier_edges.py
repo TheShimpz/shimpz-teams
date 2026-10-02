@@ -550,7 +550,7 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value["routine_views"]["claim"]["valid"] = [{"run": None, "extra": 1}]
 
         def accepted_view(value: dict[str, object]) -> None:
-            value["routine_views"]["claim"]["invalid"] = [{"run": None}]
+            value["routine_views"]["claim"]["invalid"] = [{"run": None, "next_due_at": None}]
 
         for mutate in (missing_views, rejected_view, accepted_view):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
