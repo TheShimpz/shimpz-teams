@@ -338,6 +338,7 @@ def _run_chat_segment_with_metadata(
                 # A Routine retry repeats its carried logical operation; anything else lets the journal mint one.
                 (lambda _request: None) if routine is None else routine.runtime.logical_operation,
                 functools.partial(_admitted_delivery, self, request, bindings),
+                stopped=lambda: self._chat_cancelled(request.token),
             ),
         )
         if held:

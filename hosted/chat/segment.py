@@ -483,6 +483,7 @@ def _run_hosted_chat_segment_with_metadata(
                 ),
                 lambda request: bindings[request.assistant_id].contract.actions[request.action].effect,
                 admit=admit,
+                stopped=lambda: runtime_state._token_cancelled(token),
             ),
         )
         return chat_turn_engine.PreparedSegment(team_name, initial_identity, context, files, batch)

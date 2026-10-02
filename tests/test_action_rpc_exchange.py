@@ -244,6 +244,38 @@ class DockerCallBoundTests(unittest.TestCase):
             action_execution._bounded_call(lambda: None, time.monotonic() + 5)
         self.assertEqual(action_execution._DOCKER_CALL_SLOTS._value, action_execution.MAX_DOCKER_CALLS)
 
+    def test_a_stopped_turn_stops_waiting_for_docker_capacity(self) -> None:
+        saturated = mock.Mock(acquire=mock.Mock(side_effect=lambda timeout: time.sleep(timeout) or False))
+        stop = threading.Event()
+        threading.Timer(0.2, stop.set).start()
+        api = SimpleNamespace(exec_create=mock.Mock(), exec_start=mock.Mock())
+        waiting = _strategy(api, timeout=30)
+        started = time.monotonic()
+        with (
+            mock.patch.object(action_execution, "_DOCKER_CALL_SLOTS", saturated),
+            action_execution.observing_stop(stop.is_set),
+            self.assertRaises(action_execution.RpcExchangeError) as stopped,
+        ):
+            action_execution.rpc_exchange("container", ["command"], b"request", waiting)
+        # Stop ends the wait within one poll slice, long before the deadline, and nothing was dispatched.
+        self.assertLess(time.monotonic() - started, 2.0)
+        self.assertTrue(action_execution.never_dispatched(stopped.exception))
+        api.exec_create.assert_not_called()
+        waiting.fail_stop.assert_not_called()
+        waiting.cancelled.assert_called_once()
+
+    def test_stop_that_wins_after_the_wait_returns_the_slot(self) -> None:
+        stopped = iter((False, True))
+        with self.assertRaises(action_execution.DispatchRefusedError):
+            action_execution._bounded_call(self.fail, time.monotonic() + 5, lambda: next(stopped))
+        self.assertEqual(action_execution._DOCKER_CALL_SLOTS._value, action_execution.MAX_DOCKER_CALLS)
+
+    def test_stop_never_abandons_the_exit_inspection_of_a_dispatched_workload(self) -> None:
+        api = SimpleNamespace(exec_inspect=lambda _exec_id: {"ExitCode": 0})
+        with action_execution.observing_stop(lambda: True):
+            details = action_execution._inspect_exec("exec", _strategy(api), time.monotonic() + 5)
+        self.assertEqual(details, {"ExitCode": 0})
+
     def test_exit_inspection_is_bounded_by_the_same_deadline(self) -> None:
         clock = [100.0]
 

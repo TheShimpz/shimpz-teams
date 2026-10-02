@@ -15,7 +15,9 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
+from action import execution as action_execution
 from action import human as action_human
+from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import labels as local_labels
@@ -489,6 +491,60 @@ class LocalChatScopeTests(LocalContractCase):
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(controller.chat_turn_service._active_action_containers, {})
+
+    def test_a_stopped_turn_keeps_only_a_pre_dispatch_refusal_chained(self) -> None:
+        request = brain_runtime_client.ActionRequest(
+            interrupt_id="interrupt-1", assistant_id="shimpz-cloudflare", action="list-zones", input=LOOKUP_INPUT
+        )
+        evidence = local_app.action_execution.ActionInvocationEvidence(
+            local_app.action_execution.RpcPrivateInputs({}, {}),
+            action_human.ActionTranscript(""),
+            "a" * 64,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        )
+
+        def refused(*_args):
+            try:
+                raise action_execution.RpcExchangeError(
+                    "timeout", "deadline-expired-before-dispatch"
+                ) from action_execution.DispatchRefusedError("the turn was stopped before its Docker call could run")
+            except action_execution.RpcExchangeError as exc:
+                raise local_app.ApiProblem(HTTPStatus.GATEWAY_TIMEOUT, "timed out", code="assistant-timeout") from exc
+
+        def ran(*_args):
+            raise local_app.ApiProblem(
+                HTTPStatus.GATEWAY_TIMEOUT, "timed out", code="assistant-timeout"
+            ) from action_execution.RpcExchangeError("timeout")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, object())
+            service = controller.chat_turn_service
+            frozen = controller.assistant_lifecycle._assistant_container("team_1", "shimpz-cloudflare").id
+            service._active_chat_tokens["team_1"] = "turn-token"
+            service._cancelled_chat_tokens.add("turn-token")
+            controller.assistant_lifecycle._rpc = lambda *_args: self.fail("a stopped turn dispatched its Action")
+            # Stopped before the RPC: nothing was dispatched, and the stop says so.
+            with self.assertRaises(chat_orchestrator.ChatStoppedError) as before:
+                service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
+            self.assertTrue(action_execution.never_dispatched(before.exception))
+            service._cancelled_chat_tokens.clear()
+            outcomes = []
+            for rpc in (refused, ran):
+
+                def stopping_rpc(*args, rpc=rpc):
+                    service._cancelled_chat_tokens.add("turn-token")
+                    return rpc(*args)
+
+                controller.assistant_lifecycle._rpc = stopping_rpc
+                with (
+                    mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
+                    self.assertRaises(chat_orchestrator.ChatStoppedError) as stopped,
+                ):
+                    service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
+                service._cancelled_chat_tokens.clear()
+                outcomes.append(action_execution.never_dispatched(stopped.exception))
+        # A refusal before dispatch is kept; an RPC that may have run never reads as never dispatched.
+        self.assertEqual(outcomes, [True, False])
 
     def test_chat_never_exposes_or_executes_an_unselected_assistant(self) -> None:
         class Runtime:

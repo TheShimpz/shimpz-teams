@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -401,11 +404,11 @@ class NeverDispatchedTests(unittest.TestCase):
         real = action_execution._bounded_call
         calls = []
 
-        def second_refused(call, deadline):
+        def second_refused(call, deadline, *stopped):
             calls.append(call)
             if len(calls) > 1:
                 raise action_execution.DispatchRefusedError("Docker capacity stayed saturated")
-            return real(call, deadline)
+            return real(call, deadline, *stopped)
 
         def execute(_request, _evidence, _operation_id):
             try:
@@ -432,6 +435,48 @@ class NeverDispatchedTests(unittest.TestCase):
             api.exec_inspect.assert_not_called()
             self.assertIsNotNone(journal.uncertain_fingerprint("generation-1"))
 
+    def test_a_turn_stopped_while_waiting_for_capacity_never_ran_its_attempt(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
+        api = mock.Mock()
+        saturated = mock.Mock(acquire=mock.Mock(side_effect=lambda timeout: time.sleep(timeout) or False))
+        stop = threading.Event()
+
+        def hosted_cancelled(exc):
+            # The hosted profile raises its stopped problem from the refusal it observed.
+            raise RuntimeError("brain turn stopped") from exc
+
+        def execute(_request, _evidence, _operation_id):
+            strategy = dataclasses.replace(_rpc_strategy(api), timeout=30, cancelled=hosted_cancelled)
+            threading.Timer(0.2, stop.set).start()
+            return action_execution.rpc_exchange("container", ["command"], b"request", strategy)
+
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            batch = action_execution.ActionBatch(
+                journal,
+                "generation-1",
+                "thread-1",
+                {"assistant": binding},
+                action_execution.ActionBatchStrategy(
+                    lambda item: (item.container_id, item.spec.image),
+                    execute,
+                    lambda _request: None,
+                    stopped=stop.is_set,
+                ),
+            )
+            batch.prepare((request,))
+            started = time.monotonic()
+            with (
+                mock.patch.object(action_execution, "_DOCKER_CALL_SLOTS", saturated),
+                self.assertRaisesRegex(RuntimeError, "brain turn stopped"),
+            ):
+                batch.invoke(request)
+            self.assertLess(time.monotonic() - started, 2.0)
+            api.exec_create.assert_not_called()
+            self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
+            self.assertTrue(batch.terminate())
     def test_a_refusal_buried_beyond_the_bounded_cause_chain_is_not_trusted(self) -> None:
         current: BaseException = action_execution.DispatchRefusedError("refused")
         for depth in range(8):

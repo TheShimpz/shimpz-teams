@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+import contextvars
 import dataclasses
 import hashlib
 import json
@@ -11,8 +12,8 @@ import socket
 import struct
 import threading
 import time
-from collections.abc import Callable, Mapping
-from contextlib import AbstractContextManager, nullcontext, suppress
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
@@ -181,6 +182,8 @@ class ActionBatchStrategy:
     # Admits one request's execution before its attempt is journaled: a file delivery holds the one file-RPC slot
     # here, so a refused or stopped wait leaves the journal unchanged (ADR-0093).
     admit: Callable[[object, object], AbstractContextManager[None]] = lambda _request, _evidence: nullcontext()
+    # Whether the turn was stopped; an RPC waiting for Docker capacity observes it and is refused before dispatch.
+    stopped: Callable[[], bool] = lambda: False
 
 
 class ActionBatch:
@@ -274,7 +277,7 @@ class ActionBatch:
             current_operation != operation and self._operation(request, self._origins) != operation
         ):
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
-        with self._strategy.admit(request, evidence):
+        with self._strategy.admit(request, evidence), observing_stop(self._strategy.stopped):
             return self._execute(request, operation, evidence)
 
     def _execute(self, request: object, operation: action_journal.Operation, evidence: object) -> object:
@@ -534,11 +537,46 @@ _DOCKER_CALLS = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_DOCKER_CAL
 _DOCKER_CALL_SLOTS = threading.BoundedSemaphore(MAX_DOCKER_CALLS)
 
 
-def _bounded_call[T](call: Callable[[], T], deadline: float) -> concurrent.futures.Future[T]:
-    """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget."""
-    remaining = deadline - time.monotonic()
-    if remaining <= 0 or not _DOCKER_CALL_SLOTS.acquire(timeout=remaining):
-        raise DispatchRefusedError("the Action deadline passed before its Docker call could run")
+# The turn's Stop, observed by an RPC while it waits for Docker capacity to dispatch its workload.
+_STOPPED: contextvars.ContextVar[Callable[[], bool]] = contextvars.ContextVar(
+    "action_rpc_stopped", default=lambda: False
+)
+_SLOT_POLL_SECONDS = 0.25
+
+
+@contextmanager
+def observing_stop(stopped: Callable[[], bool]) -> Iterator[None]:
+    """Let every RPC this block dispatches observe the turn's Stop while it waits for Docker capacity."""
+    token = _STOPPED.set(stopped)
+    try:
+        yield
+    finally:
+        _STOPPED.reset(token)
+
+
+def _never() -> bool:
+    return False
+
+
+def _bounded_call[T](
+    call: Callable[[], T], deadline: float, stopped: Callable[[], bool] = _never
+) -> concurrent.futures.Future[T]:
+    """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget.
+
+    The wait is sliced so a stopped turn is refused promptly; Docker calls already running keep their slots.
+    """
+    while True:
+        if stopped():
+            raise DispatchRefusedError("the turn was stopped before its Docker call could run")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DispatchRefusedError("the Action deadline passed before its Docker call could run")
+        if _DOCKER_CALL_SLOTS.acquire(timeout=min(_SLOT_POLL_SECONDS, remaining)):
+            break
+    if stopped():
+        # Stop may win while the wait succeeds; the slot is returned before anything runs.
+        _DOCKER_CALL_SLOTS.release()
+        raise DispatchRefusedError("the turn was stopped before its Docker call could run")
     try:
         future = _DOCKER_CALLS.submit(call)
     except BaseException:
@@ -572,7 +610,7 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
             raise DispatchRefusedError("the Action deadline passed before dispatch")
         return exec_id, strategy.api.exec_start(exec_id, socket=True)
 
-    future = _bounded_call(setup, deadline)
+    future = _bounded_call(setup, deadline, _STOPPED.get())
     try:
         return future.result(timeout=max(0.0, deadline - time.monotonic()))
     except concurrent.futures.TimeoutError as exc:
