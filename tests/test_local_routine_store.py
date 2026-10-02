@@ -420,3 +420,24 @@ class ExclusionTests(StoreCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConcurrentReadTests(StoreCase):
+    def test_a_listing_read_that_races_a_replace_reads_again_and_a_lasting_failure_still_fails(self) -> None:
+        put(self.store, "team_1", busy_state())
+        real = routine_store._PRIVATE.read_private_file
+        failures = [routine_store.RoutineStoreError("Routine state failed its ownership contract")] * 2
+
+        def racing(path, maximum, label):
+            if failures:
+                raise failures.pop()
+            return real(path, maximum, label)
+
+        with mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=racing):
+            self.assertEqual(self.store.teams(), ("team_1",))
+        broken = routine_store.RoutineStoreError("Routine state failed its ownership contract")
+        with (
+            mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=broken),
+            self.assertRaisesRegex(routine_store.RoutineStoreError, "ownership"),
+        ):
+            self.store.teams()

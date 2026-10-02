@@ -40,6 +40,8 @@ MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
 # Holds the compact evidence and the recovery snapshot it copies: a 64 KiB plan plus its binding and grant.
 MAX_INCIDENT_BYTES = 192 * 1024
+# Reads of one state file that may race its atomic replace before a failure is taken as real.
+UNLOCKED_READ_ATTEMPTS = 3
 MAX_RECOVERY_BYTES = 128 * 1024
 _TEAM_ID_RE = re.compile(r"[a-z0-9_]{1,40}\Z")
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
@@ -118,6 +120,20 @@ _STATE_FIELDS = frozenset(
         "receipts",
     }
 )
+
+
+def _read_unlocked(path: Path) -> bytes | None:
+    """A state file read without its Team's lock, which the Team is only known from once it is read.
+
+    A writer's atomic replace can unlink the very file a reader just opened, which then fails the ownership contract
+    for that one read; reading again sees the replacement, and a file that keeps failing really breaks it.
+    """
+    for _attempt in range(UNLOCKED_READ_ATTEMPTS - 1):
+        try:
+            return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
+        except RoutineStoreError:
+            continue
+    return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
 
 
 class RoutineStoreError(RuntimeError):
@@ -495,8 +511,10 @@ class RoutineStore:
         return self.root / hashlib.sha256(team_id.encode()).hexdigest()
 
     def load(self, team_id: object) -> record.TeamRoutines:
+        """The Team's current state, read under its lock so a concurrent atomic replace is never seen half-done."""
         team = _team_id(team_id)
-        payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
+        with self.lock(team):
+            payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
         return record.TeamRoutines() if payload is None else _decode(payload, team)
 
     def _save(self, team: str, state: record.TeamRoutines) -> None:
@@ -548,7 +566,7 @@ class RoutineStore:
         teams = []
         for name in self._owned_directories():
             directory = self.root / name
-            payload = _PRIVATE.read_private_file(directory / "state.json", MAX_STATE_BYTES, "Routine state")
+            payload = _read_unlocked(directory / "state.json")
             if payload is None:
                 continue
             try:
