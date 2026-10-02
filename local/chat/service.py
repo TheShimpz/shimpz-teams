@@ -187,6 +187,7 @@ class ChatTurnService:
     open_routine_card = local_routine_card.open_card
     answer_routine_card = local_routine_card.answer_card
     resume_routine = local_routine_incident.resume_routine
+    pause_routine = local_routine_incident.pause_routine
     claim_routine_run = local_routine_run.claim_routine_run
     next_routine_due = local_routine_run.next_routine_due
     run_routine = local_routine_compiled.run_routine

@@ -155,20 +155,22 @@ and, when the evidence let the already-authorized run go on, how its continuatio
 Pausar `paused`, each with a `null` verdict. An expired, foreign, or reused card is `routine-card-expired`, and one
 whose Routine revision, Team incarnation, held generation, or operation changed since it opened is `routine-card-stale`;
 every answer is checked and applied in the Team's execution slot, and Pular and Pausar check the same state again in
-their own write. `POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back on and starts a
-fresh failure streak; an unresolved incident still holds the Routine until its card settles it.
+their own write. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns a Routine's dispatch off,
+answering `paused` true, while a run already going finishes; `POST /v1/teams/:team_id/routines/:routine_id/resume` with
+`{}` turns dispatch back on and starts a fresh failure streak; an unresolved incident still holds the Routine until its
+card settles it.
 
-A Local Supervisor reads one Routine run's execution details (ADR-0092) with
-`GET /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and
-run ids and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the
-version 4 UUID Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action and recording instant.
-Each holds exactly one of a `failure`, the Team-sanitized handled failure (`error_type`, `message`, `provider`,
-`http_status`, `response_excerpt`, and the `redacted` and `truncated` flags, with the Assistant Spec bounds), or a
-`condition`, the safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `frame-invalid`,
-`exit-unavailable`, or `transport-failed`); raw child output is never reflected. Text is literal evidence that Admin
-renders escaped, never as Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these
-bodies encrypted for at most seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting
-the Routine or the Team removes them.
+A Local Supervisor reads one Routine run's execution details (ADR-0092) with `GET
+/v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and run ids
+and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the version 4 UUID
+Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action and recording instant. Each holds exactly
+one of a `failure`, the Team-sanitized handled failure (`error_type`, `message`, `provider`, `http_status`,
+`response_excerpt`, and the `redacted` and `truncated` flags, with the Assistant Spec bounds), or a `condition`, the
+safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `frame-invalid`, `exit-unavailable`, or
+`transport-failed`); raw child output is never reflected. Text is literal evidence that Admin renders escaped, never as
+Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these bodies encrypted for at most
+seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting the Routine or the Team removes
+them.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants

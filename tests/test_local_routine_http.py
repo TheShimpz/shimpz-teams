@@ -433,14 +433,19 @@ class RecoveryRouteTests(RoutineHttpCase):
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/{value.routine_id}/resume", b'{"x":1}', 422, "invalid-body"),
+                    (f"{base}/{'f' * 32}/pause", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/bad/pause", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/{value.routine_id}/pause", b'{"x":1}', 422, "invalid-body"),
                 )
                 for path, body, code, problem in cases:
                     with self.subTest(path=path, body=body):
                         status, _type, raw = self.request("POST", path, body)
                         self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
-                service.routine_store.update(
-                    "team_1", lambda state: (record.set_paused(state, value.routine_id, True), None)
-                )
+                # Pausar turns the whole Routine's dispatch off; Retomar turns it back on.
+                status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/pause", EMPTY)
+                paused = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
+                self.assertEqual(paused, {"team_id": "team_1", "routine_id": value.routine_id, "paused": True})
+                self.assertTrue(record.routine(self.state(service), value.routine_id).paused)
                 status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/resume", EMPTY)
                 resumed = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
                 self.assertEqual(resumed, {"team_id": "team_1", "routine_id": value.routine_id, "paused": False})

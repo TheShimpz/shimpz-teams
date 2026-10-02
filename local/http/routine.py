@@ -39,6 +39,7 @@ BODY_LIMITS = {
     "routine-card-open": MAX_BODY_BYTES,
     "routine-card-answer": MAX_BODY_BYTES,
     "routine-resume": MAX_BODY_BYTES,
+    "routine-pause": MAX_BODY_BYTES,
 }
 _RUN_ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 
@@ -102,9 +103,12 @@ def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dic
     return service.answer_routine_card(team_id, incident_id, handler._body(max_bytes=BODY_LIMITS[route.operation]))
 
 
-def _resume(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
+def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, paused: bool) -> dict[str, object]:
+    """A person's Pausar or Retomar of a whole Routine, with an empty body."""
     _empty(handler, route.operation)
-    return handler.server.controller.chat_turn_service.resume_routine(team_id, route.params["routine_id"])
+    service = handler.server.controller.chat_turn_service
+    change = service.pause_routine if paused else service.resume_routine
+    return change(team_id, route.params["routine_id"])
 
 
 def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
@@ -116,7 +120,8 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
         "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
         "routine-card-open": lambda: _card(handler, route, team_id),
         "routine-card-answer": lambda: _card(handler, route, team_id),
-        "routine-resume": lambda: _resume(handler, route, team_id),
+        "routine-resume": lambda: _pause(handler, route, team_id, False),
+        "routine-pause": lambda: _pause(handler, route, team_id, True),
     }
     operation = operations.get(route.operation)
     return operation() if operation is not None else _run(handler, route, team_id)
