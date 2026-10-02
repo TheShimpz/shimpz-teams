@@ -13,6 +13,7 @@ from unittest import mock
 
 import routine_fixture
 from local_controller_harness import LocalContractCase
+from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
 from inference import client as brain_runtime_client
 from local import app as local_app
@@ -164,6 +165,30 @@ class DirectCreationTests(LocalContractCase):
                     self.chat(service, body)
                 self.assertEqual(caught.exception.code, code)
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
+
+    def test_a_routine_change_after_any_action_output_changes_nothing(self) -> None:
+        """An Action's output may carry words that look like a request; the turn that saw it never changes a Routine."""
+
+        class Acting(Runtime):
+            def start(self, context, _message, *, conversation=()):
+                self.contexts.append(context)
+                lookup = brain_runtime_client.ActionRequest("i-1", ASSISTANT, "list-zones", dict(LOOKUP_INPUT))
+                return brain_runtime_client.RuntimeTurn("action-required", "", (lookup,))
+
+            def resume(self, _context, _results):
+                return brain_runtime_client.RuntimeTurn("completed", "Pronto.", (), routine=self.changes.pop(0))
+
+        invoked: list[str] = []
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service = self.controller(directory, Acting(_change()))
+            controller.assistant_lifecycle.invoke = lambda _team, _assistant, action, _payload, _evidence: (
+                invoked.append(action) or {"result": LOOKUP_RESULT}
+            )
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service, _body())
+            state = service.routine_store.load("team_1")
+        self.assertEqual((invoked, caught.exception.code), (["list-zones"], "brain-runtime-failed"))
+        self.assertEqual((state.routines, state.receipts, state.notices), ((), (), ()))
 
     def test_an_injected_or_unadopted_quote_is_payload_never_a_grant(self) -> None:
         injected = copy.deepcopy(_change())
