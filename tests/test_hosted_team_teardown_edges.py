@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_dynamic_assistants import runtime_resolution
 
 lifecycle = harness.hosted_lifecycle
 resources = harness.hosted_resources
@@ -192,6 +194,48 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
                 mock.patch.object(state._dynamic_assistants, "delete", side_effect=delete_error),
             ):
                 self.assertFalse(lifecycle._teardown_assistants(TEAM_ID))
+
+    def test_team_deletion_discards_only_unreferenced_icons_and_keeps_the_binding_to_retry(self) -> None:
+        shared = runtime_resolution()
+        own = {**runtime_resolution(), "source_digest": "sha256:" + "e" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = lifecycle.dynamic_assistants.DynamicAssistantStore(root / "bindings.json")
+            icon_store = lifecycle.assistant_icons.AssistantIconStore(root / "icons")
+            store.put(TEAM_ID, own)
+            store.put("team_2", shared)
+            (root / "icons").mkdir()
+            icons = {
+                digest: root / "icons" / f"published-{digest.removeprefix('sha256:')}.png"
+                for digest in (own["source_digest"], shared["source_digest"])
+            }
+            for path in icons.values():
+                path.write_bytes(b"icon")
+            with (
+                mock.patch.object(state, "_dynamic_assistants", store),
+                mock.patch.object(state, "_assistant_icons", icon_store),
+                mock.patch.object(lifecycle.assistant_lifecycle, "_team_assistant_containers", return_value=[]),
+                mock.patch.object(
+                    lifecycle.assistant_lifecycle,
+                    "_teardown_assistant",
+                    return_value=resources._CleanupResult(True, True),
+                ),
+            ):
+                with mock.patch.object(Path, "unlink", side_effect=OSError("read-only")):
+                    self.assertFalse(lifecycle._teardown_assistants(TEAM_ID))
+                self.assertIsNotNone(store.get(TEAM_ID, own["assistant_id"]))
+                self.assertTrue(icons[own["source_digest"]].exists())
+
+                self.assertTrue(lifecycle._teardown_assistants(TEAM_ID))
+                self.assertEqual(store.list(TEAM_ID), ())
+                self.assertFalse(icons[own["source_digest"]].exists())
+                self.assertTrue(icons[shared["source_digest"]].exists())
+                # A Team that binds the same publication as another Team never removes the other Team's icon.
+                store.put(TEAM_ID, shared)
+                self.assertTrue(lifecycle._teardown_assistants(TEAM_ID))
+                self.assertTrue(icons[shared["source_digest"]].exists())
+                self.assertTrue(lifecycle._teardown_assistants("team_2"))
+                self.assertFalse(icons[shared["source_digest"]].exists())
 
     def test_storage_inference_and_integration_teardown_fail_closed(self) -> None:
         with (

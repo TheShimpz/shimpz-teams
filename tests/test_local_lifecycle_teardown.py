@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
@@ -10,10 +11,15 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
+from test_local_publication_install import ICON, _runtime_resolution
 
+from install.bindings import DynamicAssistantStore
+from install.icons import AssistantIconError, AssistantIconStore
 from local import app as local_app
 from local import labels as local_labels
+from local import lifecycle as local_team_lifecycle
 from local.install import runtime as local_runtime
+from local.install.registry import AssistantRegistry
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
 TEST_ACCOUNT_REFRESH_TOKEN = "-".join(("oauth", "refresh", "test", "token", "123456789"))
@@ -198,6 +204,39 @@ class LocalLifecycleTeardownTests(LocalContractCase):
 
         self.assertEqual(caught.exception.code, "assistant-registry-drift")
         self.assertNotIn(("remove", True), events)
+
+    def test_team_deletion_discards_unreferenced_icons_and_keeps_the_binding_to_retry(self) -> None:
+        shared = _runtime_resolution()
+        own = {**_runtime_resolution(), "source_digest": "sha256:" + "e" * 64}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry = AssistantRegistry(DynamicAssistantStore(root / "bindings.json"))
+            registry.put("team_1", own)
+            registry.put("team_2", shared)
+            icon_store = AssistantIconStore(root / "icons")
+            for resolution in (own, shared):
+                with icon_store.retained(resolution, ICON, registry.bindings):
+                    pass
+            controller = SimpleNamespace(registry=registry, assistant_icons=icon_store, assistant_lifecycle=mock.Mock())
+            assistant_id = str(own["assistant_id"])
+
+            with (
+                mock.patch.object(Path, "unlink", side_effect=OSError("read-only")),
+                self.assertRaises(local_app.ApiProblem) as caught,
+            ):
+                local_team_lifecycle._remove_team_assistants(controller, "team_1", [])
+            self.assertEqual(caught.exception.code, "assistant-icon-unavailable")
+            self.assertIsNotNone(registry.binding("team_1", assistant_id))
+            self.assertEqual(icon_store.read(own), ICON)
+
+            self.assertEqual(local_team_lifecycle._remove_team_assistants(controller, "team_1", []), 0)
+            self.assertIsNone(registry.binding("team_1", assistant_id))
+            with self.assertRaises(AssistantIconError):
+                icon_store.read(own)
+            # Another Team's binding of the same publication keeps its icon.
+            registry.put("team_1", shared)
+            local_team_lifecycle._remove_team_assistants(controller, "team_1", [])
+            self.assertEqual(icon_store.read(shared), ICON)
 
     def test_team_teardown_does_not_require_a_retiring_egress_policy(self) -> None:
         controller, container, events = self._lifecycle_controller()

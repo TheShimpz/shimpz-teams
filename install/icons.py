@@ -112,6 +112,17 @@ class AssistantIconStore:
     def discard_binding(self, retired: DynamicAssistantBinding, references: References) -> None:
         self._discard(_binding_identity(retired), references)
 
+    def discard_retiring(self, retiring: DynamicAssistantBinding, references: References) -> None:
+        """Discard a binding's icon before the binding itself is deleted, unless another binding or install holds it.
+
+        The retiring binding stays the retry anchor: when this removal fails, its owner keeps the binding and retries.
+        """
+        owner = (retiring.team_id, retiring.assistant_id)
+        self._discard(
+            _binding_identity(retiring),
+            lambda: tuple(item for item in references() if (item.team_id, item.assistant_id) != owner),
+        )
+
     def _discard(self, identity: _IconIdentity, references: References) -> None:
         path = self._path(identity)
         with self._custody:

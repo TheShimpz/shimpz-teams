@@ -22,6 +22,7 @@ from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import bindings as dynamic_assistants
+from install import icons as assistant_icons
 from integrations import store as integration_store
 from storage import files as team_storage
 
@@ -161,12 +162,7 @@ def _teardown_assistants(team_id: str) -> bool:
             assistant_id,
             container=assistant_container,
         )
-        if result.artifacts_removed:
-            try:
-                runtime_state._dynamic_assistants.delete(team_id, assistant_id)
-            except dynamic_assistants.DynamicAssistantError:
-                cleanup_complete = False
-        else:
+        if not result.artifacts_removed or not _retire_binding(team_id, assistant_id):
             cleanup_complete = False
     try:
         remaining_bindings = runtime_state._dynamic_assistants.list(team_id)
@@ -178,14 +174,21 @@ def _teardown_assistants(team_id: str) -> bool:
             binding.assistant_id,
             container=None,
         )
-        if not result.artifacts_removed:
-            cleanup_complete = False
-            continue
-        try:
-            runtime_state._dynamic_assistants.delete(team_id, binding.assistant_id)
-        except dynamic_assistants.DynamicAssistantError:
+        if not result.artifacts_removed or not _retire_binding(team_id, binding.assistant_id):
             cleanup_complete = False
     return cleanup_complete
+
+
+def _retire_binding(team_id: str, assistant_id: str) -> bool:
+    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
+    try:
+        binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+        if binding is not None:
+            runtime_state._assistant_icons.discard_retiring(binding, runtime_state._dynamic_assistants.snapshot)
+        runtime_state._dynamic_assistants.delete(team_id, assistant_id)
+    except dynamic_assistants.DynamicAssistantError, assistant_icons.AssistantIconError:
+        return False
+    return True
 
 
 def _teardown_network_planes(team_id: str) -> bool:

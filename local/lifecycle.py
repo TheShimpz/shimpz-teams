@@ -10,6 +10,7 @@ from docker.errors import DockerException
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from install import icons
 from local import names as local_names
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
@@ -121,7 +122,7 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
             self.assistant_lifecycle._queue_residue(retired_image_id)
         self.assistant_lifecycle._blocked_action_workloads.discard(container.id)
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
-        self.registry.delete(team_id, assistant_id)
+        _retire_team_binding(self, team_id, assistant_id)
     for bound_team_id, assistant_id in sorted(self.registry.identities()):
         if bound_team_id != team_id:
             continue
@@ -133,9 +134,24 @@ def _remove_team_assistants(self, team_id: str, containers: list) -> int:
                 code="ownership-conflict",
             )
         self.assistant_lifecycle._remove_assistant_policy_if_needed(team_id, assistant_id, spec)
-        self.registry.delete(team_id, assistant_id)
+        _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     return len(containers)
+
+
+def _retire_team_binding(self, team_id: str, assistant_id: str) -> None:
+    """Discard the binding's unreferenced icon, then the binding; a failure keeps the binding to retry both."""
+    binding = self.registry.binding(team_id, assistant_id)
+    if binding is not None:
+        try:
+            self.assistant_icons.discard_retiring(binding, self.registry.bindings)
+        except icons.AssistantIconError as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant icon storage is unavailable",
+                code="assistant-icon-unavailable",
+            ) from exc
+    self.registry.delete(team_id, assistant_id)
 
 
 def _delete_team_persistence(self, team_id: str) -> bool:
@@ -338,7 +354,7 @@ def _remove_space_resources(
     absent.add("assistant_containers")
     for team_id, assistant_id in sorted(owned_assistants):
         self.assistant_lifecycle._remove_egress_policy(team_id, assistant_id)
-        self.registry.delete(team_id, assistant_id)
+        _retire_team_binding(self, team_id, assistant_id)
     self.assistant_lifecycle.sweep_residues()
     absent.update(("egress_policies", "publication_bindings"))
     for network in networks:

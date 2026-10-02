@@ -145,6 +145,19 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             def list(_team_id: str) -> tuple:
                 return tuple(bindings.values())
 
+            @staticmethod
+            def get(_team_id: str, assistant_id: str):
+                return bindings.get(assistant_id)
+
+            @staticmethod
+            def snapshot() -> tuple:
+                return tuple(bindings.values())
+
+        class IconStore:
+            @staticmethod
+            def discard_retiring(binding, _references) -> None:
+                events.append(("discard-icon", binding.assistant_id))
+
         def teardown(_team_id: str, assistant_id: str, *, container=None):
             events.append(("teardown", assistant_id, container))
             return hosted_resources._CleanupResult(True, True)
@@ -153,6 +166,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             mock.patch.object(assistant_lifecycle, "_team_assistant_containers", return_value=[container]),
             mock.patch.object(assistant_lifecycle, "_teardown_assistant", side_effect=teardown),
             mock.patch.object(runtime_state, "_dynamic_assistants", BindingStore()),
+            mock.patch.object(runtime_state, "_assistant_icons", IconStore()),
         ):
             complete = hosted_lifecycle._teardown_assistants("team_1")
 
@@ -162,8 +176,10 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             events,
             [
                 ("teardown", "alpha", container),
+                ("discard-icon", "alpha"),
                 ("delete-binding", "alpha"),
                 ("teardown", "beta", None),
+                ("discard-icon", "beta"),
                 ("delete-binding", "beta"),
             ],
         )
