@@ -545,10 +545,10 @@ def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Re
     """
 
     def expire() -> None:
-        reservation.expired.set()
         try:
-            # Bound to this execution's token: a late timer never stops a later recovery of the same incident.
-            routine_run.expire_routine_run(self, team_id, incident_id, token)
+            # Bound to this execution's token: a late timer never stops a later recovery of the same incident, and the
+            # deadline is marked as the cause only if no person stopped it first.
+            routine_run.expire_routine_run(self, team_id, incident_id, token, reservation.expired.set)
         except ApiProblem:
             local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
 
@@ -560,6 +560,11 @@ def _deadline(self, team_id: str, incident_id: str, token: str, reservation: _Re
         yield
     finally:
         timer.cancel()
+
+
+def _stopped(self, token: str, reservation: _Reservation) -> bool:
+    """Whether a person stopped the recovery: it was cancelled, and not by its own deadline."""
+    return self._chat_cancelled(token) and not reservation.expired.is_set()
 
 
 def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservation) -> bool:
@@ -578,16 +583,37 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
     verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, budgeted=True)
     if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
         verdict = _decide(self, team_id, incident_id, api_key, None)
+    if _stopped(self, run.token, reservation):
+        # A person's Stop is no failure and outranks anything later: an aborted Brain call is not unavailable, a
+        # deadline passing afterwards is not exhaustion, nothing is published, and the incident stays for the card.
+        return False
     if expired():
         verdict = "exhausted"
-    elif self._chat_cancelled(run.token):
-        # A person's Stop is no failure: an aborted Brain call is not unavailable, nothing is published, and the
-        # incident stays for the card.
-        return False
     reason = _PAUSES.get(verdict)
     if reason is not None:
         routine_incident.pause(self, team_id, incident_id, reason)
     return verdict in _GO_ON and not self._chat_cancelled(run.token)
+
+
+def _go_on(self, run: routine_run._Run, reservation: _Reservation, progress) -> str:
+    """Continue the already-authorized run inside what is left of the reservation, or hold it.
+
+    The retry is never dispatched without time left for it, and a continuation the deadline cuts, even between
+    steps, is held again with its partial evidence while the Routine pauses as exhausted.
+    """
+    team_id, incident_id = run.team_id, run.run_id
+    if refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
+        return "held"
+    left = max(0, math.floor(reservation.deadline - _clock()))
+    if _stopped(self, run.token, reservation):
+        return "held"
+    if not left:
+        routine_incident.pause(self, team_id, incident_id, "exhausted")
+        return "held"
+    outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
+    if outcome == "held" and reservation.expired.is_set():
+        routine_incident.pause(self, team_id, incident_id, "exhausted")
+    return outcome
 
 
 def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
@@ -596,10 +622,12 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
     The episode and its time are reserved durably from both the recovery budget and the run's active time first, and
     it runs registered with that deadline, so Stop, deletion, and the watchdog reach it and a restart never refills
     it. Linked verification comes first and needs no model; only a proven absence asks the Brain, once, whether the
-    same step should be retried, and that retry runs inside the same allowance. Unused time is returned at the end.
+    same step should be retried, and that retry runs inside the same allowance. Unused time is returned at the end. A
+    person's Stop outranks every other outcome: it publishes nothing.
     """
     team_id, incident_id = run.team_id, run.run_id
-    reservation = _reserve(self, team_id, incident_id)
+    # A person who stopped the run before its episode opened: nothing is reserved, spent, or published.
+    reservation = None if self._chat_cancelled(run.token) else _reserve(self, team_id, incident_id)
     if reservation is None:
         return "held"
     try:
@@ -612,21 +640,7 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
             _deadline(self, team_id, incident_id, run.token, reservation),
         ):
             try:
-                go_on = _episode(self, run, api_key, reservation)
-                if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
-                    return "held"
-                # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
-                left = max(0, math.floor(reservation.deadline - _clock()))
-                if not left:
-                    # No time is left for the retry: it is never dispatched.
-                    routine_incident.pause(self, team_id, incident_id, "exhausted")
-                    return "held"
-                outcome = continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
-                if outcome == "held" and reservation.expired.is_set():
-                    # The deadline cut the continuation, even between steps: its partial evidence is held again, and
-                    # the Routine pauses as exhausted instead of running another cycle.
-                    routine_incident.pause(self, team_id, incident_id, "exhausted")
-                return outcome
+                return _go_on(self, run, reservation, progress) if _episode(self, run, api_key, reservation) else "held"
             finally:
                 _release(self, team_id, incident_id, reservation)
     except ApiProblem:

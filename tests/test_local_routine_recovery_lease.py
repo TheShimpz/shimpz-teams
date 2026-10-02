@@ -233,12 +233,112 @@ class DeadlineBindingTests(AutomaticCase):
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             service.assistant_lifecycle._fail_stop_action = mock.Mock()
             routine_run.register_routine_run(service, "team_1", run_id, "later-execution", 60)
+            mark = mock.Mock()
             # The first execution's deadline fires late, after a new registration of the same incident.
-            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "first-execution"))
+            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "first-execution", mark))
             self.assertNotIn("later-execution", service._cancelled_chat_tokens)
-            self.assertFalse(routine_run.expire_routine_run(service, "team_2", run_id, "later-execution"))
-            self.assertTrue(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution"))
+            self.assertFalse(routine_run.expire_routine_run(service, "team_2", run_id, "later-execution", mark))
+            mark.assert_not_called()
+            self.assertTrue(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution", mark))
             self.assertIn("later-execution", service._cancelled_chat_tokens)
+            mark.assert_called_once_with()
+            # A deadline after a Stop changes nothing: the Stop stays its cause.
+            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution", mark))
+            mark.assert_called_once_with()
             routine_run.unregister_routine_run(service, run_id)
             # Once it ended, nothing is left for a deadline to stop.
-            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution"))
+            self.assertFalse(routine_run.expire_routine_run(service, "team_1", run_id, "later-execution", mark))
+
+
+class StopPrecedenceTests(AutomaticCase):
+    def test_a_stop_before_the_episode_opens_reserves_and_publishes_nothing_even_with_no_time_left(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
+            service.routine_store.update(
+                "team_1",
+                lambda state: (
+                    routine_hold._replace_incident(
+                        state, dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0)
+                    ),
+                    None,
+                ),
+            )
+            with service._exclusive_chat_turn("team_1") as token:
+                with service._active_chat_guard:
+                    service._cancelled_chat_tokens.add(token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                outcome = routine_recovery.automatic(service, run, "k")
+            state = self.state(service)
+            cursor = routine_recovery.routine_incident.open_recovery(service, "team_1", run_id).cursor
+        self.assertEqual(outcome, "held")
+        self.assertEqual(state.notices[-1].outcome, "held")
+        self.assertEqual(cursor.remaining("episodes"), 1)
+
+    def test_a_deadline_after_a_persons_stop_never_turns_it_into_exhaustion(self) -> None:
+        fired: list[object] = []
+
+        class Captured:
+            def __init__(self, _seconds, function) -> None:
+                self.daemon = False
+                fired.append(function)
+
+            def start(self) -> None:
+                return
+
+            def cancel(self) -> None:
+                return
+
+        box: list[object] = []
+
+        class Interrupted(Assistant):
+            def __call__(self, team, assistant, action, payload, evidence):
+                if action == "find-record":
+                    # The person stops the verification; its deadline passes right after.
+                    box[0].stop_routine("team_1", box[1])
+                    fired[-1]()
+                return super().__call__(team, assistant, action, payload, evidence)
+
+        assistant = Interrupted([failed()], [{"outcome": "not_occurred"}])
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, assistant)
+            service.assistant_lifecycle._fail_stop_action = mock.Mock()
+            box.extend((service, run_id))
+            ticks = iter([0.0, 0.0, 0.0])
+            with (
+                service._exclusive_chat_turn("team_1") as token,
+                mock.patch.object(routine_recovery.threading, "Timer", Captured),
+                mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 999.0)),
+            ):
+                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                outcome = routine_recovery.automatic(service, run, "k")
+            state = self.state(service)
+        self.assertEqual(outcome, "held")
+        # Neither the later deadline nor the clock running past it outranks the person's earlier Stop.
+        self.assertEqual(state.notices[-1].outcome, "held")
+        self.assertFalse(record.routine(state, value.routine_id).paused)
+
+    def test_nothing_continues_when_the_run_still_refuses_it_or_a_person_stopped_it_meanwhile(self) -> None:
+        real_episode = routine_recovery._episode
+
+        def stopped_after(service, run, api_key, reservation):
+            went_on = real_episode(service, run, api_key, reservation)
+            # The person's Stop lands right after the episode decided the run may go on.
+            routine_run.stop_routine_run(service, run.team_id, run.run_id)
+            return went_on
+
+        for name, episode in (("refused", lambda *_args: True), ("stopped", stopped_after)):
+            assistant = Assistant([failed(), RECORD], [{"outcome": "occurred", "result": RECORD}])
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                self.subTest(name=name),
+                mock.patch.object(routine_recovery, "_episode", side_effect=episode),
+            ):
+                service, _brain, value, run_id = self.held(directory, assistant)
+                with service._exclusive_chat_turn("team_1") as token:
+                    run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                    outcome = routine_recovery.automatic(service, run, "k")
+                state = self.state(service)
+                self.assertEqual(outcome, "held")
+                self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+                self.assertEqual(state.notices[-1].outcome, "held")
+                self.assertFalse(record.routine(state, value.routine_id).paused)

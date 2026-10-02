@@ -450,8 +450,14 @@ class DeadlineTests(BalanceCase):
     def test_a_deadline_whose_stop_cannot_be_proven_is_audited_and_still_expires(self) -> None:
         reservation = routine_recovery._Reservation(0, "g", 0.0)
         blocked = routine_recovery.ApiProblem(503, "x", code="assistant-action-blocked")
+
+        def unprovable(_service, _team, _run, _token, mark):
+            # The deadline is marked as the cause, then the Action's fail-stop cannot be proven.
+            mark()
+            raise blocked
+
         with (
-            mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=blocked),
+            mock.patch.object(routine_recovery.routine_run, "expire_routine_run", side_effect=unprovable),
             mock.patch.object(routine_recovery.local_audit, "record_request") as audited,
             routine_recovery._deadline(None, "team_1", "a" * 32, "token", reservation),
         ):
