@@ -25,13 +25,16 @@ from routine.request import Request as RoutineRequest
 
 @dataclass(frozen=True, slots=True)
 class RoutineSegment:
-    """One Routine run: the journal generation it bound, and ``batches``, which receives the held batch it prepares.
+    """One compiled Routine run (ADR-0092): its generation, its plan's runtime, and the held batch it prepares.
 
-    Its Brain thread and generation are both derived from the run id in the Team's current network, never supplied.
+    The runtime answers the run's turns from the plan in place of the Brain and seals each dispatch before its RPC
+    through ``dispatching``. The generation and journal thread label both derive from the run id in the Team's current
+    network, never supplied.
     """
 
     run_id: str
     generation: str
+    runtime: object
     batches: list[action_execution.HeldActionBatch] = field(default_factory=list)
 
 
@@ -54,7 +57,7 @@ class SegmentRequest:
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
     progress: chat_progress.Reporter = field(default_factory=chat_progress.Reporter)
-    # A Routine run (ADR-0086) runs in its own Brain thread and journal generation, both in the Team's current network,
+    # A compiled Routine run (ADR-0092) runs in its own journal generation in the Team's current network,
     # and holds an uncertain batch for a human instead of abandoning it.
     routine: RoutineSegment | None = None
     # The authenticated request of a new chat turn; only while it may still change a Routine, and only without files,
@@ -110,6 +113,13 @@ def _human_requirement(
     )
 
 
+def _knowledge(self, team_id: str) -> tuple[object, object]:
+    try:
+        return self.inference_store.load_knowledge(team_id)
+    except inference_config.InferenceConfigError as exc:
+        local_inference._raise_inference_problem(exc)
+
+
 def _routine_mutable(request: SegmentRequest) -> bool:
     """Whether this turn may change a Routine: a new chat turn's fresh authenticated request without files."""
     grant = request.routine_request
@@ -141,6 +151,9 @@ def _run_chat_segment_with_metadata(
         transcript = action_human.transcript_for(request.transcripts, action_request.interrupt_id)
         if not isinstance(private_inputs, action_execution.RpcPrivateInputs):
             raise action_journal.ActionJournalConflictError("Action private input evidence is unavailable")
+        if request.routine is not None:
+            # A compiled run's cursor names this logical operation and its exact input before the RPC (ADR-0092).
+            request.routine.runtime.dispatching(action_request, operation_id)
         return self._invoke_chat_action(
             request.team_id,
             request.token,
@@ -188,11 +201,9 @@ def _run_chat_segment_with_metadata(
             except action_journal.ActionJournalError as exc:
                 self._raise_chat_problem("drive-error", exc)
         genesis_by_id = {active.spec.assistant_id: self._active_assistant_genesis(active) for active in assistants}
-        try:
-            # Read at every segment; Brain keeps the knowledge a logical turn started with across resumes.
-            memories, skills = self.inference_store.load_knowledge(request.team_id)
-        except inference_config.InferenceConfigError as exc:
-            local_inference._raise_inference_problem(exc)
+        # A compiled Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
+        # Brain keeps what a logical turn started with across resumes.
+        memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
         runtime_assistants = tuple(
             runtime_assistant(active, genesis_by_id[active.spec.assistant_id]) for active in assistants
         )
@@ -211,8 +222,8 @@ def _run_chat_segment_with_metadata(
             model=config.model,
             api_key=request.api_key,
             effort=config.effort,
-            memories=tuple(memories),
-            skills=chat_knowledge.turn_skills(skills, runtime_assistants),
+            memories=None if routine is not None else tuple(memories),
+            skills=None if routine is not None else chat_knowledge.turn_skills(skills, runtime_assistants),
             routines=routines,
             knowledge_writable=routine is None,
             locale=request.locale,
@@ -271,7 +282,7 @@ def _run_chat_segment_with_metadata(
 
     team_name, identity, outcome, requirements = chat_turn_engine.run_segment(
         chat_turn_engine.SegmentStrategy(
-            runtime=self.brain_runtime,
+            runtime=self.brain_runtime if request.routine is None else request.routine.runtime,
             prepare=prepare,
             validate_action=lambda assistant_id, action, payload: self._validate_chat_action(
                 bindings,

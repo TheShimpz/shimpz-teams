@@ -1,4 +1,4 @@
-"""Destroying a Team or resetting the Space removes every Routine run's Brain thread, journal generation, and state."""
+"""Destroying a Team or resetting the Space removes every Routine run's journal generation and state."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ import routine_fixture
 
 from action import challenges as action_challenges
 from action import journal as action_journal
-from inference import client as brain_runtime_client
 from local.errors import ApiProblemError
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
@@ -68,7 +67,6 @@ class RoutineLifecycleTests(unittest.TestCase):
             routine_diagnostics=routine_diagnostics.DiagnosticStore(
                 root / "diagnostics", root / "diagnostics-key" / "k"
             ),
-            brain_runtime=SimpleNamespace(delete_thread=lambda thread_id: self.events.append(("thread", thread_id))),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
             routine_lineage=routine_lineage.LineageBook(),
@@ -81,10 +79,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         self.assertEqual(
             self.events,
-            [
-                ("thread", routine_thread_id("local-space", "team_1", NETWORK, run_id)),
-                ("purge", f"{NETWORK}:routine:{run_id}"),
-            ],
+            [("purge", f"{NETWORK}:routine:{run_id}")],
         )
         self.assertEqual(
             (self.subject.routine_store.teams(), self.subject.routine_store.continuations("team_1")), ((), ())
@@ -115,7 +110,7 @@ class RoutineLifecycleTests(unittest.TestCase):
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
         self.assertEqual(
             self.events,
-            [("thread", routine_thread_id("local-space", "team_1", NETWORK, run_id)), ("purge", generation)],
+            [("purge", generation)],
         )
         self.assertEqual(self.subject.routine_store.teams(), ())
 
@@ -139,10 +134,7 @@ class RoutineLifecycleTests(unittest.TestCase):
 
             return raise_error
 
-        cases = (
-            ("brain_runtime", "delete_thread", brain_runtime_client.BrainRuntimeError("down"), "brain-runtime-failed"),
-            ("action_state", "purge", action_journal.ActionJournalError("down"), "action-state-unavailable"),
-        )
+        cases = (("action_state", "purge", action_journal.ActionJournalError("down"), "action-state-unavailable"),)
         for owner, method, error, code in cases:
             with self.subTest(code=code):
                 original = getattr(self.subject, owner)

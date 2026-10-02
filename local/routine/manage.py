@@ -7,11 +7,10 @@ import time
 from http import HTTPStatus
 
 from action import journal as action_journal
-from inference import client as brain_runtime_client
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import state as routine_state
-from local.validation import routine_thread_id, validate_team_id
+from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import record
 
@@ -63,16 +62,14 @@ def list_routines(self, team_id: str) -> dict[str, object]:
 
 
 def _discard(self, team_id: str, run_id: str, generation: str, *, incident: bool) -> None:
-    """Remove one ended run's Brain thread, live journal batch, continuation, and cursor; each removal is idempotent.
+    """Remove one ended run's live journal batch, continuation, and cursor; each removal is idempotent.
 
     An archive marker and a cursor its incident still needs stay (ADR-0092).
     """
     if generation:
-        network_id = generation.removesuffix(f":routine:{run_id}")
         try:
-            self.brain_runtime.delete_thread(routine_thread_id(self.space_id, team_id, network_id, run_id))
             self.action_state.discard(generation)
-        except (brain_runtime_client.BrainRuntimeError, action_journal.ActionJournalError) as exc:
+        except action_journal.ActionJournalError as exc:
             raise _problem(
                 HTTPStatus.SERVICE_UNAVAILABLE, "Routine run state could not be removed", "routine-state-unavailable"
             ) from exc

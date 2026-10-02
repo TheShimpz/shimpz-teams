@@ -1,15 +1,13 @@
-"""Remove a Team's Routines without residue: each run's Brain thread and journal generation, its state, diagnostics."""
+"""Remove a Team's Routines without residue: each run's journal generation, its state, and its diagnostics."""
 
 from __future__ import annotations
 
 from http import HTTPStatus
 
 from action import journal as action_journal
-from inference import client as brain_runtime_client
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
 from local.routine import store as routine_store
-from local.validation import routine_thread_id
 
 
 def _unavailable(message: str, code: str) -> ApiProblem:
@@ -17,7 +15,7 @@ def _unavailable(message: str, code: str) -> ApiProblem:
 
 
 def delete_team_routines(self, team_id: str) -> None:
-    """Delete every live or queued Routine run's Brain thread and journal generation, then the Team's Routine state.
+    """Delete every live or queued Routine run's journal generation, then the Team's Routine state.
 
     A run's generation names the network it ran in, so this works even after a crash removed the Team network. The
     Team's Routine lock is held throughout, so no transition can add a run that this cleanup would miss.
@@ -41,14 +39,9 @@ def _delete_team_routines(self, team_id: str) -> None:
             *((item.incident_id, item.generation) for item in state.incidents),
         )
     )
-    for run_id, generation in held:
+    for _run_id, generation in held:
         if not generation:
             continue
-        network_id = generation.removesuffix(f":routine:{run_id}")
-        try:
-            self.brain_runtime.delete_thread(routine_thread_id(self.space_id, team_id, network_id, run_id))
-        except brain_runtime_client.BrainRuntimeError as exc:
-            raise _unavailable("Team Routine state could not be deleted", "brain-runtime-failed") from exc
         try:
             self.action_state.purge(generation)
         except action_journal.ActionJournalError as exc:

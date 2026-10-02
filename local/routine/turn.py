@@ -64,7 +64,7 @@ def _expired() -> ApiProblem:
     )
 
 
-def _contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, str], routine_plan.ActionContract]:
+def contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, str], routine_plan.ActionContract]:
     """Each Action of the turn's Assistants with its complete current pin and reviewed input schema."""
     return {
         (active.spec.assistant_id, action_id): routine_plan.ActionContract(
@@ -110,7 +110,8 @@ def admit_change(self, response: object, proposed: dict[str, object]) -> Callabl
         compiled = routine_change.compile_change(
             change,
             routine_change.Words(request.message, request.excluded),
-            _contracts(assistants, request.locale or "en"),
+            # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
+            contracts(assistants, routine_pin.SCOPE_LOCALE),
             None if existing is None else existing.plan,
             request.timezone or DEFAULT_TIMEZONE,
         )

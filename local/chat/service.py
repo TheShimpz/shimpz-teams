@@ -21,6 +21,7 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import compiled as local_routine_compiled
 from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
 from local.routine import lineage as local_routine_lineage
@@ -164,7 +165,7 @@ class ChatTurnService:
     _chat_routines = local_routine_turn.chat_routines
     _routine_change = local_routine_turn.admit_change
     claim_routine_run = local_routine_run.claim_routine_run
-    run_routine = local_routine_run.run_routine
+    run_routine = local_routine_compiled.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run
     list_routines = local_routine_manage.list_routines
     delete_routine = local_routine_manage.delete_routine

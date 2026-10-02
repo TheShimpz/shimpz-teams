@@ -1,4 +1,4 @@
-"""Local Routine runs: a fair claim across Teams, then one isolated run segment under its lease (ADR-0086)."""
+"""Local Routine runs: a fair claim across Teams, the lease and Stop of a run, and how a segment ends (ADR-0086)."""
 
 from __future__ import annotations
 
@@ -11,21 +11,16 @@ from dataclasses import dataclass
 from http import HTTPStatus
 
 from action import human as action_human
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
-from chat import progress as chat_progress
 from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
 from local.chat import continuation as local_chat_continuations
-from local.chat.segment import RoutineSegment, SegmentRequest
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
 from local.routine import turn as routine_turn
-from local.validation import validate_team_id
-from protocol.http.v1 import routine as http_routine
 from routine import record
 
 
@@ -157,16 +152,6 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     return None
 
 
-def _names(actions: tuple[object, ...]) -> list[list[str]]:
-    """Bounded Assistant and Action identities for a notice; never an Action's input or result."""
-    names: list[list[str]] = []
-    for action in actions:
-        pair = [action.assistant_id, action.action]
-        if pair not in names:
-            names.append(pair)
-    return names[: http_routine.MAX_NOTICE_ACTIONS]
-
-
 def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object], fingerprint: str = "") -> str:
     now = int(time.time())
     routine_state.update(
@@ -188,24 +173,26 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
     return routine_state.update(self, run.team_id, finish)
 
 
-def _save_skill(self, team_id: str, terminal: chat_orchestrator.ChatOutcome) -> None:
-    """A completed run teaches its procedure like a chat turn (ADR-0085); it never changes memory."""
-    skill = chat_knowledge.learned_skill(terminal.actions)
-    if skill is None:
-        return
-    try:
-        self.inference_store.apply_knowledge(team_id, [], skill)
-    except inference_config.InferenceConfigError as exc:
-        raise _problem(HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", "memory-store-failed") from exc
+def finished(self, run: _Run) -> str:
+    """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked."""
+    if not self._commit_chat_terminal(run.team_id, run.token):
+        return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
+    return _finish(self, run, "done", {"reply": run.routine.name})
 
 
-def _complete(self, run: _Run, terminal: chat_orchestrator.ChatOutcome) -> str:
-    if not self._commit_chat_terminal(run.team_id, run.token, lambda: _save_skill(self, run.team_id, terminal)):
-        return _end(self, run.team_id, run.run_id, "stopped", {"actions": _names(terminal.actions)})
-    if terminal.clarification is not None:
-        return _finish(self, run, "needs-input", {"question": terminal.clarification["question"]})
-    reply = terminal.reply.strip()[: http_routine.MAX_NOTICE_REPLY_CHARS].strip() or "Done."
-    return _finish(self, run, "done", {"reply": reply})
+def suspended(self, run: _Run, segment) -> str:
+    """A compiled run paused for a person or an Integration: keep its continuation and freeze it."""
+    outcome = segment.outcome
+    pending = PendingLocalChat(
+        continuation=outcome.continuation,
+        assistant_ids=tuple(assistant for assistant, _digest in run.routine.assistants),
+        file_ids=(),
+        provider=run.provider,
+        identity=segment.identity,
+        transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
+        requests_used=run.requests_used,
+    )
+    return _freeze(self, run, pending, segment)
 
 
 def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
@@ -255,23 +242,6 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
     return routine_state.update(self, team_id, freeze)
 
 
-def _failed(self, team_id: str, run_id: str, routine_segment: RoutineSegment, exc: ApiProblem) -> str:
-    """A segment that failed: an uncertain batch is held for a human; otherwise it stopped or failed."""
-    held = routine_segment.batches[-1] if routine_segment.batches else None
-    if held is not None and held.held:
-        return _end(
-            self, team_id, run_id, "uncertain", {"actions": [list(pair) for pair in held.held_actions]}, held.held
-        )
-    code = exc.code
-    if code == "chat-stopped":
-        with self._active_chat_guard:
-            registration = self._routine_runs.get(run_id)
-        if registration is None or not registration.overdue:
-            return _end(self, team_id, run_id, "stopped", {"actions": []})
-        code = "active-time-exceeded"
-    return _end(self, team_id, run_id, "failed", {"code": code, "actions": []})
-
-
 def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[record.Run, record.Routine]:
     state = routine_state.load(self, team_id)
     try:
@@ -294,17 +264,6 @@ def registered(self, team_id: str, run_id: str, token: str, active_seconds: int)
         yield
     finally:
         unregister_routine_run(self, run_id)
-
-
-def run_segment(self, run: _Run, request: SegmentRequest) -> str:
-    """Run one registered segment in the held execution slot and record exactly how it ended."""
-    started = time.monotonic()
-    try:
-        segment = self._run_chat_segment(request)
-    except ApiProblem as exc:
-        return _failed(self, run.team_id, run.run_id, request.routine, exc)
-    _spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
-    return _settle(self, run, segment)
 
 
 def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
@@ -332,47 +291,6 @@ def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     return None if current == pinned else "team-context-changed"
 
 
-def run_routine(
-    self,
-    team_id: str,
-    run_id: str,
-    evidence: local_authority.RoutineEvidence,
-    provider: str,
-    api_key: str,
-    progress: chat_progress.Reporter | None = None,
-) -> dict[str, object]:
-    """Run one segment of a leased run in the Team's execution slot and record exactly how it ended."""
-    team_id = validate_team_id(team_id)
-    lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
-    value, routine = _live_run(self, team_id, run_id, lease)
-    pinned = dict(routine.assistants)
-    with (
-        self._exclusive_chat_turn(team_id, routine.routine_id) as token,
-        registered(self, team_id, run_id, token, value.active_seconds_left),
-    ):
-        # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody pinned.
-        refused = _context_refusal(self, team_id, pinned)
-        if refused is not None:
-            outcome = _end(self, team_id, run_id, "failed", {"code": refused, "actions": []})
-        else:
-            generation = _bind(self, team_id, run_id, lease)
-            request = SegmentRequest(
-                team_id=team_id,
-                file_ids=[],
-                assistant_ids=tuple(pinned),
-                provider=provider,
-                api_key=api_key,
-                token=token,
-                message=routine.quote,
-                routine=RoutineSegment(run_id, generation),
-                progress=progress or chat_progress.Reporter(),
-            )
-            run = _Run(team_id, run_id, lease, token, provider, routine)
-            outcome = run_segment(self, run, request)
-    _after_run(self, team_id, run_id, routine.routine_id, outcome)
-    return {"team_id": team_id, "run_id": run_id, "status": outcome}
-
-
 def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -> None:
     now = int(time.time())
 
@@ -383,22 +301,6 @@ def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -
             return state, None
 
     routine_state.update(self, team_id, spend)
-
-
-def _settle(self, run: _Run, segment) -> str:
-    outcome = segment.outcome
-    if isinstance(outcome, chat_orchestrator.ChatOutcome):
-        return _complete(self, run, outcome)
-    pending = PendingLocalChat(
-        continuation=outcome.continuation,
-        assistant_ids=tuple(assistant for assistant, _digest in run.routine.assistants),
-        file_ids=(),
-        provider=run.provider,
-        identity=segment.identity,
-        transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
-        requests_used=run.requests_used,
-    )
-    return _freeze(self, run, pending, segment)
 
 
 def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:

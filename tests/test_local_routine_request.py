@@ -125,5 +125,5 @@ class LocalChatRequestTests(LocalContractCase):
         self.assertTrue(local_chat_segment._routine_mutable(segment()))
         self.assertFalse(local_chat_segment._routine_mutable(segment(file_ids=["0" * 32])))
         self.assertFalse(local_chat_segment._routine_mutable(segment(routine_request=None)))
-        routine = local_chat_segment.RoutineSegment("f" * 32, "g")
+        routine = local_chat_segment.RoutineSegment("f" * 32, "g", object())
         self.assertFalse(local_chat_segment._routine_mutable(segment(routine=routine)))

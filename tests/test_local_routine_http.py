@@ -17,6 +17,7 @@ from unittest import mock
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
+from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_service import (
     API_KEY,
     API_KEY_SHA256,
@@ -24,7 +25,6 @@ from test_local_routine_service import (
     Runtime,
     acting,
     approval,
-    completed,
 )
 
 from action import human as action_human
@@ -154,8 +154,9 @@ class SchedulerRouteTests(RoutineHttpCase):
 class RunRouteTests(RoutineHttpCase):
     def test_a_leased_run_runs_only_under_its_own_routine_assertion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime = Runtime(completed("Listed."))
-            _controller, service = self.serve(directory, runtime)
+            runtime = Runtime()
+            controller, service = self.serve(directory, runtime)
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
@@ -173,7 +174,8 @@ class RunRouteTests(RoutineHttpCase):
             self.assertEqual(self.terminal(raw)["body"]["status"], "done")
             status, _type, raw = self.request("POST", path, EMPTY, headers)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            self.assertEqual(len(runtime.contexts), 1)
+            # The compiled run never reached the Brain.
+            self.assertEqual(runtime.contexts, [])
 
     def test_a_routine_key_that_cannot_be_read_is_unavailable_not_denied(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

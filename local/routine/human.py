@@ -20,8 +20,8 @@ from inference import config as inference_config
 from install import bindings
 from local.chat import continuation as local_chat_continuations
 from local.chat import human as local_chat_human
-from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import compiled as routine_compiled
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import state as routine_state
@@ -187,7 +187,7 @@ def resume_routine_human(
     run_id: str,
     body: object,
     provider: str,
-    api_key: str,
+    _api_key: str,
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     """Consume one exact answer to a frozen run's challenge, then replay the run from its continuation."""
@@ -227,12 +227,12 @@ def resume_routine_human(
         ) from exc
     self.routine_human_challenges.claim(team_id, challenge.id)
     return _replay(
-        self, _Frozen(team_id, value, routine, pending, challenge.requirement), provider, api_key, admission, progress
+        self, _Frozen(team_id, value, routine, pending, challenge.requirement), provider, admission, progress
     )
 
 
 def resume_routine_integrations(
-    self, team_id: str, run_id: str, provider: str, api_key: str, progress: chat_progress.Reporter | None = None
+    self, team_id: str, run_id: str, provider: str, _api_key: str, progress: chat_progress.Reporter | None = None
 ) -> dict[str, object]:
     """After the person connected the Integration, replay the run; a still-missing one freezes it again."""
     team_id = validate_team_id(team_id)
@@ -242,7 +242,7 @@ def resume_routine_integrations(
     pending = _decoded(self, team_id, value.run_id).pending
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
-    return _replay(self, _Frozen(team_id, value, routine, pending), provider, api_key, None, progress)
+    return _replay(self, _Frozen(team_id, value, routine, pending), provider, None, progress)
 
 
 def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.TeamRoutines, str | None]:
@@ -253,8 +253,8 @@ def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.Tea
         return state, None
 
 
-def _replay(self, frozen: _Frozen, provider: str, api_key: str, admission, progress) -> dict[str, object]:
-    """Thaw the run under an internal lease and continue it in its own thread and generation."""
+def _replay(self, frozen: _Frozen, provider: str, admission, progress) -> dict[str, object]:
+    """Thaw the run under an internal lease and continue it, with no model, in its own generation."""
     team_id, value, routine, pending = frozen.team_id, frozen.value, frozen.routine, frozen.pending
     transcripts = pending.transcripts if admission is None else admission.transcripts
     requests_used = pending.requests_used if admission is None else admission.requests_used
@@ -271,21 +271,6 @@ def _replay(self, frozen: _Frozen, provider: str, api_key: str, admission, progr
         lease = record.lease_of(state_token, record.HUMAN_LEASE)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
-        request = SegmentRequest(
-            team_id=team_id,
-            file_ids=[],
-            assistant_ids=pending.assistant_ids,
-            provider=provider,
-            api_key=api_key,
-            token=token,
-            continuation=pending.continuation,
-            expected_identity=pending.identity,
-            transcripts=transcripts,
-            requests_used=requests_used,
-            locale=pending.locale,
-            routine=RoutineSegment(value.run_id, value.generation),
-            progress=progress or chat_progress.Reporter(),
-        )
-        outcome = routine_run.run_segment(self, run, request)
+        outcome = routine_compiled.execute(self, run, value, progress, pending)
     routine_run._after_run(self, team_id, value.run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": value.run_id, "status": outcome}

@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import routine_fixture
 from local_controller_harness import LocalContractCase
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
@@ -29,6 +28,7 @@ from local.routine import run as routine_run
 from local.routine import store as routine_store
 from local.routine import turn as routine_turn
 from local.routine import watchdog as routine_watchdog
+from routine import pin as routine_pin
 from routine import record
 from tests import human_request_fixtures
 
@@ -99,14 +99,34 @@ class RoutineServiceCase(LocalContractCase):
         controller.brain_runtime = service.brain_runtime = runtime
         return controller, service
 
-    def routine(self, service, *, next_run_at: int | None = None) -> record.Routine:
-        """Add one confirmed daily Routine pinned to the Team's current contracts, due now unless told otherwise."""
+    @staticmethod
+    def plan(service, *steps: tuple[str, str, dict[str, object]]) -> dict[str, object]:
+        """A compiled plan of literal-input steps, each pinned to the Team's current Action contract."""
+        _name, _network, active = service._team_assistants("team_1")
+        contracts = routine_turn.contracts(tuple(active.values()), routine_pin.SCOPE_LOCALE)
+        return {
+            "version": 1,
+            "timezone": "UTC",
+            "steps": [
+                {
+                    "id": step_id,
+                    "assistant": ASSISTANT,
+                    "action": action,
+                    "pin": contracts[(ASSISTANT, action)].pin,
+                    "input": {name: {"kind": "literal", "value": value} for name, value in inputs.items()},
+                }
+                for step_id, action, inputs in steps or (("zones", "list-zones", LOOKUP_INPUT),)
+            ],
+        }
+
+    def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
+        """Add one daily compiled Routine pinned to the Team's current contracts, due now unless told otherwise."""
         contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
         value = record.Routine(
             routine_id=record.new_id(),
             name="Daily zones",
             quote=CHANGE["quote"],
-            plan=routine_fixture.plan_document(ASSISTANT, action="list-zones"),
+            plan=plan or self.plan(service),
             schedule=dict(CHANGE["schedule"]),
             timezone="UTC",
             assistants=tuple(sorted(contracts.items())),
@@ -168,12 +188,9 @@ class RunTests(RoutineServiceCase):
             state = self.state(service)
         self.assertEqual(result["status"], "done")
         self.assertEqual(state.runs, ())
-        self.assertEqual(
-            [(item.outcome, item.detail) for item in state.notices], [("done", {"reply": "Your zones are listed."})]
-        )
-        context = runtime.contexts[0]
-        self.assertEqual((context.knowledge_writable, context.routines), (False, None))
-        self.assertTrue(context.thread_id.endswith(f":routine-{claim['run_id']}"))
+        self.assertEqual([(item.outcome, item.detail) for item in state.notices], [("done", {"reply": "Daily zones"})])
+        # A healthy compiled run never asks the Brain anything.
+        self.assertEqual(runtime.contexts, [])
 
     def test_nothing_is_claimed_without_a_routine_key_or_while_chat_is_busy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -252,26 +269,9 @@ class RunTests(RoutineServiceCase):
             [(item.outcome, item.detail) for item in state.notices], [("scope-changed", {"assistants": [ASSISTANT]})]
         )
 
-    def test_a_question_ends_the_run_as_needs_input(self) -> None:
-        question = {
-            "question": "Which zone?",
-            "options": [{"label": "a", "description": ""}, {"label": "b", "description": ""}],
-            "default_index": 0,
-        }
-        runtime = Runtime(
-            brain_runtime_client.RuntimeTurn("completed", "Which zone?\n\n1. a ✓\n2. b", (), clarification=question)
-        )
+    def test_a_failing_action_holds_the_run_as_an_incident_that_holds_its_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, runtime)
-            self.routine(service)
-            result = self.run_claim(service, service.claim_routine_run(("anthropic", "openai")))
-            notices = self.state(service).notices
-        self.assertEqual(result["status"], "needs-input")
-        self.assertEqual(notices[0].detail, {"question": "Which zone?"})
-
-    def test_a_failing_action_is_held_uncertain_until_a_supervisor_resolves_its_batch(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            controller, service = self.service(directory, Runtime(acting()))
+            controller, service = self.service(directory, Runtime())
 
             def failing(*_args):
                 raise local_app.ApiProblem(HTTPStatus.BAD_GATEWAY, "failed", code="assistant-rpc-failed")
@@ -279,36 +279,16 @@ class RunTests(RoutineServiceCase):
             controller.assistant_lifecycle.invoke = failing
             value = self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
-            result = self.run_claim(service, claim)
-            held = record.run(self.state(service), claim["run_id"])
-            self.assertEqual((result["status"], held.status), ("uncertain", "uncertain"))
-            self.assertEqual(self.state(service).notices[0].detail, {"actions": [[ASSISTANT, "list-zones"]]})
-            # Delivery never releases it; only the exact batch's resolution does.
-            service.acknowledge_routine_notices(
-                {
-                    "deliveries": [
-                        {"team_id": "team_1", "notice_id": item.notice_id, "version": item.version}
-                        for item in self.state(service).notices
-                    ]
-                }
-            )
-            self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "uncertain")
-            with self.assertRaises(local_app.ApiProblem) as wrong:
-                service.resolve_routine_run("team_1", claim["run_id"], {"batch_fingerprint": "0" * 64})
-            self.assertEqual(wrong.exception.code, "routine-run-not-uncertain")
-            with self.assertRaises(local_app.ApiProblem) as stop:
-                service.stop_routine("team_1", claim["run_id"])
-            self.assertEqual(stop.exception.code, "routine-run-uncertain")
-            # The uncertain run refuses a deletion until its exact batch is resolved.
-            with self.assertRaises(local_app.ApiProblem) as refused:
-                service.delete_routine("team_1", value.routine_id)
-            self.assertEqual(refused.exception.code, "routine-run-uncertain")
-            self.assertFalse(record.routine(self.state(service), value.routine_id).deleting)
-            service.resolve_routine_run("team_1", claim["run_id"], {"batch_fingerprint": held.batch[1]})
-            self.assertEqual(self.state(service).runs, ())
-            self.assertIsNone(controller.action_state.uncertain_fingerprint(held.generation))
+            self.assertEqual(self.run_claim(service, claim)["status"], "held")
+            state = self.state(service)
+            (incident,) = state.incidents
+            self.assertEqual((state.runs, incident.incident_id, incident.status), ((), claim["run_id"], "unresolved"))
+            self.assertIn(value.routine_id, record.held_routines(state))
+            # Its cursor and recovery snapshot survive for verification; nothing is claimed while it holds.
+            self.assertEqual(service.routine_store.cursors("team_1"), (claim["run_id"],))
+            self.assertIsNone(service.claim_routine_run(("anthropic", "openai")))
             self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
-            self.assertEqual(self.state(service).routines, ())
+            self.assertEqual(self.state(service).incidents[0].status, "unresolved")
 
     def test_deleting_an_unknown_or_malformed_routine_is_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -374,7 +354,7 @@ class FreezeTests(RoutineServiceCase):
             )
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
-        self.assertEqual((state.runs, state.notices[-1].detail), ((), {"reply": "Approved and listed."}))
+        self.assertEqual((state.runs, state.notices[-1].detail), ((), {"reply": "Daily zones"}))
 
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -522,7 +502,8 @@ class FreezeTests(RoutineServiceCase):
 class NoticeAndWatchdogTests(RoutineServiceCase):
     def test_notices_are_listed_for_every_team_and_acknowledged_by_version(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime(completed()))
+            controller, service = self.service(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             self.run_claim(service, service.claim_routine_run(("anthropic", "openai")))
             notices = service.routine_notices()["notices"]

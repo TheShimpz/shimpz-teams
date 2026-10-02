@@ -36,7 +36,7 @@ _SAFE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
 _RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
-# Ended runs whose Brain thread, journal generation, and continuation Team has yet to remove. Claims stop while any
+# Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
 # Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
@@ -146,7 +146,7 @@ class TeamRoutines:
     served_at: int = 0
     starts_day: str = ""
     starts: int = 0
-    # (run_id, generation) of ended runs whose Brain thread, journal generation, and continuation are still held.
+    # (run_id, generation) of ended runs whose journal generation, continuation, and cursor are still held.
     discards: tuple[tuple[str, str], ...] = ()
     incidents: tuple[Incident, ...] = ()
     # (receipt, expires_at) of each request that changed a Routine; a receipt outlives the Routine it changed.

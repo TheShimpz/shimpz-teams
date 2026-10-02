@@ -19,7 +19,7 @@ from test_local_routine_service import (
 
 from action import human as action_human
 from local import app as local_app
-from local.chat.segment import RoutineSegment
+from local.routine import compiled as routine_compiled
 from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import turn as routine_turn
@@ -168,9 +168,10 @@ class ExecutionBoundTests(RoutineServiceCase):
             routine_watchdog.check(service)
             self.assertIn("token", service._cancelled_chat_tokens)
             stopped = local_app.ApiProblem(409, "stopped", code="chat-stopped")
-            outcome = routine_run._failed(
-                service, "team_1", claim["run_id"], RoutineSegment(claim["run_id"], ""), stopped
-            )
+            lease = record.lease_of(claim["lease_token"], KEY)
+            run = routine_run._Run("team_1", claim["run_id"], lease, "token", "openai", self.state(service).routines[0])
+            # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
+            outcome = routine_compiled._ended(service, run, None, [], stopped)
             self.assertEqual(outcome, "failed")
             self.assertEqual(self.state(service).notices[-1].detail, {"code": "active-time-exceeded", "actions": []})
 

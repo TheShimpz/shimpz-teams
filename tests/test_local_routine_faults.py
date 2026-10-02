@@ -10,11 +10,11 @@ from http import HTTPStatus
 from types import SimpleNamespace
 from unittest import mock
 
+from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_service import (
     API_KEY,
     ASSISTANT,
     KEY,
-    LIST,
     RoutineServiceCase,
     Runtime,
     acting,
@@ -23,7 +23,7 @@ from test_local_routine_service import (
 )
 
 from action import human as action_human
-from inference import client as brain_runtime_client
+from action import journal as action_journal
 from inference import config as inference_config
 from local import app as local_app
 from local import authority as local_authority
@@ -111,40 +111,25 @@ class RunFaultTests(RoutineServiceCase):
 
     def test_a_completion_stop_wins_and_a_lease_that_ran_out_are_recorded(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            # The same Action twice is named once.
-            second = dataclasses.replace(LIST, interrupt_id="action-2")
-            controller, service = self.service(directory, Runtime(acting(), acting(second), completed()))
-            controller.assistant_lifecycle.invoke = lambda *_args: {"result": {"zones": []}}
+            controller, service = self.service(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(service, "_commit_chat_terminal", return_value=False):
                 self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
-            self.assertEqual(self.state(service).notices[-1].detail, {"actions": [[ASSISTANT, "list-zones"]]})
+            self.assertEqual(self.state(service).notices[-1].detail, {"actions": []})
         with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime(completed()))
+            controller, service = self.service(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             with mock.patch.object(record, "finish", side_effect=record.RoutineStateError("lease-invalid")):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail["code"], "lease-expired")
 
-    def test_a_skill_save_failure_fails_closed_and_a_lease_lost_before_binding_is_refused(self) -> None:
+    def test_a_lease_lost_before_binding_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            second = dataclasses.replace(LIST, interrupt_id="action-2")
-            controller, service = self.service(directory, Runtime(acting(), acting(second), completed()))
-            controller.assistant_lifecycle.invoke = lambda *_args: {"result": {"zones": []}}
-            self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
-            with (
-                mock.patch.object(
-                    service.inference_store, "apply_knowledge", side_effect=inference_config.InferenceConfigError("x")
-                ),
-                self.assertRaises(local_app.ApiProblem) as caught,
-            ):
-                self.run_claim(service, claim)
-            self.assertEqual(caught.exception.code, "memory-store-failed")
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime(completed()))
+            _controller, service = self.service(directory, Runtime())
             self.routine(service)
             claim = service.claim_routine_run(("anthropic", "openai"))
             with (
@@ -182,8 +167,8 @@ class RunFaultTests(RoutineServiceCase):
 
 
 class FrozenFaultTests(RoutineServiceCase):
-    def frozen(self, directory: str, *turns):
-        controller, service = self.service(directory, Runtime(acting(), *turns))
+    def frozen(self, directory: str):
+        controller, service = self.service(directory, Runtime())
         calls: list[object] = []
 
         def invoke(*_args):
@@ -198,7 +183,7 @@ class FrozenFaultTests(RoutineServiceCase):
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return controller, service, claim
 
-    def test_a_failure_after_a_human_answer_is_held_uncertain(self) -> None:
+    def test_a_failure_after_a_human_answer_holds_the_run_as_an_incident(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, claim = self.frozen(directory)
             opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
@@ -209,10 +194,9 @@ class FrozenFaultTests(RoutineServiceCase):
                 "openai",
                 API_KEY,
             )
-            self.assertEqual(resumed["status"], "uncertain")
-            # The Supervisor who resolves it sees the Actions whose effects are unknown.
-            (held,) = service.list_routines("team_1")["runs"]
-            self.assertEqual((held["status"], held["actions"]), ("uncertain", [[ASSISTANT, "list-zones"]]))
+            self.assertEqual(resumed["status"], "held")
+            state = self.state(service)
+            self.assertEqual((state.runs, [item.incident_id for item in state.incidents]), ((), [claim["run_id"]]))
 
     def test_deleting_a_routine_stops_its_frozen_run_and_the_watchdog_keeps_a_frozen_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -408,8 +392,8 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                 lambda state: (record.end(state, claim["run_id"], now, "stopped", {"actions": []}), None),
             )
             self.routine(service)
-            down = brain_runtime_client.BrainRuntimeError("down")
-            with mock.patch.object(service.brain_runtime, "delete_thread", side_effect=down):
+            down = action_journal.ActionJournalError("down")
+            with mock.patch.object(service.action_state, "discard", side_effect=down):
                 with self.assertRaises(local_app.ApiProblem) as caught:
                     routine_manage.drain(service, "team_1")
                 self.assertEqual(caught.exception.code, "routine-state-unavailable")

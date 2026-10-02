@@ -180,7 +180,7 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
 
 
 def routine_thread_id(space_id: str, team_id: str, network_id: str, run_id: str) -> str:
-    """One Routine run's own Brain thread, beside the Team's conversation in the same network generation."""
+    """One Routine run's journal thread label, beside the Team's conversation in the same network generation."""
     if not isinstance(run_id, str) or re.fullmatch(r"[0-9a-f]{32}", run_id) is None:
         raise ApiProblemError(
             HTTPStatus.CONFLICT,
