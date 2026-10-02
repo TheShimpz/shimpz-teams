@@ -205,6 +205,73 @@ class PlanAdmissionTests(unittest.TestCase):
             with self.subTest(document=json.dumps(document)[:200]):
                 self.assert_refused(document, "plan-secret-literal")
         self.assertFalse(routine_plan._holds_credential({"tags": [1, None, {"k": "v"}]}))
+
+    def test_a_secret_nested_anywhere_in_a_literal_is_refused(self) -> None:
+        nested = {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "properties": {
+                        "password": {"type": "string"},
+                        "label": {"type": "string"},
+                        "hidden": {"type": "string", "writeOnly": True},
+                        "ref": {"$ref": "#/$defs/sealed"},
+                        "either": {"anyOf": [{"type": "string", "format": "password"}, {"type": "integer"}]},
+                        "pairs": {"type": "array", "items": {"$ref": "#/$defs/pair"}},
+                        "tuple": {"type": "array", "prefixItems": [{"type": "string"}, {"$ref": "#/$defs/sealed"}]},
+                    },
+                    "additionalProperties": False,
+                }
+            },
+            "required": ["options"],
+            "additionalProperties": False,
+            "$defs": {
+                "sealed": {"type": "string", "writeOnly": True},
+                "pair": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}, "value": {"$ref": "#/$defs/sealed"}},
+                    "additionalProperties": False,
+                },
+            },
+        }
+        contracts = {("shimpz-blog", "publish-post"): routine_plan.ActionContract(PIN, nested)}
+
+        def plan(options: object) -> dict[str, object]:
+            document = _document()
+            document["steps"] = [
+                {
+                    "id": "publish",
+                    "assistant": "shimpz-blog",
+                    "action": "publish-post",
+                    "pin": PIN,
+                    "input": {"options": {"kind": "literal", "value": options}},
+                }
+            ]
+            return document
+
+        for options in (
+            {"password": "hunter2"},
+            {"hidden": "plain"},
+            {"ref": "plain"},
+            {"either": "plain"},
+            {"pairs": [{"name": "a"}, {"name": "b", "value": "plain"}]},
+            {"tuple": ["first", "plain"]},
+        ):
+            with self.subTest(options=options), self.assertRaises(routine_plan.PlanError) as caught:
+                routine_plan.admit(plan(options), contracts)
+            self.assertEqual(caught.exception.code, "plan-secret-literal")
+        admitted = routine_plan.admit(plan({"label": "x", "pairs": [{"name": "a"}], "tuple": ["first"]}), contracts)
+        self.assertEqual(admitted.steps[0].inputs["options"]["value"]["label"], "x")
+        deep: object = "x"
+        for _ in range(routine_plan.MAX_SECRET_DEPTH + 1):
+            deep = [deep]
+        self.assertTrue(routine_plan._secret_literal(nested, "items", deep, {"type": "array"}, 0))
+        chain = {"$defs": {f"d{index}": {"$ref": f"#/$defs/d{index + 1}"} for index in range(70)}}
+        with self.assertRaises(routine_plan.PlanError) as indirect:
+            routine_plan._applicable(chain, {"$ref": "#/$defs/d0"}, 0)
+        self.assertEqual(indirect.exception.code, "plan-secret-literal")
+        self.assertEqual(routine_plan._applicable(nested, None, 0), [])
         self.assertTrue(routine_plan._holds_credential({"password=abc": "v"}))
 
 

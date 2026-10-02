@@ -298,8 +298,8 @@ def _schema_node_problem(node: Mapping[str, Any], *, nested: bool) -> str | None
     return None
 
 
-def _reference_target(schema: Mapping[str, Any], reference: str) -> object:
-    # The node walk proved the reference is `#` or one direct definition; JSON Pointer escapes decode in its name.
+def reference_target(schema: Mapping[str, Any], reference: str) -> object:
+    """The subschema an admitted schema's ``$ref`` names: its root or one direct definition, whose name may escape."""
     if reference == "#":
         return schema
     container, _, name = reference[2:].partition("/")
@@ -309,7 +309,7 @@ def _reference_target(schema: Mapping[str, Any], reference: str) -> object:
 def _expansion_edges(schema: Mapping[str, Any], node: Mapping[str, Any]) -> list[object]:
     edges = [*_applied_subschemas(node)]
     if "$ref" in node:
-        edges.append(_reference_target(schema, node["$ref"]))
+        edges.append(reference_target(schema, node["$ref"]))
     return edges
 
 

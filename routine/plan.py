@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from assistant import action_schema
 from assistant import manifest as assistant_manifest
 from routine import schedule
 
@@ -48,6 +49,8 @@ _SECRET_MARKERS = (
     "access_key",
     "credential",
 )
+# Literal nesting and schema indirection checked for secret destinations; anything deeper is refused.
+MAX_SECRET_DEPTH = 64
 _SAMPLE_INSTANT = datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
 
 
@@ -159,7 +162,9 @@ def _source(name: str, source: object, schema: Mapping[str, Any], earlier: tuple
     if kind not in fields or set(source) != fields[kind]:
         raise PlanError("plan-input-invalid")
     if kind == "literal":
-        if _secret_destination(name, schema["properties"][name]) or _holds_credential(source["value"]):
+        if _secret_literal(schema, name, source["value"], schema["properties"][name], 0) or _holds_credential(
+            source["value"]
+        ):
             raise PlanError("plan-secret-literal")
         _admit_member(schema, name, source["value"])
     elif kind == "run_clock":
@@ -170,12 +175,68 @@ def _source(name: str, source: object, schema: Mapping[str, Any], earlier: tuple
         raise PlanError("plan-reference-invalid")
 
 
-def _secret_destination(name: str, subschema: object) -> bool:
+def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema: object, depth: int) -> bool:
+    """Whether a literal reaches a secret destination anywhere inside it.
+
+    Every position of the value is checked against every subschema that can apply there, through local ``$ref``,
+    ``allOf``, ``anyOf``, ``oneOf``, object ``properties``, and array ``items`` and ``prefixItems``: a member whose
+    name marks a secret, or a destination annotated ``writeOnly`` or ``format: password``, refuses the whole literal.
+    A value nested deeper than the bound is refused rather than left unchecked.
+    """
+    if depth > MAX_SECRET_DEPTH:
+        return True
+    candidates = _applicable(root, subschema, 0)
     lowered = name.lower().replace("-", "_")
-    marked = isinstance(subschema, dict) and (
-        subschema.get("writeOnly") is True or subschema.get("format") == "password"
-    )
-    return marked or any(marker in lowered for marker in _SECRET_MARKERS)
+    if any(marker in lowered for marker in _SECRET_MARKERS) or any(_marked(item) for item in candidates):
+        return True
+    if isinstance(value, dict):
+        return any(
+            _secret_literal(root, key, item, _children(candidates, "properties", key), depth + 1)
+            for key, item in value.items()
+        )
+    if isinstance(value, list):
+        return any(
+            _secret_literal(root, name, item, _items(candidates, index), depth + 1) for index, item in enumerate(value)
+        )
+    return False
+
+
+def _marked(subschema: Mapping[str, Any]) -> bool:
+    return subschema.get("writeOnly") is True or subschema.get("format") == "password"
+
+
+def _applicable(root: Mapping[str, Any], subschema: object, depth: int) -> list[Mapping[str, Any]]:
+    """The subschemas that apply at one position: the node, its local reference, and its combinator members."""
+    if depth > MAX_SECRET_DEPTH:
+        raise PlanError("plan-secret-literal")
+    if not isinstance(subschema, dict):
+        return []
+    found = [subschema]
+    if isinstance(subschema.get("$ref"), str):
+        found.extend(_applicable(root, action_schema.reference_target(root, subschema["$ref"]), depth + 1))
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        for member in subschema.get(combinator, ()) if isinstance(subschema.get(combinator), list) else ():
+            found.extend(_applicable(root, member, depth + 1))
+    return found
+
+
+def _children(candidates: list[Mapping[str, Any]], keyword: str, key: str) -> dict[str, Any]:
+    """One synthetic subschema whose combinator holds every candidate's member schema for ``key``."""
+    members = [
+        item[keyword][key] for item in candidates if isinstance(item.get(keyword), dict) and key in item[keyword]
+    ]
+    return {"allOf": members}
+
+
+def _items(candidates: list[Mapping[str, Any]], index: int) -> dict[str, Any]:
+    members = []
+    for item in candidates:
+        prefix = item.get("prefixItems")
+        if isinstance(prefix, list) and index < len(prefix):
+            members.append(prefix[index])
+        elif "items" in item:
+            members.append(item["items"])
+    return {"allOf": members}
 
 
 def _holds_credential(value: object) -> bool:
