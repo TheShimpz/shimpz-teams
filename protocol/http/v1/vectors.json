@@ -1954,7 +1954,8 @@
         {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "skip", "verdict": null, "status": "skipped"},
         {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "pause", "verdict": null, "status": "paused"},
         {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "verify", "verdict": "policy", "status": null},
-        {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "verify", "verdict": "unquiesced", "status": null}
+        {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "verify", "verdict": "unquiesced", "status": null},
+        {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "verify", "verdict": "unclassified", "status": null}
       ],
       "invalid": [
         {"team_id": "team_1", "incident_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "choice": "verify", "verdict": null, "status": "recovered"},

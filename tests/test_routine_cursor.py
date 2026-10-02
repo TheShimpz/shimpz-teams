@@ -187,3 +187,19 @@ class FaultTests(unittest.TestCase):
         undispatched = routine_cursor.start(self.plan, BINDING, 0)
         with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
             routine_cursor.encode(dataclasses.replace(undispatched, fault="handled"))
+
+    def test_an_attempt_keeps_its_workload_and_instant(self) -> None:
+        start = routine_cursor.start(self.plan, BINDING, 1_800_000_000)
+        attempt = routine_cursor.dispatch(
+            start, self.plan, OPERATION, COMMITMENT, workload="assistant-container", dispatched_at=1_800_000_100
+        )
+        decoded = routine_cursor.decode(routine_cursor.encode(attempt), BINDING)
+        self.assertEqual((decoded.workload, decoded.dispatched_at), ("assistant-container", 1_800_000_100))
+        for changed in (
+            dataclasses.replace(attempt, workload="-bad"),
+            dataclasses.replace(attempt, dispatched_at=-1),
+            dataclasses.replace(start, workload="assistant-container"),
+            dataclasses.replace(start, dispatched_at=5),
+        ):
+            with self.subTest(changed=changed), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
+                routine_cursor.encode(changed)

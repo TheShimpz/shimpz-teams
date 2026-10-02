@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from http import HTTPStatus
+from unittest import mock
 
+from local_assistant_fixture import mutating_spec
 from test_local_routine_automatic import AutomaticCase, Brain
 from test_local_routine_recovery import RECORD, Assistant, failed
+from test_local_routine_service import ASSISTANT
 
 from action import execution as action_execution
 from local import app as local_app
@@ -112,3 +116,40 @@ class PolicyHoldTests(AutomaticCase):
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
         self.assertEqual(routine_recovery.refusal(cursor), "routine-workload-unquiesced")
         self.assertEqual(card["recommended"], "pause")
+
+    def restarted(self, directory: str, assistant: Assistant, brain: Brain):
+        """A fresh controller over the same durable Team state, as after a Team restart."""
+        controller, service = self.service(directory, brain)
+        current = controller.registry[ASSISTANT]
+        controller.registry[ASSISTANT] = dataclasses.replace(
+            mutating_spec(current.image), provenance=current.provenance, platform=current.platform
+        )
+        controller.assistant_lifecycle.invoke = assistant
+        return service
+
+    def test_a_classification_that_was_never_sealed_holds_as_evidence_even_after_a_restart(self) -> None:
+        assistant = ReadOnlyFault(problem("assistant-secret-exposure"))
+        real_seal = routine_compiled.CompiledRuntime.seal
+
+        def failing_classification(runtime, cursor):
+            if cursor.fault:
+                raise routine_compiled.CompiledRunError("routine-cursor-unavailable")
+            return real_seal(runtime, cursor)
+
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(routine_compiled.CompiledRuntime, "seal", failing_classification):
+                service, _brain, value, run_id = self.held(directory, assistant)
+            brain = Brain("retry")
+            service = self.restarted(directory, assistant, brain)
+            cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
+            with service._exclusive_chat_turn("team_1", value.routine_id) as token:
+                manual = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            episode = routine_recovery.automatic(service, run, "k")
+            state = self.state(service)
+        # The secret echo's policy class was lost with the failed write; the read-only step is still never admitted
+        # as absent: no Brain call, no retry, and the Routine pauses for missing evidence.
+        self.assertEqual((cursor.fault, cursor.absent, manual, episode), ("", False, "unclassified", "held"))
+        self.assertEqual(brain.asked, [])
+        self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
+        self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "evidence"))

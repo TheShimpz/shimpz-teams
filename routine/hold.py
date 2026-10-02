@@ -197,3 +197,20 @@ def release_incident(state: record.TeamRoutines, incident_id: str) -> record.Tea
     return dataclasses.replace(
         state, incidents=tuple(released if item.incident_id == incident_id else item for item in state.incidents)
     )
+
+
+def charge_incident(state: record.TeamRoutines, incident_id: str, seconds: int) -> record.TeamRoutines:
+    """Reserve part of an unresolved incident's remaining active time for its recovery; never more than it has."""
+    value = incident(state, incident_id)
+    if value.status != "unresolved" or type(seconds) is not int or not 0 < seconds <= value.active_seconds_left:
+        raise record.RoutineStateError("incident-time-invalid")
+    return _replace_incident(state, dataclasses.replace(value, active_seconds_left=value.active_seconds_left - seconds))
+
+
+def refund_incident(state: record.TeamRoutines, incident_id: str, generation: str, seconds: int) -> record.TeamRoutines:
+    """Return unused reserved time to the same held run it was reserved from; anything else stays as it is."""
+    value = next((item for item in state.incidents if item.incident_id == incident_id), None)
+    if value is None or value.status != "unresolved" or value.generation != generation or seconds <= 0:
+        return state
+    refunded = min(record.ACTIVE_SECONDS, value.active_seconds_left + seconds)
+    return _replace_incident(state, dataclasses.replace(value, active_seconds_left=refunded))

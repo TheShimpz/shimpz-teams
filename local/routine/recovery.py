@@ -17,9 +17,14 @@ passed: it is retried only after proven absence, or the run is held again.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
+import datetime
 import math
+import threading
 import time
 from dataclasses import dataclass
+
+from docker.errors import DockerException
 
 from action import journal as action_journal
 from assistant import spec as assistant_spec
@@ -28,6 +33,7 @@ from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from inference import recovery as inference_recovery
+from local import audit as local_audit
 from local.chat.segment import RoutineSegment, SegmentRequest
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import compiled as routine_compiled
@@ -52,6 +58,9 @@ VERIFY_INTERRUPT = "routine-verify"
 # What proves an operation of a mutating Action absent without a verifier: it settled without effect, or it paused
 # for a person before acting.
 _ABSENT_STATES = frozenset({"no_effect", "prepared"})
+# Team's own classifications of a failed read-only attempt that admit it had no business effect: a handled failure,
+# a transport fault after a proven fail-stop, or a refusal outside the RPC. A missing classification never does.
+_TRUSTED_FAULTS = frozenset({"handled", "transport", "other"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +96,7 @@ class VerifierRuntime:
         self.result = results.get(self._request.interrupt_id)
         return brain_runtime_client.RuntimeTurn("completed", "", ())
 
-    def dispatching(self, _request, _operation_id) -> None:
+    def dispatching(self, _request, _operation_id, _workload="") -> None:
         return
 
     def failed(self, _request, _evidence, _exc) -> None:
@@ -147,8 +156,11 @@ def proven(assessment: Assessment) -> str:
     """What Team-admitted evidence proves of the held step's operation.
 
     ``none``: nothing is uncertain; ``policy``: a Team-detected policy fault holds it; ``absent``: the evidence proves
-    no business effect; else ``uncertain``. A policy fault, such as a secret echo or an invalid frame, is never
-    admitted as absence, even of a read-only Action, so it is never verified away or retried (ADR-0092 section 6).
+    no business effect; ``unclassified``: a read-only step whose failure Team never classified; else ``uncertain``.
+    Absence needs positive trusted evidence: a verifier's proof, the journal's, or Team's own classification of a
+    read-only failure. A policy fault, such as a secret echo or an invalid frame, is never admitted as absence, and a
+    classification that was never sealed holds the run as evidence, so it is never verified away or retried
+    (ADR-0092 section 6).
     """
     cursor = assessment.cursor
     if assessment.action is None or cursor.operation_id is None:
@@ -158,11 +170,63 @@ def proven(assessment: Assessment) -> str:
     if cursor.fault == "unquiesced":
         # Team could not prove the workload stopped after an ambiguous outcome: nothing may verify or retry it yet.
         return "unquiesced"
-    if cursor.absent or assessment.action.effect == "read_only":
+    if cursor.absent or (assessment.state in _ABSENT_STATES and not cursor.carried):
         return "absent"
-    if assessment.state in _ABSENT_STATES and not cursor.carried:
-        return "absent"
+    if assessment.action.effect == "read_only":
+        return "absent" if cursor.fault in _TRUSTED_FAULTS else "unclassified"
     return "uncertain"
+
+
+def _docker_instant(value: object) -> int | None:
+    """Docker's RFC 3339 instant as whole UTC epoch seconds, or None when it is not one."""
+    if not isinstance(value, str) or len(value) < 20 or value[19] not in ".Z":
+        return None
+    try:
+        return int(datetime.datetime.fromisoformat(value[:19] + "+00:00").timestamp())
+    except ValueError:
+        return None
+
+
+def _workload_state(self, team_id: str, assistant_id: str, workload: str) -> dict[str, object] | None:
+    """The attempt's container state as Docker reports it; not running when that container is gone or replaced.
+
+    None when it cannot be read, which is never proof.
+    """
+    try:
+        container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
+        if container.id != workload:
+            return {"Running": False}
+        container.reload()
+        state = getattr(container, "attrs", {}).get("State")
+    except ApiProblem as exc:
+        return {"Running": False} if exc.code == "assistant-not-found" else None
+    except DockerException:
+        return None
+    return state if isinstance(state, dict) else None
+
+
+def _quiesced(self, team_id: str, assessment: Assessment) -> bool:
+    """Whether the workload of the held attempt is proven to have stopped since it was dispatched.
+
+    A Team crash or Stop leaves no classification, and the original Docker execution may still be running, so an
+    absence observed now would prove nothing about a later effect. Proof is the attempt's container being gone or
+    replaced, stopped, or started again after the attempt.
+    """
+    cursor = assessment.cursor
+    state = _workload_state(self, team_id, assessment.step.assistant_id, cursor.workload) if cursor.workload else None
+    if state is None:
+        return False
+    if state.get("Running") is False:
+        return True
+    started = _docker_instant(state.get("StartedAt"))
+    return started is not None and started > cursor.dispatched_at
+
+
+def quiescence(self, team_id: str, assessment: Assessment, verdict: str) -> str:
+    """An uncertain operation whose failure Team never classified needs its workload proven stopped first."""
+    if verdict == "uncertain" and assessment.cursor.fault == "" and not _quiesced(self, team_id, assessment):
+        return "unquiesced"
+    return verdict
 
 
 def _original_input(assessment: Assessment) -> dict[str, object] | None:
@@ -259,8 +323,8 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     verification spends its budget before the call.
     """
     assessment = assess(self, team_id, incident_id)
-    verdict = proven(assessment)
-    if verdict in {"none", "policy", "unquiesced"}:
+    verdict = quiescence(self, team_id, assessment, proven(assessment))
+    if verdict in {"none", "policy", "unquiesced", "unclassified"}:
         return verdict
     if verdict == "absent":
         if not assessment.cursor.absent:
@@ -298,7 +362,7 @@ def refusal(cursor: routine_cursor.Cursor) -> str | None:
     return None if cursor.remaining("retries") else "routine-retry-exhausted"
 
 
-def continue_run(self, team_id: str, incident_id: str, token: str, progress=None) -> str:
+def continue_run(self, team_id: str, incident_id: str, token: str, progress=None, *, seconds: int | None = None) -> str:
     """Resume a held run as a continuation in its next generation; returns how that continuation ended.
 
     It never passes an uncertain operation: only a completed step or a proven absence with its retry left continues.
@@ -333,7 +397,8 @@ def continue_run(self, team_id: str, incident_id: str, token: str, progress=None
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, incident_id))
     lease = record.lease_of(lease_token, record.HUMAN_LEASE)
     run = routine_run._Run(team_id, incident_id, lease, token, _provider(self, team_id), routine)
-    with routine_run.registered(self, team_id, incident_id, token, value.active_seconds_left):
+    active = value.active_seconds_left if seconds is None else min(seconds, value.active_seconds_left)
+    with routine_run.registered(self, team_id, incident_id, token, active):
         outcome = routine_compiled.execute(self, run, value, progress)
     routine_run._after_run(self, team_id, incident_id, routine.routine_id, outcome)
     return outcome
@@ -409,29 +474,54 @@ _PAUSES = {
     "pause": "decided",
     "unavailable": "unavailable",
     "evidence": "evidence",
+    "unclassified": "evidence",
 }
 # Evidence that lets the already-authorized run go on.
 _GO_ON = frozenset({"occurred", "none", "retry"})
 
 
-def _reserve(self, team_id: str, incident_id: str) -> int | None:
-    """Spend the run's one episode and reserve all its remaining active time, durably, before any work.
+@dataclass(frozen=True, slots=True)
+class _Reservation:
+    """The time an episode reserved from both the run's recovery budget and its remaining active time."""
 
-    None when no episode may open. Whatever a crash leaves reserved stays spent, so a restart never refills it.
+    seconds: int
+    generation: str
+    started: float
+    # Set by the deadline timer when the reservation ran out, whatever the episode was doing.
+    expired: threading.Event = dataclasses.field(default_factory=threading.Event)
+
+    @property
+    def deadline(self) -> float:
+        return self.started + self.seconds
+
+
+def _reserve(self, team_id: str, incident_id: str) -> _Reservation | None:
+    """Spend the run's one episode and reserve its time from both balances, durably, before any work.
+
+    The reservation is the smaller of the recovery budget and the held run's remaining active time, so recovery never
+    outlasts the run. None when no episode may open. A crash keeps it spent, so a restart never refills either.
     """
     try:
         cursor = routine_incident.open_recovery(self, team_id, incident_id).cursor
-        reserved = cursor.remaining("recovery_seconds")
-        cursor = routine_cursor.spend(routine_cursor.spend(cursor, "episodes", 1), "recovery_seconds", reserved)
-        _seal(self, team_id, cursor)
-    except ApiProblem, routine_cursor.CursorError:
+        held = routine_hold.incident(routine_state.load(self, team_id), incident_id)
+        seconds = max(0, min(cursor.remaining("recovery_seconds"), held.active_seconds_left))
+        cursor = routine_cursor.spend(cursor, "episodes", 1)
+        _seal(self, team_id, routine_cursor.spend(cursor, "recovery_seconds", seconds) if seconds else cursor)
+    except ApiProblem, routine_cursor.CursorError, record.RoutineStateError:
         return None
-    return reserved
+    if seconds:
+        routine_state.update(
+            self, team_id, lambda state: (routine_hold.charge_incident(state, incident_id, seconds), None)
+        )
+    return _Reservation(seconds, held.generation, _clock())
 
 
-def _release(self, team_id: str, incident_id: str, reserved: int, started: float) -> None:
-    """Return the reserved time the episode did not use; at least one second is always charged."""
-    unused = reserved - min(reserved, max(1, math.ceil(_clock() - started)))
+def _release(self, team_id: str, incident_id: str, reservation: _Reservation) -> None:
+    """Return the reserved time the episode did not use to both balances; at least one second is always charged.
+
+    The run's active time goes back only to the same held run; once it continued, its continuation was charged.
+    """
+    unused = reservation.seconds - min(reservation.seconds, max(1, math.ceil(_clock() - reservation.started)))
     if unused <= 0:
         return
     try:
@@ -439,20 +529,58 @@ def _release(self, team_id: str, incident_id: str, reserved: int, started: float
         _seal(self, team_id, routine_cursor.refund(cursor, "recovery_seconds", unused))
     except ApiProblem, routine_cursor.CursorError:
         return
+    routine_state.update(
+        self,
+        team_id,
+        lambda state: (routine_hold.refund_incident(state, incident_id, reservation.generation, unused), None),
+    )
 
 
-def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool:
+@contextlib.contextmanager
+def _deadline(self, team_id: str, incident_id: str, reservation: _Reservation):
+    """A direct timer that cancels the episode at its absolute deadline, whatever it is doing.
+
+    At the deadline it marks the reservation expired and stops the registered recovery: its token, its Brain request,
+    and any Action in flight. The watchdog still reconciles a timer that could not act.
+    """
+
+    def expire() -> None:
+        reservation.expired.set()
+        try:
+            routine_run.stop_routine_run(self, team_id, incident_id)
+        except ApiProblem:
+            local_audit.record_request("routine-recovery", result="error", team_id=team_id, detail="deadline-stop")
+
+    timer = threading.Timer(reservation.seconds, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield
+    finally:
+        timer.cancel()
+
+
+def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservation) -> bool:
     """Verify first, and ask the Brain only on proven absence; True when the run may go on.
 
-    Past its deadline, the episode stops asking and pauses the Routine as exhausted; a policy fault, an exhausted
-    budget, a pause decision, or a decision that could not be made pauses it too, with that reason on the notice.
+    Exhaustion is judged on the reservation's own clock, never on what the episode found: once its deadline passed,
+    the Routine pauses as exhausted. Otherwise a policy fault, missing evidence, an exhausted budget, a pause decision,
+    or a decision that could not be made pauses it, with that reason on the notice.
     """
     team_id, incident_id = run.team_id, run.run_id
     verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
-    if verdict == "absent":
-        verdict = _decide(self, team_id, incident_id, api_key, None) if _clock() < deadline else "exhausted"
-    if verdict in _GO_ON and _clock() >= deadline:
+
+    def expired() -> bool:
+        return reservation.expired.is_set() or _clock() >= reservation.deadline
+
+    if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
+        verdict = _decide(self, team_id, incident_id, api_key, None)
+    if expired():
         verdict = "exhausted"
+    elif self._chat_cancelled(run.token):
+        # A person's Stop is no failure: an aborted Brain call is not unavailable, nothing is published, and the
+        # incident stays for the card.
+        return False
     reason = _PAUSES.get(verdict)
     if reason is not None:
         routine_incident.pause(self, team_id, incident_id, reason)
@@ -462,24 +590,32 @@ def _episode(self, run: routine_run._Run, api_key: str, deadline: float) -> bool
 def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
     """The run's one automatic recovery episode, right after its hold, in the same execution slot (ADR-0092).
 
-    The episode and its whole time budget are reserved durably first, and it runs registered with that deadline, so
-    Stop, deletion, and the watchdog reach it and a restart never refills it. Linked verification comes first and
-    needs no model; only a proven absence asks the Brain, once, whether the same step should be retried. The unused
-    time is returned before the already-authorized run goes on under its own active time.
+    The episode and its time are reserved durably from both the recovery budget and the run's active time first, and
+    it runs registered with that deadline, so Stop, deletion, and the watchdog reach it and a restart never refills
+    it. Linked verification comes first and needs no model; only a proven absence asks the Brain, once, whether the
+    same step should be retried, and that retry runs inside the same allowance. Unused time is returned at the end.
     """
     team_id, incident_id = run.team_id, run.run_id
-    reserved = _reserve(self, team_id, incident_id)
-    if reserved is None:
+    reservation = _reserve(self, team_id, incident_id)
+    if reservation is None:
         return "held"
-    started = _clock()
     try:
-        with routine_run.registered(self, team_id, incident_id, run.token, reserved):
+        if not reservation.seconds:
+            # No time is left in either balance: the episode is exhausted before it starts.
+            routine_incident.pause(self, team_id, incident_id, "exhausted")
+            return "held"
+        with (
+            routine_run.registered(self, team_id, incident_id, run.token, reservation.seconds),
+            _deadline(self, team_id, incident_id, reservation),
+        ):
             try:
-                go_on = _episode(self, run, api_key, started + reserved)
+                go_on = _episode(self, run, api_key, reservation)
+                if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor):
+                    return "held"
+                # The repaired step's retry runs inside the recovery allowance, bounded by the time left in it.
+                left = max(0, math.floor(reservation.deadline - _clock()))
+                return continue_run(self, team_id, incident_id, run.token, progress, seconds=left)
             finally:
-                _release(self, team_id, incident_id, reserved, started)
-            if not go_on or refusal(routine_incident.open_recovery(self, team_id, incident_id).cursor) is not None:
-                return "held"
-            return continue_run(self, team_id, incident_id, run.token, progress)
+                _release(self, team_id, incident_id, reservation)
     except ApiProblem:
         return "held"
