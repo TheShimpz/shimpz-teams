@@ -409,20 +409,54 @@ class HostedAssistantInstallEdgeTests(unittest.TestCase):
             lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
         self.assertEqual(metadata.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
 
-    def test_uninstall_deletes_binding_integrations_and_unreferenced_icon(self) -> None:
+    def test_uninstall_authorizes_before_reading_metadata_and_maps_unreadable_metadata(self) -> None:
+        lease = _lease()
+        denied = state.ApiError(HTTPStatus.NOT_FOUND, "Team not found")
+        with (
+            mock.patch.object(resources, "_require_current_authorization", side_effect=denied),
+            mock.patch.object(state._dynamic_assistants, "get") as read,
+            self.assertRaises(state.ApiError) as unauthorized,
+        ):
+            lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
+        self.assertIs(unauthorized.exception, denied)
+        read.assert_not_called()
+
+        with (
+            mock.patch.object(resources, "_require_current_authorization"),
+            mock.patch.object(
+                state._dynamic_assistants, "get", side_effect=lifecycle.dynamic_assistants.DynamicAssistantError("x")
+            ),
+            mock.patch.object(lifecycle, "_teardown_assistant") as teardown,
+            self.assertRaises(state.ApiError) as unreadable,
+        ):
+            lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
+        self.assertEqual(unreadable.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        teardown.assert_not_called()
+
+    def test_uninstall_confirms_an_already_absent_assistant_as_success(self) -> None:
         lease = _lease()
         with (
             mock.patch.object(state._dynamic_assistants, "get", return_value=None),
             mock.patch.object(resources, "_require_current_authorization"),
             mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_replayable_human"),
-            mock.patch.object(lifecycle, "_teardown_assistant", return_value=resources._CleanupResult(True, True)),
-            mock.patch.object(state._assistant_integrations, "delete_assistant"),
-            mock.patch.object(state._dynamic_assistants, "delete"),
+            mock.patch.object(
+                lifecycle, "_teardown_assistant", return_value=resources._CleanupResult(True, True)
+            ) as teardown,
+            mock.patch.object(state._assistant_integrations, "delete_assistant") as integrations,
+            mock.patch.object(state._dynamic_assistants, "delete") as binding,
             mock.patch.object(lifecycle.publication, "discard_icon") as icon,
         ):
-            result = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
-        self.assertTrue(result["uninstalled"])
+            first = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
+            second = lifecycle._uninstall_assistant(TEAM_ID, ASSISTANT_ID, lease)
+        self.assertEqual(first, {"team_id": TEAM_ID, "assistant": ASSISTANT_ID, "uninstalled": False})
+        self.assertEqual(second, first)
+        self.assertEqual(teardown.call_count, 2)
+        self.assertEqual(integrations.call_count, 2)
+        self.assertEqual(binding.call_count, 2)
         icon.assert_not_called()
+
+    def test_uninstall_deletes_binding_integrations_and_unreferenced_icon(self) -> None:
+        lease = _lease()
 
         with (
             mock.patch.object(state._dynamic_assistants, "get", return_value=BINDING),

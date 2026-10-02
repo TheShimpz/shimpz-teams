@@ -310,7 +310,7 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         read_icon.assert_called_once_with("team_1", "example-assistant", mock.sentinel.lease)
         handler._send_icon.assert_called_once_with(b"bound icon")
 
-    def test_uninstalls_only_a_bound_dynamic_assistant(self) -> None:
+    def test_uninstall_reports_the_lifecycle_result(self) -> None:
         request = hosted_controller._AuthorizedRequest(
             {"assistant_id": "example-assistant"},
             "team_1",
@@ -322,11 +322,6 @@ class HostedHttpBoundaryTests(unittest.TestCase):
         handler._send_json = mock.Mock()
 
         with (
-            mock.patch.object(
-                runtime_state._dynamic_assistants,
-                "get",
-                return_value=SimpleNamespace(assistant_id="example-assistant"),
-            ),
             mock.patch.object(
                 assistant_lifecycle,
                 "_uninstall_assistant",

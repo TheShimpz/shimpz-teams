@@ -681,14 +681,21 @@ def _uninstall_assistant(
     assistant_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
+    """Confirm the Assistant is absent from the Team; an Assistant already absent is success, not an error."""
     with runtime_state._lock_for(team_id):
-        binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
-        source_digest = None if binding is None else str(binding.resolution["source_digest"])
         hosted_resources._require_current_authorization(
             team_id,
             lease,
             require_isolation=False,
         )
+        try:
+            binding = runtime_state._dynamic_assistants.get(team_id, assistant_id)
+        except dynamic_assistants.DynamicAssistantError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant metadata is unavailable",
+            ) from exc
+        source_digest = None if binding is None else str(binding.resolution["source_digest"])
         hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
         runtime_state._integration_challenges.cancel_team(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
@@ -723,7 +730,7 @@ def _uninstall_assistant(
         return {
             "team_id": team_id,
             "assistant": assistant_id,
-            "uninstalled": True,
+            "uninstalled": binding is not None,
         }
 
 

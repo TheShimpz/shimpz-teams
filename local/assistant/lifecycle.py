@@ -716,7 +716,7 @@ def install_assistant(
 
 
 def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dict[str, object]:
-    spec = self._resolve(team_id, assistant_id)
+    """Confirm the Assistant is absent from the Team; an Assistant already absent is success, not an error."""
     binding = self.registry.binding(team_id, assistant_id)
     self.chat_turn_service._delete_chat_continuation(team_id)
     with self._lock(team_id):
@@ -738,6 +738,14 @@ def _uninstall_assistant_unguarded(self, team_id: str, assistant_id: str) -> dic
                 self.icons.discard_binding(binding, self.registry.bindings())
             self.sweep_residues()
             return {"assistant": assistant_id, "uninstalled": False}
+        spec = self.registry.get(team_id, assistant_id)
+        if spec is None:
+            # A container without its binding cannot be validated, so it is never removed as if it were owned.
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "an installed Assistant is no longer allowlisted",
+                code="assistant-registry-drift",
+            )
         self._validate_container_profile(container, team_id, spec, network.name)
         retired_image_id = _retired_image_id(container)
         remaining_egress = (

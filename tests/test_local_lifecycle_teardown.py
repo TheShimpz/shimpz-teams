@@ -176,6 +176,29 @@ class LocalLifecycleTeardownTests(LocalContractCase):
         self.assertEqual(result, {"assistant": "shimpz-cloudflare", "uninstalled": False})
         self.assertEqual(events, ["residue-sweep"])
 
+    def test_a_repeated_uninstall_confirms_the_absent_assistant_as_success(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+
+        first = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+        controller.assistant_lifecycle._assistant_container = lambda *_args, **_kwargs: None
+        controller.assistant_lifecycle._egress_token = lambda *_args, **_kwargs: None
+        second = controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(first, {"assistant": "shimpz-cloudflare", "uninstalled": True})
+        self.assertEqual(second, {"assistant": "shimpz-cloudflare", "uninstalled": False})
+        self.assertIsNone(controller.registry.get("team_1", "shimpz-cloudflare"))
+        self.assertEqual(events.count(("remove", True)), 1)
+
+    def test_uninstall_never_removes_a_container_whose_binding_is_gone(self) -> None:
+        controller, _container, events = self._lifecycle_controller()
+        controller.registry.delete("team_1", "shimpz-cloudflare")
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            controller.assistant_lifecycle.uninstall_assistant("team_1", "shimpz-cloudflare")
+
+        self.assertEqual(caught.exception.code, "assistant-registry-drift")
+        self.assertNotIn(("remove", True), events)
+
     def test_team_teardown_does_not_require_a_retiring_egress_policy(self) -> None:
         controller, container, events = self._lifecycle_controller()
         controller.registry["shimpz-cloudflare"].allowed_hosts = ("api.example.com",)

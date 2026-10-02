@@ -563,21 +563,21 @@ class HostedHttpAssistantRouteEdgeTests(unittest.TestCase):
                     handler._route_assistant_install(_request())
                 self.assertEqual(caught.exception.status, expected_status)
 
-    def test_uninstall_fails_closed_for_unreadable_or_absent_metadata(self) -> None:
-        request = _request(assistant_id="example-assistant")
-        for binding, expected_status in (
-            (server.dynamic_assistants.DynamicAssistantError("unavailable"), HTTPStatus.SERVICE_UNAVAILABLE),
-            (None, HTTPStatus.NOT_FOUND),
+    def test_uninstall_leaves_an_absent_assistant_to_the_authorized_lifecycle(self) -> None:
+        handler = _handler()
+        with (
+            mock.patch.object(runtime_state._dynamic_assistants, "get", side_effect=AssertionError("no early read")),
+            mock.patch.object(
+                server.assistant_lifecycle, "_uninstall_assistant", return_value={"uninstalled": False}
+            ) as uninstall,
         ):
-            with self.subTest(binding=binding):
-                handler = _handler()
-                effect = binding if isinstance(binding, Exception) else lambda *_args, _binding=binding: _binding
-                with (
-                    mock.patch.object(runtime_state._dynamic_assistants, "get", side_effect=effect),
-                    self.assertRaises(runtime_state.ApiError) as caught,
-                ):
-                    handler._route_assistant_uninstall(request)
-                self.assertEqual(caught.exception.status, expected_status)
+            handler._route_assistant_uninstall(_request(assistant_id="example-assistant"))
+        uninstall.assert_called_once_with(TEAM_ID, "example-assistant", mock.ANY)
+        handler._send_json.assert_called_once_with(
+            HTTPStatus.OK,
+            {"assistant": "example-assistant", "uninstalled": False, "trace_id": "trace"},
+            no_store=True,
+        )
 
     def test_main_refuses_to_start_without_the_assistant_egress_image_pin(self) -> None:
         for image in ("", "shimpz egress"):

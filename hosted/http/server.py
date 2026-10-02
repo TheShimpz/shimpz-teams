@@ -907,15 +907,6 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
         assistant_id = assistant_registry.validate_assistant_id(request.params["assistant_id"])
-        try:
-            binding = runtime_state._dynamic_assistants.get(request.team_id, assistant_id)
-        except dynamic_assistants.DynamicAssistantError as exc:
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                "Assistant metadata is unavailable",
-            ) from exc
-        if binding is None:
-            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed")
         result = assistant_lifecycle._uninstall_assistant(
             request.team_id,
             assistant_id,
