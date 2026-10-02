@@ -25,7 +25,7 @@ from hosted.team import resources as hosted_resources
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
 from integrations import store as integration_store
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 

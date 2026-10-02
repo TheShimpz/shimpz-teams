@@ -9,11 +9,11 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
-from action_effect_validator import EFFECTS, effect_error
-from failure_validator import FAILURE_KEYS, failure_error
-from human_request_validator import reference_error
-from human_request_validator import verify_vectors as verify_human_vectors
-from input_file_validator import (
+from validators.action_effect import EFFECTS, effect_error
+from validators.failure import FAILURE_KEYS, failure_error
+from validators.human_request import reference_error
+from validators.human_request import verify_vectors as verify_human_vectors
+from validators.input_file import (
     FILE_ID_SCHEMA,
     MAX_BASE64_CHARACTERS,
     MAX_FILE_BYTES,
@@ -21,12 +21,15 @@ from input_file_validator import (
     input_files_error,
     invocation_files_error,
 )
-from message_catalog_validator import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
-from message_catalog_validator import verify_vectors as verify_catalog_vectors
+from validators.message_catalog import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
+from validators.message_catalog import verify_vectors as verify_catalog_vectors
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"
-ROW = re.compile(r"([0-9a-f]{64})  ([A-Za-z0-9._-]+)")
+# The root holds the schemas, this verifier, and the README; golden vectors and reference validators each have one
+# directory, so a manifest path is a file name or one directory and a file name.
+DIRECTORIES = ("validators", "vectors")
+ROW = re.compile(r"([0-9a-f]{64})  ((?:(?:validators|vectors)/)?[A-Za-z0-9._-]+)")
 SCHEMAS = (
     "invocation.schema.json",
     "language-pack.schema.json",
@@ -159,7 +162,11 @@ for line in MANIFEST.read_text(encoding="ascii").splitlines():
         fail("Assistant protocol checksum manifest is invalid")
     rows[match[2]] = match[1]
 
-actual = {path.name for path in HERE.iterdir() if path.is_file() and path.name != MANIFEST.name}
+actual = {path.name for path in HERE.iterdir() if path.is_file() and path.name != MANIFEST.name} | {
+    f"{directory}/{path.name}" for directory in DIRECTORIES for path in (HERE / directory).iterdir() if path.is_file()
+}
+if {path.name for path in HERE.iterdir() if path.is_dir() and path.name != "__pycache__"} != set(DIRECTORIES):
+    fail("Assistant protocol directories differ from its layout")
 if set(rows) != actual:
     fail("Assistant protocol artifact set differs from its checksum manifest")
 for filename, expected in rows.items():
@@ -208,23 +215,23 @@ if result_types != {"result", "request", "stored_input_rejected", "failure"}:
 failure_schema = result.get("$defs", {}).get("failure", {})
 if failure_schema.get("required") != list(FAILURE_KEYS) or failure_schema.get("additionalProperties") is not False:
     fail("Assistant failure envelope contract is invalid")
-verify_reference_vectors("failure-vectors.json", "failure", "response", failure_error)
+verify_reference_vectors("vectors/failure.json", "failure", "response", failure_error)
 
 
-verify_verdict_vectors("manifest-vectors.json", "manifest", {"manifest": str})
-verify_verdict_vectors("action-schema-vectors.json", "Action schema", {"schema": dict})
+verify_verdict_vectors("vectors/manifest.json", "manifest", {"manifest": str})
+verify_verdict_vectors("vectors/action-schema.json", "Action schema", {"schema": dict})
 expansions = {
     (case["valid"], expanded_subschemas(case["schema"]))
-    for case in json.loads((HERE / "action-schema-vectors.json").read_bytes())["cases"]
+    for case in json.loads((HERE / "vectors/action-schema.json").read_bytes())["cases"]
 }
 if not {(True, MAX_EXPANDED_SUBSCHEMAS), (False, MAX_EXPANDED_SUBSCHEMAS + 1)} <= expansions or any(
     valid and (size is None or size > MAX_EXPANDED_SUBSCHEMAS) for valid, size in expansions
 ):
     fail("Assistant Action schema vectors do not pin the expanded-reference bound")
-verify_verdict_vectors("pattern-vectors.json", "pattern", {"pattern": str, "subject": str}, "matches")
-verify_verdict_vectors("invocation-vectors.json", "invocation", {"invocation": dict})
+verify_verdict_vectors("vectors/pattern.json", "pattern", {"pattern": str, "subject": str}, "matches")
+verify_verdict_vectors("vectors/invocation.json", "invocation", {"invocation": dict})
 
-human = json.loads((HERE / "human-request-vectors.json").read_bytes())
+human = json.loads((HERE / "vectors/human-request.json").read_bytes())
 machine = json.loads((HERE / "machine-contract.schema.json").read_bytes())
 declared_capabilities = machine["$defs"]["humanRequestCapability"].get("enum")
 human_requests = machine["$defs"]["action"]["properties"]["human_requests"]
@@ -256,7 +263,7 @@ if (
     or machine["$defs"].get("idempotency", {}).get("additionalProperties") is not False
 ):
     fail("Assistant Action effect contract is invalid")
-verify_reference_vectors("action-effect-vectors.json", "Action effect", "actions", effect_error)
+verify_reference_vectors("vectors/action-effect.json", "Action effect", "actions", effect_error)
 
 file_schema = invocation.get("$defs", {}).get("file", {})
 file_content = file_schema.get("properties", {}).get("content", {}).get("oneOf", [{}, {}])
@@ -271,9 +278,9 @@ if (
     or action_properties.get("input_files", {}).get("maxItems") != MAX_INPUT_FILES
 ):
     fail("Assistant Action file input contract is invalid")
-verify_reference_vectors("input-file-vectors.json", "Action file input", "actions", input_files_error)
+verify_reference_vectors("vectors/input-file.json", "Action file input", "actions", input_files_error)
 verify_reference_vectors(
-    "file-invocation-vectors.json", "file invocation", ("action", "invocation"), invocation_files_error
+    "vectors/file-invocation.json", "file invocation", ("action", "invocation"), invocation_files_error
 )
 
 messages = machine.get("properties", {}).get("messages", {})
@@ -291,7 +298,7 @@ if (
 ):
     fail("Assistant message catalog contract is invalid")
 try:
-    verify_catalog_vectors(json.loads((HERE / "catalog-vectors.json").read_bytes()), reference_error)
+    verify_catalog_vectors(json.loads((HERE / "vectors/catalog.json").read_bytes()), reference_error)
 except KeyError, TypeError, ValueError:
     fail("Assistant message catalog vectors are invalid")
 

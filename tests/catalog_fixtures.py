@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 
 SUMMARY = "Exercise one reviewed Assistant."
 POLICY = f"sha256:{'7' * 64}"

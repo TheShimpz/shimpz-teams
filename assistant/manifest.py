@@ -24,8 +24,8 @@ from assistant import action_schema
 from assistant import effect as action_effect
 from core import strict_json
 from integrations import providers as integration_providers
-from protocol.assistant.v1 import input_file_validator
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import input_file as input_file_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"

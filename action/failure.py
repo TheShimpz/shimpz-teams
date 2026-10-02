@@ -27,7 +27,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from urllib.parse import quote, quote_plus
 
-from protocol.assistant.v1 import failure_validator
+from protocol.assistant.v1.validators import failure as failure_validator
 
 REDACTED = "[REDACTED]"
 MAX_TEXT_BYTES = failure_validator.MAX_TEXT_BYTES

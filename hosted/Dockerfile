@@ -134,10 +134,10 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
      ./protocol/account/authority/v1/
 COPY protocol/http/v1/payload.py ./protocol/http/v1/
-COPY protocol/assistant/v1/action_effect_validator.py protocol/assistant/v1/failure_validator.py \
-    protocol/assistant/v1/human_request_validator.py protocol/assistant/v1/input_file_validator.py \
-    protocol/assistant/v1/message_catalog_validator.py \
-    ./protocol/assistant/v1/
+COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
+    protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
+    protocol/assistant/v1/validators/message_catalog.py \
+    ./protocol/assistant/v1/validators/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/

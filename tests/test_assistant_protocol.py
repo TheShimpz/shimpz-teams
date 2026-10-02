@@ -15,15 +15,15 @@ from assistant.manifest import (
 )
 from tests import catalog_fixtures
 
-VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "manifest-vectors.json"
-PROTOCOL = VECTORS.parent
+VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "manifest.json"
+PROTOCOL = VECTORS.parents[1]
 CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "54fe049011f9cd373f44404bc55f9a75c1542c2b",
+    "commit": "f4126605720acac6afcca1dbbcad9e7551aebdf1",
     "path": "protocol/assistant/v1",
-    "tree": "3e367ccc740695c0a820d71286b2714b74cf0a4b",
-    "contract_files_sha256": "7bc277f2e218b8eb859c786f56f3d333e7b942bb800002eadeb37bf5d6fa44c6",
+    "tree": "f5754e66fe08762c0f484023614ebf928421bb0a",
+    "contract_files_sha256": "530580994abf677bca5ff10623a99939a93e95e91f90b35e074464c801037880",
 }
 
 
@@ -52,7 +52,7 @@ class AssistantProtocolTests(unittest.TestCase):
             self.assertEqual(valid, case["valid"], case["name"])
 
     def test_matches_every_published_action_schema_vector_in_both_positions(self) -> None:
-        vectors = json.loads((PROTOCOL / "action-schema-vectors.json").read_bytes())
+        vectors = json.loads((PROTOCOL / "vectors/action-schema.json").read_bytes())
         self.assertEqual(vectors["version"], 1)
         for case in vectors["cases"]:
             for position in ("input_schema", "output_schema"):

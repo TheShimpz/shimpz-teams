@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from assistant.spec import ActionSpec
 from inference import client as brain_runtime_client
 from prepare import service as preparation
-from protocol.assistant.v1 import input_file_validator
+from protocol.assistant.v1.validators import input_file as input_file_validator
 
 READABLE = frozenset({"text", "image"})
 

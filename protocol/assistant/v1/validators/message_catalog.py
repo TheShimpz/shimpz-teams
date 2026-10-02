@@ -257,7 +257,7 @@ def _json_values_exceed(value: object, limit: int) -> bool:
 def verify_vectors(document: object, reference_error: ReferenceCheck) -> None:
     """Fail when a catalog, reference rendering, or pack vector no longer proves its stated outcome.
 
-    ``reference_error`` is the human-request reference check (``human_request_validator.reference_error``), so a
+    ``reference_error`` is the human-request reference check (``human_request.reference_error``), so a
     rendering vector proves only a reference that Team admits for a field with an admitted bound.
     """
     if not isinstance(document, dict) or set(document) != {

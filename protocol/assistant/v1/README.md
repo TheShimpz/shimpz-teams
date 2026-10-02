@@ -22,8 +22,8 @@ is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
 lowercase username using only letters, digits, and internal dashes.
-`manifest-vectors.json` freezes complete positive and negative manifests across schema, publication,
-Team admission, and SDK implementations. `manifest-id-vectors.json` retains the focused portable-ID
+`vectors/manifest.json` freezes complete positive and negative manifests across schema, publication,
+Team admission, and SDK implementations. `vectors/manifest-id.json` retains the focused portable-ID
 boundary. Each implementation runs the vectors independently. The SDK contract generator also enforces invariants
 that JSON Schema cannot express cleanly, including public host validation, stable SemVer, and whitespace rules.
 Unknown fields and unsupported Spec versions fail closed.
@@ -75,7 +75,7 @@ compiled program exceeds 16,384 instructions, or that Python `re` cannot compile
 anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII (`\s` is tab, newline, form feed,
 carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
 other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
-surrogate, fails validation. `pattern-vectors.json` freezes these semantics as pattern, subject, and outcome cases.
+surrogate, fails validation. `vectors/pattern.json` freezes these semantics as pattern, subject, and outcome cases.
 One search costs at most its subject's UTF-8 length times its compiled program size, so Team and the Brain also bound
 the matching work of one payload validation: each search charges that product, and the validation fails once its
 charges exceed 67,108,864 (2^26), well under a second of RE2's slowest matching. SDK-generated patterns on bounded
@@ -102,7 +102,7 @@ ways:
   member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or lower
   count when unbounded, and at least 1) times one more than its operand, plus 1.
 
-`action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
+`vectors/action-schema.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.
 
 ## Effect and verification
@@ -185,8 +185,8 @@ exists proves nothing on its own. A `read_only` Action never declares it:
 
 Team reuses one logical operation's key only within that retention and with an unchanged payload, and never across
 scheduled runs. The declaration is a reviewed Creator statement about the provider, not proof of external
-exactly-once execution. `action-effect-vectors.json` freezes admitted and refused declarations over complete Action
-lists, and `action_effect_validator.py` is the reference implementation.
+exactly-once execution. `vectors/action-effect.json` freezes admitted and refused declarations over complete Action
+lists, and `validators/action_effect.py` is the reference implementation.
 
 ## File inputs
 
@@ -221,8 +221,8 @@ ordinary Action, and in v1 it names at most one property:
 
 The model argument carries only the opaque file id. Team admits only an id that the current logical turn selected,
 determines the media type from the bytes, and records the file in the invocation's `files` object, described below.
-`input-file-vectors.json` freezes admitted and refused declarations over complete Action lists, and
-`input_file_validator.py` is the reference implementation.
+`vectors/input-file.json` freezes admitted and refused declarations over complete Action lists, and
+`validators/input_file.py` is the reference implementation.
 
 ## Message catalog
 
@@ -269,8 +269,8 @@ Rendering replaces each placeholder once with its parameter value (an integer in
 the locale's translation. A parameter is never interpreted, translated, normalized, or reformatted, and a rendering is
 still validated as NFC public text within its field bound after insertion.
 
-`catalog-vectors.json` freezes admitted and refused catalogs (including generated count, byte, value, and nesting
-bounds), renderings, and packs; `message_catalog_validator.py` is the reference implementation. Each rendering vector
+`vectors/catalog.json` freezes admitted and refused catalogs (including generated count, byte, value, and nesting
+bounds), renderings, and packs; `validators/message_catalog.py` is the reference implementation. Each rendering vector
 uses a reference that the request rules below admit for a field with one of the admitted bounds.
 
 ## Invocation
@@ -316,8 +316,8 @@ exposes the bytes only once the authorization response has matched. The first in
 requests its declared authorization, Team adds a platform-rendered disclosure of the file to that card, and only the
 approved replay receives the original bytes, including any metadata they embed. An Action that never requests
 authorization never receives bytes. Reading withheld content is an error in the SDK, never an empty file.
-`file-invocation-vectors.json` freezes admitted and refused pairs of an Action and its invocation, and
-`input_file_validator.py` is the reference implementation. Its `files_shape_error` checks the `files` member before
+`vectors/file-invocation.json` freezes admitted and refused pairs of an Action and its invocation, and
+`validators/input_file.py` is the reference implementation. Its `files_shape_error` checks the `files` member before
 the Action's declaration is known, so a runtime can refuse a malformed invocation frame before it loads any Action;
 `invocation_files_error` adds the declaration, authorization, and content rules.
 
@@ -329,7 +329,7 @@ invocation is a new operation with a new value. It is distinct from Team's attem
 fingerprint, carries no authority, and is not secret. The SDK exposes it as `Context.operation_id` so an Action may
 pass it to a provider as an idempotency key within that provider's documented key scope, retention, and same-payload
 rules; provider support is optional, so it never promises external exactly-once execution.
-`invocation-vectors.json` freezes admitted and refused invocations, including the `operation_id` format.
+`vectors/invocation.json` freezes admitted and refused invocations, including the `operation_id` format.
 
 `result.schema.json` describes the tagged object written to stdout. A terminal response is
 `{"type":"result","result":{...}}`; the SDK validates `result` against the reviewed Action output schema.
@@ -376,8 +376,8 @@ failure branch is sanitized: a result, a request, or a Stored Input rejection th
 
 Nonzero exit, any stderr output, a timeout, a malformed or oversized frame, more than one frame, and unavailable
 exit inspection are transport faults, not handled failures. Team records only the actual safe condition, such as the
-exit status or the timeout, and never reflects unverifiable raw child output. `failure-vectors.json` freezes admitted
-and refused failure envelopes, including byte and character bounds, and `failure_validator.py` is the reference
+exit status or the timeout, and never reflects unverifiable raw child output. `vectors/failure.json` freezes admitted
+and refused failure envelopes, including byte and character bounds, and `validators/failure.py` is the reference
 implementation.
 
 Every copy field of a request (`title`, `description`, `label`, `placeholder`, and each option's `label` and
@@ -392,7 +392,7 @@ The fingerprint is lowercase SHA-256 over the request object, including its refe
 keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted directly rather than ASCII-escaped,
 and no non-finite numbers. Request keys are ASCII protocol or parameter names, and request values are limited to
 strings, integers, booleans, null, arrays, and objects, so this profile is portable without a general numeric
-canonicalizer. `human-request-vectors.json` freezes one reviewed catalog with representative preimages, digests,
+canonicalizer. `vectors/human-request.json` freezes one reviewed catalog with representative preimages, digests,
 semantic request and reference constraints, and replay transcript failures that JSON Schema cannot express alone.
 
 Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
@@ -410,6 +410,12 @@ zero-width formatting characters, and they are unique. Length and selection mini
 maxima, selection maxima never exceed the option count, and response ordinals are unique and contiguous from
 zero. The Assistant Spec owns the eight-request-per-Action limit; Team's chat protocol independently owns its
 turn-wide request limit and challenge lifetime.
+
+## Layout
+
+The root holds the five JSON Schemas, this README, `verify.py`, and `contract-files.sha256`. `vectors/` holds the
+golden conformance vectors and `validators/` the reference validators; each validator is a standalone module with no
+import of another. Every path in `contract-files.sha256` is relative to this directory.
 
 Validate the artifact set and vector shape from this directory:
 

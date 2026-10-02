@@ -16,7 +16,7 @@ from action import execution as action_execution
 from action import failure as action_failure
 from action import human as action_human
 
-VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "failure-vectors.json"
+VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "failure.json"
 TOKEN = "oauth-Access-Token-7f3a9c"
 STORED = "stored/input+value=42"
 ANSWER = "human-password-answer"

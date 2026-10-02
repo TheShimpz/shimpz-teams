@@ -9,7 +9,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
-from protocol.assistant.v1 import input_file_validator
+from protocol.assistant.v1.validators import input_file as input_file_validator
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[1] / "protocol" / "install" / "v1"
 DEFINITIONS = "definitions.schema.json"

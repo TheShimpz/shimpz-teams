@@ -49,15 +49,17 @@ def _execute(
             mutate(mirror)
         output = io.StringIO()
         module_names = (
-            "action_effect_validator",
-            "failure_validator",
-            "human_request_validator",
-            "message_catalog_validator",
             "payload",
             "progress",
             "routine",
             "schema_validator",
             "supervisor",
+            "validators",
+            "validators.action_effect",
+            "validators.failure",
+            "validators.human_request",
+            "validators.input_file",
+            "validators.message_catalog",
             "websocket",
         )
 
@@ -201,15 +203,15 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
 
     def test_rejects_manifest_and_human_vector_drift(self) -> None:
         mutations = (
-            lambda root: _rewrite_json(root, "manifest-vectors.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(root, "vectors/manifest.json", lambda value: value.update({"version": 2})),
             lambda root: _rewrite_json(
                 root,
-                "manifest-vectors.json",
+                "vectors/manifest.json",
                 lambda value: value["cases"][0].update({"name": ""}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "manifest-vectors.json",
+                "vectors/manifest.json",
                 lambda value: value.update({"cases": [case for case in value["cases"] if case["valid"]]}),
             ),
             lambda root: _rewrite_json(
@@ -219,12 +221,12 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             ),
             lambda root: _rewrite_json(
                 root,
-                "human-request-vectors.json",
+                "vectors/human-request.json",
                 lambda value: value.update({"version": 2}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "human-request-vectors.json",
+                "vectors/human-request.json",
                 lambda value: value["catalog"].update({"summary": "Not in the catalog."}),
             ),
             lambda root: _rewrite_json(
@@ -237,15 +239,15 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "language-pack.schema.json",
                 lambda value: value["properties"]["locales"]["required"].append("en"),
             ),
-            lambda root: _rewrite_json(root, "catalog-vectors.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(root, "vectors/catalog.json", lambda value: value.update({"version": 2})),
             lambda root: _rewrite_json(
                 root,
-                "action-schema-vectors.json",
+                "vectors/action-schema.json",
                 lambda value: value["cases"][0].update({"schema": "closed"}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "pattern-vectors.json",
+                "vectors/pattern.json",
                 lambda value: value["cases"][0].update({"matches": "yes"}),
             ),
         )
@@ -258,14 +260,14 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             value["cases"][0]["valid"] = not value["cases"][0]["valid"]
 
         mutations = (
-            lambda root: _rewrite_json(root, "action-effect-vectors.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(root, "vectors/action-effect.json", lambda value: value.update({"version": 2})),
             lambda root: _rewrite_json(
-                root, "action-effect-vectors.json", lambda value: value["cases"][0].update({"name": ""})
+                root, "vectors/action-effect.json", lambda value: value["cases"][0].update({"name": ""})
             ),
-            lambda root: _rewrite_json(root, "action-effect-vectors.json", flip_first),
+            lambda root: _rewrite_json(root, "vectors/action-effect.json", flip_first),
             lambda root: _rewrite_json(
                 root,
-                "action-effect-vectors.json",
+                "vectors/action-effect.json",
                 lambda value: value.update({"cases": [case for case in value["cases"] if case["valid"]]}),
             ),
             lambda root: _rewrite_json(
@@ -283,7 +285,7 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
                 "result.schema.json",
                 lambda value: value["$defs"]["failure"]["required"].remove("truncated"),
             ),
-            lambda root: _rewrite_json(root, "failure-vectors.json", flip_first),
+            lambda root: _rewrite_json(root, "vectors/failure.json", flip_first),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
@@ -315,7 +317,7 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaisesRegex(SystemExit, "expanded-reference bound"):
                 _execute(
                     ASSISTANT / "verify.py",
-                    lambda root, mutation=mutation: _rewrite_json(root, "action-schema-vectors.json", mutation),
+                    lambda root, mutation=mutation: _rewrite_json(root, "vectors/action-schema.json", mutation),
                 )
 
 

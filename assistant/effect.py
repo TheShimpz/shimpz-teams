@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from protocol.assistant.v1 import action_effect_validator
+from protocol.assistant.v1.validators import action_effect as action_effect_validator
 
 EFFECTS = action_effect_validator.EFFECTS
 READ_ONLY = "read_only"

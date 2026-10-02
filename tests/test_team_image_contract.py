@@ -38,11 +38,11 @@ LOCAL_PACKAGE_DATA = {
 PACKAGE_TOOLS: dict[str, set[str]] = {}
 # The Developers Assistant protocol reference validators Team imports at run time (ADR-0091, ADR-0092).
 ASSISTANT_PROTOCOL_RUNTIME = {
-    "protocol/assistant/v1/action_effect_validator.py",
-    "protocol/assistant/v1/failure_validator.py",
-    "protocol/assistant/v1/human_request_validator.py",
-    "protocol/assistant/v1/input_file_validator.py",
-    "protocol/assistant/v1/message_catalog_validator.py",
+    "protocol/assistant/v1/validators/action_effect.py",
+    "protocol/assistant/v1/validators/failure.py",
+    "protocol/assistant/v1/validators/human_request.py",
+    "protocol/assistant/v1/validators/input_file.py",
+    "protocol/assistant/v1/validators/message_catalog.py",
 }
 HOSTED_PROTOCOL_DATA = {
     *ASSISTANT_PROTOCOL_RUNTIME,
@@ -220,7 +220,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "/usr/local/bin/cosign",
             "./protocol/account/authority/",
             "./protocol/account/authority/v1/",
-            "./protocol/assistant/v1/",
+            "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
             "./protocol/install/",
             "./protocol/install/v1/",

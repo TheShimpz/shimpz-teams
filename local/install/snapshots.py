@@ -15,7 +15,7 @@ from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.install import source_package
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"

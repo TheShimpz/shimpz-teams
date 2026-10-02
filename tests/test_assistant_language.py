@@ -18,7 +18,7 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.errors import ApiProblemError
 from local.install import snapshots
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from tests import catalog_fixtures, human_request_fixtures, local_snapshot_fixtures
 
 MESSAGES = catalog_fixtures.messages()

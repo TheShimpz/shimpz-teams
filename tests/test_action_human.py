@@ -2,7 +2,7 @@ import json
 import unittest
 
 from action import human
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from tests import catalog_fixtures, human_request_fixtures
 
 CATALOG = human_request_fixtures.CATALOG

@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from protocol.assistant.v1 import human_request_validator as human
-from protocol.assistant.v1 import message_catalog_validator as catalog_module
+from protocol.assistant.v1.validators import human_request as human
+from protocol.assistant.v1.validators import message_catalog as catalog_module
 from protocol.http.v1 import websocket
 from protocol.install.v1 import schema_validator as schema
 
@@ -103,7 +103,7 @@ def _response(request: dict[str, object], value: object, **changes: object) -> d
 
 class HumanRequestValidatorEdgeTests(unittest.TestCase):
     def test_current_vectors_and_every_request_family_are_accepted(self) -> None:
-        vectors = json.loads((ASSISTANT_PROTOCOL / "human-request-vectors.json").read_bytes())
+        vectors = json.loads((ASSISTANT_PROTOCOL / "vectors/human-request.json").read_bytes())
         machine = json.loads((ASSISTANT_PROTOCOL / "machine-contract.schema.json").read_bytes())
         human.verify_vectors(vectors, machine["$defs"]["humanRequestCapability"]["enum"])
         self.assertIsNone(catalog_module.catalog_error(MESSAGES, SUMMARY))
@@ -299,7 +299,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
         self.assertEqual(human.fingerprint(first), human.fingerprint(copy.deepcopy(first)))
 
     def test_vector_sections_and_helpers_are_closed(self) -> None:
-        document = json.loads((ASSISTANT_PROTOCOL / "human-request-vectors.json").read_bytes())
+        document = json.loads((ASSISTANT_PROTOCOL / "vectors/human-request.json").read_bytes())
         capabilities = copy.deepcopy(document["capabilities"])
         for value in (
             [],
@@ -368,7 +368,7 @@ class HumanRequestValidatorEdgeTests(unittest.TestCase):
 
 class MessageCatalogValidatorEdgeTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.vectors = json.loads((ASSISTANT_PROTOCOL / "catalog-vectors.json").read_bytes())
+        self.vectors = json.loads((ASSISTANT_PROTOCOL / "vectors/catalog.json").read_bytes())
         self.messages = self.vectors["catalog"]["messages"]
         self.pack = self.vectors["pack"]["value"]
 

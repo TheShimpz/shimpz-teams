@@ -24,7 +24,7 @@ from local.chat import resume as chat_resume
 from local.chat import segment as chat_segment
 from local.chat import types as chat_types
 from local.errors import ApiProblemError
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 
 
 class LocalLeafContractTests(unittest.TestCase):

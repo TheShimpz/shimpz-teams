@@ -11,7 +11,7 @@ import copy as _copy
 from action import challenges as action_challenges
 from action import human as action_human
 from assistant import language as assistant_language
-from protocol.assistant.v1 import message_catalog_validator as catalog_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from tests import catalog_fixtures
 
 COPY_FIELDS = ("title", "description", "label", "placeholder")

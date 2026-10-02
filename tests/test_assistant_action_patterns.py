@@ -17,7 +17,7 @@ from assistant import spec as assistant_spec
 
 assistants = harness.hosted_assistants
 assistant_registry = assistants.assistant_registry
-PATTERN_VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "pattern-vectors.json"
+PATTERN_VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "pattern.json"
 # Python's backtracking `re` needs seconds for 30 characters of this pattern and doubles with each one more.
 CATASTROPHIC = "^(a+)+b$"
 DRAFT_2020_12 = "https://json-schema.org/draft/2020-12/schema"

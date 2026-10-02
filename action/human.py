@@ -9,7 +9,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from protocol.assistant.v1 import human_request_validator
+from protocol.assistant.v1.validators import human_request as human_request_validator
 
 MAX_REQUESTS_PER_ACTION = 8
 MAX_REQUESTS_PER_TURN = 16

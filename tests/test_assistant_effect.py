@@ -15,7 +15,7 @@ from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_spec
 from tests import catalog_fixtures
 
-VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "action-effect-vectors.json"
+VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "action-effect.json"
 CLOSED = {"type": "object", "properties": {}, "additionalProperties": False}
 OUTCOME = {"type": "string", "enum": ["occurred", "not_occurred", "inconclusive"]}
 IDEMPOTENCY = {
