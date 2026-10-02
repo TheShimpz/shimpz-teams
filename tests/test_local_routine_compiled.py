@@ -476,6 +476,10 @@ class RuntimeTests(CompiledRunCase):
             with self.assertRaises(routine_compiled.CompiledRunError) as caught:
                 compiled.dispatching(foreign, "0" * 32)
             self.assertEqual(caught.exception.code, "routine-step-changed")
+            # A failure is classified only for a dispatched operation.
+            with self.assertRaises(routine_compiled.CompiledRunError) as undispatched:
+                compiled.failed(foreign, None, RuntimeError("x"))
+            self.assertEqual(undispatched.exception.code, "cursor-not-dispatched")
             first = compiled.start(None, "")
             with self.assertRaises(routine_compiled.CompiledRunError) as invalid:
                 compiled.dispatching(first.actions[0], "not-an-operation")

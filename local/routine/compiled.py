@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from action import execution as action_execution
+from action import failure as action_failure
 from action import journal as action_journal
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
@@ -37,6 +38,32 @@ from routine import grant as routine_grant
 from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
+
+# Team-detected faults that hold a run for policy, never admitting absence or a retry (ADR-0092 section 6): a secret
+# echo, an invalid result or frame, or an undeclared human request, which Team refuses as an invalid result.
+_POLICY_CODES = frozenset({"assistant-secret-exposure", "invalid-action-output"})
+_POLICY_CONDITIONS = frozenset({"frame-invalid"})
+
+
+def fault_of(exc: BaseException) -> str:
+    """Team's classification of one failed attempt, from the problem it raised; never from a model or a message."""
+    if getattr(exc, "code", None) == "assistant-action-blocked":
+        # Team could not prove the workload stopped after an ambiguous outcome.
+        return "unquiesced"
+    if getattr(exc, "code", None) in _POLICY_CODES:
+        return "policy"
+    if action_failure.failure_of(exc) is not None:
+        return "handled"
+    cause = exc.__cause__
+    for _depth in range(8):
+        if isinstance(cause, action_execution.RpcExchangeError):
+            policy = cause.kind == "invalid-result" or cause.condition in _POLICY_CONDITIONS
+            # Every other transport fault fail-stopped its workload first; a stop that failed is unquiesced above.
+            return "policy" if policy else "transport"
+        if cause is None:
+            return "other"
+        cause = cause.__cause__
+    return "other"
 
 
 class CompiledRunError(RuntimeError):
@@ -142,8 +169,14 @@ class CompiledRuntime:
 
         It is bound to the run's logical operation and attempt and sealed under the Team's incarnation, so the run's
         execution details survive a restart and an archived journal. A diagnostic is never safety evidence: one that
-        cannot be kept is audited and the failure goes on unchanged.
+        cannot be kept is audited and the failure goes on unchanged. Team's classification of the failure is safety
+        evidence and is sealed in the cursor first: a cursor that cannot keep it fails the run closed.
         """
+        try:
+            classified = routine_cursor.failed(self.cursor, fault_of(exc))
+        except routine_cursor.CursorError as error:
+            raise CompiledRunError(error.code) from error
+        self.seal(classified)
         found = routine_diagnostics.evidence(exc)
         if found is None:
             return

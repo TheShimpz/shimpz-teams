@@ -30,6 +30,11 @@ BUDGETS = (
 )
 # Continuation segments a run may open after holds; each runs in its own journal generation.
 MAX_SEGMENTS = 8
+# Team's own classification of the dispatched operation's last failed attempt (ADR-0092 section 6): a handled failure
+# envelope, a transport fault after a proven fail-stop, a fault whose workload could not be proven stopped, a policy
+# fault (a secret echo, an invalid frame or result, an undeclared request), or any other refusal. Empty when the
+# attempt has not failed, or its failure could not be classified.
+FAULTS = ("", "handled", "transport", "unquiesced", "policy", "other")
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -51,6 +56,7 @@ _FIELDS = frozenset(
         "segment",
         "absent",
         "carried",
+        "fault",
     }
 )
 
@@ -91,6 +97,8 @@ class Cursor:
     # The dispatched operation came from an earlier segment: this segment may only retry it, under the same logical
     # operation, after proven absence.
     carried: bool = False
+    # How the dispatched operation's last attempt failed, as Team classified it; see FAULTS.
+    fault: str = ""
 
     @property
     def generation_suffix(self) -> str:
@@ -125,8 +133,17 @@ def dispatch(cursor: Cursor, plan: routine_plan.Plan, operation_id: str, commitm
     if cursor.operation_id is not None and (cursor.operation_id, cursor.commitment) != (operation_id, commitment):
         raise CursorError("cursor-operation-changed")
     return _checked(
-        dataclasses.replace(cursor, operation_id=operation_id, attempts=cursor.attempts + 1, commitment=commitment)
+        dataclasses.replace(
+            cursor, operation_id=operation_id, attempts=cursor.attempts + 1, commitment=commitment, fault=""
+        )
     )
+
+
+def failed(cursor: Cursor, fault: str) -> Cursor:
+    """Record Team's classification of the dispatched operation's failed attempt before the segment unwinds."""
+    if cursor.operation_id is None or fault not in FAULTS[1:]:
+        raise CursorError("cursor-not-dispatched")
+    return _checked(dataclasses.replace(cursor, fault=fault))
 
 
 def complete(cursor: Cursor, plan: routine_plan.Plan, result: object) -> Cursor:
@@ -145,9 +162,11 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object) -> Cursor:
 
 
 def proven_absent(cursor: Cursor) -> Cursor:
-    """Record Team-admitted proof that the dispatched operation had no business effect."""
+    """Record Team-admitted proof that the dispatched operation had no business effect; a policy fault never has it."""
     if cursor.operation_id is None:
         raise CursorError("cursor-not-dispatched")
+    if cursor.fault == "policy":
+        raise CursorError("cursor-policy-hold")
     return _checked(dataclasses.replace(cursor, absent=True))
 
 
@@ -201,6 +220,7 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "segment": cursor.segment,
         "absent": cursor.absent,
         "carried": cursor.carried,
+        "fault": cursor.fault,
     }
 
 
@@ -235,6 +255,7 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["segment"],
         value["absent"],
         value["carried"],
+        value["fault"],
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -267,6 +288,10 @@ def _checked(cursor: Cursor) -> Cursor:
         and type(cursor.absent) is bool
         and type(cursor.carried) is bool
         and (dispatched or not (cursor.absent or cursor.carried))
+        and isinstance(cursor.fault, str)
+        and cursor.fault in FAULTS
+        and (dispatched or cursor.fault == "")
+        and not (cursor.absent and cursor.fault == "policy")
     )
     if not valid:
         raise CursorError("cursor-invalid")

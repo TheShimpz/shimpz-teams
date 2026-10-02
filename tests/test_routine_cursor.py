@@ -156,3 +156,34 @@ class CursorTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FaultTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.plan = routine_plan.admit(_document(), CONTRACTS)
+        self.dispatched = routine_cursor.dispatch(
+            routine_cursor.start(self.plan, BINDING, 1_800_000_000), self.plan, OPERATION, COMMITMENT
+        )
+
+    def test_a_classified_failure_is_sealed_and_a_policy_fault_never_admits_absence(self) -> None:
+        for fault in routine_cursor.FAULTS[1:]:
+            with self.subTest(fault=fault):
+                classified = routine_cursor.failed(self.dispatched, fault)
+                self.assertEqual(routine_cursor.decode(routine_cursor.encode(classified), BINDING).fault, fault)
+        policy = routine_cursor.failed(self.dispatched, "policy")
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-policy-hold"):
+            routine_cursor.proven_absent(policy)
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
+            routine_cursor.encode(dataclasses.replace(policy, absent=True))
+        # A new attempt of the operation starts unclassified.
+        self.assertEqual(routine_cursor.dispatch(policy, self.plan, OPERATION, COMMITMENT).fault, "")
+        for cursor, fault in (
+            (self.dispatched, "unknown"),
+            (self.dispatched, ""),
+            (routine_cursor.start(self.plan, BINDING, 0), "handled"),
+        ):
+            with self.subTest(fault=fault), self.assertRaisesRegex(routine_cursor.CursorError, "cursor-not-dispatched"):
+                routine_cursor.failed(cursor, fault)
+        undispatched = routine_cursor.start(self.plan, BINDING, 0)
+        with self.assertRaisesRegex(routine_cursor.CursorError, "cursor-invalid"):
+            routine_cursor.encode(dataclasses.replace(undispatched, fault="handled"))

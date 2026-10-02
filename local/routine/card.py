@@ -107,12 +107,17 @@ def _unresolved(self, team_id: str, incident_id: str) -> record.Incident:
 
 
 def _verifiable(self, team_id: str, incident_id: str) -> bool:
-    """Whether Verificar can prove anything: nothing is uncertain, absence is proven, or a verifier is declared."""
+    """Whether Verificar can prove anything: nothing is uncertain, absence is proven, or a verifier is declared.
+
+    A policy hold has nothing to verify, so its card recommends Pausar.
+    """
     try:
         assessment = routine_recovery.assess(self, team_id, incident_id)
     except ApiProblem:
         return False
     proven = routine_recovery.proven(assessment)
+    if proven == "policy":
+        return False
     return proven != "uncertain" or routine_recovery.verifier_request(assessment) is not None
 
 

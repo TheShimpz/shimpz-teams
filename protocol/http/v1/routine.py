@@ -38,8 +38,8 @@ OUTCOMES = frozenset(
 # Pular of a held run is the run outcome ``user-skipped``.
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed")
 # Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
-# recovery budget, or the person's Pausar.
-PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person")
+# recovery budget, the person's Pausar, or a Team-detected policy fault such as a secret echo or an invalid frame.
+PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person", "policy")
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -407,7 +407,7 @@ MAX_UNRESOLVED_INCIDENTS = 32
 CARD_CHOICES = ("verify", "skip", "pause")
 CARD_SECONDS = 300
 NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
-CARD_VERDICTS = ("occurred", "absent", "none", "inconclusive", "unverifiable", "exhausted")
+CARD_VERDICTS = ("occurred", "absent", "none", "inconclusive", "unverifiable", "exhausted", "policy")
 # How an answer left the run: settled by the person, or how its already-authorized continuation ended.
 CARD_STATUSES = ("skipped", "paused", "recovered", "held", "frozen", "failed", "stopped")
 

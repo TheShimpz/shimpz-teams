@@ -142,10 +142,17 @@ def assess(self, team_id: str, incident_id: str) -> Assessment:
 
 
 def proven(assessment: Assessment) -> str:
-    """``none``: nothing is uncertain; ``absent``: Team-admitted evidence proves no effect; else ``uncertain``."""
+    """What Team-admitted evidence proves of the held step's operation.
+
+    ``none``: nothing is uncertain; ``policy``: a Team-detected policy fault holds it; ``absent``: the evidence proves
+    no business effect; else ``uncertain``. A policy fault, such as a secret echo or an invalid frame, is never
+    admitted as absence, even of a read-only Action, so it is never verified away or retried (ADR-0092 section 6).
+    """
     cursor = assessment.cursor
     if assessment.action is None or cursor.operation_id is None:
         return "none"
+    if cursor.fault == "policy":
+        return "policy"
     if cursor.absent or assessment.action.effect == "read_only":
         return "absent"
     if assessment.state in _ABSENT_STATES and not cursor.carried:
@@ -248,8 +255,8 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     """
     assessment = assess(self, team_id, incident_id)
     verdict = proven(assessment)
-    if verdict == "none":
-        return "none"
+    if verdict in {"none", "policy"}:
+        return verdict
     if verdict == "absent":
         if not assessment.cursor.absent:
             _seal(self, team_id, routine_cursor.proven_absent(assessment.cursor))
@@ -277,6 +284,8 @@ def refusal(cursor: routine_cursor.Cursor) -> str | None:
     """Why a held run may not continue yet: an operation still uncertain, or its one retry already spent."""
     if cursor.operation_id is None:
         return None
+    if cursor.fault == "policy":
+        return "routine-policy-hold"
     if not cursor.absent:
         return "routine-operation-uncertain"
     return None if cursor.remaining("retries") else "routine-retry-exhausted"
@@ -389,6 +398,10 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
         return "held"
     try:
         verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
+        if verdict == "policy":
+            # A policy fault pauses at once; no model is asked about it.
+            routine_incident.pause(self, team_id, incident_id, "policy")
+            return "held"
         if verdict == "absent" and _within(self, team_id, incident_id, started):
             decision = _decide(self, team_id, incident_id, api_key, None)
             reason = {"pause": "decided", "unavailable": "unavailable", "exhausted": "exhausted"}.get(decision)

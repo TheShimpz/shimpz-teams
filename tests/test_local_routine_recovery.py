@@ -190,7 +190,9 @@ class VerificationTests(RecoveryCase):
             with self.subTest(verifier=None):
                 assessment = routine_recovery.assess(service, "team_1", run_id)
                 self.assertIsNone(routine_recovery.verifier_request(dataclasses.replace(assessment, action=unverified)))
-            clean = dataclasses.replace(self.cursor(service, run_id), operation_id=None, attempts=0, commitment=None)
+            clean = dataclasses.replace(
+                self.cursor(service, run_id), operation_id=None, attempts=0, commitment=None, fault=""
+            )
             service.routine_store.put_cursor("team_1", clean)
             self.assertEqual(self.verify(service, value, run_id), "none")
 
