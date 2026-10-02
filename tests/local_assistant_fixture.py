@@ -60,12 +60,14 @@ def assistant_spec(image: str) -> AssistantSpec:
             input_schema=_PAGE,
             output_schema=_LIST_ZONES_OUTPUT,
             integrations=("cloudflare",),
+            effect="read_only",
         ),
         "list-dns-records": assistant_registry.ActionSpec(
             summary="List DNS records",
             input_schema=_DNS_PAGE,
             output_schema=_LIST_DNS_OUTPUT,
             integrations=("cloudflare",),
+            effect="read_only",
         ),
     }
     integrations = {

@@ -17,6 +17,7 @@ from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.validation import brain_thread_id as _brain_thread_id
 from local.validation import routine_thread_id as _routine_thread_id
+from routine import pin as routine_pin
 from routine import record as routine_record
 
 
@@ -65,6 +66,13 @@ def runtime_assistant(active: _ActiveAssistant, genesis: str) -> brain_runtime_c
             brain_runtime_client.RuntimeAction(id=action_id, summary=action.summary, input_schema=action.input_schema)
             for action_id, action in sorted(active.spec.actions.items())
         ),
+    )
+
+
+def routine_scope(active: _ActiveAssistant, genesis: str) -> str:
+    """The pin a Routine holds for one Assistant: its Brain-visible contract and every Action's complete pin."""
+    return routine_pin.assistant_pin(
+        active.spec, brain_runtime_client.contract_digest(runtime_assistant(active, genesis))
     )
 
 
@@ -172,7 +180,10 @@ def _run_chat_segment_with_metadata(
             runtime_assistant(active, genesis_by_id[active.spec.assistant_id]) for active in assistants
         )
         contracts = tuple(
-            sorted((assistant.id, brain_runtime_client.contract_digest(assistant)) for assistant in runtime_assistants)
+            sorted(
+                (active.spec.assistant_id, routine_scope(active, genesis_by_id[active.spec.assistant_id]))
+                for active in assistants
+            )
         )
         routines = None if routine is not None else self._chat_routines(request.team_id)
         context = brain_runtime_client.RuntimeContext(

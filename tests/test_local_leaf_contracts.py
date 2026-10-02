@@ -47,7 +47,13 @@ class LocalLeafContractTests(unittest.TestCase):
 
     def test_segment_rejects_changed_action_contract_and_journal_failure(self) -> None:
         active = chat_segment._ActiveAssistant(
-            types.SimpleNamespace(assistant_id="helper", name="Helper", actions={}, image="image"),
+            types.SimpleNamespace(
+                assistant_id="helper",
+                name="Helper",
+                actions={},
+                image="image",
+                machine_contract={"actions": [], "messages": []},
+            ),
             "container-id",
         )
         controller = types.SimpleNamespace(

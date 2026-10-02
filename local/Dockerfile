@@ -64,7 +64,7 @@ COPY local/routine/__init__.py local/routine/human.py local/routine/lifecycle.py
     local/routine/notices.py local/routine/proposal.py local/routine/run.py local/routine/state.py local/routine/store.py \
     local/routine/turn.py \
     local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/record.py routine/schedule.py ./routine/
+COPY routine/__init__.py routine/pin.py routine/record.py routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/update.py \

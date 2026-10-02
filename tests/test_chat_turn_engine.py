@@ -559,6 +559,21 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 ("org.shimpz.assistant.id", assistant_id),
                 ("org.shimpz.source.digest", "sha256:" + ("d" * 64)),
             ),
+            machine_contract={
+                "version": 1,
+                "actions": [
+                    {
+                        "id": "list-zones",
+                        "input_schema": dict(declared_action.input_schema),
+                        "output_schema": dict(declared_action.output_schema),
+                        "integrations": [],
+                        "stored_inputs": [],
+                        "human_requests": [],
+                        "effect": "read_only",
+                    }
+                ],
+                "messages": [],
+            },
         )
         local_active = ActiveAssistant(local_spec, assistant_container.id)
         request = SimpleNamespace(

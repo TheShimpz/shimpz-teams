@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 from http import HTTPStatus
 
-from inference import client as brain_runtime_client
 from install import bindings
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
@@ -68,7 +67,7 @@ def context_unavailable() -> ApiProblem:
 
 
 def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dict[str, str]:
-    """Each named Assistant's current contract digest, exactly as a Brain turn sees it.
+    """Each named Assistant's current Routine scope pin, exactly as a chat turn proposing a Routine computes it.
 
     An Assistant the Team no longer runs has no entry, which proves the scope changed. When the Team or an Assistant's
     contract cannot be read, ContractsUnavailableError is raised instead, so a transient failure never reads as a
@@ -77,9 +76,7 @@ def current_contracts(self, team_id: str, assistant_ids: tuple[str, ...]) -> dic
     try:
         _name, _network, active_by_id = self._team_assistants(team_id)
         return {
-            assistant_id: brain_runtime_client.contract_digest(
-                local_chat_segment.runtime_assistant(active, self._active_assistant_genesis(active))
-            )
+            assistant_id: local_chat_segment.routine_scope(active, self._active_assistant_genesis(active))
             for assistant_id in assistant_ids
             if (active := active_by_id.get(assistant_id)) is not None
         }
