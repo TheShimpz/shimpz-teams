@@ -355,6 +355,17 @@ class ManageAndNoticeFaultTests(RoutineServiceCase):
                 "team_1",
                 lambda state: (record.end(state, claim["run_id"], int(time.time()), "stopped", {"actions": []}), None),
             )
+            # Its diagnostic bodies go with it; a body store that cannot remove them keeps the deletion retryable.
+            with (
+                mock.patch.object(
+                    service.routine_diagnostics,
+                    "delete_routine",
+                    side_effect=routine_manage.routine_diagnostics.DiagnosticStoreError("down"),
+                ),
+                self.assertRaises(local_app.ApiProblem) as unavailable,
+            ):
+                routine_manage.complete_deletion(service, "team_1", value.routine_id)
+            self.assertEqual(unavailable.exception.code, "routine-state-unavailable")
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
             self.assertTrue(routine_manage.complete_deletion(service, "team_1", value.routine_id))
             uncertain = self.routine(service)

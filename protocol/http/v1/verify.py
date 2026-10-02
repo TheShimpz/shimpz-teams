@@ -271,4 +271,12 @@ for kind, admit in admit_view.items():
     if any(admit(value) is not None for value in views[kind]["invalid"]):
         fail(f"an invalid routine {kind} vector was admitted")
 
+diagnostics = vectors.get("routine_diagnostics", {})
+if not diagnostics.get("valid") or not diagnostics.get("invalid"):
+    fail("routine diagnostics vectors are missing")
+if any(routine.canonical_diagnostics(value) != value for value in diagnostics["valid"]):
+    fail("a valid routine diagnostics vector was not admitted exactly")
+if any(routine.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
+    fail("an invalid routine diagnostics vector was admitted")
+
 print("Team HTTP protocol integrity and golden vectors are valid")

@@ -391,3 +391,91 @@ def canonical_claim(value: object) -> dict[str, object] | None:
         and run["provider"] in MODEL_PROVIDERS
     )
     return copy.deepcopy(value) if valid else None
+
+
+# Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,
+# per attempt of one logical operation of a Routine run. Text members are literal evidence that Admin renders escaped,
+# never as Markdown or HTML, and they are never effect proof or authority.
+MAX_RUN_DIAGNOSTICS = 32
+MAX_DIAGNOSTIC_ATTEMPTS = 64
+MAX_DIAGNOSTIC_TEXT_BYTES = 2048
+OPERATION_ID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
+ERROR_TYPE_RE = re.compile(r"[!-~]{1,128}\Z")
+PROVIDER_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\Z")
+# The closed safe transport conditions; raw child output is never reflected.
+CONDITION_RE = re.compile(
+    r"(?:exit-status:-?[0-9]{1,10}|stderr-output|timeout|frame-invalid|exit-unavailable|transport-failed)\Z"
+)
+# Tab and line feed only; every other control, bidi override or isolate, and zero-width formatting character is refused.
+_UNSAFE_TEXT_RE = re.compile(r"[\u0000-\u0008\u000b-\u001f\u007f-\u009f​-‏‪-‮⁠-⁯﻿]")
+_FAILURE_FIELDS = frozenset(
+    {"error_type", "message", "provider", "http_status", "response_excerpt", "redacted", "truncated"}
+)
+_DIAGNOSTIC_FIELDS = frozenset(
+    {"operation_id", "attempt", "assistant_id", "action", "recorded_at", "failure", "condition"}
+)
+
+
+def _diagnostic_text(value: object) -> bool:
+    if not isinstance(value, str) or _UNSAFE_TEXT_RE.search(value) is not None:
+        return False
+    try:
+        return len(value.encode("utf-8")) <= MAX_DIAGNOSTIC_TEXT_BYTES
+    except UnicodeEncodeError:
+        return False
+
+
+def canonical_failure(value: object) -> dict[str, object] | None:
+    """One sanitized handled failure: the real type, message, provider, status, excerpt, and both flags."""
+    if not isinstance(value, dict) or set(value) != _FAILURE_FIELDS:
+        return None
+    provider, status, excerpt = value["provider"], value["http_status"], value["response_excerpt"]
+    valid = (
+        _identity(value["error_type"], ERROR_TYPE_RE)
+        and _diagnostic_text(value["message"])
+        and (provider is None or (_identity(provider, PROVIDER_RE) and len(provider) <= 253))
+        and (status is None or (type(status) is int and 100 <= status <= 599))
+        and (excerpt is None or _diagnostic_text(excerpt))
+        and type(value["redacted"]) is bool
+        and type(value["truncated"]) is bool
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_diagnostic(value: object) -> dict[str, object] | None:
+    """One attempt's diagnostic: exactly one of a sanitized failure or a safe transport condition."""
+    if not isinstance(value, dict) or set(value) != _DIAGNOSTIC_FIELDS:
+        return None
+    failure, condition = value["failure"], value["condition"]
+    valid = (
+        _identity(value["operation_id"], OPERATION_ID_RE)
+        and type(value["attempt"]) is int
+        and 1 <= value["attempt"] <= MAX_DIAGNOSTIC_ATTEMPTS
+        and _identity(value["assistant_id"], ASSISTANT_ID_RE)
+        and _identity(value["action"], ACTION_ID_RE)
+        and _instant(value["recorded_at"])
+        and (failure is None) != (condition is None)
+        and (failure is None or canonical_failure(failure) is not None)
+        and (condition is None or _identity(condition, CONDITION_RE))
+    )
+    return copy.deepcopy(value) if valid else None
+
+
+def canonical_diagnostics(value: object) -> dict[str, object] | None:
+    """A run's diagnostics, oldest first, each attempt of each operation at most once."""
+    if not isinstance(value, dict) or set(value) != {"team_id", "run_id", "diagnostics"}:
+        return None
+    entries = value["diagnostics"]
+    if (
+        not _identity(value["team_id"], TEAM_ID_RE)
+        or not _identity(value["run_id"], ROUTINE_ID_RE)
+        or not isinstance(entries, list)
+        or len(entries) > MAX_RUN_DIAGNOSTICS
+    ):
+        return None
+    admitted = [canonical_diagnostic(item) for item in entries]
+    if None in admitted:
+        return None
+    keys = [(item["recorded_at"], item["operation_id"], item["attempt"]) for item in admitted]
+    unique = len({(item["operation_id"], item["attempt"]) for item in admitted}) == len(admitted)
+    return {**value, "diagnostics": admitted} if unique and keys == sorted(keys) else None

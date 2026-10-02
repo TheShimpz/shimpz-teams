@@ -13,6 +13,7 @@ from action import challenges as action_challenges
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local.errors import ApiProblemError
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import lifecycle as routine_lifecycle
 from local.routine import proposal as routine_proposal
 from local.routine import store as routine_store
@@ -67,6 +68,9 @@ class RoutineLifecycleTests(unittest.TestCase):
         self.subject = SimpleNamespace(
             space_id="local-space",
             routine_store=routine_store.RoutineStore(root / "state", root / "key" / "aes256.key"),
+            routine_diagnostics=routine_diagnostics.DiagnosticStore(
+                root / "diagnostics", root / "diagnostics-key" / "k"
+            ),
             brain_runtime=SimpleNamespace(delete_thread=lambda thread_id: self.events.append(("thread", thread_id))),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_proposals=routine_proposal.ProposalBook(),

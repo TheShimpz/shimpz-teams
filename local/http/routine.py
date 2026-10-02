@@ -7,6 +7,7 @@ under a routine assertion; a Supervisor session manages Routines and answers, re
 from __future__ import annotations
 
 import re
+import time
 from http import HTTPStatus
 
 from action import human as action_human
@@ -90,6 +91,7 @@ def _session(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> 
     service = handler.server.controller.chat_turn_service
     operations = {
         "routine-list": lambda: service.list_routines(team_id),
+        "routine-diagnostics": lambda: service.routine_run_diagnostics(team_id, _run_id(route), int(time.time())),
         "routine-delete": lambda: service.delete_routine(team_id, route.params["routine_id"]),
         "routine-confirm": lambda: service.confirm_routine(team_id, handler._body(max_bytes=MAX_BODY_BYTES)),
         "routine-preview": lambda: service.preview_routine(

@@ -69,6 +69,7 @@ from local.install.registry import AssistantRegistry
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
 from local.routine import proposal as local_routine_proposal
 from local.routine import store as local_routine_store
@@ -247,6 +248,7 @@ class LocalControllerDependencies:
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
     routine_store: local_routine_store.RoutineStore | None = None
+    routine_diagnostics: local_routine_diagnostics.DiagnosticStore | None = None
     team_names: local_names.TeamNameStore | None = None
 
 
@@ -302,6 +304,7 @@ class LocalController:
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
         self.team_names = dependencies.team_names or local_names.TeamNameStore(INFERENCE_ROOT)
         self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
+        self.routine_diagnostics = dependencies.routine_diagnostics or local_routine_diagnostics.DiagnosticStore()
         self.routine_proposals = local_routine_proposal.ProposalBook()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
         self.action_state = (
@@ -399,6 +402,7 @@ class LocalController:
                 lock_for=self._lock,
                 raise_storage_problem=self._raise_storage_problem,
                 routine_store=getattr(self, "routine_store", None),
+                routine_diagnostics=getattr(self, "routine_diagnostics", None),
                 routine_proposals=getattr(self, "routine_proposals", None),
             )
         )

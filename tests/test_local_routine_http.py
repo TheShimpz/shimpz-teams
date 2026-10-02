@@ -32,6 +32,7 @@ from test_local_routine_service import (
 from action import human as action_human
 from local import authority as local_authority
 from local.http import server
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import turn as routine_turn
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
@@ -253,6 +254,43 @@ class SessionRouteTests(RoutineHttpCase):
                 self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-proposal-unavailable"))
             with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
+            self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
+
+    def test_a_supervisor_reads_a_runs_diagnostics_only_in_the_teams_current_incarnation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _service = self.serve(directory, Runtime(acting()))
+            incarnation = controller.assistant_lifecycle._network("team_1").id
+            run_id = "d" * 32
+            diagnostic = routine_diagnostics.Diagnostic(
+                routine_id="c" * 32,
+                run_id=run_id,
+                operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                attempt=1,
+                assistant_id="shimpz-cloudflare",
+                action="list-zones",
+                recorded_at=int(time.time()),
+                condition="stderr-output",
+            )
+            controller.routine_diagnostics.record("team_1", incarnation, diagnostic, ())
+            path = f"/v1/teams/team_1/routines/runs/{run_id}/diagnostics"
+            with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
+                status, _type, raw = self.request("GET", path)
+                self.assertEqual(status, 200)
+                self.assertEqual(verify.call_args.kwargs["request"].authority_kinds, frozenset({"session"}))
+                body = json.loads(raw)
+                # The Local API adds its trace id to every response; Admin strips it before admitting the view.
+                self.assertRegex(body.pop("trace_id"), r"\A[0-9a-f]{32}\Z")
+                view = http_routine.canonical_diagnostics(body)
+                self.assertEqual(view["diagnostics"], [diagnostic.view()])
+                status, _type, raw = self.request("GET", "/v1/teams/team_1/routines/runs/bad/diagnostics")
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
+                with mock.patch.object(
+                    controller.assistant_lifecycle, "_network", return_value=types.SimpleNamespace(id="e" * 64)
+                ):
+                    status, _type, raw = self.request("GET", path)
+                self.assertEqual((status, json.loads(raw)["diagnostics"]), (200, []))
+            with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
+                status, _type, raw = self.request("GET", path)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
 
     def test_approving_a_frozen_authentication_request_binds_its_assurance(self) -> None:

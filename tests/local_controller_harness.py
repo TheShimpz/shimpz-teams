@@ -27,6 +27,7 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import store as local_routine_store
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
@@ -88,6 +89,10 @@ class LocalContractCase(unittest.TestCase):
         )
         controller.routine_store = local_routine_store.RoutineStore(
             Path(directory) / "routines" / "state", Path(directory) / "routines" / "key" / "aes256.key"
+        )
+        controller.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
+            Path(directory) / "routines" / "diagnostics",
+            Path(directory) / "routines" / "diagnostics-key" / "aes256.key",
         )
         controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
         controller.inference_store.save(

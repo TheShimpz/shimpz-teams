@@ -64,6 +64,11 @@ class LocalSpaceResetTests(LocalContractCase):
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
         )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
+        )
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
         )
@@ -125,6 +130,11 @@ class LocalSpaceResetTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)

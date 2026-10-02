@@ -558,6 +558,22 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
+    def test_rejects_missing_or_drifted_routine_diagnostics_vectors(self) -> None:
+        def missing_diagnostics(value: dict[str, object]) -> None:
+            value.pop("routine_diagnostics")
+
+        def rejected_diagnostics(value: dict[str, object]) -> None:
+            value["routine_diagnostics"]["valid"] = [{"team_id": "team_1", "run_id": "b" * 32}]
+
+        def accepted_diagnostics(value: dict[str, object]) -> None:
+            value["routine_diagnostics"]["invalid"] = [{"team_id": "team_1", "run_id": "b" * 32, "diagnostics": []}]
+
+        for mutate in (missing_diagnostics, rejected_diagnostics, accepted_diagnostics):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_a_positive_supervisor_vector_that_is_not_canonical(self) -> None:
         from protocol.http.v1 import supervisor
 

@@ -11,6 +11,7 @@ from http import HTTPStatus
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import proposal as proposal_book
 from local.routine import state as routine_state
 from local.routine import turn as routine_turn
@@ -268,7 +269,7 @@ def delete_routine(
 
 
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
-    """Remove a deleting Routine once none of its runs remains; False while a run still ends."""
+    """Remove a deleting Routine once none of its runs remains, then its diagnostic bodies; False while a run ends."""
 
     def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         value = (
@@ -281,4 +282,10 @@ def complete_deletion(self, team_id: str, routine_id: str) -> bool:
         except record.RoutineStateError:
             return state, False
 
-    return routine_state.update(self, team_id, complete)
+    if not routine_state.update(self, team_id, complete):
+        return False
+    try:
+        self.routine_diagnostics.delete_routine(team_id, routine_id)
+    except routine_diagnostics.DiagnosticStoreError as exc:
+        raise routine_state.unavailable() from exc
+    return True

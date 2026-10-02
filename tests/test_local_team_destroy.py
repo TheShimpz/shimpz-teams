@@ -89,6 +89,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
         )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
+        )
         controller._wire_collaborators()
         controller.chat_turn_service._active_chat_tokens = {"team_1": "turn-token"}
         controller.chat_turn_service._active_action_containers = {"team_1": ("turn-token", object())}
@@ -125,6 +130,7 @@ class LocalTeamDestroyTests(LocalContractCase):
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
                 "routines-delete",
+                "diagnostics-delete",
                 ("container-remove", True),
                 ("residue-add", "sha256:" + "a" * 64),
                 "residue-sweep",
@@ -190,6 +196,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
         )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
+        )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
         controller.assistant_lifecycle._network = lambda _team_id, *, required=False: network
@@ -249,6 +260,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock

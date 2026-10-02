@@ -472,6 +472,12 @@ CONTROLLER_ROUTES = (
         "POST", "/v1/teams/:team_id/routines/runs/:run_id/resolve", "routine-resolve", _LOCAL_CONTROLLER_ONLY
     ),
     _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
+    _controller_route(
+        "GET",
+        "/v1/teams/:team_id/routines/runs/:run_id/diagnostics",
+        "routine-diagnostics",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/activity", "activity", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),

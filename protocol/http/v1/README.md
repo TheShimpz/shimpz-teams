@@ -110,6 +110,18 @@ null, or the one change a chat turn proposed (`routine.canonical_routine_change`
 request, a schedule, and a timezone only when the user named one, or `cancel` with a Routine id. It is never a
 schedule or an authorization: Team turns it into a proposal a Local Supervisor must confirm.
 
+A Local Supervisor reads one Routine run's execution details (ADR-0092) with
+`GET /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and
+run ids and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the
+version 4 UUID Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action and recording instant.
+Each holds exactly one of a `failure`, the Team-sanitized handled failure (`error_type`, `message`, `provider`,
+`http_status`, `response_excerpt`, and the `redacted` and `truncated` flags, with the Assistant Spec bounds), or a
+`condition`, the safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `frame-invalid`,
+`exit-unavailable`, or `transport-failed`); raw child output is never reflected. Text is literal evidence that Admin
+renders escaped, never as Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these
+bodies encrypted for at most seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting
+the Routine or the Team removes them.
+
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
 with bounded public display identity, sorted Integration providers, and per-item `pending` status.

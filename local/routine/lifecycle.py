@@ -1,4 +1,4 @@
-"""Remove a Team's Routines without residue: each run's Brain thread and Action journal generation, then its state."""
+"""Remove a Team's Routines without residue: each run's Brain thread and journal generation, its state, diagnostics."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from http import HTTPStatus
 from action import journal as action_journal
 from inference import client as brain_runtime_client
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import store as routine_store
 from local.validation import routine_thread_id
 
@@ -48,7 +49,8 @@ def _delete_team_routines(self, team_id: str) -> None:
             raise _unavailable("Team Action execution state could not be deleted", "action-state-unavailable") from exc
     try:
         self.routine_store.delete(team_id)
-    except routine_store.RoutineStoreError as exc:
+        self.routine_diagnostics.delete(team_id)
+    except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
         raise _unavailable("Team Routine state could not be deleted", "routine-state-unavailable") from exc
 
 
@@ -67,5 +69,6 @@ def delete_all_routines(self) -> None:
             _delete_team_routines(self, team_id)
         try:
             self.routine_store.delete_all()
-        except routine_store.RoutineStoreError as exc:
+            self.routine_diagnostics.delete_all()
+        except (routine_store.RoutineStoreError, routine_diagnostics.DiagnosticStoreError) as exc:
             raise _unavailable("Team Routine state could not be deleted", "routine-state-unavailable") from exc
