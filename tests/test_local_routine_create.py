@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 import tempfile
 import threading
 import time
@@ -20,7 +21,6 @@ from local import app as local_app
 from local import audit as local_audit
 from local.routine import turn as routine_turn
 from protocol.http.v1 import payload as http_payload
-from routine import change as routine_change
 from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
@@ -155,8 +155,38 @@ class DirectCreationTests(LocalContractCase):
         )
         self.assertEqual(grant["message"], hashlib.sha256(MESSAGE.encode()).hexdigest())
         self.assertEqual(MESSAGE[slice(*grant["quote"])], _change()["request"])
-        self.assertEqual(grant["sources"]["zones"]["page"], {"origins": [_origin("1")]})
+        ((origin,),) = grant["sources"]["zones"]["page"].values()
+        self.assertEqual((origin["from"], MESSAGE[slice(*origin["span"])]), ("message", "1"))
         self.assertEqual(grant["stored_inputs"], {"zones": []})
+
+    def test_citation_text_around_a_value_never_persists_and_a_secret_request_is_refused(self) -> None:
+        secret = "sk-live-" + "4f9c2a" * 6
+        relation = f"then list its records; API_KEY={secret}"
+        message = f"Every Monday at 9:00, list my zones, page 1 with 25 per page, {relation}"
+        cited = _change()
+        records = copy.deepcopy(cited["steps"][0])
+        records.update(id="records", action="list-dns-records")
+        records["input"]["zone_id"] = {
+            "kind": "step_output",
+            "step": "zones",
+            "pointer": "/zones/0/id",
+            "instruction": relation,
+        }
+        cited["steps"].append(records)
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, Runtime(cited))
+            self.chat(service, _body(message))
+            state_bytes = (service.routine_store._team_dir("team_1") / "state.json").read_bytes()
+            (routine,) = service.routine_store.load("team_1").routines
+        self.assertNotIn(secret.encode(), state_bytes)
+        self.assertNotIn("API_KEY", json.dumps(routine.grant))
+        for change in (_change(request=f"Every Monday at 9:00 use {secret}"), _change(name=secret)):
+            with tempfile.TemporaryDirectory() as directory, self.subTest(change=change):
+                _controller, service = self.controller(directory, Runtime(change))
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service, _body(f"Every Monday at 9:00 use {secret}, list my zones, page 1, 25"))
+                self.assertIn(caught.exception.code, {"routine-request-secret", "routine-request-unproven"})
+                self.assertEqual(service.routine_store.load("team_1").routines, ())
 
     def test_a_resend_never_creates_twice_and_a_deleted_routines_receipt_never_recreates_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -380,7 +410,7 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(([item.outcome for item in state.notices], len(state.receipts)), (["created"], 1))
         self.assertIsNone(runtime.contexts[1].routines)
         self.assertEqual(routine.grant["selected"], {"field": ["input", "zones", "per_page"], "label": "50"})
-        self.assertEqual(routine.grant["sources"]["zones"]["per_page"], {"origins": [routine_change.ANSWER]})
+        self.assertEqual(routine.grant["sources"]["zones"]["per_page"], {"origins": [{"at": "", "from": "answer"}]})
 
     def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

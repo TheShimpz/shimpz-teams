@@ -38,9 +38,15 @@ class GrantTests(unittest.TestCase):
     def test_a_complete_grant_binds_its_receipt_revision_and_plan(self) -> None:
         sources = {
             "zones": {
-                "page": {"origins": [{"at": "", "from": "message", "text": "1", "region": None, "instruction": None}]}
+                "page": {
+                    "origins": [
+                        {"at": "", "from": "message", "span": [0, 1]},
+                        {"at": "/a", "from": "quote", "region": 0, "span": [2, 3], "instruction": [4, 5]},
+                        {"at": "/b", "from": "default"},
+                    ]
+                }
             },
-            "records": {"zone": {"instruction": "then"}, "day": {}},
+            "records": {"zone": {"instruction": [0, 4]}, "day": {}},
         }
         partial = routine_grant.evidence("Every day, list", (0, 9), sources, {"zones": [], "records": ["token", "api"]})
         complete = routine_grant.complete(partial, "e" * 64, 2, PLAN)
@@ -72,10 +78,25 @@ class GrantTests(unittest.TestCase):
             lambda value: value["sources"]["records"].pop("day"),
             lambda value: value["sources"]["records"].update(day=[]),
             lambda value: value["sources"]["records"].update(day={"origins": [], "instruction": "x"}),
-            lambda value: value["sources"]["records"].update(zone={"instruction": ""}),
+            lambda value: value["sources"]["records"].update(zone={"instruction": "then share it"}),
             lambda value: value["sources"]["zones"].update(page={"origins": []}),
             lambda value: value["sources"]["zones"].update(page={"origins": [{"at": ""}]}),
             lambda value: value["sources"]["zones"].update(page={"origins": ["x"]}),
+            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": 1, "from": "default"}]}),
+            lambda value: value["sources"]["zones"].update(
+                page={"origins": [{"at": "", "from": "message", "span": [0, 1], "text": "API_KEY=x"}]}
+            ),
+            lambda value: value["sources"]["zones"].update(
+                page={"origins": [{"at": "", "from": "message", "span": [3, 3]}]}
+            ),
+            lambda value: value["sources"]["zones"].update(
+                page={"origins": [{"at": "", "from": "quote", "region": -1, "span": [0, 1], "instruction": [0, 1]}]}
+            ),
+            lambda value: value["sources"]["zones"].update(
+                page={"origins": [{"at": "", "from": "quote", "region": 0, "span": [0, 1], "instruction": "x"}]}
+            ),
+            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": "", "from": "default", "x": 1}]}),
+            lambda value: value["sources"]["zones"].update(page={"origins": [{"at": "", "from": "elsewhere"}]}),
             lambda value: value.update(stored_inputs=[]),
             lambda value: value["stored_inputs"].pop("zones"),
             lambda value: value["stored_inputs"].update(zones="api"),

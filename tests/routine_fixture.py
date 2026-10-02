@@ -17,8 +17,8 @@ def grant(plan: dict[str, object], revision: int = 1) -> dict[str, object]:
 
     def provenance(source: dict[str, object]) -> dict[str, object]:
         if source["kind"] == "literal":
-            return {"origins": [{"at": "", "from": "message", "text": "x", "region": None, "instruction": None}]}
-        return {"instruction": "then"} if source["kind"] == "step_output" else {}
+            return {"origins": [{"at": "", "from": "message", "span": [0, 1]}]}
+        return {"instruction": [0, 4]} if source["kind"] == "step_output" else {}
 
     return {
         "receipt": "e" * 64,

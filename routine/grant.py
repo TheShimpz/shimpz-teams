@@ -4,8 +4,9 @@ Each committed revision keeps minimal Team-owned evidence of what authorized it,
 that made it, the revision it defines, and its plan digest: a commitment to the user's message, where in that message
 the user's own words state the request, the option a bound question's answer selected, each step input's validated
 provenance, and the Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
-and a Stored Input appears only as its declared id. A Supervisor inspects a Routine through ``steps``, a projection of
-its plan that shows each literal as a bounded preview and every reference by its step and pointer.
+and a Stored Input appears only as its declared id. Provenance is kept only as spans of the committed message, never
+as the cited prose, so words around a value never persist. A Supervisor inspects a Routine through ``steps``, a
+projection of its plan that shows each literal as a bounded preview and every reference by its step and pointer.
 """
 
 from __future__ import annotations
@@ -21,7 +22,6 @@ from routine import plan as routine_plan
 FIELDS = frozenset({"receipt", "revision", "plan", "message", "quote", "selected", "sources", "stored_inputs"})
 _PARTIAL = FIELDS - {"receipt", "revision", "plan"}
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
-_ORIGIN_FIELDS = frozenset({"at", "from", "text", "region", "instruction"})
 MAX_ORIGINS = 64
 MAX_MESSAGE_CHARS = 16_000
 
@@ -58,19 +58,42 @@ def complete(partial: object, receipt: str, revision: int, plan: Mapping[str, ob
     }
 
 
+def _span(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(type(item) is int for item in value)
+        and 0 <= value[0] < value[1] <= MAX_MESSAGE_CHARS
+    )
+
+
+def _origin(value: object) -> bool:
+    """One origin as spans of its message: cited words, an adopted quote and its adopting words, or no text."""
+    if not isinstance(value, dict) or not isinstance(value.get("at"), str):
+        return False
+    kind = value.get("from")
+    if kind == "message":
+        return set(value) == {"at", "from", "span"} and _span(value["span"])
+    if kind == "quote":
+        return (
+            set(value) == {"at", "from", "region", "span", "instruction"}
+            and type(value["region"]) is int
+            and value["region"] >= 0
+            and _span(value["span"])
+            and _span(value["instruction"])
+        )
+    return set(value) == {"at", "from"} and kind in ("default", "answer")
+
+
 def _provenance(value: object) -> bool:
     if value == {}:
         return True
     if not isinstance(value, dict) or len(value) != 1:
         return False
     if "instruction" in value:
-        return isinstance(value["instruction"], str) and bool(value["instruction"])
+        return _span(value["instruction"])
     origins = value.get("origins")
-    return (
-        isinstance(origins, list)
-        and 0 < len(origins) <= MAX_ORIGINS
-        and all(isinstance(item, dict) and set(item) == _ORIGIN_FIELDS for item in origins)
-    )
+    return isinstance(origins, list) and 0 < len(origins) <= MAX_ORIGINS and all(map(_origin, origins))
 
 
 def _selected(value: object) -> bool:
@@ -109,10 +132,7 @@ def valid(value: object, plan: Mapping[str, object], revision: int) -> bool:
         and value["plan"] == plan_digest(plan)
         and isinstance(value["message"], str)
         and _HEX64_RE.fullmatch(value["message"]) is not None
-        and isinstance(quote, list)
-        and len(quote) == 2
-        and all(type(item) is int for item in quote)
-        and 0 <= quote[0] < quote[1] <= MAX_MESSAGE_CHARS
+        and _span(quote)
         and _selected(value["selected"])
         and isinstance(sources, dict)
         and set(sources) == set(steps)

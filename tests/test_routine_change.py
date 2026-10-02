@@ -289,8 +289,16 @@ class CompileTests(unittest.TestCase):
         self.assertEqual(
             compiled.sources["publish"], {key: first.sources["publish"][key] for key in ("title", "count")}
         )
-        self.assertEqual(compiled.sources["share"]["channel"], {"origins": [_message("#general")]})
-        self.assertEqual(compiled.sources["share"]["post_id"], {"instruction": "share it"})
+        # Provenance is kept as spans of the message, never as the cited words themselves.
+        ((channel,),) = compiled.sources["share"]["channel"].values()
+        self.assertEqual((channel["from"], MESSAGE[slice(*channel["span"])]), ("message", "#general"))
+        self.assertEqual(MESSAGE[slice(*compiled.sources["share"]["post_id"]["instruction"])], "share it")
+        ((title,),) = first.sources["publish"]["title"].values()
+        self.assertEqual(
+            (title["region"], MESSAGE[slice(*title["span"])], MESSAGE[slice(*title["instruction"])]),
+            (0, "Weekly report", "publish"),
+        )
+        self.assertNotIn("text", json_text(first.sources))
         self.assertEqual(compiled.quote_span, (MESSAGE.index("then share it"), MESSAGE.index("then share it") + 13))
         self.assertEqual(compiled.document["steps"][1]["input"]["channel"]["value"], "#general")
         for altered in (

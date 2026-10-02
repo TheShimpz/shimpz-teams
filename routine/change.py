@@ -25,6 +25,7 @@ import unicodedata
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
+from assistant import manifest as assistant_manifest
 from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import schedule as routine_schedule
@@ -216,10 +217,31 @@ class Words:
 
     def adopted(self, region: int, text: str, instruction: str) -> bool:
         """Whether the text is inside one quoted region and the user's own words adopt it."""
-        if not (0 <= region < len(self.quoted) and text and self.mine(instruction)):
-            return False
+        return self.quoted_span(region, text) is not None and self.mine(instruction)
+
+    def quoted_span(self, region: int, text: str) -> tuple[int, int] | None:
+        """Where the text first stands inside one quoted region, or None."""
+        if not (0 <= region < len(self.quoted) and text):
+            return None
         start, end = self.quoted[region]
-        return text in self.message[start:end]
+        found = self.message.find(text, start, end)
+        return None if found < 0 else (found, found + len(text))
+
+
+def _cited_span(origin: Mapping[str, object], words: Words) -> dict[str, object]:
+    """One validated origin as normalized spans of the committed message, never the cited prose itself."""
+    kind = origin["from"]
+    if kind == "message":
+        return {"at": origin["at"], "from": kind, "span": list(words.span(origin["text"]))}
+    if kind == "quote":
+        return {
+            "at": origin["at"],
+            "from": kind,
+            "region": origin["region"],
+            "span": list(words.quoted_span(origin["region"], origin["text"])),
+            "instruction": list(words.span(origin["instruction"])),
+        }
+    return {"at": origin["at"], "from": kind}
 
 
 def _escape(token: str) -> str:
@@ -306,13 +328,14 @@ def _plan_source(
         properties = schema.get("properties", {})
         member = properties.get(name) if isinstance(properties, dict) else None
         literal = _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
-        return literal, {"origins": copy.deepcopy(source["origins"])}
+        return literal, {"origins": [_cited_span(origin, words) for origin in source["origins"]]}
     if kind == "run_clock":
         return {"kind": "run_clock", "format": source["format"]}, {}
     if kind == "step_output":
-        if not words.mine(source["instruction"]):
+        relation_span = words.span(source["instruction"])
+        if relation_span is None:
             raise ChangeError("routine-reference-unproven")
-        relation = {"instruction": source["instruction"]}
+        relation = {"instruction": list(relation_span)}
         return {"kind": "step_output", "step": source["step"], "pointer": source["pointer"]}, relation
     if kept is None or name not in kept[0] or name not in kept[1]:
         raise ChangeError("routine-kept-invalid")
@@ -338,6 +361,9 @@ def compile_change(
     quote_span = words.span(change.request)
     if quote_span is None:
         raise ChangeError("routine-request-unproven")
+    if assistant_manifest.resembles_credential(change.request) or assistant_manifest.resembles_credential(change.name):
+        # The request and name are kept and shown in plaintext; a secret never becomes either.
+        raise ChangeError("routine-request-secret")
     timezone = change.timezone or default_timezone
     try:
         routine_schedule.zone(timezone)
