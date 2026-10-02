@@ -44,7 +44,8 @@ def _execute(
 ) -> str:
     with tempfile.TemporaryDirectory() as temporary:
         mirror = Path(temporary) / source.parent.name
-        shutil.copytree(source.parent, mirror)
+        # Bytecode left beside an imported mirror module is not part of the pinned tree.
+        shutil.copytree(source.parent, mirror, ignore=shutil.ignore_patterns("__pycache__"))
         if mutate is not None:
             mutate(mirror)
         output = io.StringIO()
@@ -200,6 +201,20 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(ASSISTANT / "verify.py", mutate)
+
+    def test_rejects_any_descendant_outside_the_pinned_layout(self) -> None:
+        def nested(root: Path) -> None:
+            (root / "validators/extra").mkdir()
+            (root / "validators/extra/failure.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+        def bytecode(root: Path) -> None:
+            (root / "validators/__pycache__").mkdir()
+            (root / "validators/__pycache__/failure.cpython-314.pyc").write_bytes(b"\0")
+
+        for mutate in (nested, bytecode, lambda root: (root / "vectors/unlisted.json").write_text("{}")):
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit) as raised:
+                _execute(ASSISTANT / "verify.py", mutate)
+            self.assertRegex(str(raised.exception.code), "layout|artifact set")
 
     def test_rejects_manifest_and_human_vector_drift(self) -> None:
         mutations = (

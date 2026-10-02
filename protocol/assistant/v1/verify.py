@@ -4,30 +4,19 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
+import os
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
-
-from validators.action_effect import EFFECTS, effect_error
-from validators.failure import FAILURE_KEYS, failure_error
-from validators.human_request import reference_error
-from validators.human_request import verify_vectors as verify_human_vectors
-from validators.input_file import (
-    FILE_ID_SCHEMA,
-    MAX_BASE64_CHARACTERS,
-    MAX_FILE_BYTES,
-    MAX_INPUT_FILES,
-    input_files_error,
-    invocation_files_error,
-)
-from validators.message_catalog import LOCALES, MAX_MESSAGES, PACK_FORMAT, PARAM_BOUNDS, catalog_error
-from validators.message_catalog import verify_vectors as verify_catalog_vectors
 
 HERE = Path(__file__).resolve().parent
 MANIFEST = HERE / "contract-files.sha256"
 # The root holds the schemas, this verifier, and the README; golden vectors and reference validators each have one
-# directory, so a manifest path is a file name or one directory and a file name.
+# directory, so a manifest path is a file name or one directory and a file name. Nothing else may exist at any depth,
+# so the reference validators are imported only after the whole tree matches its manifest.
 DIRECTORIES = ("validators", "vectors")
 ROW = re.compile(r"([0-9a-f]{64})  ((?:(?:validators|vectors)/)?[A-Za-z0-9._-]+)")
 SCHEMAS = (
@@ -155,6 +144,23 @@ def expanded_subschemas(root: dict) -> int | None:
     return count(root, frozenset())
 
 
+def layout_files() -> set[str]:
+    """Return every file below the version root, refusing any directory or link outside the layout."""
+    found = set()
+    for parent, directories, files in os.walk(HERE):
+        relative = Path(parent).relative_to(HERE)
+        for name in directories:
+            path = Path(parent) / name
+            if relative.parts or name not in DIRECTORIES or path.is_symlink():
+                fail(f"Assistant protocol layout has an unexpected directory: {(relative / name).as_posix()}")
+        for name in files:
+            path = Path(parent) / name
+            if path.is_symlink() or not path.is_file():
+                fail(f"Assistant protocol layout has an unexpected entry: {(relative / name).as_posix()}")
+            found.add((relative / name).as_posix())
+    return found - {MANIFEST.name}
+
+
 rows: dict[str, str] = {}
 for line in MANIFEST.read_text(encoding="ascii").splitlines():
     match = ROW.fullmatch(line)
@@ -162,17 +168,30 @@ for line in MANIFEST.read_text(encoding="ascii").splitlines():
         fail("Assistant protocol checksum manifest is invalid")
     rows[match[2]] = match[1]
 
-actual = {path.name for path in HERE.iterdir() if path.is_file() and path.name != MANIFEST.name} | {
-    f"{directory}/{path.name}" for directory in DIRECTORIES for path in (HERE / directory).iterdir() if path.is_file()
-}
-if {path.name for path in HERE.iterdir() if path.is_dir() and path.name != "__pycache__"} != set(DIRECTORIES):
-    fail("Assistant protocol directories differ from its layout")
-if set(rows) != actual:
+if set(rows) != layout_files():
     fail("Assistant protocol artifact set differs from its checksum manifest")
 for filename, expected in rows.items():
     digest = hashlib.sha256((HERE / filename).read_bytes()).hexdigest()
     if digest != expected:
         fail(f"{filename} SHA-256 is {digest}, expected {expected}")
+
+# Import the reference validators only now that their bytes are verified, and never leave bytecode in the tree.
+sys.dont_write_bytecode = True
+action_effect = importlib.import_module("validators.action_effect")
+failure = importlib.import_module("validators.failure")
+human_request = importlib.import_module("validators.human_request")
+input_file = importlib.import_module("validators.input_file")
+message_catalog = importlib.import_module("validators.message_catalog")
+EFFECTS, effect_error = action_effect.EFFECTS, action_effect.effect_error
+FAILURE_KEYS, failure_error = failure.FAILURE_KEYS, failure.failure_error
+reference_error, verify_human_vectors = human_request.reference_error, human_request.verify_vectors
+FILE_ID_SCHEMA = input_file.FILE_ID_SCHEMA
+MAX_BASE64_CHARACTERS, MAX_FILE_BYTES = input_file.MAX_BASE64_CHARACTERS, input_file.MAX_FILE_BYTES
+MAX_INPUT_FILES = input_file.MAX_INPUT_FILES
+input_files_error, invocation_files_error = input_file.input_files_error, input_file.invocation_files_error
+LOCALES, MAX_MESSAGES, PACK_FORMAT = message_catalog.LOCALES, message_catalog.MAX_MESSAGES, message_catalog.PACK_FORMAT
+PARAM_BOUNDS, catalog_error = message_catalog.PARAM_BOUNDS, message_catalog.catalog_error
+verify_catalog_vectors = message_catalog.verify_vectors
 
 for filename in SCHEMAS:
     schema = json.loads((HERE / filename).read_bytes())
