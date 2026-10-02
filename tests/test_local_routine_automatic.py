@@ -68,7 +68,7 @@ class AutomaticTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, _run_id = self.run_held(directory, assistant, brain)
             state = self.state(service)
-        self.assertEqual((self.status, state.incidents, state.runs), ("done", (), ()))
+        self.assertEqual((self.status, state.incidents, state.runs), ("recovered", (), ()))
         (asked,) = brain.asked
         self.assertEqual(
             (asked["proof"], asked["step"]), ("not_occurred", {"assistant": ASSISTANT, "action": "create-record"})
@@ -84,7 +84,7 @@ class AutomaticTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _value, _run_id = self.run_held(directory, assistant, brain)
             state = self.state(service)
-        self.assertEqual((self.status, brain.asked, state.incidents), ("done", [], ()))
+        self.assertEqual((self.status, brain.asked, state.incidents), ("recovered", [], ()))
 
     def test_inconclusive_evidence_holds_for_the_card_without_asking_the_brain(self) -> None:
         brain = Brain()
@@ -99,7 +99,9 @@ class AutomaticTests(AutomaticCase):
         self.assertEqual((cursor.remaining("episodes"), cursor.remaining("verifications")), (0, 2))
 
     def test_ask_holds_and_pause_or_an_unavailable_decision_also_pauses_the_routine(self) -> None:
-        for decisions, key, paused in ((("ask",), API_KEY, False), (("pause",), API_KEY, True), ((), "", True)):
+        cases = ((("ask",), API_KEY, None), (("pause",), API_KEY, "decided"), ((), "", "unavailable"))
+        for decisions, key, reason in cases:
+            paused = reason is not None
             brain = Brain(*decisions)
             assistant = Assistant([failed()], [{"outcome": "not_occurred"}])
             with tempfile.TemporaryDirectory() as directory, self.subTest(decisions=decisions, key=bool(key)):
@@ -108,6 +110,11 @@ class AutomaticTests(AutomaticCase):
                 cursor = self.cursor(service, run_id)
                 self.assertEqual(self.status, "held")
                 self.assertEqual(record.routine(state, value.routine_id).paused, paused)
+                # The held run's one notice says it is held, or why recovery paused its Routine.
+                notice = state.notices[-1]
+                step = {"assistant_id": ASSISTANT, "action": "create-record"}
+                expected = ("held", step) if reason is None else ("paused", {**step, "reason": reason})
+                self.assertEqual((notice.notice_id, (notice.outcome, notice.detail)), (run_id, expected))
                 # Each call and its whole output cap are paid before the call; with no key, nothing is asked.
                 self.assertEqual(len(brain.asked), len(decisions))
                 self.assertEqual((cursor.remaining("model_calls"), cursor.remaining("output_tokens")), (3, 3072))
@@ -153,9 +160,12 @@ class AutomaticEdgeTests(AutomaticCase):
             }
             with tempfile.TemporaryDirectory() as directory, self.subTest(name=name), patches[name]:
                 service, value, _run_id = self.run_held(directory, assistant, brain)
-                paused = record.routine(self.state(service), value.routine_id).paused
+                state = self.state(service)
+                paused = record.routine(state, value.routine_id).paused
                 self.assertEqual(self.status, "held")
                 self.assertEqual(paused, name != "diagnostics")
+                if name == "exhausted":
+                    self.assertEqual(state.notices[-1].detail["reason"], "exhausted")
                 if name == "diagnostics":
                     self.assertEqual(brain.asked[0]["diagnostics"], [])
 

@@ -120,6 +120,15 @@ Team also keeps, never on the wire, the evidence of the request that granted eac
 plan digest, a commitment to the message, the quote's span, each input's validated provenance, and any answer a bound
 Routine question selected.
 
+A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine.canonical_notice_detail`
+closes each outcome's detail). `done` and `recovered` name the ordered `actions`, `[assistant, action]` pairs of the
+steps it carried out, never their input or result; `recovered` is a run that a continuation completed after a hold.
+`held` names the step whose effect is unresolved as `{assistant_id, action}`, both `null` when the run sealed no
+plan cursor; the same run's notice then goes on as `paused`, the same step plus a `reason` (`decided`,
+`unavailable`, `exhausted`, or `person`), or `user-skipped` when the person chose Pular. A person's `user-skipped`
+is a run outcome; the Routine outcome `skipped` reports missed firings and has no run id. `failed` names its code
+and the Actions that completed; a run whose failed step may have acted is held instead.
+
 A Local Supervisor reads one Routine run's execution details (ADR-0092) with
 `GET /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and
 run ids and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the

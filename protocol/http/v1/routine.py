@@ -15,12 +15,15 @@ MAX_ROUTINE_NAME_CHARS = 80
 # The ordered Actions of a compiled plan (ADR-0092 section 3).
 MAX_ROUTINE_STEPS = 8
 MAX_DAILY_RUNS = 24
-MAX_NOTICE_REPLY_CHARS = 16_000
 MAX_NOTICE_ACTIONS = 16
 MAX_NOTICE_ASSISTANTS = 16
 OUTCOMES = frozenset(
     {
         "done",
+        "recovered",
+        "held",
+        "paused",
+        "user-skipped",
         "failed",
         "denied",
         "stopped",
@@ -31,8 +34,12 @@ OUTCOMES = frozenset(
         "changed",
     }
 )
-# Outcomes of the Routine itself, never of a run: they carry no run id.
+# Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person's
+# Pular of a held run is the run outcome ``user-skipped``.
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed")
+# Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
+# recovery budget, or the person's Pausar.
+PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person")
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -110,10 +117,6 @@ def daily_rate(schedule: dict[str, object]) -> Fraction:
     if kind == "hourly":
         return Fraction(24, schedule["every"])
     return {"daily": Fraction(1), "weekly": Fraction(1, 7), "monthly": Fraction(1, 28)}[kind]
-
-
-def _text(value: object, maximum: int) -> bool:
-    return isinstance(value, str) and 0 < len(value) <= maximum and value.strip() == value
 
 
 def _actions(value: object) -> bool:
@@ -246,9 +249,29 @@ def _frozen(detail: dict[str, object]) -> bool:
     )
 
 
-# Each outcome's exact detail fields and their check. denied and stopped name the Actions that completed.
+def _completed(detail: dict[str, object]) -> bool:
+    """The ordered Assistant Actions a completed run carried out; never their input or result."""
+    return _actions(detail["actions"]) and 0 < len(detail["actions"]) <= MAX_ROUTINE_STEPS
+
+
+def _held_step(detail: dict[str, object]) -> bool:
+    """The step a held run stopped at, or both null when the run sealed no plan before it was held."""
+    assistant_id, action = detail["assistant_id"], detail["action"]
+    if assistant_id is None and action is None:
+        return True
+    return _identity(assistant_id, ASSISTANT_ID_RE) and _identity(action, ACTION_ID_RE)
+
+
+_STEP_FIELDS = {"assistant_id", "action"}
+
+# Each outcome's exact detail fields and their check. denied and stopped name the Actions that completed; held,
+# paused, and user-skipped name the step whose possible effects are unresolved.
 _DETAILS = {
-    "done": ({"reply"}, lambda detail: _text(detail["reply"], MAX_NOTICE_REPLY_CHARS)),
+    "done": ({"actions"}, _completed),
+    "recovered": ({"actions"}, _completed),
+    "held": (_STEP_FIELDS, _held_step),
+    "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
+    "user-skipped": (_STEP_FIELDS, _held_step),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "scope-changed": ({"assistants"}, _scope_changed),
     "frozen": ({"request_kind", "assistant_id", "action"}, _frozen),
@@ -273,8 +296,8 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
 
 # Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
 MAX_NOTICE_BATCH = 1024
-# The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. A
-# notice at its bound, a 16,000-character reply whose every character JSON-escapes to six bytes, is about 96.5 KB.
+# The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. The
+# largest notice, a created or changed Routine's projection of a plan admitted within 64 KiB, fits alone.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
 # The model providers a Local Team can use; a claim names its Team's, so Admin sends that provider's key.

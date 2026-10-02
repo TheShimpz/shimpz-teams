@@ -98,7 +98,14 @@ class RoundTripTests(StoreCase):
             busy_state(),
             notices=tuple(
                 record.Notice(
-                    f"{index:032x}", "a" * 32, "", "done", NINE, {"reply": "\U0001f600" * 16_000}, 1, "\U0001f600" * 500
+                    f"{index:032x}",
+                    "a" * 32,
+                    "",
+                    "created",
+                    NINE,
+                    routine_fixture.large_definition(),
+                    1,
+                    "\U0001f600" * 500,
                 )
                 for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
             ),
@@ -190,6 +197,28 @@ class TamperTests(StoreCase):
         self.state_file().write_bytes(b"{not json")
         with self.assertRaisesRegex(routine_store.RoutineStoreError, "not valid JSON"):
             self.store.load("team_1")
+
+    def test_an_altered_incident_fails_closed(self):
+        state = busy_state()
+        held = next(item for item in state.runs if item.status == "held")
+        put(self.store, "team_1", record.settle_hold(state, held.run_id, NINE, 1, ("dns", "replace-dns-record")))
+        base = json.loads(self.state_file().read_text())
+        self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
+        mutations = {
+            "quote": {"quote": ""},
+            "assistant": {"assistant_id": "Bad"},
+            "half a step": {"action": ""},
+            "action type": {"action": 1},
+        }
+        for name, change in mutations.items():
+            with self.subTest(name=name):
+                value = json.loads(json.dumps(base))
+                value["incidents"][0].update(change)
+                self.assert_refused(value)
+        value = json.loads(json.dumps(base))
+        value["incidents"][0].update(assistant_id="", action="")
+        self.write(value)
+        self.assertEqual(self.store.load("team_1").incidents[0].action, "")
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         put(self.store, "team_1", busy_state())

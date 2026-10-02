@@ -81,7 +81,7 @@ DEFINED = {
 
 def full_notices(count: int = record.MAX_UNDELIVERED_NOTICES) -> tuple[record.Notice, ...]:
     return tuple(
-        record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, {"reply": "Done."}) for index in range(count)
+        record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, routine_fixture.DONE) for index in range(count)
     )
 
 
@@ -97,7 +97,11 @@ class ContractTests(unittest.TestCase):
 
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
-            "done": {"reply": "Updated."},
+            "done": {"actions": [["dns", "list-zones"], ["dns", "replace-dns-record"]]},
+            "recovered": {"actions": [["dns", "replace-dns-record"]]},
+            "held": {"assistant_id": "dns", "action": "replace-dns-record"},
+            "paused": {"assistant_id": None, "action": None, "reason": "exhausted"},
+            "user-skipped": {"assistant_id": "dns", "action": "replace-dns-record"},
             "skipped": {"missed": 3},
             "scope-changed": {"assistants": ["dns"]},
             "failed": {"code": "assistant-rpc-failed", "actions": [["dns", "list-zones"]]},
@@ -112,9 +116,16 @@ class ContractTests(unittest.TestCase):
             with self.subTest(outcome=outcome):
                 self.assertEqual(http_routine.canonical_notice_detail(outcome, detail), detail)
         invalid = (
-            ("done", {"reply": ""}),
-            ("done", {"reply": " padded "}),
-            ("done", {"reply": "x", "result": {"ip": "1.2.3.4"}}),
+            ("done", {"actions": []}),
+            ("done", {"actions": [["dns", "check"]] * 9}),
+            ("done", {"actions": [["dns", "check"]], "result": {"ip": "1.2.3.4"}}),
+            ("done", {"reply": "Done."}),
+            ("recovered", {"actions": [["dns"]]}),
+            ("held", {"assistant_id": "dns", "action": None}),
+            ("held", {"assistant_id": "Bad", "action": "x"}),
+            ("paused", {"assistant_id": "dns", "action": "x", "reason": "tired"}),
+            ("paused", {"assistant_id": "dns", "action": "x"}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x", "input": {}}),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
             ("scope-changed", {"assistants": []}),
@@ -321,14 +332,14 @@ class RunLifecycleTests(unittest.TestCase):
         attempts = (
             lambda value: record.spend(state, run_id, value, NINE + 1, 1),
             lambda value: record.freeze(state, run_id, value, NINE + 1, "human", "dns", "replace-dns-record"),
-            lambda value: record.finish(state, run_id, value, NINE + 1, "done", {"reply": "Done."}),
+            lambda value: record.finish(state, run_id, value, NINE + 1, "done", routine_fixture.DONE),
             lambda value: record.bind_generation(state, run_id, value, NINE + 1, "net_2"),
         )
         for attempt in attempts:
             with self.subTest(attempt=attempt), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
                 attempt(forged)
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            record.finish(state, run_id, lease, expired, "done", {"reply": "Done."})
+            record.finish(state, run_id, lease, expired, "done", routine_fixture.DONE)
 
     def test_a_run_binds_its_generation_from_the_trusted_network_once(self):
         state, claim, lease = claimed()
@@ -400,17 +411,17 @@ class RunLifecycleTests(unittest.TestCase):
         denied = record.end(frozen, claim.run.run_id, NINE, "denied", {"actions": []})
         self.assertEqual(denied.notices[0].outcome, "denied")
         with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-            record.end(frozen, claim.run.run_id, NINE, "done", {"reply": "x"})
+            record.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
 
     def test_worker_outcomes_are_closed(self):
         state, claim, lease = claimed()
-        done = record.finish(state, claim.run.run_id, lease, NINE + 9, "done", {"reply": "Done."})
+        done = record.finish(state, claim.run.run_id, lease, NINE + 9, "done", routine_fixture.DONE)
         self.assertEqual((done.runs, done.notices[0].outcome), ((), "done"))
         for outcome in ("skipped", "scope-changed", "uncertain", "unknown"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 record.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            record.finish(state, claim.run.run_id, lease, NINE, "done", {"reply": "x", "result": {}})
+            record.finish(state, claim.run.run_id, lease, NINE, "done", {"actions": [["dns", "check"]], "result": {}})
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
             record.run(done, claim.run.run_id)
 
@@ -426,7 +437,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_in_flight_outcomes_always_fit_above_the_claim_bound(self):
         state, claim, lease = claimed()
         state = dataclasses.replace(state, notices=full_notices())
-        state = record.finish(state, claim.run.run_id, lease, NINE, "done", {"reply": "Done."})
+        state = record.finish(state, claim.run.run_id, lease, NINE, "done", routine_fixture.DONE)
         self.assertEqual(len(state.notices), record.MAX_UNDELIVERED_NOTICES + 1)
         over = dataclasses.replace(state, notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES))
         with self.assertRaisesRegex(record.RoutineStateError, "notices-full"):
@@ -503,7 +514,7 @@ class FailureStreakTests(unittest.TestCase):
                     record.lease_of(claim.lease_token, KEY),
                     NINE,
                     "done",
-                    {"reply": "ok"},
+                    routine_fixture.DONE,
                 )
             )
             state = dataclasses.replace(state, discards=(), starts=0)
@@ -527,6 +538,64 @@ class FailureStreakTests(unittest.TestCase):
         self.assertEqual(record.routine(stopped, "a" * 32).failures, 2)
 
 
+class IncidentNoticeTests(unittest.TestCase):
+    """A held run's one notice goes on through its incident: held, then paused or user-skipped (ADR-0092)."""
+
+    def held(self) -> tuple[record.TeamRoutines, str]:
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        return record.fence(state, run_id, lease, NINE), run_id
+
+    def test_a_hold_names_its_step_and_its_notice_goes_on_through_the_incident(self):
+        state, run_id = self.held()
+        state = record.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        held = record.incident(state, run_id)
+        self.assertEqual((held.quote, held.assistant_id, held.action), (routine().quote, "dns", "replace-dns-record"))
+        notice = state.notices[-1]
+        self.assertEqual(
+            (notice.notice_id, notice.outcome, notice.detail, notice.version),
+            (run_id, "held", {"assistant_id": "dns", "action": "replace-dns-record"}, 1),
+        )
+        self.assertEqual(held.notice_version, 1)
+        paused = record.pause_incident(state, run_id, NINE + 2, "decided")
+        self.assertTrue(record.routine(paused, "a" * 32).paused)
+        self.assertEqual(
+            (paused.notices[-1].outcome, paused.notices[-1].detail, paused.notices[-1].version),
+            ("paused", {"assistant_id": "dns", "action": "replace-dns-record", "reason": "decided"}, 2),
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
+            record.pause_incident(state, run_id, NINE, "bored")
+        # Pular is the person's skip of this run, never the Routine's missed-schedule skip.
+        skipped = record.skip_incident(paused, run_id, NINE + 3)
+        self.assertEqual(record.incident(skipped, run_id).status, "skipped")
+        self.assertEqual(
+            (skipped.notices[-1].outcome, skipped.notices[-1].run_id, skipped.notices[-1].version),
+            ("user-skipped", run_id, 3),
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
+            record.pause_incident(skipped, run_id, NINE, "person")
+        # A deleted Routine's incident still says what it was, from its own quote.
+        gone = dataclasses.replace(state, routines=())
+        self.assertEqual(record.skip_incident(gone, run_id, NINE).notices[-1].quote, routine().quote)
+
+    def test_a_hold_without_a_sealed_cursor_names_no_step(self):
+        state, run_id = self.held()
+        state = record.settle_hold(state, run_id, NINE + 1)
+        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None})
+
+    def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        self.assertEqual(record.completed(record.run(state, run_id)), "done")
+        continued = record.run(state, run_id)
+        continued = dataclasses.replace(continued, generation=record.generation_for("net_1", run_id, "s1"))
+        self.assertEqual(record.completed(continued), "recovered")
+        streak = dataclasses.replace(record.routine(state, "a" * 32), failures=2)
+        state = dataclasses.replace(state, routines=(streak,))
+        ended = record.finish(state, run_id, lease, NINE + 1, "recovered", routine_fixture.DONE)
+        self.assertEqual((ended.notices[-1].outcome, record.routine(ended, "a" * 32).failures), ("recovered", 0))
+
+
 class RecoveredRunTests(unittest.TestCase):
     """The watchdog's lease-less endings touch only the exact leased run it read."""
 
@@ -537,7 +606,7 @@ class RecoveredRunTests(unittest.TestCase):
         self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
         done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
         self.assertEqual(done.runs, ())
-        self.assertEqual((done.notices[-1].outcome, done.notices[-1].detail), ("done", {"reply": routine().name}))
+        self.assertEqual((done.notices[-1].outcome, done.notices[-1].detail), ("done", {"actions": [["dns", "check"]]}))
         unbound, unclaimed, _lease = claimed()
         for transition, code in (
             (lambda: record.hold_recovered(state, run_id, "0" * 64), "run-changed"),
@@ -593,8 +662,13 @@ class RoutineViewContractTests(unittest.TestCase):
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": "none", "more": False}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": ["x"], "more": False}))
         # Two notices at their bound exceed a batch's encoded bound; one alone fits.
-        largest = dict(views["notice_batch"]["valid"][0]["notices"][0], detail={"reply": "\x01" * 16_000})
-        second = dict(largest, notice_id="9" * 32, run_id="9" * 32)
+        largest = dict(
+            views["notice_batch"]["valid"][0]["notices"][0],
+            run_id=None,
+            outcome="created",
+            detail=routine_fixture.large_definition(),
+        )
+        second = dict(largest, notice_id="9" * 32)
         self.assertIsNotNone(http_routine.canonical_notice_batch({"notices": [largest], "more": True}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": [largest, second], "more": False}))
         self.assertIsNone(http_routine.canonical_claim({"run": ["x"]}))

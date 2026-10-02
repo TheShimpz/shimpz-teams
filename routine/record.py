@@ -40,7 +40,10 @@ _GENERATION_RE = re.compile(
 )
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
-_RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
+# A worker ends its run done or failed; a completed continuation after a hold ends recovered.
+_RUN_OUTCOMES = frozenset({"done", "recovered", "failed", "denied", "stopped"})
+# Why recovery paused a held run's Routine; each is published on the run's notice.
+PAUSE_REASONS = http_routine.PAUSE_REASONS
 # Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
@@ -145,6 +148,11 @@ class Incident:
     status: str = "unresolved"
     # The held run's last notice version, which its continuation goes on from so Admin replaces the same row.
     notice_version: int = 0
+    # The Routine's quoted request, so the incident's notices still name the work after the Routine is deleted.
+    quote: str = ""
+    # The step the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
+    assistant_id: str = ""
+    action: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,14 +405,14 @@ def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines
 def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
     """Publish the next version of the run's one notice; returns the state and the run carrying that version.
 
-    A completed run resets its Routine's failure streak; a failed one, which had no effect, extends it, and the third
-    in a row pauses the Routine.
+    A completed or recovered run resets its Routine's failure streak; a failed one, which had no effect, extends it, and
+    the third in a row pauses the Routine.
     """
     version = value.notice_version + 1
     state = _notice(state, Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version))
-    if outcome in {"done", "failed"}:
+    if outcome in {"done", "recovered", "failed"}:
         current = routine(state, value.routine_id)
-        failures = 0 if outcome == "done" else current.failures + 1
+        failures = current.failures + 1 if outcome == "failed" else 0
         paused = current.paused or failures >= MAX_FAILURE_STREAK
         state = _replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
     return state, dataclasses.replace(value, notice_version=version)
@@ -423,7 +431,7 @@ def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
     detail = http_routine.canonical_notice_detail(notice.outcome, notice.detail)
     if detail is None:
         raise RoutineStateError("notice-invalid")
-    notice = dataclasses.replace(notice, detail=detail, quote=routine(state, notice.routine_id).quote)
+    notice = dataclasses.replace(notice, detail=detail, quote=notice.quote or routine(state, notice.routine_id).quote)
     if type(notice.version) is not int or notice.version < 1:
         raise RoutineStateError("notice-invalid")
     kept = tuple(item for item in state.notices if item.notice_id != notice.notice_id)
@@ -744,28 +752,55 @@ def hold_recovered(state: TeamRoutines, run_id: str, lease_sha256: str) -> TeamR
 
 
 def complete_recovered(state: TeamRoutines, run_id: str, lease_sha256: str, now: int) -> TeamRoutines:
-    """Team's watchdog ends done a leased run whose sealed cursor completed every step before its end was recorded."""
+    """Team's watchdog ends a leased run whose sealed cursor completed every step before its end was recorded."""
     value = _leased(state, run_id)
     if not secrets.compare_digest(value.lease_sha256, lease_sha256):
         raise RoutineStateError("run-changed")
-    state, _value = _run_notice(state, value, "done", now, {"reply": routine(state, value.routine_id).name})
+    actions = plan_actions(routine(state, value.routine_id).plan)
+    state, _value = _run_notice(state, value, completed(value), now, {"actions": actions})
     return _without_run(state, run_id)
 
 
-def settle_hold(state: TeamRoutines, run_id: str, now: int, revision: int | None = None) -> TeamRoutines:
+def plan_actions(plan: dict[str, object]) -> list[list[str]]:
+    """The ordered Assistant Actions of a plan's steps, which a completed run's notice names; never their data."""
+    return [[step["assistant"], step["action"]] for step in plan["steps"]]
+
+
+def completed(value: Run) -> str:
+    """How a run that completed every step ends: recovered when a continuation after a hold completed it."""
+    first = generation_for(network_of(value.generation, value.run_id), value.run_id)
+    return "done" if value.generation == first else "recovered"
+
+
+def settle_hold(
+    state: TeamRoutines, run_id: str, now: int, revision: int | None = None, step: tuple[str, str] = ("", "")
+) -> TeamRoutines:
     """A held run's incident is durable and its batch archived: index the incident and end the run in one write.
 
     The run's live state is queued for removal like any ended run's; its archived journal marker stays with the
     incident. A claim reserved this incident's room, so it never displaces an unresolved one. ``revision`` is the one
-    the run's recovery snapshot binds; without one, the run executed the Routine's current revision.
+    the run's recovery snapshot binds; without one, the run executed the Routine's current revision. ``step`` is the
+    Assistant Action its sealed cursor stopped at, which the run's held notice names.
     """
     value = run(state, run_id)
     if value.status != "held":
         raise RoutineStateError("run-not-held")
-    executed = routine(state, value.routine_id).revision if revision is None else revision
+    current = routine(state, value.routine_id)
+    executed = current.revision if revision is None else revision
     if type(executed) is not int or executed < 1:
         raise RoutineStateError("incident-invalid")
-    incident = Incident(run_id, value.routine_id, value.generation, now, executed, notice_version=value.notice_version)
+    state, value = _run_notice(state, value, "held", now, _step_detail(step))
+    incident = Incident(
+        run_id,
+        value.routine_id,
+        value.generation,
+        now,
+        executed,
+        notice_version=value.notice_version,
+        quote=current.quote,
+        assistant_id=step[0],
+        action=step[1],
+    )
     kept = list(state.incidents)
     while len(kept) >= MAX_INCIDENTS:
         released = next((item for item in kept if item.status == "released"), None)
@@ -821,15 +856,48 @@ def reopen_incident(state: TeamRoutines, incident_id: str, now: int, generation:
     )
 
 
-def skip_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:
-    """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved."""
+def _step_detail(step: tuple[str, str]) -> dict[str, object]:
+    assistant_id, action = step
+    return {"assistant_id": assistant_id or None, "action": action or None}
+
+
+def _incident_notice(
+    state: TeamRoutines, value: Incident, outcome: str, now: int, detail: dict[str, object]
+) -> tuple[TeamRoutines, Incident]:
+    """Publish the next version of the held run's one notice, which outlives a deleted Routine with the incident."""
+    version = value.notice_version + 1
+    notice = Notice(value.incident_id, value.routine_id, value.incident_id, outcome, now, detail, version, value.quote)
+    return _notice(state, notice), dataclasses.replace(value, notice_version=version)
+
+
+def _replace_incident(state: TeamRoutines, updated: Incident) -> TeamRoutines:
+    return dataclasses.replace(
+        state, incidents=tuple(updated if item.incident_id == updated.incident_id else item for item in state.incidents)
+    )
+
+
+def skip_incident(state: TeamRoutines, incident_id: str, now: int) -> TeamRoutines:
+    """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved.
+
+    Its notice says the person skipped it, which is distinct from the Routine's own missed-schedule skip.
+    """
     value = incident(state, incident_id)
     if value.status != "unresolved":
         raise RoutineStateError("incident-not-unresolved")
-    skipped = dataclasses.replace(value, status="skipped")
-    return dataclasses.replace(
-        state, incidents=tuple(skipped if item.incident_id == incident_id else item for item in state.incidents)
-    )
+    step = _step_detail((value.assistant_id, value.action))
+    state, value = _incident_notice(state, value, "user-skipped", now, step)
+    return _replace_incident(state, dataclasses.replace(value, status="skipped"))
+
+
+def pause_incident(state: TeamRoutines, incident_id: str, now: int, reason: str) -> TeamRoutines:
+    """Recovery or a person paused the Routine an unresolved incident holds, and the run's notice says why."""
+    value = incident(state, incident_id)
+    if value.status != "unresolved" or reason not in PAUSE_REASONS:
+        raise RoutineStateError("incident-not-unresolved")
+    state = set_paused(state, value.routine_id, True)
+    detail = {**_step_detail((value.assistant_id, value.action)), "reason": reason}
+    state, value = _incident_notice(state, value, "paused", now, detail)
+    return _replace_incident(state, value)
 
 
 def release_incident(state: TeamRoutines, incident_id: str) -> TeamRoutines:

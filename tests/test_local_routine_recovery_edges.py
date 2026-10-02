@@ -128,7 +128,7 @@ class ContinuationEdgeTests(RecoveryCase):
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             state = self.state(service)
             generation = record.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
-            skipped = record.skip_incident(state, run_id)
+            skipped = record.skip_incident(state, run_id, 0)
             changed = record._replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )
@@ -212,6 +212,13 @@ class CardEdgeTests(RecoveryCase):
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
+            # A skipped incident can no longer pause its Routine, and a snapshot without a cursor names no step.
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                routine_incident.pause(service, "team_1", run_id, "person")
+            self.assertEqual(caught.exception.code, "routine-incident-unavailable")
+            snapshot = mock.Mock()
+            with mock.patch.object(service.routine_store, "cursor", return_value=None):
+                self.assertEqual(routine_incident._held_step(service, "team_1", snapshot), ("", ""))
 
     def as_card(self, service, run_id: str) -> dict[str, object]:
         from local import audit as local_audit

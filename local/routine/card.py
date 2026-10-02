@@ -203,7 +203,7 @@ def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str,
         routine_incident.skip(self, team_id, incident_id)
         result = {"verdict": None, "status": "skipped"}
     else:
-        routine_incident.set_paused(self, team_id, card.routine_id, True)
+        routine_incident.pause(self, team_id, incident_id, "person")
         result = {"verdict": None, "status": "paused"}
     local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:{choice}")
     return {"team_id": team_id, "incident_id": incident_id, "choice": choice, **result}

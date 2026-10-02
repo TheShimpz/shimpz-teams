@@ -14,6 +14,7 @@ import types
 from pathlib import Path
 from unittest import mock
 
+import routine_fixture
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
@@ -338,11 +339,9 @@ class NoticeBacklogTests(RoutineHttpCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
             value = self.routine(service)
-            reply = "\x01" * http_routine.MAX_NOTICE_REPLY_CHARS
+            large = routine_fixture.large_definition()
             notices = tuple(
-                record.Notice(
-                    f"{index:032x}", value.routine_id, "", "done", int(time.time()), {"reply": reply}, 1, value.quote
-                )
+                record.Notice(f"{index:032x}", value.routine_id, "", "created", int(time.time()), large, 1, value.quote)
                 for index in range(9)
             )
             service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, notices=notices), None))

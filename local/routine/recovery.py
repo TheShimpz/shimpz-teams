@@ -391,9 +391,11 @@ def automatic(self, run: routine_run._Run, api_key: str, progress=None) -> str:
         verdict = verify(self, team_id, incident_id, run.token, budgeted=True)
         if verdict == "absent" and _within(self, team_id, incident_id, started):
             decision = _decide(self, team_id, incident_id, api_key, None)
-            if decision in {"pause", "unavailable", "exhausted"}:
-                # A pause decision, a missing or failed model call, or an exhausted budget pauses the Routine.
-                routine_incident.set_paused(self, team_id, run.routine.routine_id, True)
+            reason = {"pause": "decided", "unavailable": "unavailable", "exhausted": "exhausted"}.get(decision)
+            if reason is not None:
+                # A pause decision, a missing or failed model call, or an exhausted budget pauses the Routine, and the
+                # run's notice says which.
+                routine_incident.pause(self, team_id, incident_id, reason)
             verdict = "retry" if decision == "retry" else decision
         opened = routine_incident.open_recovery(self, team_id, incident_id)
         if verdict not in {"occurred", "none", "retry"} or refusal(opened.cursor) is not None:

@@ -191,7 +191,7 @@ class ResolutionTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id), None))
+            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id, 0), None))
             with (
                 mock.patch.object(
                     service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("down")
@@ -462,7 +462,13 @@ class CapacityTests(IncidentCase):
             # Fill the index to its bound with released records and give the Team a second held run.
             filler = tuple(
                 record.Incident(
-                    f"{index:032x}", value.routine_id, f"{'f' * 64}:routine:{index:032x}", index, 1, "released"
+                    f"{index:032x}",
+                    value.routine_id,
+                    f"{'f' * 64}:routine:{index:032x}",
+                    index,
+                    1,
+                    "released",
+                    quote=value.quote,
                 )
                 for index in range(1, record.MAX_INCIDENTS)
             )
@@ -497,7 +503,7 @@ class CapacityTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id), None))
+            service.routine_store.update("team_1", lambda state: (record.skip_incident(state, run_id, 0), None))
             service.action_state.release_archive(generation, batch.fingerprint)
             service.routine_store.delete_incident("team_1", run_id)
             routine_incident.reconcile_team(service, "team_1")
@@ -684,7 +690,7 @@ class IncidentRecordTests(IncidentCase):
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
             record.release_incident(full, unresolved[0].incident_id)
         released = record.release_incident(
-            record.skip_incident(full, unresolved[0].incident_id), unresolved[0].incident_id
+            record.skip_incident(full, unresolved[0].incident_id, 1), unresolved[0].incident_id
         )
         self.assertEqual(record.release_incident(released, unresolved[0].incident_id), released)
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
@@ -692,7 +698,7 @@ class IncidentRecordTests(IncidentCase):
                 dataclasses.replace(full, runs=(dataclasses.replace(held, status="frozen"),)), "c" * 32, 1
             )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
-            record.skip_incident(full, "f" * 32)
+            record.skip_incident(full, "f" * 32, 1)
         unbound = record.Run(
             "d" * 32, "a" * 32, "leased", 0, lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
         )

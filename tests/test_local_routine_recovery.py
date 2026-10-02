@@ -100,7 +100,7 @@ class VerificationTests(RecoveryCase):
             service, brain, value, run_id = self.held(directory, assistant)
             self.assertEqual(self.verify(service, value, run_id), "absent")
             self.assertTrue(self.cursor(service, run_id).absent)
-            self.assertEqual(self.resume(service, value, run_id), "done")
+            self.assertEqual(self.resume(service, value, run_id), "recovered")
             state = self.state(service)
         creates = [operation for action, operation in assistant.calls if action == "create-record"]
         verified = [operation for action, operation in assistant.calls if action == "find-record"]
@@ -109,7 +109,7 @@ class VerificationTests(RecoveryCase):
         self.assertEqual(verified, creates[:1])
         self.assertEqual([action for action, _id in assistant.calls].count("list-zones"), 1)
         self.assertEqual((brain.calls, state.incidents, state.runs), ([], (), ()))
-        self.assertEqual(state.notices[-1].outcome, "done")
+        self.assertEqual(state.notices[-1].outcome, "recovered")
 
     def test_a_not_found_failure_alone_never_proves_absence(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
@@ -130,7 +130,7 @@ class VerificationTests(RecoveryCase):
             service, _brain, value, run_id = self.held(directory, assistant)
             self.assertEqual(self.verify(service, value, run_id), "occurred")
             self.assertEqual(self.cursor(service, run_id).step, 2)
-            self.assertEqual(self.resume(service, value, run_id), "done")
+            self.assertEqual(self.resume(service, value, run_id), "recovered")
         self.assertEqual([action for action, _id in assistant.calls].count("create-record"), 1)
 
     def test_an_occurrence_without_a_valid_recovered_result_is_inconclusive(self) -> None:
@@ -221,8 +221,8 @@ class CardTests(RecoveryCase):
             (card["choices"], card["recommended"], card["assistant_id"], card["action"], card["revision"]),
             (["verify", "skip", "pause"], "verify", ASSISTANT, "create-record", value.revision),
         )
-        self.assertEqual((answered["verdict"], answered["status"]), ("occurred", "done"))
-        self.assertEqual((brain.calls, state.incidents, state.notices[-1].outcome), ([], (), "done"))
+        self.assertEqual((answered["verdict"], answered["status"]), ("occurred", "recovered"))
+        self.assertEqual((brain.calls, state.incidents, state.notices[-1].outcome), ([], (), "recovered"))
 
     def test_an_inconclusive_verificar_keeps_the_run_held(self) -> None:
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
@@ -244,10 +244,15 @@ class CardTests(RecoveryCase):
                 status = None if incident is None else incident.status
                 self.assertEqual(answered["choice"], choice)
                 self.assertEqual((status or "released", record.routine(state, value.routine_id).paused)[1], expected[1])
+                # Pular is the person's skip of this run, distinct from a missed-schedule skip; Pausar says who.
+                notice = state.notices[-1]
+                self.assertEqual((notice.notice_id, notice.run_id), (run_id, run_id))
                 if choice == "skip":
                     self.assertIn(status, {"released", "skipped"})
+                    self.assertEqual(notice.outcome, "user-skipped")
                 else:
                     self.assertEqual(status, "unresolved")
+                    self.assertEqual((notice.outcome, notice.detail["reason"]), ("paused", "person"))
 
     def test_an_answer_must_match_its_person_nonce_expiry_and_binding(self) -> None:
         assistant = Assistant([failed()], [])

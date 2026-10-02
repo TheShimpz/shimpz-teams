@@ -212,15 +212,35 @@ def reconcile(self, team_id: str, run_id: str) -> bool:
         raise _journal_unavailable() from exc
     now = int(time.time())
 
-    revision = None if held["recovery"] is None else held["recovery"].binding.revision
+    snapshot = held["recovery"]
+    revision = None if snapshot is None else snapshot.binding.revision
+    step = _held_step(self, team_id, snapshot)
 
     def settle(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:
-            return record.settle_hold(state, run_id, now, revision), True
+            return record.settle_hold(state, run_id, now, revision, step), True
         except record.RoutineStateError:
             return state, False
 
     return routine_state.update(self, team_id, settle)
+
+
+def _held_step(self, team_id: str, snapshot: Recovery | None) -> tuple[str, str]:
+    """The Assistant Action the held run's sealed cursor stopped at; none when no cursor is sealed or readable.
+
+    It only labels the run's notice, so a cursor that cannot be read never keeps the incident from being indexed.
+    """
+    if snapshot is None:
+        return "", ""
+    try:
+        cursor = self.routine_store.cursor(team_id, snapshot.binding)
+    except routine_store.RoutineStoreError:
+        return "", ""
+    if cursor is None:
+        return "", ""
+    steps = snapshot.plan["steps"]
+    step = steps[min(cursor.step, len(steps) - 1)]
+    return step["assistant"], step["action"]
 
 
 def reconcile_team(self, team_id: str) -> None:
@@ -243,7 +263,7 @@ def skip(self, team_id: str, incident_id: str) -> None:
 
     def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | None]:
         try:
-            skipped = record.skip_incident(state, incident_id)
+            skipped = record.skip_incident(state, incident_id, int(time.time()))
         except record.RoutineStateError:
             return state, None
         return skipped, record.incident(skipped, incident_id)
@@ -300,6 +320,19 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     if cursor is None or cursor.plan != snapshot.plan_digest:
         raise routine_state.unavailable()
     return OpenedRecovery(snapshot, cursor)
+
+
+def pause(self, team_id: str, incident_id: str, reason: str) -> None:
+    """Pause the Routine an unresolved incident holds, and say why on the held run's notice."""
+
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+        try:
+            return record.pause_incident(state, incident_id, int(time.time()), reason), True
+        except record.RoutineStateError:
+            return state, False
+
+    if not routine_state.update(self, team_id, change):
+        raise _problem(HTTPStatus.CONFLICT, "Routine incident cannot be paused", "routine-incident-unavailable")
 
 
 def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:

@@ -40,3 +40,17 @@ def granted(value):
     import dataclasses
 
     return dataclasses.replace(value, grant=grant(value.plan, value.revision))
+
+
+# A completed run's notice detail: the Actions it carried out.
+DONE = {"actions": [["dns", "check"]]}
+
+
+def large_definition() -> dict[str, object]:
+    """A created notice's detail of about 70 KiB encoded: one fits a notice batch, two exceed its byte bound."""
+    inputs = [{"member": f"m{index:03d}", "source": "literal", "value": '"' * 120} for index in range(30)]
+    steps = [
+        {"id": f"s{index}", "assistant": "dns", "action": "check", "inputs": inputs, "stored_inputs": []}
+        for index in range(8)
+    ]
+    return {"name": "Large", "steps": steps, "schedule": {"kind": "daily", "time": "09:00"}, "timezone": "UTC"}

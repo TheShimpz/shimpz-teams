@@ -101,7 +101,10 @@ class ExecutionTests(CompiledRunCase):
         )
         self.assertEqual(calls[1][1], {**LOOKUP_INPUT, "zone_id": ZONE})
         self.assertNotEqual(calls[0][2], calls[1][2])
-        self.assertEqual([(item.outcome, item.detail) for item in state.notices], [("done", {"reply": value.name})])
+        self.assertEqual(
+            [(item.outcome, item.detail) for item in state.notices],
+            [("done", {"actions": record.plan_actions(value.plan)})],
+        )
         self.assertEqual(leftovers, ((), ()))
 
     def test_a_failed_later_step_keeps_the_completed_prefix_and_holds_the_run(self) -> None:
@@ -162,7 +165,7 @@ class ExecutionTests(CompiledRunCase):
         )
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
-        self.assertEqual(state.notices[-1].detail, {"reply": value.name})
+        self.assertEqual(state.notices[-1].detail, {"actions": record.plan_actions(value.plan)})
 
     def test_a_reopened_run_that_cannot_read_its_cursor_is_held_with_its_completed_prefix(self) -> None:
         """Whether a run already acted comes from durable state, never from a runtime that failed to open it."""
@@ -188,6 +191,8 @@ class ExecutionTests(CompiledRunCase):
             recovered = routine_incident.open_recovery(service, "team_1", run_id)
         self.assertEqual((resumed["status"], brain.calls, calls), ("held", [], ["list-zones", "list-dns-records"]))
         self.assertEqual([item.incident_id for item in state.incidents], [run_id])
+        # The unreadable cursor leaves the held notice without a step; it never blocks the incident.
+        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None})
         # The completed first step and the dispatched second one stay as evidence, never cleaned up as a failure.
         self.assertEqual(recovered.cursor.step, 1)
         self.assertIsNotNone(recovered.cursor.operation_id)
@@ -421,7 +426,7 @@ class RealRpcTests(CompiledRunCase):
         # Each step is its own logical operation, and the Integration token reached only the Assistant.
         self.assertNotEqual(first["operation_id"], second["operation_id"])
         self.assertEqual(set(first["integrations"]), {"cloudflare"})
-        self.assertEqual(state.notices[-1].detail, {"reply": value.name})
+        self.assertEqual(state.notices[-1].detail, {"actions": record.plan_actions(value.plan)})
 
 
 class StopTests(CompiledRunCase):

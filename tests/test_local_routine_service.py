@@ -196,7 +196,10 @@ class RunTests(RoutineServiceCase):
             state = self.state(service)
         self.assertEqual(result["status"], "done")
         self.assertEqual(state.runs, ())
-        self.assertEqual([(item.outcome, item.detail) for item in state.notices], [("done", {"reply": "Daily zones"})])
+        self.assertEqual(
+            [(item.outcome, item.detail) for item in state.notices],
+            [("done", {"actions": record.plan_actions(state.routines[0].plan)})],
+        )
         # A healthy compiled run never asks the Brain anything.
         self.assertEqual(runtime.contexts, [])
 
@@ -362,7 +365,9 @@ class FreezeTests(RoutineServiceCase):
             )
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
-        self.assertEqual((state.runs, state.notices[-1].detail), ((), {"reply": "Daily zones"}))
+        self.assertEqual(
+            (state.runs, state.notices[-1].detail), ((), {"actions": record.plan_actions(state.routines[0].plan)})
+        )
 
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

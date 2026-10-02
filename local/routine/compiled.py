@@ -328,7 +328,7 @@ def execute(
         return _ended(self, run, value, [] if segment is None else segment.batches, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
-        return routine_run.finished(self, run)
+        return routine_run.finished(self, run, value)
     return routine_run.suspended(self, run, outcome)
 
 

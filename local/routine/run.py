@@ -171,11 +171,14 @@ def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
     return routine_state.update(self, run.team_id, finish)
 
 
-def finished(self, run: _Run) -> str:
-    """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked."""
+def finished(self, run: _Run, value: record.Run) -> str:
+    """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
+
+    Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it.
+    """
     if not self._commit_chat_terminal(run.team_id, run.token):
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
-    return _finish(self, run, "done", {"reply": run.routine.name})
+    return _finish(self, run, record.completed(value), {"actions": record.plan_actions(run.routine.plan)})
 
 
 def suspended(self, run: _Run, segment) -> str:
@@ -306,7 +309,7 @@ def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -
 def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:
     """Remove what an ended run held and finish a deletion the run was blocking; audit how it ended."""
     local_audit.record_request(
-        "routine-run", result="ok" if outcome == "done" else "error", team_id=team_id, detail=outcome
+        "routine-run", result="ok" if outcome in {"done", "recovered"} else "error", team_id=team_id, detail=outcome
     )
     routine_manage.settle(self, team_id, routine_id)
 

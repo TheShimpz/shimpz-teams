@@ -90,7 +90,18 @@ _RUN_FIELDS = frozenset(
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
 _INCIDENT_FIELDS = frozenset(
-    {"incident_id", "routine_id", "generation", "created_at", "revision", "status", "notice_version"}
+    {
+        "incident_id",
+        "routine_id",
+        "generation",
+        "created_at",
+        "revision",
+        "status",
+        "notice_version",
+        "quote",
+        "assistant_id",
+        "action",
+    }
 )
 _STATE_FIELDS = frozenset(
     {
@@ -329,6 +340,17 @@ def _decode_incident(value: object) -> record.Incident:
         and value["status"] in ("unresolved", "skipped", "released")
         and type(value["revision"]) is int
         and 1 <= value["revision"] < 2**31
+        and http_routine.canonical_quote(value["quote"]) is not None
+        and isinstance(value["assistant_id"], str)
+        and isinstance(value["action"], str)
+        # The held step: both named, or both empty when the run sealed no cursor before it was held.
+        and (
+            (value["assistant_id"], value["action"]) == ("", "")
+            or (
+                http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
+                and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
+            )
+        )
     )
     return record.Incident(
         value["incident_id"],
@@ -338,6 +360,9 @@ def _decode_incident(value: object) -> record.Incident:
         value["revision"],
         value["status"],
         _count(value["notice_version"]),
+        value["quote"],
+        value["assistant_id"],
+        value["action"],
     )
 
 
