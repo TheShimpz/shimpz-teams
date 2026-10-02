@@ -32,16 +32,18 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 
 
 def routine(routine_id: str) -> record.Routine:
-    value = record.Routine(
-        routine_id=routine_id,
-        name="Daily DNS check",
-        quote="Every day at 9, check the DNS.",
-        plan=routine_fixture.plan_document(),
-        schedule={"kind": "daily", "time": "09:00"},
-        timezone="UTC",
-        assistants=(("dns", "sha256:" + "c" * 64),),
-        anchor=NINE - 86_400,
-        next_run_at=0,
+    value = routine_fixture.granted(
+        record.Routine(
+            routine_id=routine_id,
+            name="Daily DNS check",
+            quote="Every day at 9, check the DNS.",
+            plan=routine_fixture.plan_document(),
+            schedule={"kind": "daily", "time": "09:00"},
+            timezone="UTC",
+            assistants=(("dns", "sha256:" + "c" * 64),),
+            anchor=NINE - 86_400,
+            next_run_at=0,
+        )
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
 

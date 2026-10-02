@@ -32,16 +32,18 @@ ANCHOR = epoch(2026, 9, 1)
 
 
 def routine(routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR) -> record.Routine:
-    value = record.Routine(
-        routine_id=routine_id,
-        name="Daily DNS summary",
-        quote="Every day at 9, summarize the DNS changes.",
-        plan=routine_fixture.plan_document(),
-        schedule=dict(schedule or DAILY),
-        timezone="UTC",
-        assistants=(("dns", DIGEST),),
-        anchor=anchor,
-        next_run_at=0,
+    value = routine_fixture.granted(
+        record.Routine(
+            routine_id=routine_id,
+            name="Daily DNS summary",
+            quote="Every day at 9, summarize the DNS changes.",
+            plan=routine_fixture.plan_document(),
+            schedule=dict(schedule or DAILY),
+            timezone="UTC",
+            assistants=(("dns", DIGEST),),
+            anchor=anchor,
+            next_run_at=0,
+        )
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, anchor))
 
@@ -71,7 +73,7 @@ def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Le
 
 DEFINED = {
     "name": "Daily DNS summary",
-    "actions": [["dns", "check"]],
+    "steps": [{"id": "check", "assistant": "dns", "action": "check", "inputs": [], "stored_inputs": []}],
     "schedule": {"kind": "daily", "time": "09:00"},
     "timezone": "UTC",
 }
@@ -132,8 +134,10 @@ class ContractTests(unittest.TestCase):
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
             ("created", {**DEFINED, "name": ""}),
-            ("created", {**DEFINED, "actions": []}),
-            ("created", {**DEFINED, "actions": [["dns", "check"]] * 9}),
+            ("created", {**DEFINED, "steps": []}),
+            ("created", {**DEFINED, "steps": DEFINED["steps"] * 9}),
+            ("created", {**DEFINED, "steps": [{**DEFINED["steps"][0], "stored_inputs": ["Bad"]}]}),
+            ("created", {key: value for key, value in DEFINED.items() if key != "steps"}),
             ("changed", {**DEFINED, "schedule": {"kind": "daily"}}),
             ("changed", {**DEFINED, "timezone": "../etc"}),
             ("changed", {**DEFINED, "input": {"zone": "example.com"}}),

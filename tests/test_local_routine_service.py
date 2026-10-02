@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from local_controller_harness import LocalContractCase
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 
@@ -122,16 +123,18 @@ class RoutineServiceCase(LocalContractCase):
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
         """Add one daily compiled Routine pinned to the Team's current contracts, due now unless told otherwise."""
         contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-        value = record.Routine(
-            routine_id=record.new_id(),
-            name="Daily zones",
-            quote=CHANGE["quote"],
-            plan=plan or self.plan(service),
-            schedule=dict(CHANGE["schedule"]),
-            timezone="UTC",
-            assistants=tuple(sorted(contracts.items())),
-            anchor=int(time.time()) - 3 * 86_400,
-            next_run_at=0,
+        value = routine_fixture.granted(
+            record.Routine(
+                routine_id=record.new_id(),
+                name="Daily zones",
+                quote=CHANGE["quote"],
+                plan=plan or self.plan(service),
+                schedule=dict(CHANGE["schedule"]),
+                timezone="UTC",
+                assistants=tuple(sorted(contracts.items())),
+                anchor=int(time.time()) - 3 * 86_400,
+                next_run_at=0,
+            )
         )
         value = dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
         service.routine_store.update("team_1", lambda state: (record.add_routine(state, value), None))

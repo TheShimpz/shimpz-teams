@@ -50,6 +50,7 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         request.message,
         clarification["question"],
         labels,
+        question.field,
         head.op,
         head.expected_revision,
         tuple(routines),

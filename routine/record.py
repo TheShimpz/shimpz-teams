@@ -16,6 +16,7 @@ import secrets
 from dataclasses import dataclass
 
 from protocol.http.v1 import routine as http_routine
+from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import schedule
 
@@ -78,6 +79,8 @@ class Routine:
     revision: int = 1
     # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
     paused: bool = False
+    # The evidence of the request that granted this revision, bound to its receipt, revision, and plan (grant.py).
+    grant: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,8 +204,8 @@ def grace_seconds(routine_value: Routine) -> int:
     return min(period, MAX_GRACE_SECONDS)
 
 
-def _admitted(value: Routine) -> Routine:
-    """A copy of a new Routine in the closed contract; anything else is refused before it can be persisted."""
+def _admitted(value: Routine, revision: int = 1) -> Routine:
+    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted."""
     canonical = http_routine.canonical_schedule(value.schedule)
     assistants = tuple(value.assistants)
     try:
@@ -227,6 +230,7 @@ def _admitted(value: Routine) -> Routine:
         )
         or type(value.anchor) is not int
         or value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
+        or not routine_grant.valid(value.grant, value.plan, revision)
     ):
         raise RoutineStateError("routine-invalid")
     return Routine(
@@ -239,6 +243,8 @@ def _admitted(value: Routine) -> Routine:
         copy.deepcopy(value.plan),
         value.anchor,
         value.next_run_at,
+        revision=revision,
+        grant=copy.deepcopy(value.grant),
     )
 
 
@@ -252,10 +258,10 @@ def scheduled(value: Routine, now: int) -> Routine:
 
 
 def definition(value: Routine) -> dict[str, object]:
-    """What a created or changed notice says the Routine does: its name, ordered Actions, schedule, and zone."""
+    """What a created or changed notice says the Routine does: its name, its plan's safe projection, and when."""
     return {
         "name": value.name,
-        "actions": [[step["assistant"], step["action"]] for step in value.plan["steps"]],
+        "steps": routine_grant.steps(value.plan, value.grant),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
     }
@@ -289,7 +295,9 @@ def create(state: TeamRoutines, value: Routine, now: int, receipt: str, expires_
     state, fresh = _receipt(state, receipt, expires_at, now)
     if not fresh:
         return state, False
-    state = add_routine(state, value)
+    state = add_routine(
+        state, dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, 1, value.plan))
+    )
     admitted = routine(state, value.routine_id)
     return _notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, definition(admitted))), True
 
@@ -312,11 +320,13 @@ def update(
         raise RoutineStateError("routine-revision-changed")
     if any(item.routine_id == current.routine_id for item in state.runs):
         raise RoutineStateError("routine-busy")
-    admitted = _admitted(value)
+    revision = current.revision + 1
+    granted = dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, revision, value.plan))
+    admitted = _admitted(granted, revision)
     others = tuple(item for item in state.routines if item.routine_id != current.routine_id)
     if not daily_rate_allows(others, admitted.schedule):
         raise RoutineStateError("routine-rate-limit")
-    changed = dataclasses.replace(admitted, revision=current.revision + 1, paused=current.paused)
+    changed = dataclasses.replace(admitted, paused=current.paused)
     state = _replace_routine(state, changed)
     return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, definition(changed))), True
 

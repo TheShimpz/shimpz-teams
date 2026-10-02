@@ -271,7 +271,8 @@ class CompileTests(unittest.TestCase):
                 self.assertEqual(caught.exception.code, "routine-literal-unproven")
 
     def test_an_update_keeps_exactly_the_current_revisions_sources(self) -> None:
-        current = _compile(_change()).document
+        first = _compile(_change())
+        current = first.document
         update = _change(op="update", routine_id="c" * 32, expected_revision=1, request="then share it")
         update["steps"][0]["input"] = {"title": {"kind": "kept"}, "count": {"kind": "kept"}}
         update["steps"][1]["input"]["channel"] = {
@@ -279,11 +280,18 @@ class CompileTests(unittest.TestCase):
             "value": "#general",
             "origins": [_message("#general")],
         }
-        compiled = _compile(update, current=current)
+        compiled = _compile(update, current=(current, first.sources))
         self.assertEqual(
             compiled.document["steps"][0]["input"],
             {key: current["steps"][0]["input"][key] for key in ("title", "count")},
         )
+        # Kept members keep their provenance too; the new literal records its own.
+        self.assertEqual(
+            compiled.sources["publish"], {key: first.sources["publish"][key] for key in ("title", "count")}
+        )
+        self.assertEqual(compiled.sources["share"]["channel"], {"origins": [_message("#general")]})
+        self.assertEqual(compiled.sources["share"]["post_id"], {"instruction": "share it"})
+        self.assertEqual(compiled.quote_span, (MESSAGE.index("then share it"), MESSAGE.index("then share it") + 13))
         self.assertEqual(compiled.document["steps"][1]["input"]["channel"]["value"], "#general")
         for altered in (
             {"title": {"kind": "kept"}, "missing": {"kind": "kept"}},
@@ -295,15 +303,19 @@ class CompileTests(unittest.TestCase):
                 current_without_day = copy.deepcopy(current)
                 del current_without_day["steps"][0]["input"]["day"]
             with self.subTest(altered=altered), self.assertRaises(routine_change.ChangeError) as caught:
-                _compile(moved, current=current_without_day if "day" in altered else current)
+                _compile(moved, current=(current_without_day if "day" in altered else current, first.sources))
             self.assertEqual(caught.exception.code, "routine-kept-invalid")
         # A step that now runs another Action keeps nothing.
         swapped = copy.deepcopy(update)
         swapped["steps"][0]["action"] = "share-post"
         swapped["steps"][0]["input"] = {"post_id": {"kind": "kept"}}
         with self.assertRaises(routine_change.ChangeError) as caught:
-            _compile(swapped, current=current)
+            _compile(swapped, current=(current, first.sources))
         self.assertEqual(caught.exception.code, "routine-kept-invalid")
+        # A kept member without its recorded provenance keeps nothing either.
+        with self.assertRaises(routine_change.ChangeError) as unrecorded:
+            _compile(update, current=(current, {}))
+        self.assertEqual(unrecorded.exception.code, "routine-kept-invalid")
 
     def test_the_change_must_fit_the_current_contracts_zone_and_operation(self) -> None:
         cases = (

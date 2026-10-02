@@ -19,6 +19,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from routine import change as routine_change
+from routine import grant as routine_grant
 from routine import pin as routine_pin
 from routine import plan as routine_plan
 from routine import record
@@ -122,12 +123,18 @@ def definition(
             routine_change.Words(request.message),
             # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
             contracts(assistants, routine_pin.SCOPE_LOCALE),
-            None if existing is None else existing.plan,
+            None if existing is None else (existing.plan, existing.grant["sources"]),
             request.timezone or DEFAULT_TIMEZONE,
             selected,
         )
     except routine_change.ChangeError as exc:
         raise refused(exc) from exc
+    specs = {active.spec.assistant_id: active.spec for active in assistants}
+    # Each step's Action names the Stored Inputs it uses; the evidence keeps their ids, never a value.
+    stored = {
+        step["id"]: list(specs[step["assistant"]].actions[step["action"]].stored_inputs)
+        for step in compiled.document["steps"]
+    }
     return record.Routine(
         change.routine_id or record.new_id(),
         compiled.name,
@@ -138,6 +145,7 @@ def definition(
         compiled.document,
         anchor=0,
         next_run_at=0,
+        grant=routine_grant.evidence(request.message, compiled.quote_span, compiled.sources, stored),
     )
 
 

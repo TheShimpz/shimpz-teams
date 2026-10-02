@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import dataclass
 
 from local.routine import lineage as routine_lineage
 
@@ -20,8 +21,20 @@ class Clock:
         return self.now
 
 
+@dataclass(frozen=True)
+class Option:
+    """A stand-in for one option's admitted Routine: only its name and its evidence matter here."""
+
+    name: str
+    grant: dict[str, object]
+
+
+FIELD = ("input", "post", "channel")
+
+
 def _question() -> routine_lineage.Question:
-    return routine_lineage.Question(PRINCIPAL, ORIGINAL, QUESTION, LABELS, "create", None, ("news", "general"), "Done.")
+    options = tuple(Option(name, {"selected": None}) for name in ("news", "general"))
+    return routine_lineage.Question(PRINCIPAL, ORIGINAL, QUESTION, LABELS, FIELD, "create", None, options, "Done.")
 
 
 def _answer(label: str, *, question: str = QUESTION, labels: tuple[str, str] = ("Pergunta", "Resposta")) -> str:
@@ -35,7 +48,9 @@ class LineageTests(unittest.TestCase):
         book.record("team_1", _question())
         for label, index in (("#general", 1), ("#news", 0)):
             bound = book.bound("team_1", PRINCIPAL, _answer(label, labels=("Question", "Answer")))
-            self.assertEqual((bound.index, bound.routine), (index, ("news", "general")[index]))
+            self.assertEqual((bound.index, bound.routine.name), (index, ("news", "general")[index]))
+            # Its evidence names the open field and the label the answer selected.
+            self.assertEqual(bound.routine.grant["selected"], {"field": list(FIELD), "label": label})
         bound = book.bound("team_1", PRINCIPAL, _answer("#general"))
         self.assertEqual(bound.question.expires_at, 100.0 + routine_lineage.LINEAGE_SECONDS)
         # Another question recorded since is never settled by an earlier answer.

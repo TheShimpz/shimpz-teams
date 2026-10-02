@@ -67,7 +67,8 @@ COPY local/routine/__init__.py local/routine/compiled.py local/routine/diagnosti
     local/routine/store.py \
     local/routine/turn.py \
     local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/change.py routine/cursor.py routine/pin.py routine/plan.py routine/record.py routine/request.py \
+COPY routine/__init__.py routine/change.py routine/cursor.py routine/grant.py routine/pin.py routine/plan.py \
+    routine/record.py routine/request.py \
     routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/

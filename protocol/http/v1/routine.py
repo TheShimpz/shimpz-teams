@@ -148,13 +148,93 @@ def _scope_changed(detail: dict[str, object]) -> bool:
     )
 
 
+# A Routine's plan as a Supervisor inspects it (ADR-0092): each step's Action, every input's source, and the Stored
+# Inputs its Action uses by name only. A literal shows as a bounded preview of its JSON text; plan admission already
+# refuses a literal where a secret belongs, and a Stored Input's value never enters a plan.
+MAX_PREVIEW_CHARS = 120
+MAX_STEP_INPUTS = 64
+MAX_STEP_STORED_INPUTS = 8
+MAX_MEMBER_CHARS = 128
+MAX_POINTER_CHARS = 256
+CLOCK_FORMATS = frozenset({"date", "time", "datetime", "epoch_seconds"})
+STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
+_POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
+_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+_INPUT_FIELDS = {
+    "literal": frozenset({"member", "source", "value"}),
+    "run_clock": frozenset({"member", "source", "value"}),
+    "step_output": frozenset({"member", "source", "step", "pointer"}),
+}
+
+
+def literal_preview(value: object) -> str:
+    """A literal's JSON text, with every control or invisible character escaped, cut to 120 characters."""
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    text = _PLAN_UNSAFE_RE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+    return text if len(text) <= MAX_PREVIEW_CHARS else text[: MAX_PREVIEW_CHARS - 1] + "…"
+
+
+def _plain(value: object, maximum: int) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= maximum and _PLAN_UNSAFE_RE.search(value) is None
+
+
+def _input(value: object, earlier: tuple[str, ...]) -> bool:
+    source = value.get("source") if isinstance(value, dict) else None
+    if not isinstance(source, str) or source not in _INPUT_FIELDS or set(value) != _INPUT_FIELDS[source]:
+        return False
+    if not _plain(value["member"], MAX_MEMBER_CHARS):
+        return False
+    if source == "literal":
+        return _plain(value["value"], MAX_PREVIEW_CHARS)
+    if source == "run_clock":
+        return isinstance(value["value"], str) and value["value"] in CLOCK_FORMATS
+    pointer = value["pointer"]
+    return (
+        value["step"] in earlier
+        and isinstance(pointer, str)
+        and len(pointer) <= MAX_POINTER_CHARS
+        and _POINTER_RE.fullmatch(pointer) is not None
+        and _PLAN_UNSAFE_RE.search(pointer) is None
+    )
+
+
+def _step(value: object, earlier: tuple[str, ...]) -> bool:
+    if not isinstance(value, dict) or set(value) != {"id", "assistant", "action", "inputs", "stored_inputs"}:
+        return False
+    inputs, stored = value["inputs"], value["stored_inputs"]
+    return (
+        _identity(value["id"], STEP_ID_RE)
+        and value["id"] not in earlier
+        and _identity(value["assistant"], ASSISTANT_ID_RE)
+        and _identity(value["action"], ACTION_ID_RE)
+        and isinstance(inputs, list)
+        and len(inputs) <= MAX_STEP_INPUTS
+        and all(_input(item, earlier) for item in inputs)
+        and [item["member"] for item in inputs] == sorted({item["member"] for item in inputs})
+        and isinstance(stored, list)
+        and len(stored) <= MAX_STEP_STORED_INPUTS
+        and all(_identity(item, ASSISTANT_ID_RE) for item in stored)
+        and stored == sorted(set(stored))
+    )
+
+
+def canonical_steps(value: object) -> list[dict[str, object]] | None:
+    """A Routine plan's safe projection: one to eight ordered steps, each referring only to earlier ones."""
+    if not isinstance(value, list) or not 0 < len(value) <= MAX_ROUTINE_STEPS:
+        return None
+    earlier: tuple[str, ...] = ()
+    for step in value:
+        if not _step(step, earlier):
+            return None
+        earlier = (*earlier, step["id"])
+    return copy.deepcopy(value)
+
+
 def _defined(detail: dict[str, object]) -> bool:
-    """What a created or changed Routine does: its name, its ordered Actions, and when, never an input value."""
-    steps = detail["actions"]
+    """What a created or changed Routine does: its name, its plan's safe projection, and when."""
     return (
         canonical_name(detail["name"]) == detail["name"]
-        and _actions(steps)
-        and 0 < len(steps) <= MAX_ROUTINE_STEPS
+        and canonical_steps(detail["steps"]) is not None
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
         and canonical_timezone(detail["timezone"]) is not None
     )
@@ -184,8 +264,8 @@ _DETAILS = {
     "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "uncertain": ({"actions"}, lambda detail: _actions(detail["actions"])),
-    "created": ({"name", "actions", "schedule", "timezone"}, _defined),
-    "changed": ({"name", "actions", "schedule", "timezone"}, _defined),
+    "created": ({"name", "steps", "schedule", "timezone"}, _defined),
+    "changed": ({"name", "steps", "schedule", "timezone"}, _defined),
 }
 
 
@@ -241,12 +321,14 @@ def _optional(value: object, pattern: re.Pattern[str]) -> bool:
 
 
 def canonical_routine_view(value: object) -> dict[str, object] | None:
-    """One confirmed Routine as a Supervisor sees it."""
-    fields = {"routine_id", "quote", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
-    if not isinstance(value, dict) or set(value) != fields | {"deleting"}:
+    """One Routine as a Supervisor sees it, with its name and its plan's safe projection."""
+    fields = {"routine_id", "name", "quote", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
+    if not isinstance(value, dict) or set(value) != fields | {"deleting", "steps"}:
         return None
     valid = (
         _identity(value["routine_id"], ROUTINE_ID_RE)
+        and canonical_name(value["name"]) == value["name"]
+        and canonical_steps(value["steps"]) is not None
         and value["quote"] is not None
         and canonical_quote(value["quote"]) == value["quote"]
         and value["schedule"] is not None

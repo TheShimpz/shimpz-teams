@@ -18,6 +18,7 @@ authority.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import re
 import unicodedata
@@ -96,6 +97,11 @@ class Compiled:
     timezone: str
     document: dict[str, object]
     plan: routine_plan.Plan
+    # Where the user's own words state the request, as a span of the committed message.
+    quote_span: tuple[int, int] = (0, 0)
+    # Each step input's validated provenance, by step id and member: a literal's origins, a reference's
+    # relating words, or nothing for a run-clock token.
+    sources: dict[str, dict[str, dict[str, object]]] = dataclasses.field(default_factory=dict)
 
     @property
     def assistants(self) -> tuple[str, ...]:
@@ -198,7 +204,15 @@ class Words:
 
     def mine(self, text: str) -> bool:
         """Whether the text is the user's own words, inside one stretch of them."""
-        return bool(text) and any(text in self.message[start:end] for start, end in self.own)
+        return self.span(text) is not None
+
+    def span(self, text: str) -> tuple[int, int] | None:
+        """Where the text first stands inside one stretch of the user's own words, or None."""
+        for start, end in self.own if text else ():
+            found = self.message.find(text, start, end)
+            if found >= 0:
+                return found, found + len(text)
+        return None
 
     def adopted(self, region: int, text: str, instruction: str) -> bool:
         """Whether the text is inside one quoted region and the user's own words adopt it."""
@@ -280,71 +294,77 @@ def _plan_source(
     name: str,
     source: Mapping[str, object],
     schema: Mapping[str, object],
-    kept: Mapping[str, object] | None,
+    kept: tuple[Mapping[str, object], Mapping[str, object]] | None,
     words: Words,
     selected: bool,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, object]]:
+    """One input's plan source and its provenance; a kept member copies both from the current revision."""
     kind = source["kind"]
     if selected and kind != "literal":
         raise ChangeError("routine-change-invalid")
     if kind == "literal":
         properties = schema.get("properties", {})
         member = properties.get(name) if isinstance(properties, dict) else None
-        return _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
+        literal = _literal(source, member if isinstance(member, dict) else {}, words, selected=selected)
+        return literal, {"origins": copy.deepcopy(source["origins"])}
     if kind == "run_clock":
-        return {"kind": "run_clock", "format": source["format"]}
+        return {"kind": "run_clock", "format": source["format"]}, {}
     if kind == "step_output":
         if not words.mine(source["instruction"]):
             raise ChangeError("routine-reference-unproven")
-        return {"kind": "step_output", "step": source["step"], "pointer": source["pointer"]}
-    if kept is None or name not in kept:
+        relation = {"instruction": source["instruction"]}
+        return {"kind": "step_output", "step": source["step"], "pointer": source["pointer"]}, relation
+    if kept is None or name not in kept[0] or name not in kept[1]:
         raise ChangeError("routine-kept-invalid")
-    return copy.deepcopy(kept[name])
+    return copy.deepcopy(kept[0][name]), copy.deepcopy(kept[1][name])
 
 
 def compile_change(
     change: Change,
     words: Words,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
-    current: Mapping[str, object] | None,
+    current: tuple[Mapping[str, object], Mapping[str, object]] | None,
     default_timezone: str,
     selected: tuple[str, str] | None = None,
 ) -> Compiled:
     """Admit a parsed change against the committed message and the exact current contracts; refuse anything unproven.
 
-    An update also names the current revision's plan document, whose sources a ``kept`` member copies exactly.
-    ``selected`` names the one step input a bound Routine question fills from the option the user selects.
+    An update also names the current revision's plan document and its inputs' provenance, which a ``kept`` member
+    copies exactly. ``selected`` names the one step input a bound Routine question fills from the option the user
+    selects.
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
-    if not words.mine(change.request):
+    quote_span = words.span(change.request)
+    if quote_span is None:
         raise ChangeError("routine-request-unproven")
     timezone = change.timezone or default_timezone
     try:
         routine_schedule.zone(timezone)
     except routine_schedule.ScheduleError as exc:
         raise ChangeError("routine-timezone-invalid") from exc
-    previous = {} if current is None else {step["id"]: step for step in current["steps"]}
-    steps = []
+    previous = {} if current is None else {step["id"]: step for step in current[0]["steps"]}
+    steps, sources = [], {}
     for raw in change.steps:
         contract = contracts.get((raw["assistant"], raw["action"]))
         if contract is None:
             raise ChangeError("routine-action-unavailable")
         before = previous.get(raw["id"])
         same = before is not None and (before["assistant"], before["action"]) == (raw["assistant"], raw["action"])
-        kept = before["input"] if same else None
-        inputs = {
+        kept = (before["input"], current[1].get(raw["id"], {})) if same else None
+        admitted = {
             name: _plan_source(name, source, contract.input_schema, kept, words, selected == (raw["id"], name))
             for name, source in raw["input"].items()
         }
         identity = {"id": raw["id"], "assistant": raw["assistant"], "action": raw["action"]}
-        steps.append({**identity, "pin": contract.pin, "input": inputs})
+        steps.append({**identity, "pin": contract.pin, "input": {name: item[0] for name, item in admitted.items()}})
+        sources[raw["id"]] = {name: item[1] for name, item in admitted.items()}
     document = {"version": routine_plan.VERSION, "timezone": timezone, "steps": steps}
     try:
         plan = routine_plan.admit(document, contracts)
     except routine_plan.PlanError as exc:
         raise ChangeError(exc.code) from exc
-    return Compiled(change.name, change.request, dict(change.schedule), timezone, document, plan)
+    return Compiled(change.name, change.request, dict(change.schedule), timezone, document, plan, quote_span, sources)
 
 
 @dataclass(frozen=True, slots=True)

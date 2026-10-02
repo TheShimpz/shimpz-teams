@@ -271,7 +271,10 @@ class RecoverySnapshotTests(IncidentCase):
                 "team_1",
                 lambda state: (
                     record._replace_routine(
-                        state, dataclasses.replace(record.routine(state, value.routine_id), revision=3)
+                        state,
+                        routine_fixture.granted(
+                            dataclasses.replace(record.routine(state, value.routine_id), revision=3)
+                        ),
                     ),
                     None,
                 ),
@@ -285,7 +288,10 @@ class RecoverySnapshotTests(IncidentCase):
                 "team_1",
                 lambda state: (
                     record._replace_routine(
-                        state, dataclasses.replace(record.routine(state, value.routine_id), revision=4)
+                        state,
+                        routine_fixture.granted(
+                            dataclasses.replace(record.routine(state, value.routine_id), revision=4)
+                        ),
                     ),
                     None,
                 ),
@@ -593,14 +599,14 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_three_admits_held_runs_incidents_plans_and_receipts(self) -> None:
+    def test_routine_state_version_four_admits_held_runs_incidents_plans_grants_and_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, _generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 3)
+            self.assertEqual(document["schema"], 4)
             self.assertEqual(document["routines"][0]["plan"]["version"], 1)
             receipt = ["c" * 64, 2_000_000_000]
             document["receipts"] = [receipt]
@@ -615,6 +621,9 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(paused="yes"),
                 lambda value: value["routines"][0].update(name=""),
                 lambda value: value["routines"][0].update(plan={"version": 1}),
+                lambda value: value["routines"][0].update(grant=None),
+                lambda value: value["routines"][0]["grant"].update(revision=2),
+                lambda value: value["routines"][0]["grant"].update(plan="sha256:" + "0" * 64),
                 lambda value: value.update(receipts=[["C" * 64, 1]]),
                 lambda value: value.update(receipts=[["c" * 64, -1]]),
                 lambda value: value.update(receipts=[["c" * 64, 1], ["c" * 64, 2]]),
@@ -630,16 +639,18 @@ class SealedStateTests(IncidentCase):
 class IncidentRecordTests(IncidentCase):
     def test_claims_reserve_incident_room_and_never_displace_unresolved_evidence(self) -> None:
         base = record.TeamRoutines()
-        routine = record.Routine(
-            "a" * 32,
-            "N",
-            "Q",
-            {"kind": "daily", "time": "09:00"},
-            "UTC",
-            (("dns", "sha256:" + "0" * 64),),
-            routine_fixture.plan_document(),
-            0,
-            0,
+        routine = routine_fixture.granted(
+            record.Routine(
+                "a" * 32,
+                "N",
+                "Q",
+                {"kind": "daily", "time": "09:00"},
+                "UTC",
+                (("dns", "sha256:" + "0" * 64),),
+                routine_fixture.plan_document(),
+                0,
+                0,
+            )
         )
         unresolved = tuple(
             record.Incident(f"{index:032x}", "a" * 32, f"{'b' * 64}:routine:{index:032x}", index)

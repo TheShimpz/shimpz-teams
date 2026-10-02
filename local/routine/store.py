@@ -26,13 +26,14 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from core import strict_json
 from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
+from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 3
+SCHEMA = 4
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
@@ -66,6 +67,7 @@ _ROUTINE_FIELDS = frozenset(
         "reported_missed",
         "revision",
         "paused",
+        "grant",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -201,6 +203,7 @@ def _decode_routine(value: object) -> record.Routine:
         and type(value["revision"]) is int
         and 1 <= value["revision"] < 2**31
         and type(value["paused"]) is bool
+        and routine_grant.valid(value["grant"], value["plan"], value["revision"])
     )
     return record.Routine(
         routine_id=value["routine_id"],
@@ -219,6 +222,7 @@ def _decode_routine(value: object) -> record.Routine:
         reported_missed=_count(value["reported_missed"]),
         revision=value["revision"],
         paused=value["paused"],
+        grant=value["grant"],
     )
 
 

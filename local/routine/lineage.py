@@ -36,6 +36,8 @@ class Question:
     message: str
     question: str
     labels: tuple[str, ...]
+    # The one open field: ("schedule",), ("timezone",), or ("input", step_id, member).
+    field: tuple[str, ...]
     op: str
     expected_revision: int | None
     routines: tuple[record.Routine, ...]
@@ -52,7 +54,10 @@ class Answer:
 
     @property
     def routine(self) -> record.Routine:
-        return self.question.routines[self.index]
+        """The selected option's Routine, its evidence naming the field and the label the answer selected."""
+        value = self.question.routines[self.index]
+        selected = {"field": list(self.question.field), "label": self.question.labels[self.index]}
+        return dataclasses.replace(value, grant={**value.grant, "selected": selected})
 
 
 def composed(message: str) -> bool:

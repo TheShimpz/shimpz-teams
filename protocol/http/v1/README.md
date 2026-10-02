@@ -109,9 +109,16 @@ a schedule's average runs per day; a Team's Routines may sum to at most 24. A Ro
 the authenticated user's own chat message, without a confirmation card (ADR-0092): Team validates the Brain's compiled
 change against that message and the exact installed contracts, and commits the Routine, its notice, and the request's
 receipt together with the reply. That notice has the Routine outcome `created` or `changed`, no run id, and exactly
-`{name, actions, schedule, timezone}` (`routine.canonical_notice`): the Routine's name (`routine.canonical_name`, 1 to
-80 NFC printable characters on one line), its ordered Assistant Actions (1 to 8 pairs), its schedule, and its zone,
-never an input value.
+`{name, steps, schedule, timezone}` (`routine.canonical_notice`): the Routine's name (`routine.canonical_name`, 1 to
+80 NFC printable characters on one line), its plan's safe projection, its schedule, and its zone. The projection
+(`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant, action, inputs, stored_inputs}`: each
+input, sorted by member, is a `literal` whose `value` is `routine.literal_preview` of its JSON (at most 120 characters,
+every control or invisible character escaped), a `run_clock` whose `value` is its format, or a `step_output` naming an
+earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the step's Action uses by id only, never
+a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`) carries the same name and projection.
+Team also keeps, never on the wire, the evidence of the request that granted each revision: its receipt, revision,
+plan digest, a commitment to the message, the quote's span, each input's validated provenance, and any answer a bound
+Routine question selected.
 
 A Local Supervisor reads one Routine run's execution details (ADR-0092) with
 `GET /v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and

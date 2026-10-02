@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import tempfile
 import threading
 import time
@@ -19,6 +20,8 @@ from local import app as local_app
 from local import audit as local_audit
 from local.routine import turn as routine_turn
 from protocol.http.v1 import payload as http_payload
+from routine import change as routine_change
+from routine import grant as routine_grant
 from routine import plan as routine_plan
 from routine import record
 
@@ -126,13 +129,34 @@ class DirectCreationTests(LocalContractCase):
                 "",
                 {
                     "name": "Weekly zones",
-                    "actions": [[ASSISTANT, "list-zones"]],
+                    "steps": [
+                        {
+                            "id": "zones",
+                            "assistant": ASSISTANT,
+                            "action": "list-zones",
+                            "inputs": [
+                                {"member": "page", "source": "literal", "value": "1"},
+                                {"member": "per_page", "source": "literal", "value": "25"},
+                            ],
+                            "stored_inputs": [],
+                        }
+                    ],
                     "schedule": SCHEDULE,
                     "timezone": "America/Sao_Paulo",
                 },
             ),
         )
-        self.assertEqual(len(state.receipts), 1)
+        ((receipt, _expires),) = state.receipts
+        # The revision keeps the evidence of the request that granted it, bound to its receipt, revision, and plan.
+        grant = routine.grant
+        self.assertEqual(
+            (grant["receipt"], grant["revision"], grant["plan"], grant["selected"]),
+            (receipt, 1, routine_grant.plan_digest(routine.plan), None),
+        )
+        self.assertEqual(grant["message"], hashlib.sha256(MESSAGE.encode()).hexdigest())
+        self.assertEqual(MESSAGE[slice(*grant["quote"])], _change()["request"])
+        self.assertEqual(grant["sources"]["zones"]["page"], {"origins": [_origin("1")]})
+        self.assertEqual(grant["stored_inputs"], {"zones": []})
 
     def test_a_resend_never_creates_twice_and_a_deleted_routines_receipt_never_recreates_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -237,16 +261,18 @@ class DirectCreationTests(LocalContractCase):
     def test_a_team_without_room_refuses_the_change_inside_the_commit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.controller(directory, Runtime(_change()))
-            hourly = record.Routine(
-                record.new_id(),
-                "Hourly",
-                "Every hour, check",
-                {"kind": "hourly", "every": 1},
-                "UTC",
-                (("dns", "sha256:" + "c" * 64),),
-                routine_fixture.plan_document(),
-                0,
-                0,
+            hourly = routine_fixture.granted(
+                record.Routine(
+                    record.new_id(),
+                    "Hourly",
+                    "Every hour, check",
+                    {"kind": "hourly", "every": 1},
+                    "UTC",
+                    (("dns", "sha256:" + "c" * 64),),
+                    routine_fixture.plan_document(),
+                    0,
+                    0,
+                )
             )
             hourly = record.scheduled(hourly, int(time.time()))
             service.routine_store.update("team_1", lambda state: (record.add_routine(state, hourly), None))
@@ -353,6 +379,8 @@ class DirectCreationTests(LocalContractCase):
         )
         self.assertEqual(([item.outcome for item in state.notices], len(state.receipts)), (["created"], 1))
         self.assertIsNone(runtime.contexts[1].routines)
+        self.assertEqual(routine.grant["selected"], {"field": ["input", "zones", "per_page"], "label": "50"})
+        self.assertEqual(routine.grant["sources"]["zones"]["per_page"], {"origins": [routine_change.ANSWER]})
 
     def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
