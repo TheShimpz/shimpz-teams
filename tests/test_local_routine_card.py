@@ -434,6 +434,62 @@ class CorrectionTests(CardCase):
         self.assertEqual(again["deleted"], True)
 
 
+class CardBookBoundTests(CardCase):
+    """The book holds only cards someone could still answer: expired, settled, and deleted ones go."""
+
+    @staticmethod
+    def _card(incident: str, routine: str, expires_at: float) -> routine_card.Card:
+        return routine_card.Card(PRINCIPAL, "a" * 64, incident, routine, 1, 1, "g", None, None, "n" * 32, expires_at)
+
+    def test_expired_cards_are_swept_when_another_opens_or_is_answered(self) -> None:
+        clock = [1000.0]
+        book = routine_card.CardBook(now=lambda: clock[0])
+        for index in range(1000):
+            book.open("team_1", self._card(f"{index:032x}", "r" * 32, book.deadline()))
+        clock[0] += routine_card.CARD_SECONDS
+        fresh = self._card("f" * 32, "r" * 32, book.deadline())
+        book.open("team_2", fresh)
+        self.assertEqual(list(book._cards), [("team_2", fresh.incident_id)])
+        clock[0] += routine_card.CARD_SECONDS
+        self.assertIsNone(book.take("team_2", fresh.incident_id, fresh.nonce, PRINCIPAL))
+        self.assertEqual(book._cards, {})
+
+    def test_a_settled_incident_or_a_deleted_routine_takes_its_cards_with_it(self) -> None:
+        book = routine_card.CardBook(now=lambda: 0.0)
+        kept = self._card("k" * 32, "r" * 32, 10.0)
+        other_team = self._card("o" * 32, "d" * 32, 10.0)
+        for team_id, card in (
+            ("team_1", self._card("s" * 32, "r" * 32, 10.0)),
+            ("team_1", self._card("d" * 32, "d" * 32, 10.0)),
+            ("team_1", kept),
+            ("team_2", other_team),
+        ):
+            book.open(team_id, card)
+        book.discard("team_1", "s" * 32)
+        book.discard("team_1", "s" * 32)
+        book.drop_routine("team_1", "d" * 32)
+        self.assertEqual(set(book._cards), {("team_1", kept.incident_id), ("team_2", other_team.incident_id)})
+        self.assertIs(book.take("team_1", kept.incident_id, kept.nonce, PRINCIPAL), kept)
+
+    def test_deleting_the_routine_drops_its_open_card_and_releasing_the_incident_drops_it_again(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            service.assistant_lifecycle._fail_stop_action = mock.Mock()
+            self.card(service, run_id)
+            self.assertEqual(list(service.routine_cards._cards), [("team_1", run_id)])
+            # A recovery still unwinding defers the release of the set-aside incident.
+            routine_run.register_routine_run(service, "team_1", run_id, "unwinding", 60)
+            service.delete_routine("team_1", value.routine_id)
+            self.assertEqual(service.routine_cards._cards, {})
+            # A card the book still held for the incident goes once the incident is released.
+            service.routine_cards.open("team_1", self._card(run_id, "x" * 32, service.routine_cards.deadline()))
+            routine_run.unregister_routine_run(service, run_id)
+            routine_watchdog.check(service)
+            state = self.state(service)
+        self.assertEqual([item.status for item in state.incidents], ["released"])
+        self.assertEqual(service.routine_cards._cards, {})
+
+
 class AuditFollowUpTests(CardCase):
     def held_with(self, directory: str, *answers: object):
         return RecriarTests.held_with(self, directory, *answers)

@@ -58,28 +58,52 @@ class Card:
 
 
 class CardBook:
-    """The open recovery cards of every Team, each answerable once before it expires."""
+    """The open recovery cards of every Team, each answerable once before it expires.
+
+    Expired cards are swept whenever one opens or is answered, and a card goes as soon as its incident settles or its
+    Routine is deleted, so the book holds only cards someone could still answer.
+    """
 
     def __init__(self, now: Callable[[], float] = time.monotonic) -> None:
         self._now = now
         self._lock = threading.Lock()
         self._cards: dict[tuple[str, str], Card] = {}
 
+    def _sweep(self) -> None:
+        """Drop every expired card; the caller holds the lock."""
+        now = self._now()
+        for key in [key for key, card in self._cards.items() if card.expires_at <= now]:
+            del self._cards[key]
+
     def open(self, team_id: str, card: Card) -> None:
         with self._lock:
+            self._sweep()
             self._cards[(team_id, card.incident_id)] = card
 
     def take(self, team_id: str, incident_id: str, nonce: object, principal: str) -> Card | None:
         """The exact card this answer names, consumed; None when it is unknown, expired, or someone else's."""
         with self._lock:
+            self._sweep()
             card = self._cards.get((team_id, incident_id))
             if card is None or not secrets.compare_digest(card.nonce, nonce if isinstance(nonce, str) else ""):
                 return None
             del self._cards[(team_id, incident_id)]
-        return card if card.principal == principal and card.expires_at > self._now() else None
+        return card if card.principal == principal else None
 
     def deadline(self) -> float:
         return self._now() + CARD_SECONDS
+
+    def discard(self, team_id: str, incident_id: str) -> None:
+        """Forget the card of an incident that settled; nothing can answer it any more."""
+        with self._lock:
+            self._cards.pop((team_id, incident_id), None)
+
+    def drop_routine(self, team_id: str, routine_id: str) -> None:
+        """Forget every card of a deleted Routine."""
+        with self._lock:
+            for key, card in list(self._cards.items()):
+                if key[0] == team_id and card.routine_id == routine_id:
+                    del self._cards[key]
 
     def drop(self, team_id: str) -> None:
         with self._lock:

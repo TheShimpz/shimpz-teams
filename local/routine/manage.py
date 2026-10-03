@@ -175,6 +175,8 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
         return state, (runs, held)
 
     runs, held = routine_state.update(self, team_id, begin)
+    # No card of a deleting Routine can be answered any more.
+    self.routine_cards.drop_routine(team_id, routine_id)
     for value in runs:
         if value.status == "leased":
             self._stop_routine_run(team_id, value.run_id)

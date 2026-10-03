@@ -334,6 +334,7 @@ def _release(self, team_id: str, item: record.Incident) -> None:
     routine_state.call(lambda: self.routine_store.delete_cursor(team_id, item.incident_id))
     routine_state.call(lambda: self.routine_store.delete_incident(team_id, item.incident_id))
     routine_state.update(self, team_id, lambda state: (routine_hold.release_incident(state, item.incident_id), None))
+    self.routine_cards.discard(team_id, item.incident_id)
 
 
 def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
