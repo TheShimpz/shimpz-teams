@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import concurrent.futures
-import contextvars
 import dataclasses
 import hashlib
 import json
 import select
 import socket
 import struct
-import threading
 import time
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import dispatch as action_dispatch
 from action import failure as action_failure
 from action import files as action_files
 from action import human as action_human
@@ -277,7 +276,7 @@ class ActionBatch:
             current_operation != operation and self._operation(request, self._origins) != operation
         ):
             raise action_journal.ActionJournalConflictError("Action credential generation changed")
-        with self._strategy.admit(request, evidence), observing_stop(self._strategy.stopped):
+        with self._strategy.admit(request, evidence), action_dispatch.observing_stop(self._strategy.stopped):
             return self._execute(request, operation, evidence)
 
     def _execute(self, request: object, operation: action_journal.Operation, evidence: object) -> object:
@@ -295,7 +294,7 @@ class ActionBatch:
             # Team refused the RPC before its workload process started, so this attempt never ran. A handled failure
             # of a reviewed read-only Action had no business effect; every other failure, and any failure of a
             # mutating Action, stays uncertain in the journal (ADR-0092).
-            if never_dispatched(exc):
+            if action_dispatch.never_dispatched(exc):
                 self._journal.not_dispatched(self._batch, operation)
                 self._executing_here.discard(operation.interrupt_id)
             elif action_failure.failure_of(exc) is not None and self._strategy.effect(request) == "read_only":
@@ -506,86 +505,6 @@ class RpcExchangeStrategy:
     deadline: float | None = None
 
 
-class DispatchRefusedError(RuntimeError):
-    """Team refused an RPC before its workload process was started.
-
-    Its deadline passed or Docker capacity stayed saturated. Nothing ran, so the attempt is settled as never dispatched
-    rather than left uncertain.
-    """
-
-
-def never_dispatched(exc: BaseException | None) -> bool:
-    """Whether a failed attempt was refused by Team before its workload process started.
-
-    Only the setup refusal is chained to a ``DispatchRefusedError``; a refusal after the exchange started, such as an
-    exit inspection that found no capacity, is raised without it and stays uncertain.
-    """
-    for _depth in range(8):
-        if exc is None:
-            return False
-        if isinstance(exc, DispatchRefusedError):
-            return True
-        exc = exc.__cause__
-    return False
-
-
-# Docker calls of every Action RPC run on one shared bounded pool. A call that outlives its budget keeps its slot until
-# Docker answers or the client's own timeout ends it, so abandoned calls can never accumulate: once every slot is held,
-# a new RPC is refused before it starts anything.
-MAX_DOCKER_CALLS = 8
-_DOCKER_CALLS = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_DOCKER_CALLS, thread_name_prefix="action-docker")
-_DOCKER_CALL_SLOTS = threading.BoundedSemaphore(MAX_DOCKER_CALLS)
-
-
-# The turn's Stop, observed by an RPC while it waits for Docker capacity to dispatch its workload.
-_STOPPED: contextvars.ContextVar[Callable[[], bool]] = contextvars.ContextVar(
-    "action_rpc_stopped", default=lambda: False
-)
-_SLOT_POLL_SECONDS = 0.25
-
-
-@contextmanager
-def observing_stop(stopped: Callable[[], bool]) -> Iterator[None]:
-    """Let every RPC this block dispatches observe the turn's Stop while it waits for Docker capacity."""
-    token = _STOPPED.set(stopped)
-    try:
-        yield
-    finally:
-        _STOPPED.reset(token)
-
-
-def _never() -> bool:
-    return False
-
-
-def _bounded_call[T](
-    call: Callable[[], T], deadline: float, stopped: Callable[[], bool] = _never
-) -> concurrent.futures.Future[T]:
-    """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget.
-
-    The wait is sliced so a stopped turn is refused promptly; Docker calls already running keep their slots.
-    """
-    while True:
-        if stopped():
-            raise DispatchRefusedError("the turn was stopped before its Docker call could run")
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise DispatchRefusedError("the Action deadline passed before its Docker call could run")
-        if _DOCKER_CALL_SLOTS.acquire(timeout=min(_SLOT_POLL_SECONDS, remaining)):
-            break
-    if stopped():
-        # Stop may win while the wait succeeds; the slot is returned before anything runs.
-        _DOCKER_CALL_SLOTS.release()
-        raise DispatchRefusedError("the turn was stopped before its Docker call could run")
-    try:
-        future = _DOCKER_CALLS.submit(call)
-    except BaseException:
-        _DOCKER_CALL_SLOTS.release()
-        raise
-    future.add_done_callback(lambda _done: _DOCKER_CALL_SLOTS.release())
-    return future
-
-
 def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrategy, deadline: float) -> object:
     """Create and start the exec within the RPC's remaining budget; nothing starts once the deadline has passed.
 
@@ -607,10 +526,10 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
         )
         exec_id = created["Id"]
         if time.monotonic() >= deadline:
-            raise DispatchRefusedError("the Action deadline passed before dispatch")
+            raise action_dispatch.DispatchRefusedError("the Action deadline passed before dispatch")
         return exec_id, strategy.api.exec_start(exec_id, socket=True)
 
-    future = _bounded_call(setup, deadline, _STOPPED.get())
+    future = action_dispatch.bounded_call(setup, deadline, action_dispatch.current_stop())
     try:
         return future.result(timeout=max(0.0, deadline - time.monotonic()))
     except concurrent.futures.TimeoutError as exc:
@@ -621,8 +540,8 @@ def _start_exec(container_id: str, argv: list[str], strategy: RpcExchangeStrateg
 def _inspect_exec(exec_id: str, strategy: RpcExchangeStrategy, deadline: float) -> dict[str, object]:
     """The exec's exit details within the same deadline; an answer that comes too late is no answer."""
     try:
-        future = _bounded_call(lambda: strategy.api.exec_inspect(exec_id), deadline)
-    except DispatchRefusedError:
+        future = action_dispatch.bounded_call(lambda: strategy.api.exec_inspect(exec_id), deadline)
+    except action_dispatch.DispatchRefusedError:
         # The workload already ran, so this refusal must never read as a never-dispatched attempt.
         raise TimeoutError("the Action exit status was not read within its deadline") from None
     try:
@@ -663,7 +582,7 @@ def rpc_exchange(
             stdout, stderr = exchange_rpc_frames(raw_socket, encoded, deadline, strategy.maximum)
         finally:
             strategy.close_stream(stream)
-    except DispatchRefusedError as exc:
+    except action_dispatch.DispatchRefusedError as exc:
         # No workload process started, so there is nothing to stop.
         strategy.cancelled(exc)
         raise RpcExchangeError("timeout", "deadline-expired-before-dispatch") from exc

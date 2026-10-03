@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import failure as action_failure
 from action import files as action_files
@@ -201,7 +202,7 @@ def _invoke_chat_action(
                 or team_id in self._active_action_containers
             ):
                 # Nothing was dispatched, so the journal returns this attempt to prepared.
-                refused = action_execution.DispatchRefusedError("the turn was stopped before its Action could run")
+                refused = action_dispatch.DispatchRefusedError("the turn was stopped before its Action could run")
                 raise chat_orchestrator.ChatStoppedError("chat turn stopped") from refused
             self._active_action_containers[team_id] = (token, container)
     try:
@@ -215,7 +216,7 @@ def _invoke_chat_action(
     except ApiProblem as exc:
         if self._chat_cancelled(token):
             # Only Team's own refusal before dispatch stays chained, so the journal knows that attempt never ran.
-            refused = exc if action_execution.never_dispatched(exc) else None
+            refused = exc if action_dispatch.never_dispatched(exc) else None
             raise chat_orchestrator.ChatStoppedError("chat turn stopped") from refused
         raise
     finally:

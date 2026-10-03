@@ -19,6 +19,7 @@ sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
@@ -384,11 +385,11 @@ class NeverDispatchedTests(unittest.TestCase):
             batch = self._batch(journal, wrapped)
             batch.prepare((request,))
             with (
-                mock.patch.object(action_execution, "_DOCKER_CALL_SLOTS", saturated),
+                mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
                 self.assertRaises(RuntimeError) as refused,
             ):
                 batch.invoke(request)
-            self.assertTrue(action_execution.never_dispatched(refused.exception))
+            self.assertTrue(action_dispatch.never_dispatched(refused.exception))
             api.exec_create.assert_not_called()
             # Nothing ran: no uncertain outcome remains, the turn ends the batch, and the same interrupt may run.
             self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
@@ -401,13 +402,13 @@ class NeverDispatchedTests(unittest.TestCase):
             exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
             exec_inspect=mock.Mock(),
         )
-        real = action_execution._bounded_call
+        real = action_dispatch.bounded_call
         calls = []
 
         def second_refused(call, deadline, *stopped):
             calls.append(call)
             if len(calls) > 1:
-                raise action_execution.DispatchRefusedError("Docker capacity stayed saturated")
+                raise action_dispatch.DispatchRefusedError("Docker capacity stayed saturated")
             return real(call, deadline, *stopped)
 
         def execute(_request, _evidence, _operation_id):
@@ -422,12 +423,12 @@ class NeverDispatchedTests(unittest.TestCase):
             batch = self._batch(journal, execute)
             batch.prepare((request,))
             with (
-                mock.patch.object(action_execution, "_bounded_call", side_effect=second_refused),
+                mock.patch.object(action_dispatch, "bounded_call", side_effect=second_refused),
                 mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
                 self.assertRaises(RuntimeError) as uncertain,
             ):
                 batch.invoke(request)
-            self.assertFalse(action_execution.never_dispatched(uncertain.exception))
+            self.assertFalse(action_dispatch.never_dispatched(uncertain.exception))
             self.assertEqual(
                 (uncertain.exception.__cause__.kind, uncertain.exception.__cause__.condition),
                 ("timeout", "exit-unavailable"),
@@ -469,7 +470,7 @@ class NeverDispatchedTests(unittest.TestCase):
             batch.prepare((request,))
             started = time.monotonic()
             with (
-                mock.patch.object(action_execution, "_DOCKER_CALL_SLOTS", saturated),
+                mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
                 self.assertRaisesRegex(RuntimeError, "brain turn stopped"),
             ):
                 batch.invoke(request)
@@ -477,14 +478,15 @@ class NeverDispatchedTests(unittest.TestCase):
             api.exec_create.assert_not_called()
             self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
             self.assertTrue(batch.terminate())
+
     def test_a_refusal_buried_beyond_the_bounded_cause_chain_is_not_trusted(self) -> None:
-        current: BaseException = action_execution.DispatchRefusedError("refused")
+        current: BaseException = action_dispatch.DispatchRefusedError("refused")
         for depth in range(8):
             wrapper = RuntimeError(f"layer {depth}")
             wrapper.__cause__ = current
             current = wrapper
-        self.assertFalse(action_execution.never_dispatched(current))
-        self.assertTrue(action_execution.never_dispatched(current.__cause__))
+        self.assertFalse(action_dispatch.never_dispatched(current))
+        self.assertTrue(action_dispatch.never_dispatched(current.__cause__))
 
     def test_only_an_executing_attempt_returns_to_prepared(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

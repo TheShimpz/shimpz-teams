@@ -12,6 +12,7 @@ import unittest
 from types import SimpleNamespace
 from unittest import mock
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from hosted import container as container_spec
 
@@ -213,7 +214,7 @@ class DockerCallBoundTests(unittest.TestCase):
             return SimpleNamespace(_sock=object())
 
         api = SimpleNamespace(exec_create=lambda *_a, **_k: {"Id": "exec"}, exec_start=hanging_start)
-        strategies = [_strategy(api) for _ in range(action_execution.MAX_DOCKER_CALLS)]
+        strategies = [_strategy(api) for _ in range(action_dispatch.MAX_DOCKER_CALLS)]
         for strategy in strategies:
             with self.assertRaises(action_execution.RpcExchangeError) as timed_out:
                 action_execution.rpc_exchange("container", ["command"], b"request", strategy)
@@ -226,10 +227,10 @@ class DockerCallBoundTests(unittest.TestCase):
         saturated.api.exec_create.assert_not_called()
         saturated.fail_stop.assert_not_called()
         workers = [thread for thread in threading.enumerate() if thread.name.startswith("action-docker")]
-        self.assertLessEqual(len(workers), action_execution.MAX_DOCKER_CALLS)
+        self.assertLessEqual(len(workers), action_dispatch.MAX_DOCKER_CALLS)
         release.set()
         grace = time.monotonic() + 5
-        while action_execution._DOCKER_CALL_SLOTS._value != action_execution.MAX_DOCKER_CALLS:
+        while action_dispatch._DOCKER_CALL_SLOTS._value != action_dispatch.MAX_DOCKER_CALLS:
             self.assertLess(time.monotonic(), grace)
             time.sleep(0.01)
         # Every late stream was closed once its abandoned setup finished.
@@ -238,11 +239,11 @@ class DockerCallBoundTests(unittest.TestCase):
 
     def test_a_call_the_pool_cannot_take_returns_its_slot(self) -> None:
         with (
-            mock.patch.object(action_execution._DOCKER_CALLS, "submit", side_effect=RuntimeError("shut down")),
+            mock.patch.object(action_dispatch._DOCKER_CALLS, "submit", side_effect=RuntimeError("shut down")),
             self.assertRaises(RuntimeError),
         ):
-            action_execution._bounded_call(lambda: None, time.monotonic() + 5)
-        self.assertEqual(action_execution._DOCKER_CALL_SLOTS._value, action_execution.MAX_DOCKER_CALLS)
+            action_dispatch.bounded_call(lambda: None, time.monotonic() + 5)
+        self.assertEqual(action_dispatch._DOCKER_CALL_SLOTS._value, action_dispatch.MAX_DOCKER_CALLS)
 
     def test_a_stopped_turn_stops_waiting_for_docker_capacity(self) -> None:
         saturated = mock.Mock(acquire=mock.Mock(side_effect=lambda timeout: time.sleep(timeout) or False))
@@ -252,27 +253,27 @@ class DockerCallBoundTests(unittest.TestCase):
         waiting = _strategy(api, timeout=30)
         started = time.monotonic()
         with (
-            mock.patch.object(action_execution, "_DOCKER_CALL_SLOTS", saturated),
-            action_execution.observing_stop(stop.is_set),
+            mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
+            action_dispatch.observing_stop(stop.is_set),
             self.assertRaises(action_execution.RpcExchangeError) as stopped,
         ):
             action_execution.rpc_exchange("container", ["command"], b"request", waiting)
         # Stop ends the wait within one poll slice, long before the deadline, and nothing was dispatched.
         self.assertLess(time.monotonic() - started, 2.0)
-        self.assertTrue(action_execution.never_dispatched(stopped.exception))
+        self.assertTrue(action_dispatch.never_dispatched(stopped.exception))
         api.exec_create.assert_not_called()
         waiting.fail_stop.assert_not_called()
         waiting.cancelled.assert_called_once()
 
     def test_stop_that_wins_after_the_wait_returns_the_slot(self) -> None:
         stopped = iter((False, True))
-        with self.assertRaises(action_execution.DispatchRefusedError):
-            action_execution._bounded_call(self.fail, time.monotonic() + 5, lambda: next(stopped))
-        self.assertEqual(action_execution._DOCKER_CALL_SLOTS._value, action_execution.MAX_DOCKER_CALLS)
+        with self.assertRaises(action_dispatch.DispatchRefusedError):
+            action_dispatch.bounded_call(self.fail, time.monotonic() + 5, lambda: next(stopped))
+        self.assertEqual(action_dispatch._DOCKER_CALL_SLOTS._value, action_dispatch.MAX_DOCKER_CALLS)
 
     def test_stop_never_abandons_the_exit_inspection_of_a_dispatched_workload(self) -> None:
         api = SimpleNamespace(exec_inspect=lambda _exec_id: {"ExitCode": 0})
-        with action_execution.observing_stop(lambda: True):
+        with action_dispatch.observing_stop(lambda: True):
             details = action_execution._inspect_exec("exec", _strategy(api), time.monotonic() + 5)
         self.assertEqual(details, {"ExitCode": 0})
 

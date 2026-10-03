@@ -15,6 +15,7 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import human as action_human
 from chat import orchestrator as chat_orchestrator
@@ -507,7 +508,7 @@ class LocalChatScopeTests(LocalContractCase):
             try:
                 raise action_execution.RpcExchangeError(
                     "timeout", "deadline-expired-before-dispatch"
-                ) from action_execution.DispatchRefusedError("the turn was stopped before its Docker call could run")
+                ) from action_dispatch.DispatchRefusedError("the turn was stopped before its Docker call could run")
             except action_execution.RpcExchangeError as exc:
                 raise local_app.ApiProblem(HTTPStatus.GATEWAY_TIMEOUT, "timed out", code="assistant-timeout") from exc
 
@@ -526,7 +527,7 @@ class LocalChatScopeTests(LocalContractCase):
             # Stopped before the RPC: nothing was dispatched, and the stop says so.
             with self.assertRaises(chat_orchestrator.ChatStoppedError) as before:
                 service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
-            self.assertTrue(action_execution.never_dispatched(before.exception))
+            self.assertTrue(action_dispatch.never_dispatched(before.exception))
             service._cancelled_chat_tokens.clear()
             outcomes = []
             for rpc in (refused, ran):
@@ -542,7 +543,7 @@ class LocalChatScopeTests(LocalContractCase):
                 ):
                     service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
                 service._cancelled_chat_tokens.clear()
-                outcomes.append(action_execution.never_dispatched(stopped.exception))
+                outcomes.append(action_dispatch.never_dispatched(stopped.exception))
         # A refusal before dispatch is kept; an RPC that may have run never reads as never dispatched.
         self.assertEqual(outcomes, [True, False])
 
