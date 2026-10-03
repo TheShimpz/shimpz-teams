@@ -185,16 +185,14 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
     for incident_id in held:
         # A verification, recovery episode, or Recriar still in progress is stopped; it changes nothing after this.
         self._stop_routine_run(team_id, incident_id)
-    deleted = settle(self, team_id, routine_id)
-    state = routine_state.load(self, team_id)
-    for item in state.incidents:
+    for item in routine_state.load(self, team_id).incidents:
         if item.incident_id in held and item.status == "skipped":
             routine_incident.settled(self, team_id, item)
-    return {"team_id": team_id, "routine_id": routine_id, "deleted": deleted}
+    return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
 
 
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
-    """Remove a deleting Routine once none of its runs remains; False while a run ends.
+    """Remove a deleting Routine once none of its runs remains and its set-aside runs are released; False until then.
 
     Its diagnostic bodies and creation source go first, while the Routine is still listed as deleting, so a failure
     keeps it as the watchdog's retry target and never leaves residue behind a removed record.
@@ -202,6 +200,9 @@ def complete_deletion(self, team_id: str, routine_id: str) -> bool:
     state = routine_state.load(self, team_id)
     value = next((item for item in state.routines if item.routine_id == routine_id), None)
     if value is not None and (not value.deleting or any(item.routine_id == routine_id for item in state.runs)):
+        return False
+    # A set-aside run still releasing what it kept, such as a stopped recovery unwinding, keeps the deletion going.
+    if any(item.routine_id == routine_id and item.status == "skipped" for item in state.incidents):
         return False
     # A Routine already gone keeps nothing either: any residue a failed earlier attempt left is removed again.
     try:

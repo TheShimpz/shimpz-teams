@@ -324,6 +324,18 @@ def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tu
     return dataclasses.replace(state, receipts=(*live, (receipt, expires_at))), True
 
 
+def change_room(state: TeamRoutines, now: int) -> str | None:
+    """Why one more Routine change cannot be admitted now, checked before anything is paid for; None when it fits.
+
+    The change's own write checks again, together with what only its definition can tell, such as its daily cap.
+    """
+    if sum(expires > now for _receipt, expires in state.receipts) >= MAX_RECEIPTS:
+        return "routine-receipts-full"
+    if len(state.notices) >= MAX_UNDELIVERED_NOTICES + MAX_ROUTINES:
+        return "notices-full"
+    return None
+
+
 def create(state: TeamRoutines, value: Routine, now: int, receipt: str, expires_at: int) -> tuple[TeamRoutines, bool]:
     """Add a Routine with its created notice and the receipt of the request that made it, in one transition.
 

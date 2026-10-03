@@ -51,13 +51,16 @@ class Source:
 
 
 def field_value(value: record.Routine, field: tuple[str, ...]) -> object:
-    """What one Routine holds in a question's field: its schedule, its zone, or one step input's source."""
+    """What one Routine holds in a question's field: its schedule, its zone, or one step input's source.
+
+    None when the Routine has no such step input.
+    """
     if field == ("schedule",):
         return dict(value.schedule)
     if field == ("timezone",):
         return value.timezone
-    step = next(item for item in value.plan["steps"] if item["id"] == field[1])
-    return step["input"][field[2]]
+    step = next((item for item in value.plan["steps"] if item["id"] == field[1]), None)
+    return None if step is None else step["input"].get(field[2])
 
 
 def _field(value: object) -> tuple[str, ...] | None:
