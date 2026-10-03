@@ -205,21 +205,40 @@ def _workload_state(self, team_id: str, assistant_id: str, workload: str) -> dic
     return state if isinstance(state, dict) else None
 
 
-def _quiesced(self, team_id: str, assessment: Assessment) -> bool:
-    """Whether the workload of the held attempt is proven to have stopped since it was dispatched.
+def _stopped_since(self, team_id: str, assistant_id: str, workload: str, dispatched_at: int) -> bool:
+    """Whether the workload an attempt was dispatched to is proven to have stopped since it was dispatched.
 
     A Team crash or Stop leaves no classification, and the original Docker execution may still be running, so an
     absence observed now would prove nothing about a later effect. Proof is the attempt's container being gone or
     replaced, stopped, or started again after the attempt.
     """
-    cursor = assessment.cursor
-    state = _workload_state(self, team_id, assessment.step.assistant_id, cursor.workload) if cursor.workload else None
+    state = _workload_state(self, team_id, assistant_id, workload) if workload else None
     if state is None:
         return False
     if state.get("Running") is False:
         return True
     started = _docker_instant(state.get("StartedAt"))
-    return started is not None and started > cursor.dispatched_at
+    return started is not None and started > dispatched_at
+
+
+def _quiesced(self, team_id: str, assessment: Assessment) -> bool:
+    cursor = assessment.cursor
+    return _stopped_since(self, team_id, assessment.step.assistant_id, cursor.workload, cursor.dispatched_at)
+
+
+def workload_stopped(self, team_id: str, opened: routine_incident.OpenedRecovery) -> bool:
+    """Whether nothing of the held attempt can still be running, so a fresh run or a replacement may start.
+
+    Nothing was dispatched, the attempt ended in a way Team itself classified, or its workload is proven stopped since.
+    It reads only the sealed cursor and snapshot, never the current contracts, so a Routine whose Assistants changed
+    can still be recreated. An already accepted provider request is beyond what any local proof can stop.
+    """
+    cursor = opened.cursor
+    if cursor.operation_id is None or not cursor.workload or cursor.fault in _TRUSTED_FAULTS:
+        return True
+    steps = opened.recovery.plan["steps"]
+    assistant_id = steps[min(cursor.step, len(steps) - 1)]["assistant"]
+    return _stopped_since(self, team_id, assistant_id, cursor.workload, cursor.dispatched_at)
 
 
 def quiescence(self, team_id: str, assessment: Assessment, verdict: str) -> str:
@@ -316,11 +335,10 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
     return "occurred"
 
 
-def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) -> str:
-    """Verify a held run's failed step with no model.
+def verify(self, team_id: str, incident_id: str, token: str) -> str:
+    """Verify a held run's failed step with no model, spending one verification of its budget before the call.
 
-    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, ``unverifiable``, or ``exhausted``. An automatic
-    verification spends its budget before the call.
+    Returns ``occurred``, ``absent``, ``none``, ``inconclusive``, ``unverifiable``, or ``exhausted``.
     """
     assessment = assess(self, team_id, incident_id)
     verdict = quiescence(self, team_id, assessment, proven(assessment))
@@ -333,18 +351,17 @@ def verify(self, team_id: str, incident_id: str, token: str, *, budgeted: bool) 
     request = verifier_request(assessment)
     if request is None:
         return "unverifiable"
-    if budgeted:
-        try:
-            spent = routine_cursor.spend(assessment.cursor, "verifications", 1)
-        except routine_cursor.CursorError:
-            return "exhausted"
-        assessment = Assessment(
-            routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent)),
-            assessment.plan,
-            assessment.action,
-            assessment.network_id,
-            assessment.state,
-        )
+    try:
+        spent = routine_cursor.spend(assessment.cursor, "verifications", 1)
+    except routine_cursor.CursorError:
+        return "exhausted"
+    assessment = Assessment(
+        routine_incident.OpenedRecovery(assessment.opened.recovery, _seal(self, team_id, spent)),
+        assessment.plan,
+        assessment.action,
+        assessment.network_id,
+        assessment.state,
+    )
     result = _call_verifier(self, team_id, token, assessment, request)
     return "inconclusive" if result is None else _judge(self, team_id, assessment, result)
 
@@ -591,7 +608,7 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
         return reservation.expired.is_set() or _clock() >= reservation.deadline
 
     # Nothing is dispatched once the reservation has run out, not even the verifier.
-    verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token, budgeted=True)
+    verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token)
     if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
         verdict = _decide(self, team_id, incident_id, api_key, None)
     if _stopped(self, run.token, reservation):

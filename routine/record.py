@@ -95,6 +95,9 @@ class Routine:
     # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
     rollup_minute: int = 0
     rollup_runs: int = 0
+    # A person's Rodar: when they asked for one fresh run of a fixed schedule, kept until a claim starts it, so neither
+    # a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the cadence.
+    run_requested: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +176,14 @@ class TeamRoutines:
     incidents: tuple[Incident, ...] = ()
     # (receipt, expires_at) of each request that changed a Routine; a receipt outlives the Routine it changed.
     receipts: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Replacement:
+    """A Routine's recompiled definition and its request's receipt and expiry, which replace it as its next revision."""
+
+    value: Routine
+    receipt: tuple[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -535,6 +546,13 @@ def free_at(state: TeamRoutines, routine_value: Routine, now: int) -> int:
     return routine_starts.free_at(state.starts, routine_value.routine_id, cap, now)
 
 
+def _due_at(routine_value: Routine) -> int:
+    """When the Routine is next due: its next firing, or sooner a person's pending Rodar."""
+    if routine_value.run_requested:
+        return min(routine_value.next_run_at, routine_value.run_requested)
+    return routine_value.next_run_at
+
+
 def _ready(state: TeamRoutines, busy: set[str]) -> list[Routine]:
     """The Routines that may start once due and under their caps: listed, confirmed, not paused, held, or running."""
     return [
@@ -566,8 +584,8 @@ def claimable(state: TeamRoutines, now: int) -> Routine | None:
     if _backpressured(state) or _segment_leased(state):
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [item for item in _ready(state, busy) if item.next_run_at <= now and free_at(state, item, now) <= now]
-    return min(due, key=lambda item: (item.next_run_at, item.routine_id)) if due else None
+    due = [item for item in _ready(state, busy) if _due_at(item) <= now and free_at(state, item, now) <= now]
+    return min(due, key=lambda item: (_due_at(item), item.routine_id)) if due else None
 
 
 def next_due(state: TeamRoutines, now: int) -> int | None:
@@ -580,7 +598,7 @@ def next_due(state: TeamRoutines, now: int) -> int | None:
         # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
         return None
     busy = {item.routine_id for item in state.runs} | held_routines(state)
-    due = [max(item.next_run_at, free_at(state, item, now)) for item in _ready(state, busy)]
+    due = [max(_due_at(item), free_at(state, item, now)) for item in _ready(state, busy)]
     return min((item for item in due if item > now), default=None)
 
 
@@ -615,7 +633,12 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
     if due is None:
         # The swept state is still returned: its skipped notices and advanced schedules must be persisted.
         return state, None
+    if due.run_requested and due.next_run_at > now:
+        # A person's Rodar starts on its own: the standing cadence and any gap it reports stay as they are.
+        return _lease(state, dataclasses.replace(due, run_requested=0), due.run_requested, now, key_fingerprint)
     scheduled_at = due.next_run_at
+    # A firing due now also serves any pending Rodar: one run, never two.
+    due = dataclasses.replace(due, run_requested=0)
     if continuous(due):
         # Provisional: the run's end sets the next one its gap after it, and nothing starts while it runs.
         due = dataclasses.replace(due, next_run_at=next_after(due, now))
@@ -625,6 +648,13 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
     state = _report_gap(_replace_routine(state, due), due, now, in_flight=True)
     ended = dataclasses.replace(routine(state, due.routine_id), gap_started_at=0, missed=0, reported_missed=0)
+    return _lease(state, ended, scheduled_at, now, key_fingerprint)
+
+
+def _lease(
+    state: TeamRoutines, due: Routine, scheduled_at: int, now: int, key_fingerprint: str
+) -> tuple[TeamRoutines, Claim]:
+    """Start one run of the claimed Routine, counted under every start cap like any other."""
     token = secrets.token_urlsafe(32)
     leased = Run(
         run_id=new_id(),
@@ -636,7 +666,7 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         lease_expires_at=now + LEASE_SECONDS,
     )
     state = dataclasses.replace(
-        _replace_routine(state, ended),
+        _replace_routine(state, due),
         runs=(*state.runs, leased),
         served_at=now,
         starts=routine_starts.started(state.starts, due.routine_id, now),

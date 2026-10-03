@@ -60,9 +60,12 @@ class QuiescenceTests(RecoveryCase):
                     self.assertEqual(self.verify(service, value, run_id), "unquiesced")
             with mock.patch.object(service.assistant_lifecycle, "_assistant_container", return_value=container()):
                 card = self.card(service, run_id)
+                # Nor may a person start the Routine again while it could: Rodar is refused and changes nothing.
+                with self.as_person(), self.assertRaises(local_app.ApiProblem) as refused:
+                    service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": "run"})
+            self.assertEqual(refused.exception.code, "routine-workload-unquiesced")
             # No verifier ever ran while the original execution could still act.
             self.assertNotIn("find-record", [action for action, _id in assistant.calls])
-            self.assertEqual(card["recommended"], "pause")
             proven = (
                 container({"Running": False}),
                 container({"Running": True, "StartedAt": instant(at + 5)}),
@@ -97,8 +100,12 @@ class QuiescenceTests(RecoveryCase):
         self.assertIsNone(routine_recovery._docker_instant("2026-13-40T99:00:00Z"))
         self.assertEqual(routine_recovery._docker_instant("1970-01-01T00:00:10Z"), 10)
 
-    def card(self, service, run_id: str) -> dict[str, object]:
+    @staticmethod
+    def as_person():
         from local import audit as local_audit
 
-        with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
+        return local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human"))
+
+    def card(self, service, run_id: str) -> dict[str, object]:
+        with self.as_person():
             return service.open_routine_card("team_1", run_id)

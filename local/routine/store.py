@@ -1,9 +1,9 @@
 """Local Routine persistence: one private state file per Team and its sealed run records (ADR-0086, ADR-0092).
 
 A Team's Routines, runs, notices, and incident index live in one private JSON file that every transition replaces
-atomically. A frozen run's secret-free continuation, a compiled run's cursor, and an incident's compact evidence are
-each encrypted separately, bound by their AAD to exactly what they belong to; each is written before the state that
-relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
+atomically. A frozen run's secret-free continuation, a compiled run's cursor, an incident's compact evidence, and a
+Routine's creation source are each encrypted separately, bound by their AAD to exactly what they belong to; each is
+written before the state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 5
+SCHEMA = 6
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
@@ -51,6 +51,9 @@ _TEAM_DIR_RE = re.compile(r"[0-9a-f]{64}\Z")
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
 _CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
 _RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
+_SOURCE_NAME_RE = re.compile(r"[0-9a-f]{32}\.source\Z")
+# A Routine's creation message of at most 16,000 characters, at four bytes each, and the value its person selected.
+MAX_SOURCE_BYTES = 128 * 1024
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
@@ -73,6 +76,7 @@ _ROUTINE_FIELDS = frozenset(
         "failures",
         "rollup_minute",
         "rollup_runs",
+        "run_requested",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -257,6 +261,7 @@ def _decode_routine(value: object) -> record.Routine:
         failures=_count(value["failures"]),
         rollup_minute=_instant(value["rollup_minute"]),
         rollup_runs=_rollup_runs(value["rollup_runs"]),
+        run_requested=_instant(value["run_requested"]),
     )
 
 
@@ -484,6 +489,10 @@ def _cursor_aad(team_id: str, binding: routine_cursor.Binding) -> bytes:
 
 def _recovery_aad(team_id: str, run_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-recovery-v1", team_id, run_id], separators=(",", ":")).encode()
+
+
+def _source_aad(team_id: str, routine_id: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-source-v1", team_id, routine_id], separators=(",", ":")).encode()
 
 
 def _incident_aad(team_id: str, incident_id: str) -> bytes:
@@ -744,6 +753,28 @@ class RoutineStore:
 
     def delete_incident(self, team_id: object, incident_id: object) -> None:
         self._sealed_delete(_team_id(team_id), f"{_run_id(incident_id)}.incident", "Routine incident")
+
+    def put_source(self, team_id: object, routine_id: object, payload: object) -> None:
+        """Seal one Routine's creation source before the write that creates the Routine; it is write-once."""
+        team, routine = _team_id(team_id), _run_id(routine_id)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_SOURCE_BYTES:
+            raise RoutineStoreError("Routine source is invalid")
+        self._sealed_write(
+            team, f"{routine}.source", payload, _source_aad(team, routine), "Routine source", maximum=MAX_SOURCE_BYTES
+        )
+
+    def source(self, team_id: object, routine_id: object) -> bytes | None:
+        team, routine = _team_id(team_id), _run_id(routine_id)
+        return self._sealed_read(
+            team, f"{routine}.source", _source_aad(team, routine), "Routine source", MAX_SOURCE_BYTES
+        )
+
+    def delete_source(self, team_id: object, routine_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(routine_id)}.source", "Routine source")
+
+    def sources(self, team_id: object) -> tuple[str, ...]:
+        """The Routine ids with a sealed creation source, including any a crash left unreferenced."""
+        return self._sealed_names(_team_id(team_id), _SOURCE_NAME_RE, ".source", "sources")
 
     def continuations(self, team_id: object) -> tuple[str, ...]:
         """The run ids with a stored continuation, including any a crash left unreferenced."""

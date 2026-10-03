@@ -9,10 +9,12 @@ from http import HTTPStatus
 from action import journal as action_journal
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import diagnostics as routine_diagnostics
+from local.routine import incident as routine_incident
 from local.routine import state as routine_state
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import grant as routine_grant
+from routine import hold as routine_hold
 from routine import record
 
 
@@ -147,57 +149,73 @@ def end_frozen(self, team_id: str, run_id: str, outcome: str, detail: dict[str, 
 
 
 def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
-    """Delete a Routine: stop its running run and end a frozen one; a held run settles into its incident.
+    """Delete a Routine: stop its running run, end a frozen one, and set every held run of it aside.
 
-    Marking the Routine deleting and reading its runs is one write, and a deleting Routine never resumes a run, so each
-    frozen run seen here stays frozen until it is ended. A running segment is stopped and ends itself, and its end
-    completes the deletion.
+    Marking the Routine deleting, reading its runs, and setting its unresolved incidents aside is one write, and a
+    deleting Routine never resumes a run, so each frozen run seen here stays frozen until it is ended, and a run held
+    later is set aside as it is indexed. A running segment, verification, or recovery is stopped and ends itself; what
+    a set-aside incident kept is released once nothing executes for it. A Routine already gone is deleted.
     """
     team_id = validate_team_id(team_id)
     if not isinstance(routine_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(routine_id) is None:
         raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+    now = int(time.time())
 
-    def begin(state: record.TeamRoutines) -> tuple[record.TeamRoutines, tuple[record.Run, ...] | str]:
-        try:
-            return record.begin_delete(state, routine_id)
-        except record.RoutineStateError as exc:
-            return state, str(exc)
+    def begin(state: record.TeamRoutines) -> tuple[record.TeamRoutines, tuple[tuple[record.Run, ...], tuple[str, ...]]]:
+        if not any(item.routine_id == routine_id for item in state.routines):
+            return state, ((), ())
+        state, runs = record.begin_delete(state, routine_id)
+        held = tuple(
+            item.incident_id
+            for item in state.incidents
+            if item.routine_id == routine_id and item.status == "unresolved"
+        )
+        for incident_id in held:
+            state = routine_hold.skip_incident(state, incident_id, now, choice="delete")
+        return state, (runs, held)
 
-    runs = routine_state.update(self, team_id, begin)
-    if isinstance(runs, str):
-        raise _problem(HTTPStatus.NOT_FOUND, "Routine is unavailable", "routine-not-found")
+    runs, held = routine_state.update(self, team_id, begin)
     for value in runs:
         if value.status == "leased":
             self._stop_routine_run(team_id, value.run_id)
         elif value.status == "frozen":
             self._cancel_routine_challenge(team_id, value.run_id)
             end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
-        # A held run settles into its incident, which outlives the Routine; that ending completes the deletion.
-    # A held run's verification or automatic episode in progress is stopped too; its incident and evidence stay.
-    for item in routine_state.load(self, team_id).incidents:
-        if item.routine_id == routine_id and item.status == "unresolved":
-            self._stop_routine_run(team_id, item.incident_id)
-    return {"team_id": team_id, "routine_id": routine_id, "deleted": settle(self, team_id, routine_id)}
+        # A held run is set aside as its incident is indexed; that ending completes the deletion.
+    for incident_id in held:
+        # A verification, recovery episode, or Recriar still in progress is stopped; it changes nothing after this.
+        self._stop_routine_run(team_id, incident_id)
+    deleted = settle(self, team_id, routine_id)
+    state = routine_state.load(self, team_id)
+    for item in state.incidents:
+        if item.incident_id in held and item.status == "skipped":
+            routine_incident.settled(self, team_id, item)
+    return {"team_id": team_id, "routine_id": routine_id, "deleted": deleted}
 
 
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
-    """Remove a deleting Routine once none of its runs remains, then its diagnostic bodies; False while a run ends."""
+    """Remove a deleting Routine once none of its runs remains; False while a run ends.
+
+    Its diagnostic bodies and creation source go first, while the Routine is still listed as deleting, so a failure
+    keeps it as the watchdog's retry target and never leaves residue behind a removed record.
+    """
+    state = routine_state.load(self, team_id)
+    value = next((item for item in state.routines if item.routine_id == routine_id), None)
+    if value is not None and (not value.deleting or any(item.routine_id == routine_id for item in state.runs)):
+        return False
+    # A Routine already gone keeps nothing either: any residue a failed earlier attempt left is removed again.
+    try:
+        self.routine_diagnostics.delete_routine(team_id, routine_id)
+    except routine_diagnostics.DiagnosticStoreError as exc:
+        raise routine_state.unavailable() from exc
+    routine_state.call(lambda: self.routine_store.delete_source(team_id, routine_id))
 
     def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        value = (
-            record.routine(state, routine_id) if any(item.routine_id == routine_id for item in state.routines) else None
-        )
-        if value is None or not value.deleting:
-            return state, value is None
+        if not any(item.routine_id == routine_id for item in state.routines):
+            return state, True
         try:
             return record.complete_delete(state, routine_id), True
         except record.RoutineStateError:
             return state, False
 
-    if not routine_state.update(self, team_id, complete):
-        return False
-    try:
-        self.routine_diagnostics.delete_routine(team_id, routine_id)
-    except routine_diagnostics.DiagnosticStoreError as exc:
-        raise routine_state.unavailable() from exc
-    return True
+    return routine_state.update(self, team_id, complete)

@@ -9,15 +9,17 @@ from unittest import mock
 
 import routine_fixture
 from test_local_routine_automatic import AutomaticCase, Brain
+from test_local_routine_card import CREDENTIAL, MESSAGE, Compiler, _change, _compiled
 from test_local_routine_recovery import RECORD, Assistant, failed
 
 from inference import client as inference_client
 from local import app as local_app
 from local import audit as local_audit
 from local.routine import card as routine_card
-from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
 from local.routine import run as routine_run
+from local.routine import source as routine_source
+from local.routine import watchdog as routine_watchdog
 from routine import hold as routine_hold
 from routine import record
 
@@ -56,11 +58,6 @@ class RecoveryLeaseTests(AutomaticCase):
 
         return mock.patch.object(self, "service", service)
 
-    def answer_verify(self, service, run_id: str) -> dict[str, object]:
-        with local_audit.bind_request_principal(PERSON):
-            card = service.open_routine_card("team_1", run_id)
-            return service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": "verify"})
-
     def assert_still_held(self, service, run_id: str, assistant: Assistant) -> None:
         state = self.state(service)
         # Nothing continued: the operation ran once, and the incident and its evidence stay for the person.
@@ -69,33 +66,32 @@ class RecoveryLeaseTests(AutomaticCase):
         self.assertEqual(state.incidents[0].status, "unresolved")
         self.assertIsNotNone(service.routine_store.incident("team_1", run_id))
 
-    def test_stop_reaches_a_manual_verification_and_no_continuation_follows(self) -> None:
+    def test_deletion_reaches_recriar_while_it_compiles_and_nothing_it_compiled_commits(self) -> None:
         box: list[object] = []
-        stops: list[dict[str, object]] = []
-        assistant = Interrupting(
-            [{"outcome": "not_occurred"}],
-            lambda: stops.append(box[0].stop_routine("team_1", held_incident(box[0]))),
-        )
         with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, _brain, _value, run_id = self.held(directory, assistant)
-            answered = self.answer_verify(service, run_id)
-            self.assert_still_held(service, run_id, assistant)
-        self.assertEqual([item["stopped"] for item in stops], [True])
-        self.assertIsNone(answered["status"])
-        # The verifier Action in flight was fail-stopped.
-        service.assistant_lifecycle._fail_stop_action.assert_called_once()
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            network = service.assistant_lifecycle._network("team_1").id
+            routine_source.seal(service, "team_1", routine_source.Source(value.routine_id, network, MESSAGE))
 
-    def test_deletion_reaches_a_manual_verification_and_its_incident_outlives_the_routine(self) -> None:
-        box: list[object] = []
-        assistant = Interrupting(
-            [{"outcome": "not_occurred"}],
-            lambda: box[0].delete_routine("team_1", box[0].routine_store.load("team_1").routines[0].routine_id),
-        )
-        with tempfile.TemporaryDirectory() as directory, self.capturing(box):
-            service, _brain, _value, run_id = self.held(directory, assistant)
-            answered = self.answer_verify(service, run_id)
-            self.assert_still_held(service, run_id, assistant)
-        self.assertIsNone(answered["status"])
+            class Deleting(Compiler):
+                def routine_compile(self, payload, provider, model):
+                    box[0].delete_routine("team_1", value.routine_id)
+                    return super().routine_compile(payload, provider, model)
+
+            service.brain_runtime = Deleting(_compiled(_change()))
+            with local_audit.bind_request_principal(PERSON):
+                card = service.open_routine_card("team_1", run_id)
+                with self.assertRaises(local_app.ApiProblem) as caught:
+                    service.answer_routine_card(
+                        "team_1", run_id, {"nonce": card["nonce"], "choice": "recreate"}, CREDENTIAL
+                    )
+            routine_watchdog.check(service)
+            state = self.state(service)
+        self.assertEqual(caught.exception.code, "routine-recovery-stopped")
+        # The deletion set the held run aside; the compiled replacement never became a Routine.
+        self.assertEqual((state.routines, [item.status for item in state.incidents]), ((), ["released"]))
+        notice = next(item for item in state.notices if item.notice_id == run_id)
+        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
 
     def test_stop_reaches_the_automatic_episode_and_fences_its_continuation(self) -> None:
         box: list[object] = []
@@ -118,8 +114,8 @@ class RecoveryLeaseTests(AutomaticCase):
             service, _brain, _value, run_id = self.held(directory, assistant)
             stopped = service.stop_routine("team_1", run_id)
             self.assert_still_held(service, run_id, assistant)
-            # Once skipped, deleting the Routine has no recovery of it left to stop.
-            routine_incident.skip(service, "team_1", run_id)
+            # Once set aside, deleting the Routine has no recovery of it left to stop.
+            routine_fixture.set_aside(service, "team_1", run_id)
             routine_id = self.state(service).routines[0].routine_id
             self.assertTrue(service.delete_routine("team_1", routine_id)["deleted"])
         self.assertEqual(stopped, {"team_id": "team_1", "run_id": run_id, "stopped": False})
@@ -168,8 +164,8 @@ class AtomicCardTests(AutomaticCase):
         with local_audit.bind_request_principal(PERSON):
             return service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
 
-    def test_pular_and_pausar_apply_only_to_the_exact_state_the_card_was_opened_on(self) -> None:
-        for choice in ("skip", "pause"):
+    def test_rodar_applies_only_to_the_exact_state_the_card_was_opened_on(self) -> None:
+        for choice in ("run",):
             for change in ("generation", "revision"):
                 assistant = Assistant([failed()], [])
                 with tempfile.TemporaryDirectory() as directory, self.subTest(choice=choice, change=change):
@@ -221,10 +217,10 @@ class AtomicCardTests(AutomaticCase):
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             card = self.card(service, run_id)
             with service._exclusive_chat_turn("team_1"), self.assertRaises(local_app.ApiProblem) as busy:
-                self.answer(service, run_id, card, "skip")
-            answered = self.answer(service, run_id, card, "skip")
+                self.answer(service, run_id, card, "run")
+            answered = self.answer(service, run_id, card, "run")
         self.assertEqual(busy.exception.code, "chat-active")
-        self.assertEqual(answered["status"], "skipped")
+        self.assertEqual(answered["status"], "requested")
         self.assertIsNotNone(value)
 
 

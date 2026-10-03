@@ -94,13 +94,15 @@ def _incident_id(route: strict_http.ControllerRouteMatch) -> str:
 
 
 def _card(handler, route: strict_http.ControllerRouteMatch, team_id: str) -> dict[str, object]:
-    """A person's recovery card of one held run: open it with an empty body, or answer it once."""
+    """A person's recovery card of one held run: open it with an empty body, or answer it once with Rodar or Recriar."""
     service = handler.server.controller.chat_turn_service
     incident_id = _incident_id(route)
     if route.operation == "routine-card-open":
         _empty(handler, route.operation)
         return service.open_routine_card(team_id, incident_id)
-    return service.answer_routine_card(team_id, incident_id, handler._body(max_bytes=BODY_LIMITS[route.operation]))
+    body = handler._body(max_bytes=BODY_LIMITS[route.operation])
+    # Recriar's model credential, which the Supervisor assertion bound; Rodar carries none.
+    return service.answer_routine_card(team_id, incident_id, body, handler._model_credential(route.operation))
 
 
 def _pause(handler, route: strict_http.ControllerRouteMatch, team_id: str, paused: bool) -> dict[str, object]:

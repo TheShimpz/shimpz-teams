@@ -103,7 +103,7 @@ class ContractTests(unittest.TestCase):
             "recovered": {"actions": [["dns", "replace-dns-record"]]},
             "held": {"assistant_id": "dns", "action": "replace-dns-record"},
             "paused": {"assistant_id": None, "action": None, "reason": "exhausted"},
-            "user-skipped": {"assistant_id": "dns", "action": "replace-dns-record"},
+            "user-skipped": {"assistant_id": "dns", "action": "replace-dns-record", "choice": "recreate"},
             "skipped": {"missed": 3},
             "healthy": {"runs": http_routine.MAX_ROLLUP_RUNS},
             "scope-changed": {"assistants": ["dns"]},
@@ -129,6 +129,9 @@ class ContractTests(unittest.TestCase):
             ("paused", {"assistant_id": "dns", "action": "x", "reason": "tired"}),
             ("paused", {"assistant_id": "dns", "action": "x"}),
             ("user-skipped", {"assistant_id": "dns", "action": "x", "input": {}}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x"}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x", "choice": "skip"}),
+            ("paused", {"assistant_id": "dns", "action": "x", "reason": "person"}),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
             ("healthy", {"runs": 0}),
@@ -576,8 +579,8 @@ class IncidentNoticeTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
             routine_hold.pause_incident(state, run_id, NINE, "bored")
-        # Pular is the person's skip of this run, never the Routine's missed-schedule skip.
-        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3)
+        # A person setting this run aside is never the Routine's missed-schedule skip.
+        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3, choice="run")
         self.assertEqual(routine_hold.incident(skipped, run_id).status, "skipped")
         self.assertEqual(
             (skipped.notices[-1].outcome, skipped.notices[-1].run_id, skipped.notices[-1].version),
@@ -587,7 +590,47 @@ class IncidentNoticeTests(unittest.TestCase):
             routine_hold.pause_incident(skipped, run_id, NINE, "person")
         # A deleted Routine's incident still says what it was, from its own quote.
         gone = dataclasses.replace(state, routines=())
-        self.assertEqual(routine_hold.skip_incident(gone, run_id, NINE).notices[-1].quote, routine().quote)
+        self.assertEqual(
+            routine_hold.skip_incident(gone, run_id, NINE, choice="run").notices[-1].quote, routine().quote
+        )
+
+    def test_rodar_keeps_one_fresh_run_pending_through_any_delay_and_never_moves_the_cadence(self):
+        state, run_id = self.held()
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        state = routine_hold.pause_incident(state, run_id, NINE + 2, "exhausted")
+        cadence = record.routine(state, "a" * 32).next_run_at
+        expected = routine_hold.Expected(1, routine_hold.incident(state, run_id).generation, 1)
+        asked = routine_hold.run_incident(state, run_id, NINE + 10, expected)
+        requested = record.routine(asked, "a" * 32)
+        self.assertEqual(
+            (requested.paused, requested.run_requested, requested.next_run_at), (False, NINE + 10, cadence)
+        )
+        notice = asked.notices[-1]
+        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
+        self.assertEqual(record.next_due(asked, NINE + 5), NINE + 10)
+        # A Team catching up its notices waits; the request outlasts the schedule's own grace and is never missed.
+        late = cadence - 60
+        self.assertGreater(late - (NINE + 10), record.grace_seconds(requested))
+        claimed_state, claim = record.claim(asked, late, KEY)
+        after = record.routine(claimed_state, "a" * 32)
+        self.assertEqual((claim.run.scheduled_at, after.run_requested, after.next_run_at), (NINE + 10, 0, cadence))
+        self.assertEqual(claimed_state.starts[-1], ("a" * 32, late))
+        # A firing due at the same time serves the request too: one run, never two.
+        both, claim = record.claim(asked, cadence, KEY)
+        self.assertEqual((claim.run.scheduled_at, record.routine(both, "a" * 32).run_requested), (cadence, 0))
+        self.assertEqual(len(both.runs), 1)
+        # The card's state is checked in the same write.
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-changed"):
+            routine_hold.run_incident(state, run_id, NINE + 10, dataclasses.replace(expected, current=2))
+
+    def test_deleting_a_routine_sets_a_run_held_afterwards_aside_as_it_is_indexed(self):
+        state, run_id = self.held()
+        state, _runs = record.begin_delete(state, "a" * 32)
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        self.assertEqual(routine_hold.incident(state, run_id).status, "skipped")
+        self.assertEqual(
+            state.notices[-1].detail, {"assistant_id": "dns", "action": "replace-dns-record", "choice": "delete"}
+        )
 
     def test_a_resume_starts_a_fresh_streak_and_a_deleting_routine_never_pauses_or_resumes(self):
         state = added(routine())
@@ -902,11 +945,16 @@ class ContinuousTests(unittest.TestCase):
         # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
         skipped_at = NINE + 86_400
         self.assertIsNone(record.claimable(state, skipped_at))
-        skipped = routine_hold.skip_incident(state, run_id, skipped_at)
+        skipped = routine_hold.skip_incident(state, run_id, skipped_at, choice="run")
         self.assertEqual(record.routine(skipped, "a" * 32).next_run_at, skipped_at + 5)
         self.assertIsNone(record.claimable(skipped, skipped_at + 4))
         self.assertEqual(record.next_due(skipped, skipped_at), skipped_at + 5)
         self.assertEqual(record.claimable(skipped, skipped_at + 5).routine_id, "a" * 32)
+        # Rodar on a continuous Routine asks for nothing more: it is due its gap after the run was set aside.
+        generation = routine_hold.incident(state, run_id).generation
+        ran = routine_hold.run_incident(state, run_id, skipped_at, routine_hold.Expected(1, generation, 1))
+        self.assertEqual(record.routine(ran, "a" * 32).run_requested, 0)
+        self.assertEqual(record.routine(ran, "a" * 32).next_run_at, skipped_at + 5)
         # A scheduled Routine's next firing is its own and a skip leaves it unchanged.
         scheduled, _run_id = IncidentNoticeTests().held()
         before = record.routine(scheduled, "a" * 32).next_run_at

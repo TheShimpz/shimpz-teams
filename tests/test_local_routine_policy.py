@@ -71,6 +71,11 @@ class ClassificationTests(unittest.TestCase):
                     self.assertEqual(routine_compiled.fault_of(item), fault)
 
 
+def cursor_action(state: record.TeamRoutines) -> str:
+    """The Action the held run's incident names."""
+    return state.incidents[0].action
+
+
 class PolicyHoldTests(AutomaticCase):
     def test_a_read_only_secret_echo_is_held_for_policy_never_verified_away_or_retried(self) -> None:
         brain = Brain("retry")
@@ -80,26 +85,25 @@ class PolicyHoldTests(AutomaticCase):
             state = self.state(service)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-                manual = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+                manual = routine_recovery.verify(service, "team_1", run_id, token)
             refused = routine_recovery.refusal(routine_incident.open_recovery(service, "team_1", run_id).cursor)
             with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
                 card = service.open_routine_card("team_1", run_id)
-                answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": "verify"})
         # The automatic episode paused at once without asking the Brain; nothing ran twice.
         self.assertEqual((self.status, brain.asked, cursor.fault, cursor.absent), ("held", [], "policy", False))
         self.assertEqual((state.notices[-1].outcome, state.notices[-1].detail["reason"]), ("paused", "policy"))
         self.assertTrue(record.routine(state, value.routine_id).paused)
         self.assertEqual([action for action, _id in assistant.calls], ["list-zones"])
-        # A person's Verificar cannot admit absence or continue either; the card recommends Pausar.
+        # Verification can neither admit absence nor continue; the person decides on the card, which shows the step.
         self.assertEqual((manual, refused), ("policy", "routine-policy-hold"))
-        self.assertEqual((card["recommended"], answered["verdict"], answered["status"]), ("pause", "policy", None))
+        self.assertEqual((card["choices"], card["action"]), (["run", "recreate", "delete"], cursor_action(state)))
 
     def test_a_read_only_handled_failure_is_still_proven_absent(self) -> None:
         assistant = ReadOnlyFault(failed())
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-                verdict = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+                verdict = routine_recovery.verify(service, "team_1", run_id, token)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("absent", "handled", True))
 
@@ -108,14 +112,14 @@ class PolicyHoldTests(AutomaticCase):
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-                verdict = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+                verdict = routine_recovery.verify(service, "team_1", run_id, token)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
                 card = service.open_routine_card("team_1", run_id)
         # Even a read-only Action is not admitted as absent while its workload may still run.
         self.assertEqual((verdict, cursor.fault, cursor.absent), ("unquiesced", "unquiesced", False))
         self.assertEqual(routine_recovery.refusal(cursor), "routine-workload-unquiesced")
-        self.assertEqual(card["recommended"], "pause")
+        self.assertEqual(card["choices"], ["run", "recreate", "delete"])
 
     def restarted(self, directory: str, assistant: Assistant, brain: Brain):
         """A fresh controller over the same durable Team state, as after a Team restart."""
@@ -143,7 +147,7 @@ class PolicyHoldTests(AutomaticCase):
             service = self.restarted(directory, assistant, brain)
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-                manual = routine_recovery.verify(service, "team_1", run_id, token, budgeted=False)
+                manual = routine_recovery.verify(service, "team_1", run_id, token)
             run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
             episode = routine_recovery.automatic(service, run, "k")
             state = self.state(service)

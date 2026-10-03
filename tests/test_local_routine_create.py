@@ -19,7 +19,10 @@ from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import audit as local_audit
+from local.routine import manage as routine_manage
+from local.routine import source as routine_source
 from local.routine import turn as routine_turn
+from local.routine import watchdog as routine_watchdog
 from protocol.http.v1 import payload as http_payload
 from routine import grant as routine_grant
 from routine import plan as routine_plan
@@ -160,6 +163,27 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual((origin["from"], MESSAGE[slice(*origin["span"])]), ("message", "1"))
         self.assertEqual(page["by"], {"message": grant["message"], "receipt": receipt, "revision": 1, "selected": None})
         self.assertEqual(grant["stored_inputs"], {"zones": []})
+
+    def test_a_created_routine_keeps_its_exact_message_sealed_until_it_is_deleted(self) -> None:
+        """Recriar's source: the whole creating message, sealed apart from plaintext state and bound to its Routine."""
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, Runtime(_change()))
+            self.chat(service, _body())
+            (routine,) = service.routine_store.load("team_1").routines
+            source = routine_source.load(service, "team_1", routine.routine_id)
+            sealed = service.routine_store.source("team_1", routine.routine_id)
+            self.assertEqual(source.incarnation, service.assistant_lifecycle._network("team_1").id)
+            plaintext = (service.routine_store._team_dir("team_1") / "state.json").read_text()
+            with self.assertRaises(local_app.ApiProblem):
+                routine_source.decode(sealed, "f" * 32)
+            # An orphan a crash left behind goes with the next watchdog pass; the listed Routine's source stays.
+            service.routine_store.put_source("team_1", "f" * 32, routine_source.Source("f" * 32, "n", "x").encode())
+            routine_watchdog.check(service)
+            self.assertEqual(service.routine_store.sources("team_1"), (routine.routine_id,))
+            routine_manage.delete_routine(service, "team_1", routine.routine_id)
+            self.assertEqual(service.routine_store.sources("team_1"), ())
+        self.assertEqual((source.message, source.selected), (MESSAGE, None))
+        self.assertNotIn("ignore that", plaintext)
 
     def test_citation_text_around_a_value_never_persists_and_a_secret_request_is_refused(self) -> None:
         secret = "sk-live-" + "4f9c2a" * 6
@@ -417,6 +441,15 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual(
             (per_page["proof"], per_page["by"]["selected"]), ({"origins": [{"at": "", "from": "answer"}]}, "50")
         )
+
+    def test_an_answered_question_seals_the_original_message_and_the_selected_value(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _runtime, answer = self.asked(directory)
+            self.chat(service, _body(answer + "50", nonce="d" * 32))
+            (routine,) = service.routine_store.load("team_1").routines
+            source = routine_source.load(service, "team_1", routine.routine_id)
+        self.assertEqual(source.message, "Every Monday at 9:00, list my zones, page 1")
+        self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
 
     def test_an_update_from_another_message_keeps_what_granted_each_kept_input(self) -> None:
         """A kept input still names the message, receipt, revision, and answer that first granted it."""

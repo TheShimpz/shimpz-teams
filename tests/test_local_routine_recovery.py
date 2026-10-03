@@ -6,7 +6,6 @@ import dataclasses
 import tempfile
 from http import HTTPStatus
 
-import routine_fixture
 from local_assistant_fixture import mutating_spec
 from test_local_chat_scope import LOOKUP_INPUT, LOOKUP_RESULT
 from test_local_routine_compiled import ZONE, ZONES, Brain, CompiledRunCase
@@ -14,13 +13,9 @@ from test_local_routine_service import ASSISTANT
 
 from action import failure as action_failure
 from local import app as local_app
-from local import audit as local_audit
-from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
-from protocol.http.v1 import routine as http_routine
 from routine import cursor as routine_cursor
-from routine import record
 
 RECORD = {"record": {"id": "rec-1"}}
 NOT_FOUND = action_failure.ActionFailure("HTTPStatusError", "Not Found", "api.cloudflare.com", 404, None, False, False)
@@ -81,9 +76,9 @@ class RecoveryCase(CompiledRunCase):
         return service, brain, value, claim["run_id"]
 
     @staticmethod
-    def verify(service, value, run_id: str, *, budgeted: bool = False) -> str:
+    def verify(service, value, run_id: str) -> str:
         with service._exclusive_chat_turn("team_1", value.routine_id) as token:
-            return routine_recovery.verify(service, "team_1", run_id, token, budgeted=budgeted)
+            return routine_recovery.verify(service, "team_1", run_id, token)
 
     @staticmethod
     def resume(service, value, run_id: str) -> str:
@@ -160,11 +155,11 @@ class VerificationTests(RecoveryCase):
         assistant = Assistant([failed()], [{"outcome": "inconclusive"}] * 3)
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, value, run_id = self.held(directory, assistant)
-            verdicts = [self.verify(service, value, run_id, budgeted=True) for _attempt in range(4)]
+            verdicts = [self.verify(service, value, run_id) for _attempt in range(4)]
             # A new store over the same state is a restart: the sealed cursor keeps what was spent.
             restarted = service.routine_store.__class__(service.routine_store.root, service.routine_store.key_path)
             service.routine_store = restarted
-            after = self.verify(service, value, run_id, budgeted=True)
+            after = self.verify(service, value, run_id)
         self.assertEqual(verdicts, ["inconclusive"] * 3 + ["exhausted"])
         self.assertEqual(after, "exhausted")
 
@@ -201,123 +196,3 @@ class VerificationTests(RecoveryCase):
             )
             service.routine_store.put_cursor("team_1", clean)
             self.assertEqual(self.verify(service, value, run_id), "none")
-
-
-PRINCIPAL = "a" * 32
-
-
-class CardTests(RecoveryCase):
-    @staticmethod
-    def as_person(principal: str = PRINCIPAL):
-        return local_audit.bind_request_principal(local_audit.AuditPrincipal(principal, "human"))
-
-    def card(self, service, run_id: str) -> dict[str, object]:
-        with self.as_person():
-            card = service.open_routine_card("team_1", run_id)
-        # Every card and answer Team produces is in its closed protocol view.
-        self.assertEqual(http_routine.canonical_card(card), card)
-        return card
-
-    def answer(self, service, run_id: str, card: dict[str, object], choice: str, principal: str = PRINCIPAL):
-        with self.as_person(principal):
-            answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": choice})
-        self.assertEqual(http_routine.canonical_card_answer(answered), answered)
-        return answered
-
-    def test_verificar_continues_with_no_model_and_no_provider_key(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "occurred", "result": RECORD}])
-        with tempfile.TemporaryDirectory() as directory:
-            service, brain, value, run_id = self.held(directory, assistant)
-            (incident,) = service.list_routines("team_1")["incidents"]
-            card = self.card(service, run_id)
-            answered = self.answer(service, run_id, card, "verify")
-            state = self.state(service)
-        self.assertEqual(
-            (card["choices"], card["recommended"], card["assistant_id"], card["action"], card["revision"]),
-            (["verify", "skip", "pause"], "verify", ASSISTANT, "create-record", value.revision),
-        )
-        self.assertEqual((answered["verdict"], answered["status"]), ("occurred", "recovered"))
-        self.assertEqual(http_routine.canonical_incident_view(incident), incident)
-        self.assertEqual(
-            (incident["incident_id"], incident["quote"], incident["assistant_id"], incident["action"]),
-            (run_id, value.quote, ASSISTANT, "create-record"),
-        )
-        self.assertEqual((brain.calls, state.incidents, state.notices[-1].outcome), ([], (), "recovered"))
-
-    def test_an_inconclusive_verificar_keeps_the_run_held(self) -> None:
-        assistant = Assistant([failed()], [{"outcome": "inconclusive"}])
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, _value, run_id = self.held(directory, assistant)
-            answered = self.answer(service, run_id, self.card(service, run_id), "verify")
-            state = self.state(service)
-        self.assertEqual((answered["verdict"], answered["status"]), ("inconclusive", None))
-        self.assertEqual([item.status for item in state.incidents], ["unresolved"])
-
-    def test_pular_permits_future_cycles_and_pausar_disables_dispatch(self) -> None:
-        for choice, expected in (("skip", ("skipped", False)), ("pause", ("unresolved", True))):
-            assistant = Assistant([failed()], [])
-            with tempfile.TemporaryDirectory() as directory, self.subTest(choice=choice):
-                service, _brain, value, run_id = self.held(directory, assistant)
-                answered = self.answer(service, run_id, self.card(service, run_id), choice)
-                state = self.state(service)
-                incident = state.incidents[0] if state.incidents else None
-                status = None if incident is None else incident.status
-                self.assertEqual(answered["choice"], choice)
-                self.assertEqual((status or "released", record.routine(state, value.routine_id).paused)[1], expected[1])
-                # Pular is the person's skip of this run, distinct from a missed-schedule skip; Pausar says who.
-                notice = state.notices[-1]
-                self.assertEqual((notice.notice_id, notice.run_id), (run_id, run_id))
-                if choice == "skip":
-                    self.assertIn(status, {"released", "skipped"})
-                    self.assertEqual(notice.outcome, "user-skipped")
-                else:
-                    self.assertEqual(status, "unresolved")
-                    self.assertEqual((notice.outcome, notice.detail["reason"]), ("paused", "person"))
-
-    def test_an_answer_must_match_its_person_nonce_expiry_and_binding(self) -> None:
-        assistant = Assistant([failed()], [])
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, value, run_id = self.held(directory, assistant)
-            cases = (
-                (
-                    lambda card: self.answer(service, run_id, {**card, "nonce": "0" * 32}, "pause"),
-                    "routine-card-expired",
-                ),
-                (lambda card: self.answer(service, run_id, card, "pause", principal="b" * 32), "routine-card-expired"),
-                (lambda card: self.answer(service, run_id, card, "other"), "invalid-body"),
-            )
-            for attempt, code in cases:
-                with self.subTest(code=code), self.assertRaises(local_app.ApiProblem) as caught:
-                    attempt(self.card(service, run_id))
-                self.assertEqual(caught.exception.code, code)
-            # Expired after five minutes.
-            clock = [1000.0]
-            service.routine_cards = routine_card.CardBook(now=lambda: clock[0])
-            card = self.card(service, run_id)
-            clock[0] += routine_card.CARD_SECONDS
-            with self.assertRaises(local_app.ApiProblem) as expired:
-                self.answer(service, run_id, card, "pause")
-            self.assertEqual(expired.exception.code, "routine-card-expired")
-            # A Routine updated since the hold makes the card stale.
-            card = self.card(service, run_id)
-            service.routine_store.update(
-                "team_1",
-                lambda state: (
-                    record._replace_routine(
-                        state,
-                        routine_fixture.granted(
-                            dataclasses.replace(record.routine(state, value.routine_id), revision=2)
-                        ),
-                    ),
-                    None,
-                ),
-            )
-            with self.assertRaises(local_app.ApiProblem) as stale:
-                self.answer(service, run_id, card, "pause")
-            self.assertEqual(stale.exception.code, "routine-card-stale")
-            with self.assertRaises(local_app.ApiProblem) as nobody:
-                service.open_routine_card("team_1", run_id)
-            self.assertEqual(nobody.exception.code, "routine-card-person-required")
-            with self.as_person(), self.assertRaises(local_app.ApiProblem) as unknown:
-                service.open_routine_card("team_1", "0" * 32)
-            self.assertEqual(unknown.exception.code, "routine-incident-unavailable")

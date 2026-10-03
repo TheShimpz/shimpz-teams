@@ -113,7 +113,7 @@ class HoldTests(IncidentCase):
             evidence = routine_incident.read_evidence(service.routine_store.incident("team_1", run_id), run_id)
             self.assertEqual((evidence["fingerprint"], evidence["operations"]), (None, []))
             self.assertIsNone(service.action_state.current_batch(generation))
-            routine_incident.skip(service, "team_1", run_id)
+            routine_fixture.set_aside(service, "team_1", run_id)
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
             # A cursor a crash left behind, whose run and incident are gone, is removed by the next pass.
             plan = routine_plan.admit(_document(), CONTRACTS)
@@ -172,7 +172,7 @@ class ResolutionTests(IncidentCase):
             # The run's discard and every pass keep the cursor and archive marker its unresolved incident needs.
             self.assertIsNotNone(service.routine_store.cursor("team_1", binding))
             self.assertEqual(service.action_state.current_batch(generation), (batch.fingerprint, "archived"))
-            routine_incident.skip(service, "team_1", run_id)
+            routine_fixture.set_aside(service, "team_1", run_id)
             state = self.state(service)
             self.assertEqual([item.status for item in state.incidents], ["released"])
             self.assertNotIn(value.routine_id, record.held_routines(state))
@@ -181,7 +181,7 @@ class ResolutionTests(IncidentCase):
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
             routine_incident.reconcile_team(service, "team_1")
             with self.assertRaises(local_app.ApiProblem) as again:
-                routine_incident.skip(service, "team_1", run_id)
+                routine_fixture.set_aside(service, "team_1", run_id)
             self.assertEqual(again.exception.code, "routine-incident-unavailable")
             self.assertEqual(
                 record.claimable(self.state(service), int(time.time()) + 86_400 * 2),
@@ -192,7 +192,9 @@ class ResolutionTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
+            service.routine_store.update(
+                "team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0, choice="run"), None)
+            )
             with (
                 mock.patch.object(
                     service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("down")
@@ -213,7 +215,7 @@ class ResolutionTests(IncidentCase):
             self.assertTrue(record.routine(self.state(service), value.routine_id).paused)
             routine_incident.set_paused(service, "team_1", value.routine_id, False)
             self.assertIsNone(record.claimable(self.state(service), int(time.time()) + 86_400 * 2))
-            routine_incident.skip(service, "team_1", run_id)
+            routine_fixture.set_aside(service, "team_1", run_id)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             self.assertIsNone(record.claimable(self.state(service), int(time.time()) + 86_400 * 2))
             routine_incident.set_paused(service, "team_1", value.routine_id, False)
@@ -222,21 +224,22 @@ class ResolutionTests(IncidentCase):
                 routine_incident.set_paused(service, "team_1", "f" * 32, True)
             self.assertEqual(missing.exception.code, "routine-not-found")
 
-    def test_deleting_the_routine_keeps_its_incident_resolvable_without_recreating_it(self) -> None:
+    def test_deleting_the_routine_sets_its_held_run_aside_as_it_is_indexed(self) -> None:
+        """No incident is left for an answer its deleted Routine can no longer take; nothing is rolled back."""
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             self.fence(service, run_id, lease)
+            starts = self.state(service).starts
             deleting = service.delete_routine("team_1", value.routine_id)
             self.assertFalse(deleting["deleted"])
             self.assertEqual(record.run(self.state(service), run_id).status, "held")
             routine_watchdog.check(service)
-            state = self.state(service)
-            self.assertEqual(state.routines, ())
-            self.assertEqual([item.routine_id for item in state.incidents], [value.routine_id])
-            starts = state.starts
-            routine_incident.skip(service, "team_1", run_id)
+            routine_watchdog.check(service)
             state = self.state(service)
             self.assertEqual((state.routines, state.starts), ((), starts))
+            self.assertEqual([item.status for item in state.incidents], ["released"])
+            notice = next(item for item in state.notices if item.notice_id == run_id)
+            self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "delete"))
             self.assertIsNone(service.action_state.current_batch(generation))
             del batch
 
@@ -264,7 +267,7 @@ class RecoverySnapshotTests(IncidentCase):
         service.routine_store.put_cursor("team_1", cursor)
         return snapshot, cursor
 
-    def test_a_deleted_routines_incident_reopens_its_cursor_after_a_restart(self) -> None:
+    def test_a_held_runs_incident_reopens_its_cursor_after_a_restart_until_its_routine_is_deleted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             # The run executes revision 3; the Routine is updated to revision 4 while the run is held.
@@ -299,9 +302,7 @@ class RecoverySnapshotTests(IncidentCase):
             )
             routine_incident.reconcile(service, "team_1", run_id)
             self.assertEqual([item.revision for item in self.state(service).incidents], [3])
-            service.delete_routine("team_1", value.routine_id)
             routine_watchdog.check(service)
-            self.assertEqual(self.state(service).routines, ())
             self.assertEqual(service.routine_store.recoveries("team_1"), ())
             # A restart reopens every store from disk; only the incident's own sealed copy names the binding.
             service.action_state.close()
@@ -315,7 +316,9 @@ class RecoverySnapshotTests(IncidentCase):
             self.assertEqual(opened.cursor.operation_id, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6")
             self.assertEqual(opened.recovery.plan_digest, cursor.plan)
             self.assertEqual(reopened_journal.current_batch(generation), (batch.fingerprint, "archived"))
-            routine_incident.skip(service, "team_1", run_id)
+            # Deleting the Routine sets the held run aside: there is nothing left to reopen.
+            service.delete_routine("team_1", value.routine_id)
+            self.assertEqual(self.state(service).routines, ())
             with self.assertRaises(local_app.ApiProblem) as skipped:
                 routine_incident.open_recovery(service, "team_1", run_id)
             self.assertEqual(skipped.exception.code, "routine-incident-unavailable")
@@ -451,14 +454,12 @@ class CapacityTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            # Pular commits, then its cleanup crashes before the archive marker is released.
-            with (
-                mock.patch.object(
-                    service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
-                ),
-                self.assertRaises(local_app.ApiProblem),
+            # Setting it aside commits, then its cleanup crashes before the archive marker is released: the person's
+            # decision stands, and the cleanup waits for the watchdog.
+            with mock.patch.object(
+                service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
             ):
-                routine_incident.skip(service, "team_1", run_id)
+                routine_fixture.set_aside(service, "team_1", run_id)
             self.assertEqual([item.status for item in self.state(service).incidents], ["skipped"])
             # Fill the index to its bound with released records and give the Team a second held run.
             filler = tuple(
@@ -504,7 +505,9 @@ class CapacityTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, _value, run_id, lease, generation, batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            service.routine_store.update("team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0), None))
+            service.routine_store.update(
+                "team_1", lambda state: (routine_hold.skip_incident(state, run_id, 0, choice="run"), None)
+            )
             service.action_state.release_archive(generation, batch.fingerprint)
             service.routine_store.delete_incident("team_1", run_id)
             routine_incident.reconcile_team(service, "team_1")
@@ -514,13 +517,11 @@ class CapacityTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             controller, service, _value, run_id, lease, generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
-            with (
-                mock.patch.object(
-                    service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
-                ),
-                self.assertRaises(local_app.ApiProblem),
+            with mock.patch.object(
+                service.action_state, "release_archive", side_effect=action_journal.ActionJournalError("crash")
             ):
-                routine_incident.skip(service, "team_1", run_id)
+                routine_fixture.set_aside(service, "team_1", run_id)
+            self.assertEqual([item.status for item in self.state(service).incidents], ["skipped"])
             routine_lifecycle._delete_team_routines(controller, "team_1")
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
@@ -606,14 +607,15 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_five_admits_held_runs_incidents_plans_grants_and_receipts(self) -> None:
+    def test_routine_state_version_six_admits_held_runs_incidents_plans_grants_receipts_and_run_requests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, _generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 5)
+            self.assertEqual(document["schema"], 6)
+            self.assertEqual(document["routines"][0]["run_requested"], 0)
             self.assertEqual(document["routines"][0]["plan"]["version"], 1)
             receipt = ["c" * 64, 2_000_000_000]
             document["receipts"] = [receipt]
@@ -626,6 +628,8 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["incidents"].append(dict(value["incidents"][0])),
                 lambda value: value["routines"][0].update(revision=0),
                 lambda value: value["routines"][0].update(paused="yes"),
+                lambda value: value["routines"][0].update(run_requested=-1),
+                lambda value: value["routines"][0].pop("run_requested"),
                 lambda value: value["routines"][0].update(name=""),
                 lambda value: value["routines"][0].update(plan={"version": 1}),
                 lambda value: value["routines"][0].update(grant=None),
@@ -691,7 +695,7 @@ class IncidentRecordTests(IncidentCase):
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-skipped"):
             routine_hold.release_incident(full, unresolved[0].incident_id)
         released = routine_hold.release_incident(
-            routine_hold.skip_incident(full, unresolved[0].incident_id, 1), unresolved[0].incident_id
+            routine_hold.skip_incident(full, unresolved[0].incident_id, 1, choice="run"), unresolved[0].incident_id
         )
         self.assertEqual(routine_hold.release_incident(released, unresolved[0].incident_id), released)
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-held"):
@@ -699,7 +703,7 @@ class IncidentRecordTests(IncidentCase):
                 dataclasses.replace(full, runs=(dataclasses.replace(held, status="frozen"),)), "c" * 32, 1
             )
         with self.assertRaisesRegex(record.RoutineStateError, "incident-not-found"):
-            routine_hold.skip_incident(full, "f" * 32, 1)
+            routine_hold.skip_incident(full, "f" * 32, 1, choice="run")
         unbound = record.Run(
             "d" * 32, "a" * 32, "leased", 0, lease_sha256="1" * 64, lease_key="2" * 64, lease_expires_at=99
         )

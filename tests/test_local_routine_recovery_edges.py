@@ -7,6 +7,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest import mock
 
+import routine_fixture
 from test_local_routine_recovery import RECORD, Assistant, RecoveryCase, failed
 
 from inference import config as inference_config
@@ -129,7 +130,7 @@ class ContinuationEdgeTests(RecoveryCase):
             service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
             state = self.state(service)
             generation = record.generation_for(self.cursor(service, run_id).binding.incarnation, run_id, "s1")
-            skipped = routine_hold.skip_incident(state, run_id, 0)
+            skipped = routine_hold.skip_incident(state, run_id, 0, choice="run")
             changed = record._replace_routine(
                 state, dataclasses.replace(record.routine(state, value.routine_id), revision=2)
             )
@@ -194,7 +195,7 @@ class ContinuationEdgeTests(RecoveryCase):
 class CardEdgeTests(RecoveryCase):
     def test_a_book_drops_and_clears_its_cards_and_refuses_a_foreign_nonce(self) -> None:
         book = routine_card.CardBook(now=lambda: 0.0)
-        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, "n" * 32, 10.0)
+        card = routine_card.Card("p", "a" * 64, "i" * 32, "r" * 32, 1, 1, "g", None, None, "n" * 32, 10.0)
         book.open("team_1", card)
         self.assertIsNone(book.take("team_1", card.incident_id, None, "p"))
         book.open("team_2", card)
@@ -203,19 +204,20 @@ class CardEdgeTests(RecoveryCase):
         book.clear()
         self.assertIsNone(book.take("team_2", card.incident_id, card.nonce, "p"))
 
-    def test_a_drifted_step_is_offered_with_pausar_recommended_and_a_skipped_one_has_no_card(self) -> None:
+    def test_a_drifted_step_still_offers_its_three_choices_and_a_set_aside_one_has_no_card(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, _brain, _value, run_id = self.held(directory, Assistant([failed()], []))
             with mock.patch.object(routine_plan, "admit", side_effect=routine_plan.PlanError("plan-pin-drift")):
                 card = self.as_card(service, run_id)
-            self.assertEqual((card["recommended"], card["choices"]), ("pause", ["pause", "verify", "skip"]))
-            routine_incident.skip(service, "team_1", run_id)
+            # Drift is exactly what Recriar repairs, so it never keeps the card from opening.
+            self.assertEqual(card["choices"], ["run", "recreate", "delete"])
+            routine_fixture.set_aside(service, "team_1", run_id)
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.as_card(service, run_id)
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
             # A skipped incident can no longer pause its Routine, and a snapshot without a cursor names no step.
             with self.assertRaises(local_app.ApiProblem) as caught:
-                routine_incident.pause(service, "team_1", run_id, "person")
+                routine_incident.pause(service, "team_1", run_id, "evidence")
             self.assertEqual(caught.exception.code, "routine-incident-unavailable")
             snapshot = mock.Mock()
             with mock.patch.object(service.routine_store, "cursor", return_value=None):
@@ -239,17 +241,6 @@ class ProofEdgeTests(RecoveryCase):
                 assessment, opened=routine_incident.OpenedRecovery(assessment.opened.recovery, carried)
             )
             self.assertEqual(routine_recovery.proven(moved), "uncertain")
-
-    def test_verificar_on_a_paused_routine_records_absence_without_continuing(self) -> None:
-        from local import audit as local_audit
-
-        with tempfile.TemporaryDirectory() as directory:
-            service, _brain, value, run_id = self.held(directory, Assistant([failed()], [{"outcome": "not_occurred"}]))
-            routine_incident.set_paused(service, "team_1", value.routine_id, True)
-            with local_audit.bind_request_principal(local_audit.AuditPrincipal("a" * 32, "human")):
-                card = service.open_routine_card("team_1", run_id)
-                answered = service.answer_routine_card("team_1", run_id, {"nonce": card["nonce"], "choice": "verify"})
-        self.assertEqual((answered["verdict"], answered["status"]), ("absent", None))
 
 
 class RunTimeTests(RecoveryCase):
