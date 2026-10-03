@@ -87,7 +87,10 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `DELETE` | `/v1/space` | Team cleanup for an authenticated Space reset |
 
 Team storage allows at most 100 MiB of payload, 256 files, and 25 MiB per upload. Storage is not mounted
-into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limits are transactional.
+into Admin, Brain runtime, or Assistants. Quota reservation and SQLite page limits are transactional. A file
+stays while the Team's current chat turn references it; an unreferenced file is collected 24 hours after its
+upload, an identical upload, or its release, and an identical upload within that time reuses the stored file
+without charging the quota again (ADR-0093).
 
 ### Inference and chat
 
