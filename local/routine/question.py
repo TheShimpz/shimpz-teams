@@ -16,6 +16,7 @@ from http import HTTPStatus
 
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import lineage as routine_lineage
+from local.routine import source as routine_source
 from local.routine import turn as routine_turn
 from routine import change as routine_change
 from routine import pin as routine_pin
@@ -83,8 +84,12 @@ def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routi
     with self._lock(team_id):
         team_name, network_id = _current(self, team_id, bound.routine)
         value = routine_turn.scheduled(bound.routine, int(time.time()))
+        source = None
+        if question.op == "create":
+            selected = (question.field, routine_source.field_value(value, question.field))
+            source = routine_source.Source(value.routine_id, network_id, question.message, selected)
         write = routine_turn.writer(
-            self, team_id, (question.op, question.expected_revision), value, request, network_id
+            self, team_id, (question.op, question.expected_revision), value, request, network_id, source=source
         )
         committed = self._commit_chat_terminal(team_id, token, write)
     if not committed:

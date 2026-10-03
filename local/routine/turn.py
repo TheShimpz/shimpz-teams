@@ -16,6 +16,7 @@ from install import bindings
 from local import audit as local_audit
 from local.chat import segment as local_chat_segment
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import source as routine_source
 from local.routine import state as routine_state
 from local.routine import store as routine_store
 from routine import change as routine_change
@@ -157,11 +158,19 @@ def scheduled(value: record.Routine, now: int) -> record.Routine:
 
 
 def writer(
-    self, team_id: str, change: tuple[str, int | None], value: record.Routine, request: RoutineRequest, network_id: str
+    self,
+    team_id: str,
+    change: tuple[str, int | None],
+    value: record.Routine,
+    request: RoutineRequest,
+    network_id: str,
+    *,
+    source: routine_source.Source | None,
 ) -> Callable[[], None]:
     """The write that commits a scheduled Routine, its notice, and the request's receipt in one transition.
 
-    ``change`` is the operation and, for an update, the revision the request saw.
+    ``change`` is the operation and, for an update, the revision the request saw. A create seals its ``source`` first,
+    under the same Team lock as the write, so the watchdog never sweeps it in between.
     """
     op, expected_revision = change
     receipt = request.receipt(network_id)
@@ -180,7 +189,10 @@ def writer(
     def write() -> None:
         if not request.fresh(int(time.time())):
             raise expired()
-        outcome = routine_state.update(self, team_id, apply)
+        with self.routine_store.lock(team_id):
+            if source is not None:
+                routine_source.seal(self, team_id, source)
+            outcome = routine_state.update(self, team_id, apply)
         if outcome not in {"ok", "repeated"}:
             raise ApiProblem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code=outcome)
         local_audit.record_request(
@@ -206,7 +218,10 @@ def admit_change(self, response: object, proposed: dict[str, object]) -> Callabl
     existing = current(self, response.team_id, change)
     value = definition(change, request, assistants, dict(response.segment.contracts), existing)
     value = scheduled(value, int(time.time()))
-    return writer(self, response.team_id, (change.op, change.expected_revision), value, request, network_id)
+    source = routine_source.Source(value.routine_id, network_id, request.message) if change.op == "create" else None
+    return writer(
+        self, response.team_id, (change.op, change.expected_revision), value, request, network_id, source=source
+    )
 
 
 class ContractsUnavailableError(Exception):

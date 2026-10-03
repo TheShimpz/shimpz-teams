@@ -20,6 +20,7 @@ from local.routine import compiled as routine_compiled
 from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
+from local.routine import source as routine_source
 from local.routine import store as routine_store
 from routine import record
 
@@ -102,6 +103,8 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     for run_id in service.routine_store.cursors(team_id):
         if run_id not in kept:
             service.routine_store.delete_cursor(team_id, run_id)
+    # A creation source a crash left without its Routine.
+    routine_source.sweep(service, team_id)
     routine_manage.settle_team(service, team_id)
 
 

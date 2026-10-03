@@ -181,23 +181,29 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
 
 
 def complete_deletion(self, team_id: str, routine_id: str) -> bool:
-    """Remove a deleting Routine once none of its runs remains, then its diagnostic bodies; False while a run ends."""
+    """Remove a deleting Routine once none of its runs remains; False while a run ends.
 
-    def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
-        value = (
-            record.routine(state, routine_id) if any(item.routine_id == routine_id for item in state.routines) else None
-        )
-        if value is None or not value.deleting:
-            return state, value is None
-        try:
-            return record.complete_delete(state, routine_id), True
-        except record.RoutineStateError:
-            return state, False
-
-    if not routine_state.update(self, team_id, complete):
+    Its diagnostic bodies and creation source go first, while the Routine is still listed as deleting, so a failure
+    keeps it as the watchdog's retry target and never leaves residue behind a removed record.
+    """
+    state = routine_state.load(self, team_id)
+    value = next((item for item in state.routines if item.routine_id == routine_id), None)
+    if value is None:
+        return True
+    if not value.deleting or any(item.routine_id == routine_id for item in state.runs):
         return False
     try:
         self.routine_diagnostics.delete_routine(team_id, routine_id)
     except routine_diagnostics.DiagnosticStoreError as exc:
         raise routine_state.unavailable() from exc
-    return True
+    routine_state.call(lambda: self.routine_store.delete_source(team_id, routine_id))
+
+    def complete(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+        if not any(item.routine_id == routine_id for item in state.routines):
+            return state, True
+        try:
+            return record.complete_delete(state, routine_id), True
+        except record.RoutineStateError:
+            return state, False
+
+    return routine_state.update(self, team_id, complete)
