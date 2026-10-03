@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import dataclasses
 import tempfile
+import time
 from unittest import mock
 
 import routine_fixture
+from docker.errors import DockerException
 from test_local_routine_compiled import Brain
 from test_local_routine_recovery import Assistant, RecoveryCase, failed
 from test_local_routine_service import ASSISTANT
@@ -17,8 +19,10 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from local.routine import run as routine_run
 from local.routine import source as routine_source
 from local.routine import turn as routine_turn
+from local.routine import watchdog as routine_watchdog
 from protocol.http.v1 import routine as http_routine
 from routine import record
 
@@ -357,3 +361,73 @@ class RecriarTests(CardCase):
             state = self.state(service)
         self.assertEqual(record.routine(state, value.routine_id).revision, value.revision)
         self.assertEqual(len(brain.compiled), 6)
+
+
+class CorrectionTests(CardCase):
+    """What the implementation audit required: no unknown workload, a kept selection, a held deletion, honest limits."""
+
+    def test_an_attempt_whose_workload_is_unknown_or_unreadable_is_never_restarted(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            self.seal(service, value)
+            cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
+            for workload in ("", "assistant-container"):
+                # An attempt Team never classified: no record of its workload, or Docker cannot say it stopped.
+                service.routine_store.put_cursor("team_1", dataclasses.replace(cursor, fault="", workload=workload))
+                with mock.patch.object(
+                    service.assistant_lifecycle, "_assistant_container", side_effect=DockerException("down")
+                ):
+                    self.refused(service, run_id, "run", "routine-workload-unquiesced")
+                    self.refused(service, run_id, "recreate", "routine-workload-unquiesced")
+
+    def test_a_compile_that_settles_the_selected_field_otherwise_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, brain, value, run_id = self.held_with(
+                directory, _compiled(_change(schedule={"kind": "daily", "time": "10:00"})), _compiled(_change())
+            )
+            self.seal(service, value, selected=(("schedule",), DAILY))
+            self.refused(service, run_id, "recreate", "routine-recreate-refused")
+            self.answer(service, run_id, self.card(service, run_id), "recreate")
+            (routine,) = self.state(service).routines
+        self.assertEqual((routine.schedule, routine.grant["selected"]), (DAILY, None))
+        self.assertEqual(len(brain.compiled), 2)
+
+    def held_with(self, directory: str, *answers: object):
+        return RecriarTests.held_with(self, directory, *answers)
+
+    def test_a_full_team_refuses_before_any_paid_compile_with_its_own_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, brain, value, run_id = self.held_with(directory, _compiled(_change()))
+            self.seal(service, value)
+            receipts = tuple((f"{index:064x}", int(time.time()) + 600) for index in range(record.MAX_RECEIPTS))
+            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, receipts=receipts), None))
+            self.refused(service, run_id, "recreate", "routine-receipts-full")
+        self.assertEqual(brain.compiled, [])
+        self.assertEqual(
+            (
+                routine_incident._transition_problem("routine-rate-limit").code,
+                routine_incident._transition_problem("x").code,
+            ),
+            ("routine-rate-limit", "routine-incident-unavailable"),
+        )
+
+    def test_deletion_waits_for_a_stopped_writer_before_releasing_what_its_run_kept(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _brain, value, run_id = self.held(directory, Assistant([failed()], []))
+            service.assistant_lifecycle._fail_stop_action = mock.Mock()
+            # A recovery of the held run is still unwinding when the Routine is deleted.
+            routine_run.register_routine_run(service, "team_1", run_id, "unwinding", 60)
+            deleting = service.delete_routine("team_1", value.routine_id)
+            routine_watchdog.check(service)
+            state = self.state(service)
+            # Deletion is in progress: the set-aside incident and its cursor stay while the writer is registered.
+            self.assertFalse(deleting["deleted"])
+            self.assertEqual([item.status for item in state.incidents], ["skipped"])
+            self.assertEqual(service.routine_store.cursors("team_1"), (run_id,))
+            self.assertEqual([item.routine_id for item in state.routines], [value.routine_id])
+            routine_run.unregister_routine_run(service, run_id)
+            routine_watchdog.check(service)
+            state = self.state(service)
+            again = service.delete_routine("team_1", value.routine_id)
+        self.assertEqual(([item.status for item in state.incidents], state.routines), (["released"], ()))
+        self.assertEqual(again["deleted"], True)

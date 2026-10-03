@@ -23,6 +23,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.routine import incident as routine_incident
 from local.routine import run as routine_run
 from local.routine import source as routine_source
+from local.routine import state as routine_state
 from local.routine import turn as routine_turn
 from routine import change as routine_change
 from routine import hold as routine_hold
@@ -79,9 +80,13 @@ def _definition(
     """The compiled create admitted against the message; a question is answered only by the person's selected value."""
     if compiled.clarification is None:
         try:
-            return _admitted(routine_change.parse(compiled.routine), request, active, scope)
+            value = _admitted(routine_change.parse(compiled.routine), request, active, scope)
         except routine_change.ChangeError as exc:
             raise _refused() from exc
+        # The value the person once selected still stands: a compile that settles that field otherwise is refused.
+        if source.selected is not None and routine_source.field_value(value, source.selected[0]) != source.selected[1]:
+            raise _refused()
+        return value
     if source.selected is None:
         raise _refused()
     labels = [option["label"] for option in compiled.clarification["options"]]
@@ -128,6 +133,10 @@ def recreate(self, team_id: str, card, expected: routine_hold.Expected, context,
         raise _problem(HTTPStatus.CONFLICT, "the Routine's creation message is gone", "routine-source-unavailable")
     # The card's nonce is this request's own: a replayed answer finds its card consumed and never compiles again.
     request = RoutineRequest(principal, source.message, int(time.time()), card.nonce, current.timezone)
+    # A change the Team could not hold anyway never pays for a compile; its write checks again.
+    full = record.change_room(routine_state.load(self, team_id), int(time.time()))
+    if full is not None:
+        raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", full)
     committed: list[record.Incident] = []
     with routine_run.registered(self, team_id, card.incident_id, token, RECREATE_SECONDS):
         network_id, active, runtime, scope = _contracts(self, team_id)

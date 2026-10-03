@@ -262,8 +262,11 @@ def reconcile_team(self, team_id: str) -> None:
 
 
 def _transition_problem(code: str) -> ApiProblem:
-    if code == "incident-changed":
+    """A refused transition, with what refused it: a stale card, a Team admission limit, or an incident gone."""
+    if code in {"incident-changed", "routine-revision-changed"}:
         return _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
+    if code.startswith("routine-") or code == "notices-full":
+        return _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", code)
     return _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
 
 

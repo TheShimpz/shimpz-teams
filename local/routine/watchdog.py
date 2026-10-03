@@ -99,7 +99,8 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
     for run_id in service.routine_store.recoveries(team_id):
         if run_id not in runs:
             service.routine_store.delete_recovery(team_id, run_id)
-    kept = runs | {item.incident_id for item in current.incidents if item.status == "unresolved"}
+    # A set-aside incident keeps its cursor until its own release, which waits for anything still executing for it.
+    kept = runs | {item.incident_id for item in current.incidents if item.status != "released"}
     for run_id in service.routine_store.cursors(team_id):
         if run_id not in kept:
             service.routine_store.delete_cursor(team_id, run_id)

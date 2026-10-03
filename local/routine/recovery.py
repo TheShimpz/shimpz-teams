@@ -229,13 +229,17 @@ def _quiesced(self, team_id: str, assessment: Assessment) -> bool:
 def workload_stopped(self, team_id: str, opened: routine_incident.OpenedRecovery) -> bool:
     """Whether nothing of the held attempt can still be running, so a fresh run or a replacement may start.
 
-    Nothing was dispatched, the attempt ended in a way Team itself classified, or its workload is proven stopped since.
-    It reads only the sealed cursor and snapshot, never the current contracts, so a Routine whose Assistants changed
-    can still be recreated. An already accepted provider request is beyond what any local proof can stop.
+    No operation is open, the attempt ended in a way Team itself classified, the journal proves it never acted, or its
+    workload is proven stopped since it was dispatched. An attempt with no recorded workload and no such proof stays
+    unknown. It reads only sealed evidence, never the current contracts, so a Routine whose Assistants changed can
+    still be recreated. An already accepted provider request is beyond what any local proof can stop.
     """
     cursor = opened.cursor
-    if cursor.operation_id is None or not cursor.workload or cursor.fault in _TRUSTED_FAULTS:
+    if cursor.operation_id is None or cursor.fault in _TRUSTED_FAULTS:
         return True
+    if not cursor.workload:
+        state = _operation_state(self, team_id, cursor.binding.run_id, cursor.operation_id)
+        return state in _ABSENT_STATES and not cursor.carried
     steps = opened.recovery.plan["steps"]
     assistant_id = steps[min(cursor.step, len(steps) - 1)]["assistant"]
     return _stopped_since(self, team_id, assistant_id, cursor.workload, cursor.dispatched_at)
