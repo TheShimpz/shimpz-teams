@@ -88,13 +88,17 @@ MODEL_BOUND_OPERATIONS = frozenset(
         "routine-run",
         "routine-human-submit",
         "routine-integration-submit",
+        "routine-card-answer",
     }
 )
 
 
 # Routine requests a healthy compiled run serves without a model (ADR-0092): Admin sends the Team's model credential
 # only when it holds one, so a held run's recovery can use it; when it does, the assertion binds it as for any other.
-OPTIONAL_MODEL_OPERATIONS = frozenset({"routine-run", "routine-human-submit", "routine-integration-submit"})
+# Recriar's card answer carries the credential and Rodar's carries none; the card itself requires the right one.
+OPTIONAL_MODEL_OPERATIONS = frozenset(
+    {"routine-run", "routine-human-submit", "routine-integration-submit", "routine-card-answer"}
+)
 
 
 def credential_binding(provider: str, key: str) -> dict[str, str]:

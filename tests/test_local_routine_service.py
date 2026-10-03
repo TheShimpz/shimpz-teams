@@ -304,13 +304,16 @@ class RunTests(RoutineServiceCase):
             # Its cursor and recovery snapshot survive for verification; nothing is claimed while it holds.
             self.assertEqual(service.routine_store.cursors("team_1"), (claim["run_id"],))
             self.assertIsNone(service.claim_routine_run())
+            # Deleting the Routine sets its held run aside; nothing is rolled back and nothing waits for an answer.
             self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
-            self.assertEqual(self.state(service).incidents[0].status, "unresolved")
+            self.assertEqual(self.state(service).incidents[0].status, "released")
 
-    def test_deleting_an_unknown_or_malformed_routine_is_not_found(self) -> None:
+    def test_deleting_an_absent_routine_succeeds_and_a_malformed_one_is_not_found(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
-            for routine_id in ("0" * 32, "Not-An-Id", None):
+            absent = service.delete_routine("team_1", "0" * 32)
+            self.assertEqual(absent, {"team_id": "team_1", "routine_id": "0" * 32, "deleted": True})
+            for routine_id in ("Not-An-Id", None):
                 with self.subTest(routine_id=routine_id), self.assertRaises(local_app.ApiProblem) as caught:
                     service.delete_routine("team_1", routine_id)
                 self.assertEqual((caught.exception.status, caught.exception.code), (404, "routine-not-found"))

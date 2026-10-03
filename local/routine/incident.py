@@ -7,15 +7,18 @@ its journal batch is archived, and the incident is indexed as the run ends. Each
 ``reconcile`` resumes from whichever came last, so every crash window recovers without dispatching anything. An
 incident is not an active run or discard work; it outlives its Routine, never expires, and holds the Routine until a
 person resolves it. Because it holds its snapshot independently of the Routine record and the archived journal rows,
-it can still reopen the run's cursor for verification after the Routine is deleted or Team restarts. Pular (skip)
-abandons the rest of the run and permits future cycles, and only then is the settled archive marker released.
+it can still reopen the run's cursor for verification after Team restarts. A person sets the run aside through its
+card's Rodar or Recriar, or by deleting its Routine; only then, once nothing executes for it any more, are its cursor,
+evidence, and archive marker released.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from http import HTTPStatus
 
@@ -248,11 +251,11 @@ def _held_step(self, team_id: str, snapshot: Recovery | None) -> tuple[str, str]
 
 
 def reconcile_team(self, team_id: str) -> None:
-    """Release what every skipped incident still keeps, so its record may give way, then finish every held run."""
+    """Release what every set-aside incident still keeps once nothing executes for it, then finish every held run."""
     state = routine_state.load(self, team_id)
     for item in state.incidents:
         if item.status == "skipped":
-            _release(self, team_id, item)
+            release(self, team_id, item)
     for value in state.runs:
         if value.status == "held":
             reconcile(self, team_id, value.run_id)
@@ -264,24 +267,52 @@ def _transition_problem(code: str) -> ApiProblem:
     return _problem(HTTPStatus.CONFLICT, "Routine incident is not unresolved", "routine-incident-unavailable")
 
 
-def skip(self, team_id: str, incident_id: str, expected: routine_hold.Expected | None = None) -> None:
-    """Pular: the incident stops holding its Routine, then its cursor, evidence, and archive marker are released.
+def set_aside(
+    self,
+    team_id: str,
+    incident_id: str,
+    change: Callable[[record.TeamRoutines], record.TeamRoutines],
+    *,
+    release_now: bool = True,
+) -> record.Incident:
+    """Apply a person's transition that sets the incident aside, then, unless told not to, release what it kept.
 
-    It never replays or fabricates output, and never recreates a deleted Routine; any effect the run may have had
-    stays unresolved, which the person was told.
+    The transition checks the card's state in its own write and never replays or fabricates output; any effect the run
+    may have had stays unresolved, which the person was told. Once it committed, a failed release only waits for the
+    watchdog's next pass: it never reads as nothing having changed.
     """
 
     def mark(state: record.TeamRoutines) -> tuple[record.TeamRoutines, record.Incident | str]:
         try:
-            skipped = routine_hold.skip_incident(state, incident_id, int(time.time()), expected)
+            changed = change(state)
         except record.RoutineStateError as exc:
             return state, str(exc)
-        return skipped, routine_hold.incident(skipped, incident_id)
+        return changed, routine_hold.incident(changed, incident_id)
 
     skipped = routine_state.update(self, team_id, mark)
     if isinstance(skipped, str):
         raise _transition_problem(skipped)
-    _release(self, team_id, skipped)
+    if release_now:
+        settled(self, team_id, skipped)
+    return skipped
+
+
+def executing(self, incident_id: str) -> bool:
+    """Whether a verification, recovery episode, or person's answer is still registered for the incident."""
+    with self._active_chat_guard:
+        return incident_id in self._routine_runs
+
+
+def release(self, team_id: str, item: record.Incident) -> None:
+    """Release a set-aside incident unless something still executes for it; the watchdog's next pass retries."""
+    if not executing(self, item.incident_id):
+        _release(self, team_id, item)
+
+
+def settled(self, team_id: str, item: record.Incident) -> None:
+    """After a person's committed transition: release now if possible, and otherwise leave it to the watchdog."""
+    with contextlib.suppress(ApiProblem):
+        release(self, team_id, item)
 
 
 def _release(self, team_id: str, item: record.Incident) -> None:
@@ -332,12 +363,12 @@ def open_recovery(self, team_id: str, incident_id: str) -> OpenedRecovery:
     return OpenedRecovery(snapshot, cursor)
 
 
-def pause(self, team_id: str, incident_id: str, reason: str, expected: routine_hold.Expected | None = None) -> None:
-    """Pause the Routine an unresolved incident holds, and say why on the held run's notice."""
+def pause(self, team_id: str, incident_id: str, reason: str) -> None:
+    """Recovery pauses the Routine an unresolved incident holds, and says why on the held run's notice."""
 
     def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            return routine_hold.pause_incident(state, incident_id, int(time.time()), reason, expected), None
+            return routine_hold.pause_incident(state, incident_id, int(time.time()), reason), None
         except record.RoutineStateError as exc:
             return state, str(exc)
 
@@ -347,7 +378,7 @@ def pause(self, team_id: str, incident_id: str, reason: str, expected: routine_h
 
 
 def set_paused(self, team_id: str, routine_id: str, paused: bool) -> None:
-    """Pausar disables dispatch while every incident stays; resuming never bypasses an unresolved one."""
+    """Pausing disables dispatch while every incident stays; resuming never bypasses an unresolved one."""
 
     def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
         try:

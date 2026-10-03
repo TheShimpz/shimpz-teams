@@ -42,14 +42,15 @@ OUTCOMES = frozenset(
         "changed",
     }
 )
-# Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person's
-# Pular of a held run is the run outcome ``user-skipped``. ``healthy`` rolls up a continuous Routine's healthy runs that
+# Outcomes of the Routine itself, never of a run: they carry no run id. ``skipped`` reports missed firings; a person
+# setting a held run aside through its card's Rodar or Recriar, or by deleting its Routine, is the run outcome
+# ``user-skipped``, whose ``choice`` says which. ``healthy`` rolls up a continuous Routine's healthy runs that
 # ended in one minute, starting at the notice's instant (ADR-0092 section 9).
 ROUTINE_OUTCOMES = ("skipped", "scope-changed", "created", "changed", "healthy")
 # Why a held run's Routine was paused (ADR-0092): the recovery decision, a decision that could not be made, the spent
-# recovery budget, the person's Pausar, a Team-detected policy fault such as a secret echo or an invalid frame, or
-# recovery evidence that could not be read.
-PAUSE_REASONS = ("decided", "unavailable", "exhausted", "person", "policy", "evidence")
+# recovery budget, a Team-detected policy fault such as a secret echo or an invalid frame, or recovery evidence that
+# could not be read.
+PAUSE_REASONS = ("decided", "unavailable", "exhausted", "policy", "evidence")
 # The same identifier grammar as payload.py; protocol modules stay independent, and a Team test pins the equality.
 ASSISTANT_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*\Z")
 ACTION_ID_RE = re.compile(r"[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*\Z")
@@ -300,13 +301,17 @@ def _held_step(detail: dict[str, object]) -> bool:
 _STEP_FIELDS = {"assistant_id", "action"}
 
 # Each outcome's exact detail fields and their check. denied and stopped name the Actions that completed; held,
-# paused, and user-skipped name the step whose possible effects are unresolved.
+# paused, and user-skipped name the step whose possible effects are unresolved, and user-skipped the card choice that
+# set the run aside.
 _DETAILS = {
     "done": ({"actions"}, _completed),
     "recovered": ({"actions"}, _completed),
     "held": (_STEP_FIELDS, _held_step),
     "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
-    "user-skipped": (_STEP_FIELDS, _held_step),
+    "user-skipped": (
+        _STEP_FIELDS | {"choice"},
+        lambda detail: _held_step(detail) and detail["choice"] in CARD_CHOICES,
+    ),
     "skipped": ({"missed"}, lambda detail: type(detail["missed"]) is int and detail["missed"] >= 1),
     "healthy": ({"runs"}, lambda detail: type(detail["runs"]) is int and 1 <= detail["runs"] <= MAX_ROLLUP_RUNS),
     "scope-changed": ({"assistants"}, _scope_changed),
@@ -436,31 +441,43 @@ def canonical_incident_view(value: object) -> dict[str, object] | None:
 
 # The unresolved incidents a Team holds at most, which its Routine list carries (ADR-0092).
 MAX_UNRESOLVED_INCIDENTS = 32
-# A held run's recovery card (ADR-0092 section 7): exactly Verificar, Pular, and Pausar, the recommended one first.
-CARD_CHOICES = ("verify", "skip", "pause")
+# A held run's recovery card (ADR-0092 section 7, amended 2026-10-02): exactly Rodar, Recriar, and Excluir, in this
+# order, none recommended. Team answers only Rodar and Recriar; Excluir is the Routine's own confirmed deletion.
+CARD_CHOICES = ("run", "recreate", "delete")
+CARD_ANSWERS = ("run", "recreate")
 CARD_SECONDS = 300
 NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
-CARD_VERDICTS = (
-    "occurred",
-    "absent",
-    "none",
-    "inconclusive",
-    "unverifiable",
-    "exhausted",
-    "policy",
-    "unquiesced",
-    "unclassified",
-)
-# How an answer left the run: settled by the person, or how its already-authorized continuation ended.
-CARD_STATUSES = ("skipped", "paused", "recovered", "held", "frozen", "failed", "stopped")
+# What an answer did: Rodar set the held run aside and requested one fresh run; Recriar replaced the Routine in place.
+CARD_STATUSES = {"run": "requested", "recreate": "recreated"}
+# Whether the held step's failure has a diagnostic: recorded (and shown), none kept, or one that could not be read.
+CARD_EVIDENCE = ("recorded", "absent", "unavailable")
+MAX_PLAN_STEPS = 8
+
+
+def _card_step(value: dict[str, object]) -> bool:
+    step, steps = value["step"], value["steps"]
+    return type(step) is int and type(steps) is int and 1 <= step <= steps <= MAX_PLAN_STEPS
+
+
+def _card_evidence(value: dict[str, object]) -> bool:
+    """The held operation's latest diagnostic, exactly when one is recorded, and only of the card's own step."""
+    evidence, diagnostic = value["evidence"], value["diagnostic"]
+    if evidence not in CARD_EVIDENCE or (diagnostic is None) == (evidence == "recorded"):
+        return False
+    if diagnostic is None:
+        return True
+    admitted = canonical_diagnostic(diagnostic)
+    return admitted is not None and (admitted["assistant_id"], admitted["action"]) == (
+        value["assistant_id"],
+        value["action"],
+    )
 
 
 def canonical_card(value: object) -> dict[str, object] | None:
-    """An opened recovery card: the step it is about, its one-use nonce, and its three choices."""
+    """An opened recovery card: the step it stopped at, its failure as recorded, its one-use nonce, and its choices."""
     fields = {"team_id", "incident_id", "routine_id", "revision", "assistant_id", "action", "nonce", "expires_in"}
-    if not isinstance(value, dict) or set(value) != fields | {"choices", "recommended"}:
+    if not isinstance(value, dict) or set(value) != fields | {"step", "steps", "evidence", "diagnostic", "choices"}:
         return None
-    choices = value["choices"]
     valid = (
         _identity(value["team_id"], TEAM_ID_RE)
         and _identity(value["incident_id"], ROUTINE_ID_RE)
@@ -469,38 +486,34 @@ def canonical_card(value: object) -> dict[str, object] | None:
         and 1 <= value["revision"] < 2**31
         and _identity(value["assistant_id"], ASSISTANT_ID_RE)
         and _identity(value["action"], ACTION_ID_RE)
+        and _card_step(value)
+        and _card_evidence(value)
         and _identity(value["nonce"], NONCE_RE)
         and value["expires_in"] == CARD_SECONDS
         and type(value["expires_in"]) is int
-        and isinstance(choices, list)
-        and all(isinstance(choice, str) for choice in choices)
-        and sorted(choices) == sorted(CARD_CHOICES)
-        and value["recommended"] in ("verify", "pause")
-        and choices[0] == value["recommended"]
+        and value["choices"] == list(CARD_CHOICES)
     )
     return copy.deepcopy(value) if valid else None
 
 
 def canonical_card_answer_request(value: object) -> dict[str, str] | None:
-    """A person's answer to one card: its nonce and exactly one choice."""
+    """A person's answer to one card: its nonce and Rodar or Recriar; Excluir is never a card answer."""
     if not isinstance(value, dict) or set(value) != {"nonce", "choice"}:
         return None
-    valid = _identity(value["nonce"], NONCE_RE) and value["choice"] in CARD_CHOICES
+    valid = _identity(value["nonce"], NONCE_RE) and value["choice"] in CARD_ANSWERS
     return {"nonce": value["nonce"], "choice": value["choice"]} if valid else None
 
 
 def canonical_card_answer(value: object) -> dict[str, object] | None:
-    """What an answer did: Verificar's verdict and how the run went on, or the person's Pular or Pausar."""
-    if not isinstance(value, dict) or set(value) != {"team_id", "incident_id", "choice", "verdict", "status"}:
+    """What an answer did: Rodar requested one fresh run, or Recriar replaced the Routine."""
+    if not isinstance(value, dict) or set(value) != {"team_id", "incident_id", "choice", "status"}:
         return None
-    choice, verdict, status = value["choice"], value["verdict"], value["status"]
-    if choice == "verify":
-        shape = verdict in CARD_VERDICTS and (status is None or status in CARD_STATUSES[2:])
-    elif choice in ("skip", "pause"):
-        shape = verdict is None and status == ("skipped" if choice == "skip" else "paused")
-    else:
-        shape = False
-    valid = _identity(value["team_id"], TEAM_ID_RE) and _identity(value["incident_id"], ROUTINE_ID_RE) and shape
+    valid = (
+        _identity(value["team_id"], TEAM_ID_RE)
+        and _identity(value["incident_id"], ROUTINE_ID_RE)
+        and value["choice"] in CARD_ANSWERS
+        and value["status"] == CARD_STATUSES[value["choice"]]
+    )
     return copy.deepcopy(value) if valid else None
 
 

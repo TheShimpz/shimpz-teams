@@ -34,7 +34,7 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 5
+SCHEMA = 6
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
@@ -76,6 +76,7 @@ _ROUTINE_FIELDS = frozenset(
         "failures",
         "rollup_minute",
         "rollup_runs",
+        "run_requested",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -260,6 +261,7 @@ def _decode_routine(value: object) -> record.Routine:
         failures=_count(value["failures"]),
         rollup_minute=_instant(value["rollup_minute"]),
         rollup_runs=_rollup_runs(value["rollup_runs"]),
+        run_requested=_instant(value["run_requested"]),
     )
 
 

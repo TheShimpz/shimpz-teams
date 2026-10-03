@@ -417,8 +417,8 @@ class RecoveryRouteTests(RoutineHttpCase):
             value = self.routine(service)
             base = "/v1/teams/team_1/routines"
             incident = f"{base}/incidents/{'a' * 32}"
-            nonce = '{"nonce":"' + "b" * 32 + '","choice":"skip"}'
-            with mock.patch.object(local_authority, "verify", return_value=self.session):
+            nonce = '{"nonce":"' + "b" * 32 + '","choice":"run"}'
+            with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
                 status, _type, raw = self.request("GET", base)
                 listed = json.loads(raw)
                 self.assertEqual((listed["incidents"], listed["routines"][0]["paused"]), ([], False))
@@ -429,6 +429,16 @@ class RecoveryRouteTests(RoutineHttpCase):
                     (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
                     (incident + "/answer", b'{"nonce":"x","choice":"skip"}', 422, "invalid-body"),
                     (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"other"}', 422, "invalid-body"),
+                    # Excluir is the Routine's confirmed deletion, never a card answer; nor are the retired choices.
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"delete"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"skip"}', 422, "invalid-body"),
+                    # Recriar needs the model credential the assertion binds; the route never makes it optional.
+                    (
+                        incident + "/answer",
+                        b'{"nonce":"' + b"b" * 32 + b'","choice":"recreate"}',
+                        422,
+                        "routine-card-credential-invalid",
+                    ),
                     (incident + "/answer", nonce.encode(), 404, "routine-incident-unavailable"),
                     (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
                     (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
@@ -441,6 +451,10 @@ class RecoveryRouteTests(RoutineHttpCase):
                     with self.subTest(path=path, body=body):
                         status, _type, raw = self.request("POST", path, body)
                         self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
+                # A credential on an answer is bound by the Supervisor assertion; Rodar never carries one.
+                status, _type, raw = self.request("POST", incident + "/answer", nonce.encode(), self.model())
+                self.assertEqual((status, json.loads(raw)["code"]), (422, "routine-card-credential-invalid"))
+                self.assertIsNotNone(verify.call_args.kwargs["request"].model)
                 # Pausar turns the whole Routine's dispatch off; Retomar turns it back on.
                 status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/pause", EMPTY)
                 paused = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}

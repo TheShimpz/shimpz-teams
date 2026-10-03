@@ -1,12 +1,15 @@
-"""The recovery card of a held Routine run: exactly Verificar, Pular, and Pausar (ADR-0092 section 7).
+"""The recovery card of a held Routine run: Rodar, Recriar, and Excluir (ADR-0092 section 7, amended 2026-10-02).
 
-Opening a card binds it to the authenticated person, the Team incarnation, the Routine, its run and operation, the
-revision the run executed, a fresh nonce, and a five-minute expiry. Its answer must match every one of those, once.
+Team verifies a held run automatically; a card exists only when that could not prove what the failed step did. It
+shows the step and the failure Team recorded for it, and binds itself to the authenticated person, the Team
+incarnation, the Routine, its run and operation, the revision the run executed, the Routine's sealed creation source, a
+fresh nonce, and a five-minute expiry. Its answer must match every one of those, once.
 
-Verificar runs the Action's fixed read-only verifier in the Team's execution slot with no model and no provider key;
-proven occurrence, or proven absence with the run's one retry left, continues the already-authorized run under a fresh
-internal lease. Pular abandons the rest of the run and its dependent steps without replay or fabricated output, keeps
-its possible effects unresolved, and permits future cycles. Pausar disables dispatch while the incident stays.
+Rodar sets the held run aside without verifying it and requests one fresh run of the current revision; the step may
+already have acted, so it may act again. Recriar compiles the Routine's exact creation message from scratch and
+replaces the Routine in place as its next revision. Excluir is not a card answer: it is the Routine's own deletion,
+confirmed with the Supervisor's password and second factor in Admin. Neither answer starts while the held attempt's
+workload could still be running, while another run of the Routine is live, or once the Routine is deleted.
 """
 
 from __future__ import annotations
@@ -20,18 +23,19 @@ from http import HTTPStatus
 
 from local import audit as local_audit
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import diagnostics as routine_diagnostics
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
-from local.routine import run as routine_run
+from local.routine import recreate as routine_recreate
+from local.routine import source as routine_source
 from local.routine import state as routine_state
+from local.routine import turn as routine_turn
 from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from routine import hold as routine_hold
 from routine import record
 
 CARD_SECONDS = http_routine.CARD_SECONDS
-# A manual verification's registered deadline, after which the watchdog stops it like an overdue run.
-VERIFY_SECONDS = 60
 CHOICES = http_routine.CARD_CHOICES
 
 
@@ -47,6 +51,8 @@ class Card:
     # The held run's journal generation the card was opened on; a continuation and a new hold since change it.
     generation: str
     operation_id: str | None
+    # The commitment of the Routine's sealed creation source, which Recriar compiles; None when it has none.
+    source: str | None
     nonce: str
     expires_at: float
 
@@ -112,19 +118,25 @@ def _unresolved(self, team_id: str, incident_id: str) -> record.Incident:
     return value
 
 
-def _verifiable(self, team_id: str, incident_id: str) -> bool:
-    """Whether Verificar can prove anything: nothing is uncertain, absence is proven, or a verifier is declared.
-
-    A policy hold has nothing to verify, so its card recommends Pausar.
-    """
+def _source(self, team_id: str, routine_id: str) -> str | None:
+    """The commitment of the Routine's creation source; None when it has none or it cannot be read."""
     try:
-        assessment = routine_recovery.assess(self, team_id, incident_id)
+        source = routine_source.load(self, team_id, routine_id)
     except ApiProblem:
-        return False
-    proven = routine_recovery.quiescence(self, team_id, assessment, routine_recovery.proven(assessment))
-    if proven in {"policy", "unquiesced", "unclassified"}:
-        return False
-    return proven != "uncertain" or routine_recovery.verifier_request(assessment) is not None
+        return None
+    return None if source is None else source.commitment
+
+
+def _evidence(self, team_id: str, incarnation: str, incident_id: str, operation_id: str | None) -> dict[str, object]:
+    """The held operation's latest recorded diagnostic, never one of an earlier operation of the run."""
+    try:
+        found = self.routine_diagnostics.read(team_id, incarnation, incident_id, int(time.time()))
+    except routine_diagnostics.DiagnosticStoreError:
+        return {"evidence": "unavailable", "diagnostic": None}
+    latest = [item for item in found if operation_id is not None and item.operation_id == operation_id]
+    if not latest:
+        return {"evidence": "absent", "diagnostic": None}
+    return {"evidence": "recorded", "diagnostic": latest[-1].view()}
 
 
 def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
@@ -133,21 +145,28 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
     value = _unresolved(self, team_id, incident_id)
     opened = routine_incident.open_recovery(self, team_id, incident_id)
     steps = opened.recovery.plan["steps"]
-    step = steps[min(opened.cursor.step, len(steps) - 1)]
-    verifiable = _verifiable(self, team_id, incident_id)
-    recommended = "verify" if verifiable else "pause"
+    index = min(opened.cursor.step, len(steps) - 1)
+    step = steps[index]
+    incarnation = opened.recovery.binding.incarnation
     card = Card(
         principal,
-        opened.recovery.binding.incarnation,
+        incarnation,
         incident_id,
         value.routine_id,
         value.revision,
         _current_revision(self, team_id, value.routine_id),
         value.generation,
         opened.cursor.operation_id,
+        _source(self, team_id, value.routine_id),
         secrets.token_hex(16),
         self.routine_cards.deadline(),
     )
+    evidence = _evidence(self, team_id, incarnation, incident_id, opened.cursor.operation_id)
+    if evidence["diagnostic"] is not None and (
+        (evidence["diagnostic"]["assistant_id"], evidence["diagnostic"]["action"])
+        != (step["assistant"], step["action"])
+    ):
+        evidence = {"evidence": "absent", "diagnostic": None}
     self.routine_cards.open(team_id, card)
     return {
         "team_id": team_id,
@@ -156,16 +175,17 @@ def open_card(self, team_id: str, incident_id: str) -> dict[str, object]:
         "revision": value.revision,
         "assistant_id": step["assistant"],
         "action": step["action"],
+        "step": index + 1,
+        "steps": len(steps),
+        **evidence,
         "nonce": card.nonce,
         "expires_in": CARD_SECONDS,
-        # The recommended available choice leads; an unverifiable step recommends Pausar.
-        "choices": [recommended, *(choice for choice in CHOICES if choice != recommended)],
-        "recommended": recommended,
+        "choices": list(CHOICES),
     }
 
 
 def _bound(self, team_id: str, card: Card) -> routine_hold.Expected:
-    """The card still names exactly this Team incarnation, incident, revision, generation, and operation.
+    """The card still names exactly this Team incarnation, incident, revision, generation, operation, and source.
 
     It is checked in the Team's execution slot, where nothing else moves the cursor, and returns what the card's state
     transition checks again in its own write.
@@ -177,57 +197,82 @@ def _bound(self, team_id: str, card: Card) -> routine_hold.Expected:
         or (value.routine_id, value.revision, value.generation) != (card.routine_id, card.revision, card.generation)
         or _current_revision(self, team_id, card.routine_id) != card.current
         or opened.cursor.operation_id != card.operation_id
+        or _source(self, team_id, card.routine_id) != card.source
     ):
         raise _problem(HTTPStatus.CONFLICT, "the recovery card is stale; open it again", "routine-card-stale")
     return routine_hold.Expected(card.revision, card.generation, card.current)
 
 
-def _verify(self, team_id: str, card: Card, token: str) -> dict[str, object]:
-    """Verificar: the fixed verifier with no model, then the already-authorized continuation when evidence allows."""
-    # A registered, cancellable recovery lease: Stop and deletion reach the verification and fence the continuation.
-    with routine_run.registered(self, team_id, card.incident_id, token, VERIFY_SECONDS):
-        verdict = routine_recovery.verify(self, team_id, card.incident_id, token, budgeted=False)
-        status = None
-        if verdict in {"occurred", "absent", "none"} and not self._chat_cancelled(token):
-            opened = routine_incident.open_recovery(self, team_id, card.incident_id)
-            if routine_recovery.refusal(opened.cursor) is None and _continuable(self, team_id, card.routine_id):
-                status = routine_recovery.continue_run(self, team_id, card.incident_id, token)
-    return {"verdict": verdict, "status": status}
-
-
-def _continuable(self, team_id: str, routine_id: str) -> bool:
-    """A deleted, paused, or busy Routine never resumes a run; its incident stays for the person to settle."""
+def restartable(self, team_id: str, card: Card) -> record.Routine:
+    """The Routine a fresh run or a replacement may start for: listed, idle, and with the held attempt stopped."""
     state = routine_state.load(self, team_id)
-    current = next((item for item in state.routines if item.routine_id == routine_id), None)
-    return (
-        current is not None
-        and not current.deleting
-        and not current.paused
-        and not any(item.routine_id == routine_id for item in state.runs)
+    current = next((item for item in state.routines if item.routine_id == card.routine_id), None)
+    if current is None or current.deleting or card.current == 0:
+        raise _problem(HTTPStatus.CONFLICT, "Routine is unavailable", "routine-not-found")
+    if any(item.routine_id == card.routine_id for item in state.runs):
+        raise _problem(HTTPStatus.CONFLICT, "another run of this Routine is live", "routine-busy")
+    if not routine_recovery.workload_stopped(
+        self, team_id, routine_incident.open_recovery(self, team_id, card.incident_id)
+    ):
+        raise _problem(HTTPStatus.CONFLICT, "the held attempt may still be running", "routine-workload-unquiesced")
+    return current
+
+
+def _contracts_changed() -> ApiProblem:
+    return _problem(HTTPStatus.CONFLICT, "the Routine's Assistants changed", "routine-contracts-changed")
+
+
+def _run(self, team_id: str, card: Card, expected: routine_hold.Expected) -> str:
+    """Rodar: set the held run aside and request one fresh run of the Routine's current revision."""
+    current = restartable(self, team_id, card)
+    if current.needs_reconfirm:
+        raise _contracts_changed()
+    pinned = dict(current.assistants)
+    try:
+        if routine_turn.current_contracts(self, team_id, tuple(pinned)) != pinned:
+            raise _contracts_changed()
+    except routine_turn.ContractsUnavailableError as exc:
+        raise routine_turn.context_unavailable() from exc
+    now = int(time.time())
+    routine_incident.set_aside(
+        self, team_id, card.incident_id, lambda state: routine_hold.run_incident(state, card.incident_id, now, expected)
     )
+    return "requested"
 
 
-def answer_card(self, team_id: str, incident_id: str, body: object) -> dict[str, object]:
-    """Answer one open recovery card with exactly one of its choices."""
+def _credential(choice: str, credential: tuple[str, str] | None) -> None:
+    """Recriar needs the Team's model credential; Rodar runs no model and carries none."""
+    if (choice == "recreate") != (credential is not None):
+        raise _problem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "only Recriar carries the model credential, and it always does",
+            "routine-card-credential-invalid",
+        )
+
+
+def answer_card(
+    self, team_id: str, incident_id: str, body: object, credential: tuple[str, str] | None = None
+) -> dict[str, object]:
+    """Answer one open recovery card with Rodar or Recriar."""
     team_id, principal = validate_team_id(team_id), _principal()
     body = http_routine.canonical_card_answer_request(body)
     if body is None:
-        raise _problem(HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and one choice", "invalid-body")
+        raise _problem(
+            HTTPStatus.UNPROCESSABLE_ENTITY, "a card answer is its nonce and Rodar or Recriar", "invalid-body"
+        )
+    choice = body["choice"]
+    _credential(choice, credential)
     routine_id = _unresolved(self, team_id, incident_id).routine_id
-    # Every choice is checked and applied in the Team's execution slot, against the state the card was opened on.
+    # Every answer is checked and applied in the Team's execution slot, against the state the card was opened on.
     with self._exclusive_chat_turn(team_id, routine_id) as token:
         card = self.routine_cards.take(team_id, incident_id, body["nonce"], principal)
         if card is None:
             raise _problem(HTTPStatus.CONFLICT, "the recovery card expired; open it again", "routine-card-expired")
         expected = _bound(self, team_id, card)
-        choice = body["choice"]
-        if choice == "verify":
-            result = _verify(self, team_id, card, token)
-        elif choice == "skip":
-            routine_incident.skip(self, team_id, incident_id, expected)
-            result = {"verdict": None, "status": "skipped"}
+        if choice == "run":
+            status = _run(self, team_id, card, expected)
         else:
-            routine_incident.pause(self, team_id, incident_id, "person", expected)
-            result = {"verdict": None, "status": "paused"}
+            current = restartable(self, team_id, card)
+            status = routine_recreate.recreate(self, team_id, card, expected, (current, principal, token), credential)
     local_audit.record_request("routine-card", result="ok", team_id=team_id, detail=f"{incident_id}:{choice}")
-    return {"team_id": team_id, "incident_id": incident_id, "choice": choice, **result}
+    return {"team_id": team_id, "incident_id": incident_id, "choice": choice, "status": status}

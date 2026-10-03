@@ -54,3 +54,16 @@ def large_definition() -> dict[str, object]:
         for index in range(8)
     ]
     return {"name": "Large", "steps": steps, "schedule": {"kind": "daily", "time": "09:00"}, "timezone": "UTC"}
+
+
+def set_aside(service, team_id: str, incident_id: str, choice: str = "run"):
+    """A person sets a held run aside, as a card answer or a deletion does, without starting anything new."""
+    import time
+
+    from local.routine import incident as routine_incident
+    from routine import hold as routine_hold
+
+    def change(state):
+        return routine_hold.skip_incident(state, incident_id, int(time.time()), choice=choice)
+
+    return routine_incident.set_aside(service, team_id, incident_id, change)

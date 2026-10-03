@@ -1,8 +1,10 @@
 """Holding a Routine run and settling its incident, without I/O (ADR-0092 sections 5 and 7).
 
 A held run's incident is indexed as the run ends, keeps the run's notice, quote, step, and remaining active time, and
-outlives a deleted Routine. It is resumed as a continuation under a fresh internal lease, skipped by the person (Pular),
-or paused (Pausar); a person's card checks the exact state it was opened on in the same write.
+outlives a deleted Routine's record only until it is released. It is resumed as a continuation under a fresh internal
+lease after Team-admitted evidence, or set aside by a person: Rodar, which requests one fresh run; Recriar, which
+replaces the Routine in place; or the Routine's deletion. A person's card checks the exact state it was opened on in the
+same write.
 """
 
 from __future__ import annotations
@@ -50,7 +52,9 @@ def settle_hold(
         if released is None:
             raise record.RoutineStateError("incident-limit")
         kept.remove(released)
-    return record._without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
+    state = record._without_run(dataclasses.replace(state, incidents=(*kept, incident)), run_id, now)
+    # A Routine being deleted keeps no incident for a person to settle: its run is set aside as it is indexed.
+    return skip_incident(state, run_id, now, choice="delete") if current.deleting else state
 
 
 def incident(state: record.TeamRoutines, incident_id: str) -> record.Incident:
@@ -153,35 +157,60 @@ def _expect(state: record.TeamRoutines, value: record.Incident, expected: Expect
 
 
 def skip_incident(
-    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected | None = None
+    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected | None = None, *, choice: str
 ) -> record.TeamRoutines:
-    """Pular: abandon the rest of the held run and permit future cycles; its possible effects stay unresolved.
+    """A person sets the held run aside, never verified, replayed, or fabricated; its possible effects stay unresolved.
 
-    Its notice says the person skipped it, which is distinct from the Routine's own missed-schedule skip. A card's
-    ``expected`` state is checked in the same write. The skip is the held run's end: a continuous Routine's next run is
-    due its gap after it, however long the run was held.
+    ``choice`` is how: Rodar (``run``), Recriar (``recreate``), or deleting the Routine (``delete``), which the run's
+    ``user-skipped`` notice names; it is distinct from the Routine's own missed-schedule skip. A card's ``expected``
+    state is checked in the same write. Setting it aside is the held run's end: a continuous Routine's next run is due
+    its gap after it, however long the run was held.
     """
     value = incident(state, incident_id)
     if value.status != "unresolved":
         raise record.RoutineStateError("incident-not-unresolved")
     _expect(state, value, expected)
-    step = _step_detail((value.assistant_id, value.action))
-    state, value = _incident_notice(state, value, "user-skipped", now, step)
+    detail = {**_step_detail((value.assistant_id, value.action)), "choice": choice}
+    state, value = _incident_notice(state, value, "user-skipped", now, detail)
     state = record.rebase_continuous(state, value.routine_id, now)
     return _replace_incident(state, dataclasses.replace(value, status="skipped"))
 
 
-def pause_incident(
-    state: record.TeamRoutines, incident_id: str, now: int, reason: str, expected: Expected | None = None
-) -> record.TeamRoutines:
-    """Recovery or a person paused the Routine an unresolved incident holds, and the run's notice says why.
+def run_incident(state: record.TeamRoutines, incident_id: str, now: int, expected: Expected) -> record.TeamRoutines:
+    """Rodar: set the held run aside and request one fresh run of the Routine's current revision, in one write.
 
-    A card's ``expected`` state is checked in the same write.
+    The Routine leaves its pause with a fresh failure streak. A fixed schedule keeps the request until a claim starts
+    it, under every start cap and without moving its cadence; a continuous one is simply due its gap after this.
     """
+    value = incident(state, incident_id)
+    state = record.set_paused(skip_incident(state, incident_id, now, expected, choice="run"), value.routine_id, False)
+    current = record.routine(state, value.routine_id)
+    if record.continuous(current):
+        return state
+    return record._replace_routine(state, dataclasses.replace(current, run_requested=now))
+
+
+def recreate_incident(
+    state: record.TeamRoutines, incident_id: str, now: int, expected: Expected, replacement: record.Replacement
+) -> record.TeamRoutines:
+    """Recriar: set the held run aside and replace the Routine with its recompiled definition, in one write.
+
+    The replacement is the Routine's next revision, with its changed notice and its request's receipt; the Routine
+    leaves its pause with a fresh failure streak and is first due by its new schedule.
+    """
+    value = incident(state, incident_id)
+    state = skip_incident(state, incident_id, now, expected, choice="recreate")
+    state, changed = record.update(state, replacement.value, expected.current, now, *replacement.receipt)
+    if not changed:
+        raise record.RoutineStateError("routine-receipt-replayed")
+    return record.set_paused(state, value.routine_id, False)
+
+
+def pause_incident(state: record.TeamRoutines, incident_id: str, now: int, reason: str) -> record.TeamRoutines:
+    """Recovery paused the Routine an unresolved incident holds, and the run's notice says why."""
     value = incident(state, incident_id)
     if value.status != "unresolved" or reason not in record.PAUSE_REASONS:
         raise record.RoutineStateError("incident-not-unresolved")
-    _expect(state, value, expected)
     state = record.set_paused(state, value.routine_id, True)
     detail = {**_step_detail((value.assistant_id, value.action)), "reason": reason}
     state, value = _incident_notice(state, value, "paused", now, detail)
