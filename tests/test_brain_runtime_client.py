@@ -182,6 +182,56 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         client.resume(context(self.secret), {"interrupt-1": {"status": "ok"}})
         self.assertNotIn("conversation", json.loads(connection.requests[0][2]))
 
+    def test_start_and_resume_both_carry_the_prepared_attachments_and_action_gates(self):
+        attachment = {
+            "id": "a" * 32,
+            "name": "notes.md",
+            "media_type": "text/markdown",
+            "size": 5,
+            "sha256": "f" * 64,
+            "content": {"type": "text", "text": "notes", "pdf": False},
+        }
+        base = context(self.secret)
+        gated = dataclasses.replace(
+            base,
+            attachments=(attachment,),
+            assistants=(
+                dataclasses.replace(
+                    base.assistants[0],
+                    actions=(
+                        brain_runtime_client.RuntimeAction(
+                            "upload", "Upload.", {"type": "object"}, authorization=True, input_files=("document",)
+                        ),
+                    ),
+                ),
+            ),
+        )
+        for call in (
+            lambda client: client.start(gated, "Use my notes", conversation=()),
+            lambda client: client.resume(gated, {"interrupt-1": {"ok": True}}),
+        ):
+            client, connection = self.client(
+                _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+            )
+            call(client)
+            payload = json.loads(connection.requests[0][2])
+            self.assertEqual(payload["attachments"], [attachment])
+            self.assertEqual(
+                payload["assistants"][0]["actions"][0],
+                {
+                    "id": "upload",
+                    "summary": "Upload.",
+                    "input_schema": {"type": "object"},
+                    "authorization": True,
+                    "input_files": ["document"],
+                },
+            )
+        client, connection = self.client(
+            _Response({"status": "completed", "clarification": None, "reply": "Done.", "actions": []})
+        )
+        client.start(base, "Hello", conversation=())
+        self.assertEqual(json.loads(connection.requests[0][2])["attachments"], [])
+
     def test_an_invalid_conversation_is_refused_before_any_request(self):
         oversized = tuple(
             brain_runtime_client.RuntimeConversationEntry("user", "x", False)
@@ -526,32 +576,38 @@ class BrainRuntimeClientTests(RuntimeClientCase):
         with self.assertRaises(brain_runtime_client.BrainRuntimeError):
             client.start(context(self.secret), "Quais modelos?", conversation=())
 
-    def test_a_completed_turn_carries_at_most_one_closed_routine_change(self):
-        proposal = {
-            "op": "propose",
-            "quote": "Toda segunda às 9h, confira o DNS",
-            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
-            "timezone": None,
-            "routine_id": None,
-        }
+    def test_a_completed_turn_carries_at_most_one_routine_change_and_never_with_a_question(self):
+        change = {"op": "create", "name": "DNS semanal"}
         client, connection = self.client(
-            _Response(
-                {"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": proposal}
-            )
+            _Response({"status": "completed", "clarification": None, "reply": "Ok.", "actions": [], "routine": change})
         )
         routines = (
             {
                 "routine_id": "a" * 32,
+                "name": "Resumo",
                 "quote": "x" * 8,
                 "schedule": {"kind": "daily", "time": "08:00"},
                 "timezone": "UTC",
+                "revision": 1,
+                "steps": [{"id": "list", "assistant": "dns", "action": "list-zones", "inputs": []}],
             },
         )
         chat = dataclasses.replace(context(self.secret), routines=routines)
-        self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, proposal)
+        # Local Team admits the change's closed shape against the committed message; the client only bounds where.
+        self.assertEqual(client.start(chat, "Toda segunda às 9h, confira o DNS", conversation=()).routine, change)
         sent = json.loads(connection.requests[0][2])
         self.assertEqual((sent["routines"], sent["knowledge_writable"]), ([dict(routines[0])], True))
-        for routine, status in (({**proposal, "extra": 1}, "completed"), (proposal, "action-required")):
+        question = {
+            "question": "Qual?",
+            "options": [{"label": "A", "description": ""}, {"label": "B", "description": ""}],
+        }
+        question["default_index"] = 0
+        rendered = "Qual?\n\n1. A ✓\n2. B"
+        for routine, status, clarification, reply in (
+            (["create"], "completed", None, "Ok."),
+            (change, "action-required", None, ""),
+            (change, "completed", question, rendered),
+        ):
             actions = (
                 []
                 if status == "completed"
@@ -559,7 +615,13 @@ class BrainRuntimeClientTests(RuntimeClientCase):
             )
             client, _connection = self.client(
                 _Response(
-                    {"status": status, "clarification": None, "reply": "Ok.", "actions": actions, "routine": routine}
+                    {
+                        "status": status,
+                        "clarification": clarification,
+                        "reply": reply,
+                        "actions": actions,
+                        "routine": routine,
+                    }
                 )
             )
             with self.subTest(status=status), self.assertRaises(brain_runtime_client.BrainRuntimeError):

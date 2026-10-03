@@ -13,16 +13,17 @@ from assistant.manifest import (
     parse_manifest_contract,
     parse_manifest_genesis,
 )
+from tests import catalog_fixtures
 
-VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "manifest-vectors.json"
-PROTOCOL = VECTORS.parent
+VECTORS = Path(__file__).resolve().parents[1] / "protocol" / "assistant" / "v1" / "vectors" / "manifest.json"
+PROTOCOL = VECTORS.parents[1]
 CLOSED_OBJECT = {"type": "object", "additionalProperties": False}
 EXPECTED_UPSTREAM = {
     "repository": "https://github.com/TheShimpz/shimpz-developers",
-    "commit": "f2350bb153787e71891e8cc3b97d2298aa969411",
+    "commit": "c38d919b73f5fc6d2d12447ea69498706c710dd5",
     "path": "protocol/assistant/v1",
-    "tree": "f1f66ccd261df936f68e148c25d3c31a1069e179",
-    "contract_files_sha256": "1bc8ddff06862fc469ae8e996f4dcd67bdde42a325d0d1190a409e38e0de386d",
+    "tree": "2a1fb0a0ecedb8922a5791161fa00c9b59471fda",
+    "contract_files_sha256": "2e98972f97046106f69accae445aa4f2a050fd4500a144f5ba80b81eafd757be",
 }
 
 
@@ -51,7 +52,7 @@ class AssistantProtocolTests(unittest.TestCase):
             self.assertEqual(valid, case["valid"], case["name"])
 
     def test_matches_every_published_action_schema_vector_in_both_positions(self) -> None:
-        vectors = json.loads((PROTOCOL / "action-schema-vectors.json").read_bytes())
+        vectors = json.loads((PROTOCOL / "vectors/action-schema.json").read_bytes())
         self.assertEqual(vectors["version"], 1)
         for case in vectors["cases"]:
             for position in ("input_schema", "output_schema"):
@@ -61,11 +62,18 @@ class AssistantProtocolTests(unittest.TestCase):
                     "output_schema": CLOSED_OBJECT,
                     "integrations": [],
                     "stored_inputs": [],
+                    "input_files": [],
                     "human_requests": [],
+                    "effect": "read_only",
                 }
                 action[position] = case["schema"]
                 try:
-                    canonical_machine_contract({"version": 1, "actions": [action]}, ())
+                    canonical_machine_contract(
+                        {"version": 1, "actions": [action], "messages": catalog_fixtures.messages()},
+                        (),
+                        summary=catalog_fixtures.SUMMARY,
+                        allowed_hosts=(),
+                    )
                 except ManifestError:
                     valid = False
                 else:

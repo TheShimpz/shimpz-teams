@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from docker.errors import DockerException, ImageNotFound
 
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from local.install import source_package
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 LOCAL_STAGE_LABEL = "org.shimpz.local.stage"
@@ -47,6 +51,7 @@ _RECORD_FIELDS = {
     "manifest_digest",
     "machine_contract_digest",
     "icon_digest",
+    "pack_digest",
     "runtime",
     "allowed_hosts",
     "integrations",
@@ -83,6 +88,14 @@ class LocalSnapshotCandidate:
     image_id: str
     platform: str
     created_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotPreview:
+    """A staged image's validated icon and its summary in every interface language, read without starting it."""
+
+    icon: bytes
+    summaries: Mapping[str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +161,12 @@ def admit(client, image_id: str) -> AdmittedLocalSnapshot:
             raise LocalSnapshotError("the Local Assistant source package digest does not match its image")
         if package.manifest != extracted[assistant_manifest.MANIFEST_PATH] or package.icon != extracted[ICON_PATH]:
             raise LocalSnapshotError("the Local Assistant files do not match its source package")
-        record = _record(candidate, package, extracted[assistant_manifest.CONTRACT_PATH])
+        record = _record(
+            candidate,
+            package,
+            extracted[assistant_manifest.CONTRACT_PATH],
+            extracted[assistant_language.PACK_PATH],
+        )
     except LocalSnapshotError:
         raise
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
@@ -170,8 +188,13 @@ def require_candidate(
     return _candidate(image, _daemon_platform(client) if platform is None else platform)
 
 
-def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes:
-    """Return a validated icon from an exact staged image without starting it."""
+def preview(client, image_id: str, *, platform: str | None = None) -> SnapshotPreview:
+    """Return the validated icon and localized summaries of an exact staged image without starting it.
+
+    The summary in every non-English interface language is read only from the image's own pack, admitted complete
+    for the image's own catalog under Local's unsigned self-consistency trust (ADR-0060, ADR-0091); English is the
+    catalog summary itself, and no request message is ever read.
+    """
     candidate = require_candidate(client, image_id, platform=platform)
     extracted = _extract_preview_files(client, image_id)
     try:
@@ -179,6 +202,7 @@ def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes
         identity = assistant_manifest.parse_manifest_identity(manifest)
         creators = assistant_manifest.parse_manifest_creators(manifest)[:4]
         source_package.validate_icon(extracted[ICON_PATH])
+        summaries = _preview_summaries(identity.summary, manifest, extracted)
     except (source_package.SourcePackageError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the Local Assistant preview is invalid") from exc
     if (
@@ -189,7 +213,22 @@ def preview_icon(client, image_id: str, *, platform: str | None = None) -> bytes
         or creators != candidate.declared_creators
     ):
         raise LocalSnapshotError("the Local Assistant preview does not match its image labels")
-    return extracted[ICON_PATH]
+    return SnapshotPreview(icon=extracted[ICON_PATH], summaries=summaries)
+
+
+def _preview_summaries(summary: str, manifest: bytes, extracted: dict[str, bytes]) -> Mapping[str, str]:
+    contract = assistant_manifest.parse_manifest_contract(manifest)
+    machine_contract = assistant_manifest.parse_machine_contract(
+        extracted[assistant_manifest.CONTRACT_PATH],
+        contract.integrations,
+        contract.stored_inputs,
+        summary=summary,
+        allowed_hosts=contract.allowed_hosts,
+    )
+    raw_pack = extracted[assistant_language.PACK_PATH]
+    pack = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack))
+    identifier = catalog_validator.message_id(summary)
+    return MappingProxyType({locale: pack.template(identifier, locale) for locale in sorted(http_payload.CHAT_LOCALES)})
 
 
 def validate_record(record: dict[str, Any]) -> None:
@@ -211,7 +250,11 @@ def validate_record(record: dict[str, Any]) -> None:
             stored_input_declarations={declaration.id: declaration.metadata() for declaration in stored_inputs},
         )
         machine_contract = assistant_manifest.canonical_machine_contract(
-            record["machine_contract"], declarations, stored_inputs
+            record["machine_contract"],
+            declarations,
+            stored_inputs,
+            summary=identity.summary,
+            allowed_hosts=contract.allowed_hosts,
         )
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise LocalSnapshotError("the local Assistant record is invalid") from exc
@@ -350,6 +393,7 @@ def _extract_files(client, image_id: str) -> dict[str, bytes]:
             (SOURCE_PATH, "source.package", 32 * 1024 * 1024),
             (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
             (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
+            (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
             (ICON_PATH, "icon.png", 1024 * 1024),
         ),
     )
@@ -361,6 +405,8 @@ def _extract_preview_files(client, image_id: str) -> dict[str, bytes]:
         image_id,
         (
             (assistant_manifest.MANIFEST_PATH, "shimpz.toml", assistant_manifest.MAX_MANIFEST_BYTES),
+            (assistant_manifest.CONTRACT_PATH, "shimpz.contract.json", assistant_manifest.MAX_CONTRACT_BYTES),
+            (assistant_language.PACK_PATH, "shimpz.pack.json", assistant_language.MAX_PACK_BYTES),
             (ICON_PATH, "icon.png", 1024 * 1024),
         ),
     )
@@ -412,6 +458,7 @@ def _record(
     candidate: LocalSnapshotCandidate,
     package: source_package.SourcePackage,
     raw_contract: bytes,
+    raw_pack: bytes,
 ) -> dict[str, Any]:
     identity = assistant_manifest.parse_manifest_identity(package.manifest)
     if (identity.assistant_id, identity.version) != (candidate.assistant_id, candidate.version):
@@ -421,11 +468,16 @@ def _record(
         raw_contract,
         manifest_contract.integrations,
         manifest_contract.stored_inputs,
+        summary=identity.summary,
+        allowed_hosts=manifest_contract.allowed_hosts,
     )
     if candidate.actions != tuple(
         action["id"] for action in machine_contract["actions"]
     ) or candidate.integrations != tuple(value.provider for value in manifest_contract.integrations):
         raise LocalSnapshotError("the Local Assistant capability labels do not match its contract")
+    # Local admission is unsigned self-consistency (ADR-0060): the pack must be complete and valid for this exact
+    # catalog, and the record binds its digest so the started image must carry these exact bytes (ADR-0091).
+    pack_digest = assistant_language.admit_pack(raw_pack, machine_contract["messages"], _digest(raw_pack)).pack_digest
     return {
         "version": 1,
         "assistant_id": identity.assistant_id,
@@ -438,6 +490,7 @@ def _record(
         "manifest_digest": _digest(package.manifest),
         "machine_contract_digest": _digest(raw_contract),
         "icon_digest": _digest(package.icon),
+        "pack_digest": pack_digest,
         "runtime": {"user": RUNTIME_USER, "entrypoint": RUNTIME_ENTRYPOINT},
         "allowed_hosts": list(manifest_contract.allowed_hosts),
         "integrations": [
@@ -500,7 +553,14 @@ def _validate_record_primitives(
     machine_contract: dict[str, Any],
 ) -> None:
     expected_runtime = {"user": RUNTIME_USER, "entrypoint": RUNTIME_ENTRYPOINT}
-    digests = ("image_id", "source_digest", "manifest_digest", "machine_contract_digest", "icon_digest")
+    digests = (
+        "image_id",
+        "source_digest",
+        "manifest_digest",
+        "machine_contract_digest",
+        "icon_digest",
+        "pack_digest",
+    )
     if (
         record["assistant_id"] != identity.assistant_id
         or record["assistant_version"] != identity.version

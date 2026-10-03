@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import sys
 import unittest
 from dataclasses import replace
@@ -17,9 +18,11 @@ from assistant import spec as assistant_spec
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from inference import config as inference_config
+from inference import usage as brain_usage
 from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
+from tests import human_request_fixtures
 
 IMAGE = "registry.example/assistant@sha256:" + "b" * 64
 LOCAL_IMAGE = "sha256:" + "c" * 64
@@ -60,6 +63,7 @@ def pending(
                     "name": filename,
                     "media_type": "text/plain",
                     "size": 42,
+                    "sha256": "b" * 64,
                 }
             ],
             inference_config.normalize("openai", "gpt-6-luna"),
@@ -301,8 +305,9 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         )
         for fields, declared, stored_input in shapes:
             request = {**base, **fields}
-            request["fingerprint"] = action_human._fingerprint(request)
-            admitted = action_human.validate_request(request, (request["kind"],), declared)
+            admitted = human_request_fixtures.admit(
+                human_request_fixtures.fingerprinted(request), (request["kind"],), declared
+            )
             with self.subTest(kind=request["kind"], stored_input=stored_input):
                 self._round_trip(
                     "human",
@@ -315,6 +320,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                             "action-1",
                             admitted,
                             "0.4.1",
+                            copy=human_request_fixtures.copy(admitted),
                         ),
                     ),
                 )
@@ -347,7 +353,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "max_length": 1024,
             "stored_input": "exa-api-key",
         }
-        request["fingerprint"] = action_human._fingerprint(request)
         requirement = (
             action_challenges.HumanRequirement(
                 "demo-assistant",
@@ -355,8 +360,15 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 "publish",
                 "Search the web.",
                 "action-1",
-                action_human.validate_request(request, ("input:password",), ("exa-api-key",)),
+                human_request_fixtures.admit(
+                    human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
+                ),
                 "0.4.1",
+                copy=human_request_fixtures.copy(
+                    human_request_fixtures.admit(
+                        human_request_fixtures.fingerprinted(request), ("input:password",), ("exa-api-key",)
+                    )
+                ),
             ),
         )
         self._round_trip("human", requirement)
@@ -369,7 +381,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "title": "Prepare",
             "description": "Prepare the reviewed action.",
         }
-        first["fingerprint"] = action_human._fingerprint(first)
         current = {
             "kind": "input:text",
             "ordinal": 1,
@@ -381,7 +392,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 255,
         }
-        current["fingerprint"] = action_human._fingerprint(current)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -392,7 +402,12 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             (
                 action_human.ActionTranscript(
                     "action-1",
-                    (action_human.admit_response(action_human.validate_request(first, ("approval",)), True),),
+                    (
+                        action_human.admit_response(
+                            human_request_fixtures.admit(human_request_fixtures.fingerprinted(first), ("approval",)),
+                            True,
+                        ),
+                    ),
                 ),
             ),
             1,
@@ -404,8 +419,11 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 "publish",
                 "Publish a DNS record.",
                 "action-1",
-                action_human.validate_request(current, ("input:text",)),
+                human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",)),
                 "0.4.1",
+                copy=human_request_fixtures.copy(
+                    human_request_fixtures.admit(human_request_fixtures.fingerprinted(current), ("input:text",))
+                ),
             ),
         )
 
@@ -416,6 +434,40 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
+
+    def test_schema_six_keeps_the_turn_locale_usage_localized_copy_and_file_digests_together(self) -> None:
+        """One paused record carries ADR-0091 locale and copy, ADR-0082 usage, and ADR-0093 file digests."""
+        request = human_request_fixtures.request("approval")
+        requirement = (
+            human_request_fixtures.requirement(
+                request, locale="pt", assistant_id="demo-assistant", purpose="Publish it.", purpose_locale="pt"
+            ),
+        )
+        usage = brain_usage.TurnUsage(1_700_000_000_000, (("openai", "gpt-6-luna", 1331, 36),))
+        state = dataclasses.replace(pending(), locale="pt", usage=usage)
+
+        bindings, payload = local_chat_continuations.encode("human", requirement, state)
+        decoded = local_chat_continuations.decode(
+            local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
+        )
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 6)
+        self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
+        self.assertEqual(decoded.pending, state)
+        self.assertEqual(decoded.requirements, requirement)
+        self.assertEqual(decoded.requirements[0].copy.locale, "pt")
+
+        body = json.loads(payload)
+        variants = {
+            "schema 4": {**body, "schema": 4},
+            "no locale": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "locale"}},
+            "no usage": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "usage"}},
+        }
+        for name, variant in variants.items():
+            stored = local_chat_continuation_store.StoredContinuation(
+                "team_1", "human", "c" * 32, 1_300, 1, bindings, json.dumps(variant).encode()
+            )
+            with self.subTest(name), self.assertRaises(local_chat_continuations.ContinuationCodecError):
+                local_chat_continuations.decode(stored)
 
     def test_refuses_to_persist_password_response_material(self) -> None:
         secret_request = {
@@ -429,7 +481,6 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             "min_length": 1,
             "max_length": 64,
         }
-        secret_request["fingerprint"] = action_human._fingerprint(secret_request)
         state = pending()
         state = local_chat_continuations.PendingLocalChat(
             state.continuation,
@@ -442,7 +493,10 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                     "action-1",
                     (
                         action_human.admit_response(
-                            action_human.validate_request(secret_request, ("input:password",)), "secret"
+                            human_request_fixtures.admit(
+                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                            ),
+                            "secret",
                         ),
                     ),
                 ),
@@ -460,8 +514,15 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                         "publish",
                         "Publish a DNS record.",
                         "action-1",
-                        action_human.validate_request(secret_request, ("input:password",)),
+                        human_request_fixtures.admit(
+                            human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                        ),
                         "0.4.1",
+                        copy=human_request_fixtures.copy(
+                            human_request_fixtures.admit(
+                                human_request_fixtures.fingerprinted(secret_request), ("input:password",)
+                            )
+                        ),
                     ),
                 ),
                 state,

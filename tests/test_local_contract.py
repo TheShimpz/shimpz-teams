@@ -328,6 +328,10 @@ class LocalContractTests(LocalContractCase):
         self.assertIsNot(controller.assistant_lifecycle.__dict__, controller.chat_turn_service.__dict__)
         self.assertIs(controller.assistant_lifecycle.chat_turn_service, controller.chat_turn_service)
         self.assertIs(controller.chat_turn_service.assistant_lifecycle, controller.assistant_lifecycle)
+        # Team destroy and Space reset drop the Routine books chat opens and answers on: they are the same objects.
+        for book in ("routine_cards", "routine_lineage", "routine_human_challenges"):
+            with self.subTest(book=book):
+                self.assertIs(getattr(controller, book), getattr(controller.chat_turn_service, book))
         explicit_registry = object()
         explicit_storage = object()
         standalone_lifecycle = local_app.AssistantLifecycle(
@@ -515,6 +519,8 @@ class LocalContractTests(LocalContractCase):
                 "files": [],
                 "assistant_ids": ["shimpz-cloudflare"],
                 "conversation": [],
+                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                "timezone": None,
                 "locale": None,
             }
         ).encode()
@@ -557,6 +563,8 @@ class LocalContractTests(LocalContractCase):
                 "files": [],
                 "assistant_ids": ["shimpz-cloudflare"],
                 "conversation": [],
+                "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                "timezone": None,
                 "locale": None,
             },
         )
@@ -580,6 +588,7 @@ class LocalContractTests(LocalContractCase):
             with mock.patch.object(local_app.local_audit, "record_request", return_value="trace"):
                 response = controller.invoke("team_1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
 
+        self.assertTrue(local_app.action_journal.valid_operation_id(captured[0][1].pop("operation_id")))
         self.assertEqual(
             captured,
             [
@@ -589,6 +598,7 @@ class LocalContractTests(LocalContractCase):
                         "input": LOOKUP_INPUT,
                         "integrations": {"cloudflare": TEST_ACCOUNT_ACCESS_TOKEN},
                         "stored_inputs": {},
+                        "files": {},
                     },
                 )
             ],

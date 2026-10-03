@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from assistant import spec as assistant_registry
+from chat import attachments as chat_attachments
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from core.container import network as network_policy
@@ -18,6 +22,8 @@ from hosted import container as container_spec
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import attachments as hosted_attachments
+from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -139,7 +145,8 @@ class HostedChatSegmentRequest:
     expected_identity: tuple[object, ...] | None = None
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
-    # The interface language a new turn is written in; Hosted Store sends none (ADR-0090).
+    # The interface language a turn is written in; Hosted Store sends none (ADR-0090). A continuation carries the
+    # language its start pinned, so a later request of the same turn renders in it (ADR-0091).
     locale: str | None = None
 
 
@@ -244,6 +251,7 @@ def _execute_hosted_action(
     validated_assistant: hosted_assistants._ActiveAssistant,
     private_inputs: object,
     transcript: action_human.ActionTranscript,
+    operation_id: str,
 ) -> object:
     active = execution.bindings.get(request.assistant_id)
     if active is None:
@@ -265,13 +273,90 @@ def _execute_hosted_action(
                 private_inputs,
                 transcript,
                 action_execution.stored_input_origin(request),
+                operation_id,
             ),
         )
     )
     return invocation["result"]
 
 
+def _hosted_human_requirement(
+    bindings: dict[str, hosted_assistants._ActiveAssistant],
+    action_request: brain_runtime_client.ActionRequest,
+    human_request: action_human.HumanRequest,
+    locale: str,
+    selected: dict[str, action_files.ActionFile] | None = None,
+) -> action_challenges.HumanRequirement:
+    """The paused request of one active Assistant, its copy rendered in the turn's language (ADR-0091).
+
+    An authorization of a file-taking Action also discloses the selected file its approval delivers (ADR-0093).
+    """
+    active = bindings.get(action_request.assistant_id)
+    if active is None:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request Assistant changed")
+    action = active.contract.actions.get(action_request.action)
+    if action is None:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
+    try:
+        copy = action_challenges.render_copy(
+            human_request,
+            assistant_lifecycle._assistant_language(active.contract, active.container),
+            locale,
+        )
+        file = action_files.disclosure(action.input_files, action_request.input, selected or {}, human_request.kind)
+    except action_challenges.HumanChallengeError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action human request copy is unavailable") from exc
+    except action_files.FileDeliveryError as exc:
+        raise chat_orchestrator.ChatOrchestrationError("Action file is unavailable") from exc
+    return action_challenges.HumanRequirement(
+        active.assistant_id,
+        active.contract.name,
+        action_request.action,
+        action.summary,
+        action_request.interrupt_id,
+        human_request,
+        active.version,
+        copy,
+        help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
+        file=file,
+    )
+
+
+@contextlib.contextmanager
+def _admitted_delivery(
+    request: HostedChatSegmentRequest,
+    active: hosted_assistants._ActiveAssistant,
+    action_request: brain_runtime_client.ActionRequest,
+    private_inputs: object,
+) -> Iterator[None]:
+    """Admit a file delivery to the one file-RPC slot before its attempt is journaled (ADR-0093)."""
+    try:
+        with action_files.admitted(
+            getattr(private_inputs, "file", None),
+            active.contract.actions[action_request.action].human_requests,
+            action_human.transcript_for(request.transcripts, action_request.interrupt_id),
+            lambda: runtime_state._token_cancelled(request.token),
+        ):
+            yield
+    except action_files.FileRpcCancelledError as exc:
+        raise chat_orchestrator.ChatStoppedError("chat turn stopped") from exc
+    except action_files.FileRpcBusyError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.SERVICE_UNAVAILABLE, "another file-bearing Action is still running; retry"
+        ) from exc
+
+
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
+    if request.continuation is None:
+        # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.
+        hosted_chat_lifecycle.turn_started(request.team_id, request.file_ids or ())
+    result = _run_metadata_segment(request)
+    if isinstance(result.outcome, chat_orchestrator.ChatOutcome):
+        hosted_chat_lifecycle.turn_completed(request.team_id, request.file_ids or ())
+    return result
+
+
+def _run_metadata_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
     with (
         hosted_assistants.integration_secrets_client.IntegrationSecretSession() as credential_session,
         hosted_assistants._chat_file_metadata_connection(request.team_id, request.file_ids) as metadata_connection,
@@ -299,11 +384,14 @@ def _run_hosted_chat_segment_with_metadata(
     inspect_memo: dict[str, object] = {}
     credential_evidence = False
     validated_action_assistants: dict[str, hosted_assistants._ActiveAssistant] = {}
+    selected_files: dict[str, action_files.ActionFile] = {}
 
     def validate_action(assistant_id: str, action: str, action_input) -> object:
         return hosted_assistants._validate_assistant_action_input(bindings, assistant_id, action, action_input)
 
-    def execute_action(action_request: brain_runtime_client.ActionRequest, private_inputs: object) -> object:
+    def execute_action(
+        action_request: brain_runtime_client.ActionRequest, private_inputs: object, operation_id: str
+    ) -> object:
         nonlocal credential_evidence, validated_action_assistants
         if not credential_evidence:
             raise AssertionError("hosted Action lacks fresh credential evidence")
@@ -319,31 +407,21 @@ def _run_hosted_chat_segment_with_metadata(
             validated_assistant,
             private_inputs,
             transcript,
+            operation_id,
         )
 
     def human_requirement(
         action_request: brain_runtime_client.ActionRequest,
         human_request: action_human.HumanRequest,
+        locale: str,
     ) -> action_challenges.HumanRequirement:
-        active = bindings.get(action_request.assistant_id)
-        if active is None:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request Assistant changed")
-        action = active.contract.actions.get(action_request.action)
-        if action is None:
-            raise chat_orchestrator.ChatOrchestrationError("Action human request contract changed")
-        return action_challenges.HumanRequirement(
-            active.assistant_id,
-            active.contract.name,
-            action_request.action,
-            action.summary,
-            action_request.interrupt_id,
-            human_request,
-            active.version,
-            help_url=action_challenges.declared_help_url(human_request, active.contract.stored_inputs),
-        )
+        return _hosted_human_requirement(bindings, action_request, human_request, locale, selected_files)
+
+    def admit(action_request: brain_runtime_client.ActionRequest, private_inputs: object):
+        return _admitted_delivery(request, bindings[action_request.assistant_id], action_request, private_inputs)
 
     def prepare() -> chat_turn_engine.PreparedSegment:
-        nonlocal bindings, config, generation, initial_identity, prepared_assistants
+        nonlocal bindings, config, generation, initial_identity, prepared_assistants, selected_files
         team_name, prepared_assistants, files, config, api_key, generation, initial_identity = _hosted_chat_setup(
             team_id,
             request.file_ids,
@@ -365,11 +443,7 @@ def _run_hosted_chat_segment_with_metadata(
                     id=active.assistant_id,
                     genesis=genesis_by_id[active.assistant_id],
                     actions=tuple(
-                        brain_runtime_client.RuntimeAction(
-                            id=action_id,
-                            summary=action.summary,
-                            input_schema=action.input_schema,
-                        )
+                        chat_attachments.runtime_action(action_id, action)
                         for action_id, action in sorted(active.contract.actions.items())
                     ),
                 )
@@ -380,8 +454,10 @@ def _run_hosted_chat_segment_with_metadata(
             api_key=api_key,
             effort=config.effort,
             locale=request.locale,
+            attachments=hosted_attachments.turn_attachments(team_id, token, owner, files),
         )
         bindings = {active.assistant_id: active for active in prepared_assistants}
+        selected_files = action_files.selected(context.attachments)
         batch = action_execution.ActionBatch(
             runtime_state._action_execution_journal,
             container.id,
@@ -394,6 +470,7 @@ def _run_hosted_chat_segment_with_metadata(
                     team_id,
                     bindings,
                     request,
+                    selected_files,
                 ),
                 lambda request: hosted_assistants._action_integration_generations(
                     team_id, bindings[request.assistant_id], request.action
@@ -404,6 +481,9 @@ def _run_hosted_chat_segment_with_metadata(
                     request,
                     origins,
                 ),
+                lambda request: bindings[request.assistant_id].contract.actions[request.action].effect,
+                admit=admit,
+                stopped=lambda: runtime_state._token_cancelled(token),
             ),
         )
         return chat_turn_engine.PreparedSegment(team_name, initial_identity, context, files, batch)
@@ -461,6 +541,7 @@ def _run_hosted_chat_segment_with_metadata(
         outcome,
         requirements.integrations,
         requirements.human,
+        locale=request.locale,
     )
 
 
@@ -608,6 +689,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             identity=segment.identity,
             transcripts=chat_orchestrator.retain_suspension_transcripts(request.transcripts, suspension),
             requests_used=request.requests_used,
+            locale=segment.locale,
             usage=None if request.usage is None else request.usage.joined(),
         )
 
@@ -623,7 +705,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
         usage = None if request.usage is None else request.usage.joined().wire()
         if usage is not None:
             body["usage"] = usage
-        return body
+        return chat_turn_engine.with_restricted_actions(body, terminal)
 
     try:
         return chat_turn_engine.dispatch(

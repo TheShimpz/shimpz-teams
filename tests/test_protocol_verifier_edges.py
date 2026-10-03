@@ -6,11 +6,13 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
 import runpy
 import shutil
 import sys
 import tempfile
+import threading
 import types
 import unittest
 import zlib
@@ -44,17 +46,23 @@ def _execute(
 ) -> str:
     with tempfile.TemporaryDirectory() as temporary:
         mirror = Path(temporary) / source.parent.name
-        shutil.copytree(source.parent, mirror)
+        # Bytecode left beside an imported mirror module is not part of the pinned tree.
+        shutil.copytree(source.parent, mirror, ignore=shutil.ignore_patterns("__pycache__"))
         if mutate is not None:
             mutate(mirror)
         output = io.StringIO()
         module_names = (
-            "human_request_validator",
             "payload",
             "progress",
             "routine",
             "schema_validator",
             "supervisor",
+            "validators",
+            "validators.action_effect",
+            "validators.failure",
+            "validators.human_request",
+            "validators.input_file",
+            "validators.message_catalog",
             "websocket",
         )
 
@@ -196,17 +204,82 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
                 _execute(ASSISTANT / "verify.py", mutate)
 
+    def test_rejects_any_descendant_outside_the_pinned_layout(self) -> None:
+        def nested(root: Path) -> None:
+            (root / "validators/extra").mkdir()
+            (root / "validators/extra/failure.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+
+        def bytecode(root: Path) -> None:
+            (root / "validators/__pycache__").mkdir()
+            (root / "validators/__pycache__/failure.cpython-314.pyc").write_bytes(b"\0")
+
+        def linked_file(root: Path) -> None:
+            target = root / "vectors/pattern.json"
+            target.rename(root.parent / "pattern.json")
+            target.symlink_to(root.parent / "pattern.json")
+
+        def file_input_contract(root: Path) -> None:
+            _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["$defs"]["action"]["properties"]["input_files"].update({"maxItems": 2}),
+            )
+
+        for mutate in (nested, bytecode, linked_file, lambda root: (root / "vectors/unlisted.json").write_text("{}")):
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit) as raised:
+                _execute(ASSISTANT / "verify.py", mutate)
+            self.assertRegex(str(raised.exception.code), "layout|artifact set")
+        with self.assertRaises(SystemExit) as raised:
+            _execute(ASSISTANT / "verify.py", file_input_contract)
+        self.assertIn("file input contract", str(raised.exception.code))
+
+        def manifest_fifo(root: Path) -> None:
+            (root / "contract-files.sha256").unlink()
+            os.mkfifo(root / "contract-files.sha256")
+
+        regular = os.lstat(ASSISTANT / "README.md")
+        real_lstat = os.lstat
+
+        def swapped(root: Path) -> None:
+            manifest = root / "contract-files.sha256"
+            content = manifest.read_bytes()
+            manifest.unlink()
+            os.mkfifo(manifest)
+
+            def write() -> None:
+                with contextlib.suppress(OSError), manifest.open("wb") as fifo:
+                    fifo.write(content)
+
+            threading.Thread(target=write, daemon=True).start()
+
+        def lstat(path, *args, **kwargs):
+            # The manifest looked regular when lstat ran and became a FIFO with a ready writer before it was opened.
+            return regular if str(path).endswith("contract-files.sha256") else real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(os, "lstat", lstat), self.assertRaises(SystemExit) as raised:
+            _execute(ASSISTANT / "verify.py", swapped)
+        self.assertIn("unexpected entry: contract-files.sha256", str(raised.exception.code))
+
+        for mutate, reason in (
+            (manifest_fifo, "unexpected entry"),
+            (lambda root: (root / "contract-files.sha256").unlink(), "unreadable"),
+            (lambda root: (root / "contract-files.sha256").write_bytes(b"\xff"), "manifest is invalid"),
+        ):
+            with self.subTest(reason=reason), self.assertRaises(SystemExit) as raised:
+                _execute(ASSISTANT / "verify.py", mutate)
+            self.assertIn(reason, str(raised.exception.code))
+
     def test_rejects_manifest_and_human_vector_drift(self) -> None:
         mutations = (
-            lambda root: _rewrite_json(root, "manifest-vectors.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(root, "vectors/manifest.json", lambda value: value.update({"version": 2})),
             lambda root: _rewrite_json(
                 root,
-                "manifest-vectors.json",
+                "vectors/manifest.json",
                 lambda value: value["cases"][0].update({"name": ""}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "manifest-vectors.json",
+                "vectors/manifest.json",
                 lambda value: value.update({"cases": [case for case in value["cases"] if case["valid"]]}),
             ),
             lambda root: _rewrite_json(
@@ -216,19 +289,71 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             ),
             lambda root: _rewrite_json(
                 root,
-                "human-request-vectors.json",
+                "vectors/human-request.json",
                 lambda value: value.update({"version": 2}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "action-schema-vectors.json",
+                "vectors/human-request.json",
+                lambda value: value["catalog"].update({"summary": "Not in the catalog."}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["properties"]["messages"].update({"maxItems": 255}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "language-pack.schema.json",
+                lambda value: value["properties"]["locales"]["required"].append("en"),
+            ),
+            lambda root: _rewrite_json(root, "vectors/catalog.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(
+                root,
+                "vectors/action-schema.json",
                 lambda value: value["cases"][0].update({"schema": "closed"}),
             ),
             lambda root: _rewrite_json(
                 root,
-                "pattern-vectors.json",
+                "vectors/pattern.json",
                 lambda value: value["cases"][0].update({"matches": "yes"}),
             ),
+        )
+        for mutate in mutations:
+            with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
+                _execute(ASSISTANT / "verify.py", mutate)
+
+    def test_rejects_effect_operation_id_and_failure_contract_drift(self) -> None:
+        def flip_first(value: dict[str, object]) -> None:
+            value["cases"][0]["valid"] = not value["cases"][0]["valid"]
+
+        mutations = (
+            lambda root: _rewrite_json(root, "vectors/action-effect.json", lambda value: value.update({"version": 2})),
+            lambda root: _rewrite_json(
+                root, "vectors/action-effect.json", lambda value: value["cases"][0].update({"name": ""})
+            ),
+            lambda root: _rewrite_json(root, "vectors/action-effect.json", flip_first),
+            lambda root: _rewrite_json(
+                root,
+                "vectors/action-effect.json",
+                lambda value: value.update({"cases": [case for case in value["cases"] if case["valid"]]}),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "machine-contract.schema.json",
+                lambda value: value["$defs"]["action"]["required"].remove("effect"),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "invocation.schema.json",
+                lambda value: value["required"].remove("operation_id"),
+            ),
+            lambda root: _rewrite_json(
+                root,
+                "result.schema.json",
+                lambda value: value["$defs"]["failure"]["required"].remove("truncated"),
+            ),
+            lambda root: _rewrite_json(root, "vectors/failure.json", flip_first),
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate), self.assertRaises(SystemExit):
@@ -260,7 +385,7 @@ class AssistantVerifierEdgeTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaisesRegex(SystemExit, "expanded-reference bound"):
                 _execute(
                     ASSISTANT / "verify.py",
-                    lambda root, mutation=mutation: _rewrite_json(root, "action-schema-vectors.json", mutation),
+                    lambda root, mutation=mutation: _rewrite_json(root, "vectors/action-schema.json", mutation),
                 )
 
 
@@ -353,6 +478,22 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
                 )
 
+    def test_rejects_missing_or_drifted_rendered_copy_vectors(self) -> None:
+        def missing(value: dict[str, object]) -> None:
+            value["rendered_copy"]["invalid"] = []
+
+        def accepted_invalid(value: dict[str, object]) -> None:
+            value["rendered_copy"]["invalid"] = [value["rendered_copy"]["valid"][0]]
+
+        def rejected_valid(value: dict[str, object]) -> None:
+            value["rendered_copy"]["valid"] = [value["rendered_copy"]["invalid"][0]]
+
+        for mutate in (missing, accepted_invalid, rejected_valid):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
     def test_rejects_missing_or_drifted_clarification_vectors(self) -> None:
         def missing(value: dict[str, object]) -> None:
             value["clarification"]["invalid"] = []
@@ -432,14 +573,14 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
         def accepted_timezone(value: dict[str, object]) -> None:
             value["routine_timezone"]["invalid"] = ["UTC"]
 
-        def missing_changes(value: dict[str, object]) -> None:
-            value["routine_change"]["valid"] = []
+        def missing_identities(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["valid"] = []
 
-        def rejected_change(value: dict[str, object]) -> None:
-            value["routine_change"]["valid"] = [{**value["routine_change"]["valid"][0], "extra": 1}]
+        def rejected_identity(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["valid"] = [{**value["chat_request_identity"]["valid"][0], "extra": 1}]
 
-        def accepted_change(value: dict[str, object]) -> None:
-            value["routine_change"]["invalid"] = [value["routine_change"]["valid"][0]]
+        def accepted_identity(value: dict[str, object]) -> None:
+            value["chat_request_identity"]["invalid"] = [value["chat_request_identity"]["valid"][0]]
 
         def missing_routine_assertions(value: dict[str, object]) -> None:
             value["local_routine"]["invalid"] = []
@@ -461,9 +602,9 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             missing_timezones,
             rejected_timezone,
             accepted_timezone,
-            missing_changes,
-            rejected_change,
-            accepted_change,
+            missing_identities,
+            rejected_identity,
+            accepted_identity,
         )
         for mutate in mutations:
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
@@ -479,9 +620,25 @@ class TeamHttpVerifierEdgeTests(unittest.TestCase):
             value["routine_views"]["claim"]["valid"] = [{"run": None, "extra": 1}]
 
         def accepted_view(value: dict[str, object]) -> None:
-            value["routine_views"]["claim"]["invalid"] = [{"run": None}]
+            value["routine_views"]["claim"]["invalid"] = [{"run": None, "next_due_at": None}]
 
         for mutate in (missing_views, rejected_view, accepted_view):
+            with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
+                _execute(
+                    HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)
+                )
+
+    def test_rejects_missing_or_drifted_routine_diagnostics_vectors(self) -> None:
+        def missing_diagnostics(value: dict[str, object]) -> None:
+            value.pop("routine_diagnostics")
+
+        def rejected_diagnostics(value: dict[str, object]) -> None:
+            value["routine_diagnostics"]["valid"] = [{"team_id": "team_1", "run_id": "b" * 32}]
+
+        def accepted_diagnostics(value: dict[str, object]) -> None:
+            value["routine_diagnostics"]["invalid"] = [{"team_id": "team_1", "run_id": "b" * 32, "diagnostics": []}]
+
+        for mutate in (missing_diagnostics, rejected_diagnostics, accepted_diagnostics):
             with self.subTest(mutate=mutate.__name__), self.assertRaises(SystemExit):
                 _execute(
                     HTTP / "verify.py", lambda root, mutation=mutate: _rewrite_json(root, "vectors.json", mutation)

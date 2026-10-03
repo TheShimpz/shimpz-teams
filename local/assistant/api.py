@@ -4,10 +4,14 @@ from http import HTTPStatus
 
 from docker.errors import DockerException
 
+from assistant import language as assistant_language
 from install import icons
+from local.chat.types import ActiveAssistant
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import ASSISTANT_LABEL
-from local.validation import validate_team_id
+from local.validation import validate_assistant_id, validate_team_id
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.http.v1 import payload as http_payload
 
 
 def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
@@ -29,6 +33,39 @@ def assistant_icon(self, team_id: str, assistant_id: str) -> bytes:
                 "Assistant icon is unavailable",
                 code="assistant-icon-unavailable",
             ) from exc
+
+
+def assistant_summary(self, team_id: str, assistant_id: str, locale: object) -> dict[str, object]:
+    """One installed Assistant's summary in one closed interface language, read from its binding's pack (ADR-0091).
+
+    English is the binding's catalog summary itself; any other language is only that message's translation from the
+    pack verified against the binding's digest, so a missing or mismatched pack fails closed instead of answering in
+    English.
+    """
+    team_id = validate_team_id(team_id)
+    assistant_id = validate_assistant_id(assistant_id)
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "locale must be one interface language",
+            code="invalid-locale",
+        )
+    with self._lock(team_id):
+        binding = self.registry.binding(team_id, assistant_id)
+        if binding is None:
+            raise ApiProblem(
+                HTTPStatus.NOT_FOUND,
+                "Assistant is not installed in this Team",
+                code="assistant-not-installed",
+            )
+        spec = self.registry.spec(binding)
+        if canonical == assistant_language.ENGLISH:
+            return {"locale": canonical, "summary": spec.summary}
+        container = self.assistant_lifecycle._assistant_container(team_id, assistant_id)
+        pack = self.assistant_lifecycle._assistant_language(ActiveAssistant(spec, container.id, container))
+        summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
+    return {"locale": canonical, "summary": summary}
 
 
 def list_assistants(self, team_id: str) -> dict[str, list[dict[str, str]]]:

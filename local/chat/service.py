@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import math
 import secrets
 import threading
+import time
 import weakref
 from contextlib import contextmanager
 from http import HTTPStatus
 
 from action import challenges as action_challenges
-from inference import client as brain_runtime_client
+from inference import abort as request_abort
 from local.chat import api as local_chat_api
+from local.chat import attachments as local_chat_attachments
 from local.chat import capabilities as local_chat_capabilities
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
@@ -21,9 +24,16 @@ from local.chat import segment as local_chat_segment
 from local.chat import state as local_chat_state
 from local.composition import ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import card as local_routine_card
+from local.routine import compiled as local_routine_compiled
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import human as local_routine_human
+from local.routine import incident as local_routine_incident
+from local.routine import lineage as local_routine_lineage
 from local.routine import manage as local_routine_manage
 from local.routine import notices as local_routine_notices
+from local.routine import question as local_routine_question
+from local.routine import recovery as local_routine_recovery
 from local.routine import run as local_routine_run
 from local.routine import turn as local_routine_turn
 
@@ -47,7 +57,10 @@ class ChatTurnService:
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations
         self.routine_store = dependencies.routine_store
-        self.routine_proposals = dependencies.routine_proposals
+        self.routine_diagnostics = dependencies.routine_diagnostics
+        self.routine_lineage = dependencies.routine_lineage or local_routine_lineage.LineageBook()
+        # Recovery cards of held runs, each answerable once by the person it was opened for (ADR-0092).
+        self.routine_cards = dependencies.routine_cards or local_routine_card.CardBook()
         # Routine challenges live apart from chat's one per Team, so a frozen run never blocks chat (ADR-0086).
         self.routine_human_challenges = dependencies.routine_human_challenges or action_challenges.HumanChallengeStore()
         self._lock = dependencies.lock_for
@@ -59,13 +72,19 @@ class ChatTurnService:
         self._active_chat_tokens: dict[str, str] = {}
         self._active_action_containers: dict[str, tuple[str, object]] = {}
         self._cancelled_chat_tokens: set[str] = set()
-        self._brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
+        self._brain_aborts: dict[str, request_abort.RequestAbort] = {}
         # The Routine whose run segment holds the Team's execution slot, so a chat message is told why it waits.
         self._routine_holders: dict[str, str] = {}
         # Each running Routine run's Team, execution-slot token, and active-time deadline, for its exact Stop.
         self._routine_runs: dict[str, object] = {}
         # Leased runs a Stop is ending before any worker registered them; a worker registering meanwhile is refused.
         self._routine_halting: set[str] = set()
+        # A person who found the Team's slot held by a Routine: chat goes first at the next boundary. Infinite while
+        # that Routine still holds the slot; its bounded grace starts only when the segment frees it.
+        self._chat_demand: dict[str, float] = {}
+        # The selected files each Team's Brain thread may still reference; absent means unknown, as after a restart,
+        # so a file's deletion then purges that thread (ADR-0093).
+        self._brain_files: dict[str, frozenset[str] | None] = {}
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -113,6 +132,9 @@ class ChatTurnService:
         if not lock.acquire(blocking=False):
             with self._active_chat_guard:
                 routine = team_id in self._routine_holders
+                if routine and routine_id is None:
+                    # A person waits on a Routine: no further run of the Team starts until chat had its turn.
+                    self._chat_demand[team_id] = math.inf
             if routine:
                 raise ApiProblem(HTTPStatus.CONFLICT, "Team is running a Routine", code="routine-active")
             raise ApiProblem(
@@ -122,20 +144,24 @@ class ChatTurnService:
             )
         token = secrets.token_hex(16)
         # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
-        brain_abort = brain_runtime_client.RequestAbort()
+        brain_abort = request_abort.RequestAbort()
         with self._active_chat_guard:
             self._active_chat_tokens[team_id] = token
             self._brain_aborts[token] = brain_abort
             if routine_id is not None:
                 self._routine_holders[team_id] = routine_id
+            else:
+                self._chat_demand.pop(team_id, None)
         try:
-            with brain_runtime_client.abortable(brain_abort):
+            with request_abort.abortable(brain_abort):
                 yield token
         finally:
             with self._active_chat_guard:
                 self._brain_aborts.pop(token, None)
                 if routine_id is not None:
                     self._routine_holders.pop(team_id, None)
+                    if team_id in self._chat_demand:
+                        self._chat_demand[team_id] = time.monotonic()
                 if self._active_chat_tokens.get(team_id) == token:
                     self._active_chat_tokens.pop(team_id, None)
                 active = self._active_action_containers.get(team_id)
@@ -145,6 +171,10 @@ class ChatTurnService:
             lock.release()
 
     _pending_chat_continuation = local_chat_api._pending_chat_continuation
+    _turn_started = local_chat_attachments.turn_started
+    _turn_completed = local_chat_attachments.turn_completed
+    _file_deletion_slot = local_chat_attachments.deletion_slot
+    _forget_file = local_chat_attachments.forget_file
     _segment_response = local_chat_api._segment_response
     chat = local_chat_api.chat
     action_labels = local_chat_capabilities.action_labels
@@ -155,15 +185,21 @@ class ChatTurnService:
     resume_chat_integrations = local_chat_api.resume_chat_integrations
     resume_chat_human = local_chat_human.resume_chat_human
     pending_chat_human = local_chat_human.pending_chat_human
+    open_chat_human = local_chat_human.open_chat_human
+    _relocalized_human = local_chat_human.relocalized
     _expire_human_challenges = local_chat_human._expire_human_challenges
     _chat_routines = local_routine_turn.chat_routines
-    _routine_proposal = local_routine_turn.routine_proposal
-    _withdraw_routine_proposal = local_routine_turn.withdraw_routine_proposal
+    _routine_change = local_routine_turn.admit_change
+    _routine_question = local_routine_question.admit
+    _recover_routine_run = local_routine_recovery.automatic
+    open_routine_card = local_routine_card.open_card
+    answer_routine_card = local_routine_card.answer_card
+    resume_routine = local_routine_incident.resume_routine
+    pause_routine = local_routine_incident.pause_routine
     claim_routine_run = local_routine_run.claim_routine_run
-    run_routine = local_routine_run.run_routine
+    next_routine_due = local_routine_run.next_routine_due
+    run_routine = local_routine_compiled.run_routine
     _stop_routine_run = local_routine_run.halt_routine_run
-    preview_routine = local_routine_manage.preview_routine
-    confirm_routine = local_routine_manage.confirm_routine
     list_routines = local_routine_manage.list_routines
     delete_routine = local_routine_manage.delete_routine
     open_routine_challenge = local_routine_human.open_routine_challenge
@@ -173,8 +209,8 @@ class ChatTurnService:
     _cancel_routine_challenge = local_routine_human.cancel_routine_challenge
     routine_notices = local_routine_notices.routine_notices
     acknowledge_routine_notices = local_routine_notices.acknowledge_notices
-    resolve_routine_run = local_routine_notices.resolve_routine_run
     stop_routine = local_routine_notices.stop_routine
+    routine_run_diagnostics = local_routine_diagnostics.run_diagnostics
 
     _invoke_chat_action = local_chat_execution._invoke_chat_action
     _chat_identity = staticmethod(local_chat_execution._chat_identity)
@@ -221,6 +257,9 @@ class ChatTurnService:
 
     def _active_assistant_genesis(self, active):
         return self.assistant_lifecycle._active_assistant_genesis(active)
+
+    def _assistant_language(self, active):
+        return self.assistant_lifecycle._assistant_language(active)
 
     def _admit_assistant_allowed_hosts(self, container, spec):
         return self.assistant_lifecycle._admit_assistant_allowed_hosts(container, spec)

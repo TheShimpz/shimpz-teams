@@ -30,6 +30,10 @@ from inference import client as brain_runtime_client
 from local import app as local_app
 from local.assistant import isolation as local_container_policy
 from local.assistant import rpc as local_assistant_rpc
+from tests import human_request_fixtures
+
+CATALOG = human_request_fixtures.CATALOG
+OPERATION_ID = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
 
 
 def _frame(stream_id: int, payload: bytes) -> bytes:
@@ -119,12 +123,15 @@ class ActionRpcFrameTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "envelope"):
             action_execution.integration_access_tokens({"cloud": {"type": "invalid", "access_token": "token"}})
         with self.assertRaisesRegex(ValueError, "invocation"):
-            action_execution.encode_rpc_invocation({"value": object()}, {}, {})
+            action_execution.encode_rpc_invocation({"value": object()}, {}, {}, OPERATION_ID)
         with (
             mock.patch.object(action_execution, "MAX_RPC_REQUEST_BYTES", 1),
             self.assertRaisesRegex(ValueError, "too large"),
         ):
-            action_execution.encode_rpc_invocation({}, {}, {})
+            action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID)
+        for operation_id in ("", OPERATION_ID.upper(), OPERATION_ID.replace("-4", "-1"), None):
+            with self.subTest(operation_id=operation_id), self.assertRaisesRegex(ValueError, "operation id"):
+                action_execution.encode_rpc_invocation({}, {}, {}, operation_id)
 
         request = brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
         for container_id, image in (("", "image"), ("container", "")):
@@ -298,22 +305,37 @@ class ActionRpcFrameTests(unittest.TestCase):
                 )
 
     def test_rpc_request_requires_reviewed_capability_and_canonical_fingerprint(self) -> None:
-        request = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Publish zone",
-            "description": "Publish this reviewed DNS zone.",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "approval", title="Publish zone", description="Publish this reviewed DNS zone."
+        )
 
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
             action_execution.project_rpc_result(
                 {"type": "request", "request": request},
                 {},
                 lambda value: value,
-                action_execution.RpcResultPolicy(human_requests=("approval",)),
+                action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
             )
         self.assertEqual(suspended.exception.request.payload(), request)
+
+        # A non-hex fingerprint is a controlled invalid result, never an uncaught comparison error.
+        with self.assertRaises(action_execution.RpcInvalidResultError):
+            action_execution.project_rpc_result(
+                {"type": "request", "request": {**request, "fingerprint": "\u00e9" * 64}},
+                {},
+                lambda value: value,
+                action_execution.RpcResultPolicy(human_requests=("approval",), catalog=CATALOG),
+            )
+
+        # A reference to a message the reviewed catalog does not declare is refused (ADR-0091).
+        for catalog in (None, {}):
+            with self.subTest(catalog=catalog), self.assertRaises(action_execution.RpcInvalidResultError):
+                action_execution.project_rpc_result(
+                    {"type": "request", "request": request},
+                    {},
+                    lambda value: value,
+                    action_execution.RpcResultPolicy(human_requests=("approval",), catalog=catalog),
+                )
 
         with self.assertRaises(action_execution.RpcInvalidResultError):
             action_execution.project_rpc_result(
@@ -323,6 +345,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 action_execution.RpcResultPolicy(
                     human_requests=("approval",),
                     authorization_requested=True,
+                    catalog=CATALOG,
                 ),
             )
 
@@ -351,19 +374,17 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.assertIsInstance(refused.exception.__cause__, action_human.HumanRequestError)
 
     def test_rpc_projects_exact_stored_input_requests_and_rejections(self) -> None:
-        request = {
-            "kind": "input:password",
-            "ordinal": 0,
-            "title": "Connect WhatsApp",
-            "description": "Provide the token once.",
-            "label": "WhatsApp token",
-            "required": True,
-            "placeholder": None,
-            "min_length": 1,
-            "max_length": 1024,
-            "stored_input": "whatsapp-token",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "input:password",
+            title="Connect WhatsApp",
+            description="Provide the token once.",
+            label="WhatsApp token",
+            required=True,
+            placeholder=None,
+            min_length=1,
+            max_length=1024,
+            stored_input="whatsapp-token",
+        )
         with self.assertRaises(action_human.HumanRequestSuspensionError) as suspended:
             action_execution.project_rpc_result(
                 {"type": "request", "request": request},
@@ -372,6 +393,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 action_execution.RpcResultPolicy(
                     human_requests=("input:password",),
                     declared_stored_inputs=("whatsapp-token",),
+                    catalog=CATALOG,
                 ),
             )
         self.assertEqual(suspended.exception.request.stored_input, "whatsapp-token")
@@ -398,19 +420,27 @@ class ActionRpcFrameTests(unittest.TestCase):
             )
 
     def test_rpc_invocation_adds_a_transcript_only_during_replay(self) -> None:
-        initial = action_execution.encode_rpc_invocation({}, {}, {})
+        initial = action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID)
         response = {
             "kind": "approval",
             "ordinal": 0,
             "fingerprint": "a" * 64,
             "value": True,
         }
-        replay = action_execution.encode_rpc_invocation({}, {}, {}, (response,))
+        replay = action_execution.encode_rpc_invocation({}, {}, {}, OPERATION_ID, (response,))
 
-        self.assertEqual(initial, b'{"input":{},"integrations":{},"stored_inputs":{}}')
+        self.assertEqual(
+            initial,
+            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
+            + OPERATION_ID.encode()
+            + b'"}',
+        )
         self.assertEqual(
             replay,
-            b'{"input":{},"integrations":{},"stored_inputs":{},"responses":[{"kind":"approval","ordinal":0,'
+            b'{"input":{},"integrations":{},"stored_inputs":{},"files":{},"operation_id":"'
+            + OPERATION_ID.encode()
+            + b'",'
+            b'"responses":[{"kind":"approval","ordinal":0,'
             b'"fingerprint":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",'
             b'"value":true}]}',
         )
@@ -418,10 +448,13 @@ class ActionRpcFrameTests(unittest.TestCase):
             {},
             {},
             {"whatsapp-token": "private"},
+            OPERATION_ID,
         )
         self.assertEqual(
             with_stored_input,
-            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"}}',
+            b'{"input":{},"integrations":{},"stored_inputs":{"whatsapp-token":"private"},"files":{},"operation_id":"'
+            + OPERATION_ID.encode()
+            + b'"}',
         )
 
     def test_malformed_frames_fail_closed_in_both_readers(self) -> None:
@@ -567,8 +600,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             current, fail_stop, cancelled, close = strategy(api)
             with (
                 self.subTest(expected=expected),
-                mock.patch.object(action_execution, "_write_all"),
-                mock.patch.object(action_execution, "read_rpc_frames", return_value=(b"", b"")),
+                mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"", b"")),
                 self.assertRaises(action_execution.RpcExchangeError) as caught,
             ):
                 action_execution.rpc_exchange(
@@ -580,10 +612,12 @@ class ActionRpcFrameTests(unittest.TestCase):
                 )
             self.assertEqual(caught.exception.kind, expected)
             close.assert_called_once_with(stream)
-            if expected == "ambiguous":
-                fail_stop.assert_called_once_with()
-            else:
+            if expected == "unsupported-path":
+                # An unsupported path never ran an Action, so there is nothing to stop.
                 fail_stop.assert_not_called()
+            else:
+                # An ambiguous outcome, or a nonzero exit or stderr, fail-stops the workload (ADR-0092).
+                fail_stop.assert_called_once_with()
             if expected != "unsupported-path":
                 cancelled.assert_called_once()
 
@@ -593,8 +627,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         api.exec_inspect.return_value = {"ExitCode": 0}
         current, fail_stop, cancelled, close = strategy(api)
         with (
-            mock.patch.object(action_execution, "_write_all"),
-            mock.patch.object(action_execution, "read_rpc_frames", return_value=(b'{"ok":true}', b"")),
+            mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b'{"ok":true}', b"")),
         ):
             self.assertEqual(
                 action_execution.rpc_exchange("container", ["command"], b"request", current),
@@ -642,7 +675,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         self.addCleanup(reader.close)
         self.addCleanup(writer.close)
         with self.assertRaises(TimeoutError):
-            action_execution._read_exact(reader, 1, time.monotonic() - 1)
+            action_execution.read_rpc_frames(reader, time.monotonic() - 1, 3)
 
         response = mock.Mock()
         action_execution.close_exec_stream(SimpleNamespace(_response=response))
@@ -693,7 +726,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                         team_id="team_1",
                         container=container,
                         action_id="test",
-                        payload={"input": {}, "integrations": {}, "stored_inputs": {}},
+                        payload={"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
                         token=None,
                     )
                 )
@@ -726,7 +759,7 @@ class ActionRpcFrameTests(unittest.TestCase):
                 controller.assistant_lifecycle._rpc(
                     SimpleNamespace(id="assistant-container"),
                     "test",
-                    {"input": {}, "integrations": {}, "stored_inputs": {}},
+                    {"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
                 )
 
         self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
@@ -758,10 +791,16 @@ class ActionRpcFrameTests(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="assistant-container"),
                 "test",
-                {"input": {}, "integrations": {}, "stored_inputs": {}, "responses": (response,)},
+                {
+                    "input": {},
+                    "integrations": {},
+                    "stored_inputs": {},
+                    "operation_id": OPERATION_ID,
+                    "responses": (response,),
+                },
             )
 
-        encode.assert_called_once_with({}, {}, {}, (response,))
+        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
 
     def test_hosted_exchange_carries_replay_responses_only_when_present(self) -> None:
         response = {
@@ -774,7 +813,13 @@ class ActionRpcFrameTests(unittest.TestCase):
             team_id="team_1",
             container=SimpleNamespace(id="assistant-container"),
             action_id="test",
-            payload={"input": {}, "integrations": {}, "stored_inputs": {}, "responses": (response,)},
+            payload={
+                "input": {},
+                "integrations": {},
+                "stored_inputs": {},
+                "operation_id": OPERATION_ID,
+                "responses": (response,),
+            },
             token=None,
         )
         with (
@@ -788,7 +833,7 @@ class ActionRpcFrameTests(unittest.TestCase):
         ):
             hosted_assistants._assistant_rpc_exchange(request)
 
-        encode.assert_called_once_with({}, {}, {}, (response,))
+        encode.assert_called_once_with({}, {}, {}, OPERATION_ID, (response,), {})
 
 
 class RpcMessageParity(unittest.TestCase):
@@ -797,7 +842,7 @@ class RpcMessageParity(unittest.TestCase):
             team_id="t",
             container=SimpleNamespace(id="c"),
             action_id="p",
-            payload={"input": {}, "integrations": {}, "stored_inputs": {}},
+            payload={"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
             token=None,
         )
         with (
@@ -831,7 +876,7 @@ class RpcMessageParity(unittest.TestCase):
                 fake,
                 SimpleNamespace(id="c"),
                 "p",
-                {"input": {}, "integrations": {}, "stored_inputs": {}},
+                {"input": {}, "integrations": {}, "stored_inputs": {}, "operation_id": OPERATION_ID},
             )
         return caught.exception.message
 

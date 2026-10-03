@@ -27,14 +27,14 @@ MAX_FILES = 256
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_BYTES = 127
 _METADATA_SELECTS = (
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?,?)",
-    "SELECT id,name,media_type,size FROM files WHERE id IN (?,?,?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?,?)",
+    "SELECT id,name,media_type,size,sha256 FROM files WHERE id IN (?,?,?,?,?,?,?,?)",
 )
 
 
@@ -69,6 +69,13 @@ def _team_id(value: object) -> str:
 def _file_id(value: object) -> str:
     if not isinstance(value, str) or http_payload.FILE_ID_RE.fullmatch(value) is None:
         raise StorageNotFoundError("file not found")
+    return value
+
+
+def scoped_file_id(value: object) -> str:
+    """One well-formed Team file id, present or not; a malformed id is invalid input, never an absent file."""
+    if not isinstance(value, str) or http_payload.FILE_ID_RE.fullmatch(value) is None:
+        raise StorageInputError("file id is invalid")
     return value
 
 
@@ -380,6 +387,8 @@ class TeamStorage:
                 "name": row[1],
                 "media_type": row[2],
                 "size": row[3],
+                # The original digest binds a turn to these exact bytes across its continuations (ADR-0093).
+                "sha256": row[4],
             }
             for row in rows
         }

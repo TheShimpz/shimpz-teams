@@ -27,6 +27,7 @@ from inference import usage as brain_usage
 from local.chat import api as local_chat_api
 from local.chat import continuation
 from protocol.http.v1 import payload as http_payload
+from tests import human_request_fixtures
 
 REPORTED = {
     "model_calls": 1,
@@ -130,9 +131,8 @@ class TurnUsageContinuationCodecTests(unittest.TestCase):
 
 
 def _approval() -> action_human.HumanRequest:
-    descriptor = {"kind": "approval", "ordinal": 0, "title": "List zones", "description": "Allow listing zones."}
-    descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-    return action_human.validate_request(descriptor, ("approval",))
+    # The harness binding's catalog carries exactly this reviewed copy (ADR-0091).
+    return human_request_fixtures.request("approval", title="List zones", description="Allow listing the zones.")
 
 
 def _reported(inputs: int, outputs: int) -> dict[str, int]:
@@ -168,7 +168,14 @@ class LocalTurnUsageTests(LocalContractCase):
                 raise action_human.HumanRequestSuspensionError(_approval())
             return {"result": LOOKUP_RESULT}
 
-        body = {"message": "List zones", "files": [], "assistant_ids": ["shimpz-cloudflare"], "conversation": []}
+        body = {
+            "message": "List zones",
+            "files": [],
+            "assistant_ids": ["shimpz-cloudflare"],
+            "conversation": [],
+            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+            "timezone": None,
+        }
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
             controller.assistant_lifecycle.invoke = invoke
@@ -297,7 +304,7 @@ class HostedTurnUsageResumeTests(unittest.TestCase):
 
     def _pending(self, usage: object) -> object:
         return harness.hosted_assistants._PendingHostedChat(
-            SimpleNamespace(), (), (), "account_1", ("anchor",), (), 0, usage
+            SimpleNamespace(), (), (), "account_1", ("anchor",), (), 0, usage=usage
         )
 
     def _segment(self, inputs: int, *, paused: bool) -> object:

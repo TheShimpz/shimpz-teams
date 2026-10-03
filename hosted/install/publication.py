@@ -45,6 +45,8 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             resolution["machine_contract"],
             declarations,
             stored_input_declarations,
+            summary=resolution["summary"],
+            allowed_hosts=assistant_manifest.canonical_allowed_hosts(resolution["allowed_hosts"]),
         )
         if machine_contract != resolution["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
@@ -64,17 +66,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             integrations=integrations,
             stored_inputs=stored_inputs,
         )
-        actions = {
-            action["id"]: assistant_registry.ActionSpec(
-                summary=assistant_registry.action_summary(action["id"]),
-                input_schema=action["input_schema"],
-                output_schema=action["output_schema"],
-                integrations=tuple(action["integrations"]),
-                stored_inputs=tuple(action["stored_inputs"]),
-                human_requests=tuple(action["human_requests"]),
-            )
-            for action in machine_contract["actions"]
-        }
+        actions = {action["id"]: assistant_registry.action_spec(action) for action in machine_contract["actions"]}
         platforms = tuple(platform.removeprefix("linux/") for platform in resolution["platforms"])
     except (KeyError, TypeError, assistant_manifest.ManifestError) as exc:
         raise bindings.DynamicAssistantError("the dynamic Assistant runtime contract is invalid") from exc
@@ -94,6 +86,7 @@ def _build_assistant_spec(assistant_id: str, resolution: dict[str, Any]) -> assi
             integrations=integrations,
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
+            pack_digest=resolution["pack_digest"],
         ),
     )
 

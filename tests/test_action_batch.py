@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sqlite3
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -16,10 +19,12 @@ sys.path.insert(0, str(TEAM))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
 from inference import client as brain_runtime_client
+from tests import human_request_fixtures
 
 
 class ActionBatchTests(unittest.TestCase):
@@ -97,7 +102,9 @@ class ActionBatchTests(unittest.TestCase):
 
         self.assertEqual(result, {"ok": True})
         self.assertEqual(evidence, [{"sequence": 1}, {"sequence": 2}])
-        execute.assert_called_once_with(request, evidence[1])
+        (called_request, called_evidence, operation_id), _kwargs = execute.call_args
+        self.assertEqual((called_request, called_evidence), (request, evidence[1]))
+        self.assertTrue(action_journal.valid_operation_id(operation_id))
 
     def test_action_batch_excuses_only_a_stored_input_newly_sealed_by_a_sibling(self) -> None:
         first = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "search", {"q": "a"})
@@ -126,7 +133,7 @@ class ActionBatchTests(unittest.TestCase):
                     {"assistant": binding},
                     action_execution.ActionBatchStrategy(
                         lambda item: (item.container_id, item.spec.image),
-                        lambda _request, _evidence: {"ok": True},
+                        lambda _request, _evidence, _operation_id: {"ok": True},
                         lambda _request: None,
                         stored_input_generations=generations,
                     ),
@@ -168,7 +175,7 @@ class ActionBatchTests(unittest.TestCase):
                 {"assistant": binding},
                 action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence: {"ok": True},
+                    lambda _request, _evidence, _operation_id: {"ok": True},
                     lambda _request: None,
                 ),
             )
@@ -195,9 +202,8 @@ class ActionBatchTests(unittest.TestCase):
             "title": "Continue",
             "description": "Continue the reviewed operation.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
         suspension = action_human.HumanRequestSuspensionError(
-            action_human.validate_request(descriptor, ("approval",)),
+            human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",)),
         )
 
         with tempfile.TemporaryDirectory() as directory:
@@ -235,7 +241,7 @@ class ActionBatchTests(unittest.TestCase):
                 {"assistant": binding},
                 action_execution.ActionBatchStrategy(
                     lambda item: (item.container_id, item.spec.image),
-                    lambda _request, _evidence: (_ for _ in ()).throw(RuntimeError("terminal failure")),
+                    lambda _request, _evidence, _operation_id: (_ for _ in ()).throw(RuntimeError("terminal failure")),
                     lambda _request: None,
                 ),
             )
@@ -297,13 +303,13 @@ class ActionBatchTests(unittest.TestCase):
 
 
 class HeldActionBatchTests(unittest.TestCase):
-    """A Routine run's batch keeps an uncertain outcome for a human and names it; it never abandons it (ADR-0086)."""
+    """A Routine run's batch holds an uncertain outcome for recovery; it never abandons it (ADR-0092)."""
 
     def test_an_uncertain_batch_is_held_and_named_never_abandoned(self) -> None:
         request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
         binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
 
-        def failing(_request, _evidence):
+        def failing(_request, _evidence, _operation_id):
             raise RuntimeError("the Assistant failed mid-write")
 
         with tempfile.TemporaryDirectory() as directory:
@@ -325,12 +331,175 @@ class HeldActionBatchTests(unittest.TestCase):
                 batch.invoke(request)
             self.assertFalse(batch.terminate())
             self.assertRegex(batch.held, r"\A[0-9a-f]{64}\Z")
-            self.assertEqual(batch.held_actions, (("assistant", "write"),))
             # The journal still holds the uncertain batch: fresh-turn cleanup refuses to end it.
             self.assertFalse(journal.end_settled("net:routine:" + "f" * 32))
             with closing(sqlite3.connect(journal.path)) as connection:
                 rows = connection.execute("SELECT generation FROM batches").fetchall()
             self.assertEqual(rows, [("net:routine:" + "f" * 32,)])
+
+
+def _rpc_strategy(api: object) -> action_execution.RpcExchangeStrategy:
+    return action_execution.RpcExchangeStrategy(
+        api=api,
+        user="10001:10001",
+        workdir="/srv",
+        timeout=0.2,
+        maximum=1024,
+        transport_errors=(),
+        fail_stop=mock.Mock(),
+        cancelled=lambda _exc: None,
+        close_stream=mock.Mock(),
+    )
+
+
+class NeverDispatchedTests(unittest.TestCase):
+    """Team's own pre-dispatch refusal settles only that attempt as never run; ambiguity stays uncertain."""
+
+    def _batch(self, journal: action_journal.ActionJournal, execute) -> action_execution.ActionBatch:
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        return action_execution.ActionBatch(
+            journal,
+            "generation-1",
+            "thread-1",
+            {"assistant": binding},
+            action_execution.ActionBatchStrategy(
+                lambda item: (item.container_id, item.spec.image), execute, lambda _request: None
+            ),
+        )
+
+    def test_a_saturated_docker_pool_leaves_the_attempt_prepared_not_uncertain(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
+        api = mock.Mock()
+        saturated = mock.Mock(acquire=mock.Mock(return_value=False))
+
+        def wrapped(_request, _evidence, _operation_id):
+            try:
+                action_execution.rpc_exchange("container", ["command"], b"request", _rpc_strategy(api))
+            except action_execution.RpcExchangeError as exc:
+                # Each profile raises its own public problem from the exchange error.
+                raise RuntimeError("Assistant Action timed out") from exc
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            batch = self._batch(journal, wrapped)
+            batch.prepare((request,))
+            with (
+                mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
+                self.assertRaises(RuntimeError) as refused,
+            ):
+                batch.invoke(request)
+            self.assertTrue(action_dispatch.never_dispatched(refused.exception))
+            api.exec_create.assert_not_called()
+            # Nothing ran: no uncertain outcome remains, the turn ends the batch, and the same interrupt may run.
+            self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
+            self.assertTrue(batch.terminate())
+
+    def test_an_exit_inspection_refused_after_the_exchange_stays_uncertain(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
+        api = SimpleNamespace(
+            exec_create=lambda *_a, **_k: {"Id": "exec"},
+            exec_start=lambda *_a, **_k: SimpleNamespace(_sock=object()),
+            exec_inspect=mock.Mock(),
+        )
+        real = action_dispatch.bounded_call
+        calls = []
+
+        def second_refused(call, deadline, *stopped):
+            calls.append(call)
+            if len(calls) > 1:
+                raise action_dispatch.DispatchRefusedError("Docker capacity stayed saturated")
+            return real(call, deadline, *stopped)
+
+        def execute(_request, _evidence, _operation_id):
+            try:
+                action_execution.rpc_exchange("container", ["command"], b"request", _rpc_strategy(api))
+            except action_execution.RpcExchangeError as exc:
+                raise RuntimeError("Assistant Action timed out") from exc
+
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            batch = self._batch(journal, execute)
+            batch.prepare((request,))
+            with (
+                mock.patch.object(action_dispatch, "bounded_call", side_effect=second_refused),
+                mock.patch.object(action_execution, "exchange_rpc_frames", return_value=(b"{}", b"")),
+                self.assertRaises(RuntimeError) as uncertain,
+            ):
+                batch.invoke(request)
+            self.assertFalse(action_dispatch.never_dispatched(uncertain.exception))
+            self.assertEqual(
+                (uncertain.exception.__cause__.kind, uncertain.exception.__cause__.condition),
+                ("timeout", "exit-unavailable"),
+            )
+            api.exec_inspect.assert_not_called()
+            self.assertIsNotNone(journal.uncertain_fingerprint("generation-1"))
+
+    def test_a_turn_stopped_while_waiting_for_capacity_never_ran_its_attempt(self) -> None:
+        request = brain_runtime_client.ActionRequest("interrupt-1", "assistant", "write", {"value": "x"})
+        api = mock.Mock()
+        saturated = mock.Mock(acquire=mock.Mock(side_effect=lambda timeout: time.sleep(timeout) or False))
+        stop = threading.Event()
+
+        def hosted_cancelled(exc):
+            # The hosted profile raises its stopped problem from the refusal it observed.
+            raise RuntimeError("brain turn stopped") from exc
+
+        def execute(_request, _evidence, _operation_id):
+            strategy = dataclasses.replace(_rpc_strategy(api), timeout=30, cancelled=hosted_cancelled)
+            threading.Timer(0.2, stop.set).start()
+            return action_execution.rpc_exchange("container", ["command"], b"request", strategy)
+
+        binding = SimpleNamespace(container_id="container-1", spec=SimpleNamespace(image="example.invalid/image"))
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            batch = action_execution.ActionBatch(
+                journal,
+                "generation-1",
+                "thread-1",
+                {"assistant": binding},
+                action_execution.ActionBatchStrategy(
+                    lambda item: (item.container_id, item.spec.image),
+                    execute,
+                    lambda _request: None,
+                    stopped=stop.is_set,
+                ),
+            )
+            batch.prepare((request,))
+            started = time.monotonic()
+            with (
+                mock.patch.object(action_dispatch, "_DOCKER_CALL_SLOTS", saturated),
+                self.assertRaisesRegex(RuntimeError, "brain turn stopped"),
+            ):
+                batch.invoke(request)
+            self.assertLess(time.monotonic() - started, 2.0)
+            api.exec_create.assert_not_called()
+            self.assertIsNone(journal.uncertain_fingerprint("generation-1"))
+            self.assertTrue(batch.terminate())
+
+    def test_a_refusal_buried_beyond_the_bounded_cause_chain_is_not_trusted(self) -> None:
+        current: BaseException = action_dispatch.DispatchRefusedError("refused")
+        for depth in range(8):
+            wrapper = RuntimeError(f"layer {depth}")
+            wrapper.__cause__ = current
+            current = wrapper
+        self.assertFalse(action_dispatch.never_dispatched(current))
+        self.assertTrue(action_dispatch.never_dispatched(current.__cause__))
+
+    def test_only_an_executing_attempt_returns_to_prepared(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            journal = action_journal.ActionJournal(Path(directory) / "journal.sqlite3")
+            self.addCleanup(journal.close)
+            operation = action_journal.Operation("action-1", "b" * 64)
+            batch = journal.prepare_batch("generation", "thread", (operation,))
+            with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "was not executing"):
+                journal.not_dispatched(batch, operation)
+            journal.begin(batch, operation)
+            journal.not_dispatched(batch, operation)
+            self.assertIsNone(journal.uncertain_fingerprint("generation"))
+            self.assertTrue(journal.begin(batch, operation).execute)
 
 
 class UncertainFingerprintTests(unittest.TestCase):

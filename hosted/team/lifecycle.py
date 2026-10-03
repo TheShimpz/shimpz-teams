@@ -12,6 +12,7 @@ from action import stored_input as action_stored_input
 from core.container import network as network_policy
 from hosted import cleanup as cleanup_state
 from hosted import container as container_spec
+from hosted import prepare as hosted_prepare
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
@@ -39,6 +40,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "integration_credentials",
         "stored_inputs",
         "action_checkpoints",
+        "preparation_helpers",
         "publication_bindings",
         "runtime_state",
         "team_networks",
@@ -88,10 +90,30 @@ def _list_team_files(team_id: str, lease: hosted_resources._AuthorizationLease) 
 
 
 def _delete_team_file(team_id: str, file_id: object, lease: hosted_resources._AuthorizationLease) -> dict:
+    """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093).
+
+    The Team's execution slot is held throughout, so no turn delivers or reads the file while it is deleted.
+    """
+    slot = runtime_state._chat_lock_for(team_id)
+    if not slot.acquire(blocking=False):
+        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team files cannot be deleted during an active chat turn")
+    try:
+        return _delete_unused_team_file(team_id, file_id, lease)
+    finally:
+        slot.release()
+
+
+def _delete_unused_team_file(team_id: str, file_id: object, lease: hosted_resources._AuthorizationLease) -> dict:
     with runtime_state._lock_for(team_id):
-        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
-            result = runtime_state._storage().delete(team_id, file_id)
+            storage = runtime_state._storage()
+            # A file already gone still has its references cleaned up; a malformed id is refused.
+            hosted_chat_lifecycle.forget_file(team_id, team_storage.scoped_file_id(file_id), container.id)
+            # Deletion is idempotent: a file already gone is reported as absent.
+            result = storage.delete(team_id, file_id)
+        except team_storage.StorageInputError as exc:
+            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
         except team_storage.StorageNotFoundError as exc:
             raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "file not found") from exc
         except team_storage.StorageError as exc:
@@ -281,10 +303,15 @@ def _finalize_teardown(team_id: str, record: cleanup_state.Record) -> bool:
     return True
 
 
+def _teardown_preparation_helpers(team_id: str) -> bool:
+    return hosted_prepare.remove_helpers(team_id)
+
+
 def _teardown_artifacts(team_id: str, runtime) -> tuple[bool, set[str]]:
     absent: set[str] = set()
     phases = (
         (lambda: _stop_teardown_runtime(runtime), ()),
+        (lambda: _teardown_preparation_helpers(team_id), ("preparation_helpers",)),
         (
             lambda: _teardown_assistants(team_id),
             ("assistant_containers", "publication_bindings", "egress_policies"),

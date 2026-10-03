@@ -5,11 +5,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest import mock
 
 from docker.errors import DockerException, ImageNotFound
 
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from install.bindings import DynamicAssistantError, DynamicAssistantStore
@@ -18,6 +19,7 @@ from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
+from tests import catalog_fixtures
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
 from tests.local_snapshot_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import client as _client
@@ -221,24 +223,42 @@ class LocalSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "do not match"):
             snapshots.admit(client, IMAGE_ID)
 
-    def test_previews_only_the_validated_manifest_icon_pair(self) -> None:
+    def test_previews_the_validated_icon_and_summaries_only_from_the_image_pack(self) -> None:
         client, _image_value, container = _client()
 
-        icon = snapshots.preview_icon(client, IMAGE_ID)
+        value = snapshots.preview(client, IMAGE_ID)
 
-        self.assertTrue(icon.startswith(b"\x89PNG"))
+        self.assertTrue(value.icon.startswith(b"\x89PNG"))
         self.assertEqual(
             [call.args[0] for call in container.get_archive.call_args_list],
-            [assistant_manifest.MANIFEST_PATH, snapshots.ICON_PATH],
+            [
+                assistant_manifest.MANIFEST_PATH,
+                assistant_manifest.CONTRACT_PATH,
+                assistant_language.PACK_PATH,
+                snapshots.ICON_PATH,
+            ],
         )
+        # English is the catalog summary; every other interface language is that message's pack translation.
+        self.assertEqual(set(value.summaries), {"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
+        self.assertEqual(value.summaries["en"], "Exercise immutable admission.")
+        self.assertEqual(value.summaries["pt"], "PT Exercise immutable admission.")
+        self.assertIsInstance(value.summaries, MappingProxyType)
         container.start.assert_not_called()
         container.remove.assert_called_once_with(force=True, v=False)
+
+    def test_preview_refuses_a_missing_or_foreign_pack_and_cleans_up(self) -> None:
+        foreign = catalog_fixtures.pack_bytes(catalog_fixtures.messages("Another summary."))
+        for name, pack in (("missing", None), ("foreign", foreign), ("malformed", b"{}")):
+            client, _image_value, container = _client(pack=pack)
+            with self.subTest(pack=name), self.assertRaises(snapshots.LocalSnapshotError):
+                snapshots.preview(client, IMAGE_ID)
+            container.remove.assert_called_once_with(force=True, v=False)
 
     def test_preview_rejects_invalid_image_id_without_docker_access(self) -> None:
         client, _image_value, _container = _client()
 
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
-            snapshots.preview_icon(client, "latest")
+            snapshots.preview(client, "latest")
 
         client.images.get.assert_not_called()
 
@@ -253,7 +273,7 @@ class LocalSnapshotTests(unittest.TestCase):
             ),
             self.assertRaisesRegex(snapshots.LocalSnapshotError, "preview is invalid"),
         ):
-            snapshots.preview_icon(client, IMAGE_ID)
+            snapshots.preview(client, IMAGE_ID)
 
         container.remove.assert_called_once_with(force=True, v=False)
 
@@ -262,7 +282,7 @@ class LocalSnapshotTests(unittest.TestCase):
         image.attrs["Config"]["Labels"][snapshots.NAME_LABEL] = "Different name"
 
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "does not match"):
-            snapshots.preview_icon(client, IMAGE_ID)
+            snapshots.preview(client, IMAGE_ID)
 
         container.remove.assert_called_once_with(force=True, v=False)
 
@@ -513,10 +533,21 @@ class LocalSnapshotTests(unittest.TestCase):
     def test_service_bounds_and_maps_local_preview_work(self) -> None:
         client, _image_value, _container_value = _client()
         controller = SimpleNamespace(
-            local_snapshot_previews=SimpleNamespace(icon=lambda image_id: snapshots.preview_icon(client, image_id))
+            local_snapshot_previews=SimpleNamespace(
+                icon=lambda image_id: snapshots.preview(client, image_id).icon,
+                summary=lambda image_id, locale: snapshots.preview(client, image_id).summaries[locale],
+            )
         )
 
         self.assertTrue(service.local_snapshot_icon(controller, IMAGE_ID).startswith(b"\x89PNG"))
+        self.assertEqual(
+            service.local_snapshot_summary(controller, IMAGE_ID, "pt"),
+            {"locale": "pt", "summary": "PT Exercise immutable admission."},
+        )
+        for refused in ("it", "PT", "", None):
+            with self.subTest(locale=refused), self.assertRaises(ApiProblemError) as invalid:
+                service.local_snapshot_summary(controller, IMAGE_ID, refused)
+            self.assertEqual(invalid.exception.code, "invalid-locale")
 
         with (
             mock.patch.object(
@@ -716,7 +747,7 @@ class LocalSnapshotTests(unittest.TestCase):
 
         changed = bindings.binding_from_local_record(
             "team_1",
-            {**record, "summary": "Changed local summary"},
+            {**record, "name": "Changed local name"},
             snapshots.validate_record,
         )
         controller.registry.local_replacement.return_value = (changed, spec)
@@ -725,7 +756,7 @@ class LocalSnapshotTests(unittest.TestCase):
                 controller,
                 "team_1",
                 existing,
-                {**record, "summary": "Changed local summary"},
+                {**record, "name": "Changed local name"},
             )
 
         replacement = {**record, "image_id": "sha256:" + ("c" * 64)}

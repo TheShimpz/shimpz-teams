@@ -12,6 +12,7 @@ from types import SimpleNamespace
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from local_assistant_fixture import PACK as FIXTURE_PACK
 from local_assistant_fixture import assistant_spec
 
 from action import execution as action_execution
@@ -26,6 +27,7 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import store as local_routine_store
 
 TEST_ACCOUNT_ACCESS_TOKEN = "-".join(("oauth", "access", "test", "token", "123456789"))
@@ -88,6 +90,10 @@ class LocalContractCase(unittest.TestCase):
         controller.routine_store = local_routine_store.RoutineStore(
             Path(directory) / "routines" / "state", Path(directory) / "routines" / "key" / "aes256.key"
         )
+        controller.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
+            Path(directory) / "routines" / "diagnostics",
+            Path(directory) / "routines" / "diagnostics-key" / "aes256.key",
+        )
         controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
         controller.inference_store.save(
             "team_1",
@@ -133,6 +139,7 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )
+        controller.assistant_lifecycle._assistant_language = lambda _active: FIXTURE_PACK
         container = SimpleNamespace(id="assistant-container", status="running", reload=lambda: None)
         network = SimpleNamespace(id="a" * 64, name="team-network")
         controller.assistant_lifecycle._network = lambda _team_id: network
@@ -182,6 +189,7 @@ class LocalContractCase(unittest.TestCase):
         controller.assistant_lifecycle._admit_assistant_allowed_hosts = lambda _container, spec: tuple(
             sorted(spec.allowed_hosts)
         )
+        controller.assistant_lifecycle._assistant_language = lambda _active: FIXTURE_PACK
         controller.assistant_lifecycle._read_admitted_egress_policy = lambda *_args: None
         network_name = controller.assistant_lifecycle._network_name("team_1")
         network = SimpleNamespace(name=network_name)

@@ -2,6 +2,11 @@
 
 from assistant import spec as assistant_registry
 from local.install.runtime import AssistantSpec
+from tests import human_request_fixtures
+
+SUMMARY = "Cloudflare test fixture"
+# The fixed reviewed catalog and pack every harness binding carries (ADR-0091).
+PACK = human_request_fixtures.harness_pack(SUMMARY)
 
 _PAGINATION = {
     "type": "object",
@@ -55,12 +60,14 @@ def assistant_spec(image: str) -> AssistantSpec:
             input_schema=_PAGE,
             output_schema=_LIST_ZONES_OUTPUT,
             integrations=("cloudflare",),
+            effect="read_only",
         ),
         "list-dns-records": assistant_registry.ActionSpec(
             summary="List DNS records",
             input_schema=_DNS_PAGE,
             output_schema=_LIST_DNS_OUTPUT,
             integrations=("cloudflare",),
+            effect="read_only",
         ),
     }
     integrations = {
@@ -73,7 +80,7 @@ def assistant_spec(image: str) -> AssistantSpec:
         assistant_id="shimpz-cloudflare",
         version="0.4.1",
         name="Shimpz Cloudflare",
-        summary="Cloudflare test fixture",
+        summary=SUMMARY,
         image=image,
         actions=actions,
         allowed_hosts=("api.cloudflare.com",),
@@ -91,11 +98,15 @@ def assistant_spec(image: str) -> AssistantSpec:
                     "output_schema": dict(action.output_schema),
                     "integrations": list(action.integrations),
                     "stored_inputs": list(action.stored_inputs),
+                    "input_files": [],
                     "human_requests": list(action.human_requests),
+                    "effect": action.effect,
                 }
                 for action_id, action in sorted(actions.items())
             ],
+            "messages": human_request_fixtures.harness_messages(SUMMARY),
         },
+        pack_digest=PACK.pack_digest,
     )
 
 
@@ -117,5 +128,75 @@ def hosted_spec(image: str) -> assistant_registry.AssistantSpec:
             integrations=local.integrations,
             stored_inputs=local.stored_inputs,
             machine_contract=local.machine_contract,
+            pack_digest=local.pack_digest,
         ),
     )
+
+
+_CREATE_OUTPUT = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {"record": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
+    "required": ["record"],
+}
+VERIFIER = {
+    "action": "find-record",
+    "input": {"operation_id": {"from": "operation_id"}},
+    "outcome": "/outcome",
+    "result": "/result",
+}
+
+
+def mutating_spec(image: str) -> AssistantSpec:
+    """The fixture with one mutating Action, verified by one read-only Action through its logical operation."""
+    import dataclasses
+
+    base = assistant_spec(image)
+    create = assistant_registry.ActionSpec(
+        summary="Create a DNS record",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"zone_id": {"type": "string"}, "name": {"type": "string"}},
+            "required": ["zone_id", "name"],
+        },
+        output_schema=_CREATE_OUTPUT,
+        effect="mutating",
+        verifier=VERIFIER,
+    )
+    find = assistant_registry.ActionSpec(
+        summary="Find a created DNS record",
+        input_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {"operation_id": {"type": "string"}},
+            "required": ["operation_id"],
+        },
+        output_schema={
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "outcome": {"type": "string", "enum": ["inconclusive", "not_occurred", "occurred"]},
+                "result": _CREATE_OUTPUT,
+            },
+            "required": ["outcome"],
+        },
+        effect="read_only",
+    )
+    actions = {**base.actions, "create-record": create, "find-record": find}
+    contract = dict(base.machine_contract)
+    contract["actions"] = [
+        {
+            "id": action_id,
+            "input_schema": dict(action.input_schema),
+            "output_schema": dict(action.output_schema),
+            "integrations": list(action.integrations),
+            "stored_inputs": list(action.stored_inputs),
+            "input_files": [],
+            "human_requests": list(action.human_requests),
+            "effect": action.effect,
+            **({} if action.verifier is None else {"verifier": dict(action.verifier)}),
+        }
+        for action_id, action in sorted(actions.items())
+    ]
+    return dataclasses.replace(base, actions=actions, machine_contract=contract)

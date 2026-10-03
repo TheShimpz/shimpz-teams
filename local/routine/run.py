@@ -1,4 +1,4 @@
-"""Local Routine runs: a fair claim across Teams, then one isolated run segment under its lease (ADR-0086)."""
+"""Local Routine runs: a fair claim across Teams, the lease and Stop of a run, and how a segment ends (ADR-0086)."""
 
 from __future__ import annotations
 
@@ -6,27 +6,22 @@ import base64
 import dataclasses
 import json
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
 
 from action import human as action_human
-from chat import knowledge as chat_knowledge
 from chat import orchestrator as chat_orchestrator
-from chat import progress as chat_progress
 from inference import config as inference_config
 from local import audit as local_audit
 from local import authority as local_authority
-from local.chat import api as local_chat_api
 from local.chat import continuation as local_chat_continuations
-from local.chat.segment import RoutineSegment, SegmentRequest
 from local.chat.types import PendingLocalChat
 from local.errors import ApiProblemError as ApiProblem
 from local.routine import manage as routine_manage
 from local.routine import state as routine_state
 from local.routine import turn as routine_turn
-from local.validation import validate_team_id
-from protocol.http.v1 import routine as http_routine
 from routine import record
 
 
@@ -59,10 +54,23 @@ def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
     return ApiProblem(status, message, code=code)
 
 
+# How long after a Routine frees the slot a person's chat message, refused while that Routine held it, keeps further
+# runs of its Team waiting for the person's turn.
+CHAT_PRIORITY_SECONDS = 30
+
+
 def _chat_busy(self, team_id: str) -> bool:
-    """Chat has priority at admission: a Routine never starts beside a chat turn or a pending chat challenge."""
+    """Chat has priority at admission (ADR-0092 section 9).
+
+    A Routine never starts beside a chat turn or a pending chat challenge, nor while a person who found the slot held
+    by a Routine is still waiting for their turn: however short a continuous Routine's gap, chat gets the next boundary.
+    """
+    with self._active_chat_guard:
+        demand = self._chat_demand.get(team_id)
+    waiting = demand is not None and time.monotonic() - demand < CHAT_PRIORITY_SECONDS
     return (
-        self._chat_lock(team_id).locked()
+        waiting
+        or self._chat_lock(team_id).locked()
         or self.human_challenges.current(team_id) is not None
         or self.integration_challenges.current(team_id) is not None
     )
@@ -86,13 +94,16 @@ def _claim(self, team_id: str, state: record.TeamRoutines, now: int, key: str):
     return record.claim(state, now, key)
 
 
-def _provider(self, team_id: str, providers: tuple[str, ...]) -> str | None:
-    """The Team's configured model provider when Admin holds its key; otherwise the Team is not claimed."""
+def team_provider(self, team_id: str) -> str | None:
+    """The Team's configured model provider, or None when it has none; a Team with none is not claimed.
+
+    No key is needed to claim or run a healthy compiled run (ADR-0092); only a held run's recovery uses the Team's
+    model, with the key Admin sends when it holds one.
+    """
     try:
-        provider = self.inference_store.load(team_id).provider
+        return self.inference_store.load(team_id).provider
     except inference_config.InferenceConfigError:
         return None
-    return provider if provider in providers else None
 
 
 def _state_unavailable(team_id: str) -> None:
@@ -122,11 +133,10 @@ def _claim_team(self, team_id: str, now: int, key: str):
             return None
 
 
-def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | None:
+def claim_routine_run(self) -> dict[str, object] | None:
     """Lease one due run, choosing the least recently served Team first; None when nothing may start now.
 
-    Only a Team whose model provider is among ``providers``, the ones Admin holds a key for, is claimed, so no lease
-    is taken for a run that could not reach its model.
+    Any Team with a configured model may be claimed, whether or not Admin holds its key: a healthy run needs none.
     """
     try:
         key = local_authority.routine_key_fingerprint()
@@ -135,7 +145,7 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
     now = int(time.time())
     states = _readable_states(self, routine_state.call(self.routine_store.teams))
     for team_id in sorted(states, key=lambda team: (states[team].served_at, team)):
-        provider = _provider(self, team_id, providers)
+        provider = team_provider(self, team_id)
         if provider is None or _chat_busy(self, team_id):
             continue
         if states[team_id].discards:
@@ -154,65 +164,102 @@ def claim_routine_run(self, providers: tuple[str, ...]) -> dict[str, object] | N
                 "lease_token": claim.lease_token,
                 "lease_expires_at": claim.run.lease_expires_at,
                 "provider": provider,
+                "revision": claim.revision,
+                "plan_digest": claim.plan_digest,
+                "mode": claim.mode,
             }
     return None
 
 
-def _names(actions: tuple[object, ...]) -> list[list[str]]:
-    """Bounded Assistant and Action identities for a notice; never an Action's input or result."""
-    names: list[list[str]] = []
-    for action in actions:
-        pair = [action.assistant_id, action.action]
-        if pair not in names:
-            names.append(pair)
-    return names[: http_routine.MAX_NOTICE_ACTIONS]
-
-
-def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object], fingerprint: str = "") -> str:
+def next_routine_due(self) -> int | None:
+    """When Admin should next claim: the earliest instant a Routine of a Team it can run becomes due (ADR-0092)."""
     now = int(time.time())
-    routine_state.update(
-        self, team_id, lambda state: (record.end(state, run_id, now, outcome, detail, fingerprint), None)
-    )
+    states = _readable_states(self, routine_state.call(self.routine_store.teams))
+    due = [record.next_due(state, now) for team_id, state in states.items() if team_provider(self, team_id)]
+    return min((item for item in due if item is not None), default=None)
+
+
+def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object]) -> str:
+    now = int(time.time())
+    routine_state.update(self, team_id, lambda state: (record.end(state, run_id, now, outcome, detail), None))
     return outcome
 
 
-def _finish(self, run: _Run, outcome: str, detail: dict[str, object], skill: dict[str, object] | None) -> str:
-    """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead.
-
-    The skill the run learned is saved, its attempt audited first, only once its live lease and active time are proven
-    under the Routine lock, and before its notice persists (ADR-0085, ADR-0086): an expired worker changes no knowledge.
-    It never changes memory.
-    """
+def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
+    """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead."""
+    now = int(time.time())
 
     def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
-        now = int(time.time())
         try:
-            finished = record.finish(state, run.run_id, run.lease, now, outcome, detail)
+            return record.finish(state, run.run_id, run.lease, now, outcome, detail), outcome
         except record.RoutineStateError:
             return record.end(state, run.run_id, now, "failed", {"code": "lease-expired", "actions": []}), "failed"
-        local_chat_api.save_knowledge(self, run.team_id, (), skill)
-        return finished, outcome
 
     return routine_state.update(self, run.team_id, finish)
 
 
-def _ending(terminal: chat_orchestrator.ChatOutcome) -> tuple[str, dict[str, object]]:
-    if terminal.clarification is not None:
-        return "needs-input", {"question": terminal.clarification["question"]}
-    reply = terminal.reply.strip()[: http_routine.MAX_NOTICE_REPLY_CHARS].strip() or "Done."
-    return "done", {"reply": reply}
+def finished(self, run: _Run, value: record.Run, sealed_done: Callable[[], bool]) -> str:
+    """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
+
+    Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it. A
+    deadline is no person's Stop: when it, not a person, cut a run whose sealed cursor proves every step complete, the
+    run is recorded complete like the watchdog would, which also resets its failure streak.
+    """
+    if not self._commit_chat_terminal(run.team_id, run.token):
+        if _deadline_cut(self, run) and sealed_done():
+            return complete_sealed(self, run)
+        return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
+    return complete(self, run, value)
 
 
-def _complete(self, run: _Run, terminal: chat_orchestrator.ChatOutcome) -> str:
-    """End a completed segment under the Stop guard: Stop wins, or the run finishes with its skill in one step."""
-    outcome, detail = _ending(terminal)
-    skill = chat_knowledge.learned_skill(terminal.actions)
-    ended: list[str] = []
-    if not self._commit_chat_terminal(
-        run.team_id, run.token, lambda: ended.append(_finish(self, run, outcome, detail, skill))
-    ):
-        return _end(self, run.team_id, run.run_id, "stopped", {"actions": _names(terminal.actions)})
-    return ended[0]
+def complete_sealed(self, run: _Run) -> str:
+    """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
+
+    It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
+    on it, because a deadline exhausts both: the run is done or recovered, names its Actions, and resets the failure
+    streak. The caller has proven sealed completion; a run whose lease changed since is never touched.
+    """
+    now = int(time.time())
+
+    def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
+        current = next((item for item in state.runs if item.run_id == run.run_id), None)
+        try:
+            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now)
+        except record.RoutineStateError:
+            return state, None
+        return completed, record.completed(current)
+
+    outcome = routine_state.update(self, run.team_id, change)
+    if outcome is None:
+        raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
+    return outcome
+
+
+def complete(self, run: _Run, value: record.Run) -> str:
+    """Record a run whose every step completed: done, or recovered for a continuation, naming its Actions."""
+    return _finish(self, run, record.completed(value), {"actions": record.plan_actions(run.routine.plan)})
+
+
+def _deadline_cut(self, run: _Run) -> bool:
+    """Whether this execution was cancelled by its own deadline, not by a person."""
+    with self._active_chat_guard:
+        registration = self._routine_runs.get(run.run_id)
+        return registration is not None and registration.token == run.token and registration.overdue
+
+
+def suspended(self, run: _Run, segment) -> str:
+    """A compiled run paused for a person or an Integration: keep its continuation and freeze it."""
+    outcome = segment.outcome
+    pending = PendingLocalChat(
+        continuation=outcome.continuation,
+        assistant_ids=tuple(assistant for assistant, _digest in run.routine.assistants),
+        file_ids=(),
+        provider=run.provider,
+        identity=segment.identity,
+        transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
+        requests_used=run.requests_used,
+    )
+    return _freeze(self, run, pending, segment)
 
 
 def _frozen_request(segment) -> tuple[str, tuple[object, ...], str, str] | None:
@@ -262,23 +309,6 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
     return routine_state.update(self, team_id, freeze)
 
 
-def _failed(self, team_id: str, run_id: str, routine_segment: RoutineSegment, exc: ApiProblem) -> str:
-    """A segment that failed: an uncertain batch is held for a human; otherwise it stopped or failed."""
-    held = routine_segment.batches[-1] if routine_segment.batches else None
-    if held is not None and held.held:
-        return _end(
-            self, team_id, run_id, "uncertain", {"actions": [list(pair) for pair in held.held_actions]}, held.held
-        )
-    code = exc.code
-    if code == "chat-stopped":
-        with self._active_chat_guard:
-            registration = self._routine_runs.get(run_id)
-        if registration is None or not registration.overdue:
-            return _end(self, team_id, run_id, "stopped", {"actions": []})
-        code = "active-time-exceeded"
-    return _end(self, team_id, run_id, "failed", {"code": code, "actions": []})
-
-
 def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[record.Run, record.Routine]:
     state = routine_state.load(self, team_id)
     try:
@@ -303,31 +333,22 @@ def registered(self, team_id: str, run_id: str, token: str, active_seconds: int)
         unregister_routine_run(self, run_id)
 
 
-def run_segment(self, run: _Run, request: SegmentRequest) -> str:
-    """Run one registered segment in the held execution slot and record exactly how it ended."""
-    started = time.monotonic()
-    try:
-        segment = self._run_chat_segment(request)
-    except ApiProblem as exc:
-        return _failed(self, run.team_id, run.run_id, request.routine, exc)
-    _spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
-    return _settle(self, run, segment)
-
-
 def _bind(self, team_id: str, run_id: str, lease: record.Lease) -> str:
     """Bind the run's own journal generation under its live lease."""
     network_id = self.assistant_lifecycle._network(team_id).id
     now = int(time.time())
 
-    def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, bool]:
+    def bind(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         try:
-            return record.bind_generation(state, run_id, lease, now, network_id), True
+            bound = record.bind_generation(state, run_id, lease, now, network_id)
         except record.RoutineStateError:
-            return state, False
+            return state, None
+        return bound, record.run(bound, run_id).generation
 
-    if not routine_state.update(self, team_id, bind):
+    generation = routine_state.update(self, team_id, bind)
+    if generation is None:
         raise _problem(HTTPStatus.CONFLICT, "Routine run lease is not live", "routine-lease-invalid")
-    return record.generation_for(network_id, run_id)
+    return generation
 
 
 def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
@@ -337,47 +358,6 @@ def _context_refusal(self, team_id: str, pinned: dict[str, str]) -> str | None:
     except routine_turn.ContractsUnavailableError:
         return "team-context-unavailable"
     return None if current == pinned else "team-context-changed"
-
-
-def run_routine(
-    self,
-    team_id: str,
-    run_id: str,
-    evidence: local_authority.RoutineEvidence,
-    provider: str,
-    api_key: str,
-    progress: chat_progress.Reporter | None = None,
-) -> dict[str, object]:
-    """Run one segment of a leased run in the Team's execution slot and record exactly how it ended."""
-    team_id = validate_team_id(team_id)
-    lease = record.Lease(evidence.lease_sha256, evidence.key_fingerprint)
-    value, routine = _live_run(self, team_id, run_id, lease)
-    pinned = dict(routine.assistants)
-    with (
-        self._exclusive_chat_turn(team_id, routine.routine_id) as token,
-        registered(self, team_id, run_id, token, value.active_seconds_left),
-    ):
-        # Rechecked in the slot: an Assistant changed since the claim never runs under a contract nobody confirmed.
-        refused = _context_refusal(self, team_id, pinned)
-        if refused is not None:
-            outcome = _end(self, team_id, run_id, "failed", {"code": refused, "actions": []})
-        else:
-            generation = _bind(self, team_id, run_id, lease)
-            request = SegmentRequest(
-                team_id=team_id,
-                file_ids=[],
-                assistant_ids=tuple(pinned),
-                provider=provider,
-                api_key=api_key,
-                token=token,
-                message=routine.quote,
-                routine=RoutineSegment(run_id, generation),
-                progress=progress or chat_progress.Reporter(),
-            )
-            run = _Run(team_id, run_id, lease, token, provider, routine)
-            outcome = run_segment(self, run, request)
-    _after_run(self, team_id, run_id, routine.routine_id, outcome)
-    return {"team_id": team_id, "run_id": run_id, "status": outcome}
 
 
 def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -> None:
@@ -392,36 +372,27 @@ def _spend(self, team_id: str, run_id: str, lease: record.Lease, seconds: int) -
     routine_state.update(self, team_id, spend)
 
 
-def _settle(self, run: _Run, segment) -> str:
-    outcome = segment.outcome
-    if isinstance(outcome, chat_orchestrator.ChatOutcome):
-        return _complete(self, run, outcome)
-    pending = PendingLocalChat(
-        continuation=outcome.continuation,
-        assistant_ids=tuple(assistant for assistant, _digest in run.routine.assistants),
-        file_ids=(),
-        provider=run.provider,
-        identity=segment.identity,
-        transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
-        requests_used=run.requests_used,
-    )
-    return _freeze(self, run, pending, segment)
-
-
 def _after_run(self, team_id: str, run_id: str, routine_id: str, outcome: str) -> None:
     """Remove what an ended run held and finish a deletion the run was blocking; audit how it ended."""
     local_audit.record_request(
-        "routine-run", result="ok" if outcome == "done" else "error", team_id=team_id, detail=outcome
+        "routine-run", result="ok" if outcome in {"done", "recovered"} else "error", team_id=team_id, detail=outcome
     )
     routine_manage.settle(self, team_id, routine_id)
 
 
 def register_routine_run(self, team_id: str, run_id: str, token: str, active_seconds: int) -> None:
-    """Register a run's worker; a Stop that already found the run unregistered fences it out instead."""
+    """Register a run's worker; a Stop that already found the run unregistered fences it out instead.
+
+    The same execution registering again, as a recovery's continuation does, keeps a deadline that already cancelled
+    it, so its ending is still recorded as out of time, never as stopped.
+    """
     with self._active_chat_guard:
         if run_id in self._routine_halting:
             raise _problem(HTTPStatus.CONFLICT, "Routine run was stopped", "chat-stopped")
-        self._routine_runs[run_id] = _Registration(team_id, token, time.monotonic() + max(active_seconds, 0))
+        previous = self._routine_runs.get(run_id)
+        overdue = previous is not None and previous.token == token and previous.overdue
+        deadline = time.monotonic() + max(active_seconds, 0)
+        self._routine_runs[run_id] = _Registration(team_id, token, deadline, overdue)
 
 
 def unregister_routine_run(self, run_id: str) -> None:
@@ -458,10 +429,46 @@ def halt_routine_run(self, team_id: str, run_id: str) -> bool:
 
 def stop_routine_run(self, team_id: str, run_id: str) -> bool:
     """Stop exactly one running Routine run: cancel its turn, abort its Brain request, fail-stop its Action."""
+    return _stop_registered(self, team_id, run_id, None)
+
+
+def expire_routine_run(self, team_id: str, run_id: str, token: str, mark: Callable[[], None]) -> bool:
+    """A deadline's Stop of exactly the execution it was set for, identified by its token.
+
+    Checking the registration and cancelling it is one step under the guard, so a late deadline never reaches another
+    execution registered for the same run since, nor one that already ended. One a person already stopped stays a
+    person's Stop: the deadline then does nothing, and ``mark`` records the deadline as the cause only when it is.
+    """
+    return _stop_registered(self, team_id, run_id, token, mark)
+
+
+def unstopped(self, token: str, deadline: Callable[[], bool], commit: Callable[[], None]) -> bool:
+    """Commit an outcome for this execution only if no person stopped it first; whether it was committed.
+
+    The decision and ``commit`` both run under the same guard a person's Stop cancels under, as a chat reply's commit
+    does, so a Stop is either before the decision, and nothing is committed, or after the commit. A cancellation the
+    execution's own ``deadline`` caused is no person's Stop.
+    """
+    with self._active_chat_guard:
+        if token in self._cancelled_chat_tokens and not deadline():
+            return False
+        commit()
+        return True
+
+
+def _stop_registered(
+    self, team_id: str, run_id: str, expected: str | None, mark: Callable[[], None] | None = None
+) -> bool:
     with self._active_chat_guard:
         running = self._routine_runs.get(run_id)
-        if running is None or running.team_id != team_id:
+        if running is None or running.team_id != team_id or expected not in (None, running.token):
             return False
+        if expected is not None:
+            if expected in self._cancelled_chat_tokens:
+                return False
+            mark()
+            # A deadline, not a person: the run's ending records it as out of time, never as stopped.
+            self._routine_runs[run_id] = dataclasses.replace(running, overdue=True)
         token = running.token
         self._cancelled_chat_tokens.add(token)
         brain_abort = self._brain_aborts.get(token)

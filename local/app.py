@@ -23,9 +23,12 @@ from docker.errors import DockerException
 
 from action import challenges as action_challenges
 from action import execution as action_execution
+from action import failure as action_failure
+from action import files as action_files
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant.spec import validate_action_payload
 from core.container import network as network_policy
@@ -68,8 +71,10 @@ from local.install.registry import AssistantRegistry
 from local.labels import (
     IMAGE_LABEL as _LOCAL_IMAGE_LABEL,
 )
+from local.routine import card as local_routine_card
+from local.routine import diagnostics as local_routine_diagnostics
 from local.routine import lifecycle as local_routine_lifecycle
-from local.routine import proposal as local_routine_proposal
+from local.routine import lineage as local_routine_lineage
 from local.routine import store as local_routine_store
 from local.routine import watchdog as local_routine_watchdog
 from local.validation import brain_thread_id as _local_brain_thread_id
@@ -132,6 +137,7 @@ class AssistantLifecycle:
         self._assistant_genesis_cache = assistant_genesis.GenesisCache()
         self._assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
         self._assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
+        self._assistant_language_cache = assistant_language.LanguagePackCache()
         self._blocked_action_workloads: set[str] = set()
 
     _rollback_assistant_install = local_assistant_lifecycle._rollback_assistant_install
@@ -178,6 +184,7 @@ class AssistantLifecycle:
     _validate_current_assistant_artifact = local_assistant_resources._validate_current_assistant_artifact
     _validate_container = local_assistant_resources._validate_container
     _active_assistant_genesis = local_chat_state._active_assistant_genesis
+    _assistant_language = local_chat_state._assistant_language
     _admit_assistant_allowed_hosts = local_chat_state._admit_assistant_allowed_hosts
 
     _close_exec_stream = staticmethod(local_assistant_rpc._close_exec_stream)
@@ -244,6 +251,7 @@ class LocalControllerDependencies:
     assistant_residues: assistant_update.AssistantResidueStore | None = None
     assistant_icons: icons.AssistantIconStore | None = None
     routine_store: local_routine_store.RoutineStore | None = None
+    routine_diagnostics: local_routine_diagnostics.DiagnosticStore | None = None
     team_names: local_names.TeamNameStore | None = None
 
 
@@ -253,10 +261,12 @@ class LocalController:
     configure_inference = local_inference.configure_inference
     list_assistants = local_assistant_api.list_assistants
     assistant_icon = local_assistant_api.assistant_icon
+    assistant_summary = local_assistant_api.assistant_summary
     install_publication = local_install_service.install_publication
     _install_bound_publication = local_install_service._install_bound_publication
     list_local_snapshots = local_install_service.list_local_snapshots
     local_snapshot_icon = local_install_service.local_snapshot_icon
+    local_snapshot_summary = local_install_service.local_snapshot_summary
     install_local_snapshot = local_install_service.install_local_snapshot
     install_fresh_local_snapshot = local_install_service.install_fresh_local_snapshot
 
@@ -297,7 +307,7 @@ class LocalController:
         self.inference_store = dependencies.inference_store or inference_config.InferenceConfigStore(INFERENCE_ROOT)
         self.team_names = dependencies.team_names or local_names.TeamNameStore(INFERENCE_ROOT)
         self.routine_store = dependencies.routine_store or local_routine_store.RoutineStore()
-        self.routine_proposals = local_routine_proposal.ProposalBook()
+        self.routine_diagnostics = dependencies.routine_diagnostics or local_routine_diagnostics.DiagnosticStore()
         self.brain_runtime = dependencies.brain_runtime or brain_runtime_client.BrainRuntimeClient()
         self.action_state = (
             dependencies.action_state
@@ -311,6 +321,9 @@ class LocalController:
         )
         self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
+        self.routine_lineage = local_routine_lineage.LineageBook()
+        # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
+        self.routine_cards = local_routine_card.CardBook()
         self.oauth_pkce = dependencies.oauth_pkce or integration_pkce.OAuthPKCEChallengeStore()
         self.oauth_broker = dependencies.oauth_broker or integration_broker.OAuthBrokerClient(
             transport=_account_egress_transport(),
@@ -388,13 +401,15 @@ class LocalController:
                 integration_challenges=getattr(self, "integration_challenges", None),
                 human_challenges=getattr(self, "human_challenges", None),
                 routine_human_challenges=getattr(self, "routine_human_challenges", None),
+                routine_lineage=getattr(self, "routine_lineage", None),
+                routine_cards=getattr(self, "routine_cards", None),
                 oauth_pkce=getattr(self, "oauth_pkce", None),
                 oauth_service=getattr(self, "oauth_service", None),
                 chat_continuations=getattr(self, "chat_continuations", None),
                 lock_for=self._lock,
                 raise_storage_problem=self._raise_storage_problem,
                 routine_store=getattr(self, "routine_store", None),
-                routine_proposals=getattr(self, "routine_proposals", None),
+                routine_diagnostics=getattr(self, "routine_diagnostics", None),
             )
         )
         assistant_lifecycle.chat_turn_service = chat_turn_service
@@ -461,10 +476,14 @@ class LocalController:
         return {"team_id": team_id, **listing}
 
     def delete_file(self, team_id: str, file_id: object) -> dict[str, object]:
+        """Delete one Team file only after nothing can still deliver, read, or show it (ADR-0093)."""
         team_id = validate_team_id(team_id)
-        with self._lock(team_id):
-            self.assistant_lifecycle._network(team_id)
+        service = self.chat_turn_service
+        with service._file_deletion_slot(team_id), self._lock(team_id):
+            network = self.assistant_lifecycle._network(team_id)
             try:
+                service._forget_file(team_id, team_storage.scoped_file_id(file_id), network)
+                # Deletion is idempotent: a file already gone is reported as absent, after the same cleanup.
                 result = self.storage.delete(team_id, file_id)
             except team_storage.StorageError as exc:
                 self._raise_storage_problem(exc)
@@ -494,6 +513,29 @@ class LocalController:
                 code="docker-unavailable",
             ) from exc
         return {"status": "ok"}
+
+    def _action_files(
+        self,
+        team_id: str,
+        action_spec: object,
+        private: action_execution.ResolvedInvocationEvidence,
+        safe_payload: dict[str, object],
+    ) -> dict[str, object]:
+        """The invocation's files: the turn's selected file, with its bytes only behind the Action's authorization."""
+        try:
+            return action_files.deliver(
+                action_spec,
+                private.file,
+                private.transcript,
+                safe_payload,
+                lambda file_id: self.storage.get(team_id, file_id),
+            )
+        except (action_files.FileDeliveryError, team_storage.StorageError) as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "the attached file is unavailable for this Action; attach it again",
+                code="action-file-unavailable",
+            ) from exc
 
     def invoke(
         self,
@@ -545,6 +587,7 @@ class LocalController:
                     else {}
                 ),
             )
+            files = self._action_files(team_id, action_spec, private, safe_payload)
             local_audit.record_request(
                 "assistant-action",
                 result="ok",
@@ -556,9 +599,14 @@ class LocalController:
                 "input": safe_payload,
                 "integrations": action_execution.integration_access_tokens(private.integrations),
                 "stored_inputs": private.stored_inputs,
+                "files": files,
+                "operation_id": private.operation_id,
             }
             if private.transcript.responses:
                 rpc_payload["responses"] = private.transcript.payloads()
+            capabilities = action_failure.capability_values(container)
+        # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
+        sent = action_files.delivered(files)
         try:
             raw_result = self.assistant_lifecycle._rpc(
                 container,
@@ -573,48 +621,31 @@ class LocalController:
                 assistant=assistant_id,
                 detail=f"failed:{action}",
             )
+            if sent is not None:
+                # The exchange failed, so whether the workload received the bytes is unknown.
+                local_audit.record_request(
+                    "assistant-action",
+                    result="error",
+                    team_id=team_id,
+                    assistant=assistant_id,
+                    detail=f"file-delivery-unconfirmed:{action}:{sent.id}:{sent.size}",
+                )
             raise
-        try:
-            projected = local_chat_execution.project_action_result(
-                raw_result,
-                action_spec,
-                private,
-                validate_action_payload,
-            )
-        except action_execution.StoredInputRejectedError as exc:
-            local_chat_execution.clear_rejected_stored_input(
-                self.assistant_stored_inputs,
-                team_id,
-                assistant_id,
-                action,
-                exc.stored_input,
-            )
-        except action_execution.RpcSecretExposureError:
+        if sent is not None:
             local_audit.record_request(
                 "assistant-action",
-                result="error",
+                result="ok",
                 team_id=team_id,
                 assistant=assistant_id,
-                detail=f"secret-exposure:{action}",
+                detail=f"file-delivered:{action}:{sent.id}:{sent.size}",
             )
-            raise ApiProblem(
-                HTTPStatus.BAD_GATEWAY,
-                "the Assistant returned an unsafe result",
-                code="assistant-secret-exposure",
-            ) from None
-        except action_execution.RpcInvalidResultError as exc:
-            local_audit.record_request(
-                "assistant-action",
-                result="error",
-                team_id=team_id,
-                assistant=assistant_id,
-                detail=f"invalid-output:{action}",
-            )
-            raise ApiProblem(
-                HTTPStatus.BAD_GATEWAY,
-                "the Assistant returned an invalid result",
-                code="invalid-action-output",
-            ) from exc
+        projected = local_chat_execution.project_invocation(
+            self.assistant_stored_inputs,
+            local_chat_execution.Invocation(team_id, assistant_id, action, action_spec, spec, capabilities),
+            raw_result,
+            private,
+            validate_action_payload,
+        )
         try:
             local_chat_execution.seal_stored_inputs(
                 self.assistant_stored_inputs,

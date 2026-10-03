@@ -11,6 +11,9 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
+from test_assistant_language import CONTRACT, DIGEST, RAW, PackContainer, _tampered
+
+from tests import catalog_fixtures
 
 lifecycle = harness.assistant_lifecycle
 resources = harness.hosted_resources
@@ -253,11 +256,41 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
             mock.patch.object(state._assistant_genesis_cache, "discard") as genesis,
             mock.patch.object(state._assistant_allowed_hosts_cache, "discard") as hosts,
             mock.patch.object(state._assistant_machine_contract_cache, "discard") as machine,
+            mock.patch.object(state._assistant_language_cache, "discard") as language,
         ):
             result = lifecycle._teardown_assistant(TEAM_ID, ASSISTANT_ID, container=container)
         self.assertEqual(result, resources._CleanupResult(True, True))
-        for discarded in (genesis, hosts, machine):
+        for discarded in (genesis, hosts, machine, language):
             discarded.assert_called_once_with(container.id)
+
+    def test_hosted_admission_refuses_a_pack_that_fails_its_binding(self) -> None:
+        spec = SimpleNamespace(
+            summary=catalog_fixtures.SUMMARY,
+            allowed_hosts=(),
+            contract=SimpleNamespace(
+                machine_contract=CONTRACT,
+                pack_digest=DIGEST,
+                integrations={},
+                stored_inputs={},
+            ),
+        )
+        cache = lifecycle.assistant_language.LanguagePackCache()
+        with mock.patch.object(state, "_assistant_language_cache", cache):
+            self.assertEqual(
+                lifecycle._assistant_language(spec.contract, PackContainer("good", RAW)).pack_digest,
+                DIGEST,
+            )
+            with self.assertRaises(state.ApiError) as drifted:
+                lifecycle._assistant_language(spec.contract, PackContainer("drifted", _tampered()))
+            self.assertEqual(drifted.exception.status, HTTPStatus.CONFLICT)
+            with (
+                mock.patch.object(state, "_assistant_allowed_hosts_cache", mock.Mock()),
+                mock.patch.object(state, "_assistant_machine_contract_cache", mock.Mock()),
+                mock.patch.object(lifecycle.assistant_manifest, "reviewed_manifest_contract"),
+                self.assertRaises(state.ApiError) as refused,
+            ):
+                lifecycle._require_assistant_allowed_hosts(spec, PackContainer("tampered", _tampered()))
+        self.assertEqual(refused.exception.status, HTTPStatus.CONFLICT)
 
     def test_integration_retention_cancels_only_after_pruning(self) -> None:
         error = lifecycle.integration_store.OAuthIntegrationStoreError("state")
@@ -331,6 +364,59 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
             mock.patch.object(state._assistant_icons, "read", return_value=b"icon"),
         ):
             self.assertEqual(lifecycle._assistant_icon(TEAM_ID, ASSISTANT_ID, lease), b"icon")
+
+    def test_installed_summary_reads_only_the_binding_pack_in_the_requested_language(self) -> None:
+        lease = object()
+        spec = SimpleNamespace(
+            summary=catalog_fixtures.SUMMARY,
+            contract=SimpleNamespace(machine_contract=CONTRACT, pack_digest=DIGEST),
+        )
+        cache = lifecycle.assistant_language.LanguagePackCache()
+        container = PackContainer("good", RAW)
+        with (
+            mock.patch.object(resources, "_require_current_authorization") as authorized,
+            mock.patch.object(state, "_assistant_language_cache", cache),
+            mock.patch.object(lifecycle, "_resolve_team_assistant", return_value=(ASSISTANT_ID, spec)) as resolve,
+            mock.patch.object(resources, "_get_container", return_value=container) as get_container,
+        ):
+            self.assertEqual(
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "pt", lease),
+                {"locale": "pt", "summary": f"PT {catalog_fixtures.SUMMARY}"},
+            )
+            authorized.assert_called_once_with(TEAM_ID, lease, require_isolation=False)
+            resolve.assert_called_once_with(TEAM_ID, ASSISTANT_ID)
+            get_container.assert_called_once_with(
+                lifecycle.container_spec.team_assistant_container_name(TEAM_ID, ASSISTANT_ID)
+            )
+
+            # English is the binding's own catalog summary and never reads the pack.
+            get_container.reset_mock()
+            self.assertEqual(
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "en", lease),
+                {"locale": "en", "summary": catalog_fixtures.SUMMARY},
+            )
+            get_container.assert_not_called()
+
+            # A pack that does not match the binding fails closed instead of answering in English.
+            get_container.return_value = PackContainer("drifted", _tampered())
+            with self.assertRaises(state.ApiError) as drifted:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "de", lease)
+            self.assertEqual(drifted.exception.status, HTTPStatus.CONFLICT)
+
+            get_container.return_value = None
+            with self.assertRaises(state.ApiError) as stopped:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "ja", lease)
+            self.assertEqual(stopped.exception.status, HTTPStatus.CONFLICT)
+
+            resolve.side_effect = lifecycle.assistant_registry.AssistantSpecError("absent")
+            with self.assertRaises(state.ApiError) as absent:
+                lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, "pt", lease)
+            self.assertEqual(absent.exception.status, HTTPStatus.NOT_FOUND)
+
+            for locale in ("pt-BR", "EN", None):
+                with self.subTest(locale=locale), self.assertRaises(state.ApiError) as invalid:
+                    lifecycle._assistant_summary(TEAM_ID, ASSISTANT_ID, locale, lease)
+                self.assertEqual(invalid.exception.status, HTTPStatus.UNPROCESSABLE_ENTITY)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import types
 import unittest
 from contextlib import nullcontext
@@ -152,12 +153,15 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
 
 class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
     def test_pending_continuation_prefers_human_then_integration(self) -> None:
-        human = object()
+        human = types.SimpleNamespace(requirement=types.SimpleNamespace(copy=types.SimpleNamespace(locale="fr")))
         integration = object()
+        # Every reopening is validated against the binding, even one that keeps the challenge's own language.
+        relocalized = mock.Mock(side_effect=lambda challenge, _locale: challenge)
         subject = types.SimpleNamespace(
             _expire_human_challenges=mock.Mock(),
             human_challenges=types.SimpleNamespace(current=lambda _team_id: human),
             integration_challenges=types.SimpleNamespace(current=lambda _team_id: integration),
+            _relocalized_human=relocalized,
             _human_response=lambda value: {"human": value},
             _integration_response=lambda value: {"integration": value},
         )
@@ -165,6 +169,8 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api._pending_chat_continuation(subject, "team_1"),
             {"human": human},
         )
+        self.assertEqual(local_chat_api._pending_chat_continuation(subject, "team_1", "pt"), {"human": human})
+        self.assertEqual(relocalized.call_args_list, [mock.call(human, "fr"), mock.call(human, "pt")])
         subject.human_challenges.current = lambda _team_id: None
         self.assertEqual(
             local_chat_api._pending_chat_continuation(subject, "team_1"),
@@ -182,8 +188,8 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace(
             _delete_chat_continuation=mock.Mock(),
             _commit_chat_terminal=lambda *_args: False,
-            _routine_proposal=lambda _response, _change: {"proposal_id": "p" * 32},
-            _withdraw_routine_proposal=mock.Mock(),
+            _lock=lambda _team_id: threading.RLock(),
+            _routine_change=mock.Mock(return_value=mock.Mock()),
         )
 
         def invalid_pending(_outcome, _groups, pending, _pauses, _complete):
@@ -196,7 +202,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             local_chat_api._segment_response(subject, response)
 
         def conflicting_terminal(_outcome, _groups, _pending, _pauses, complete):
-            return complete(types.SimpleNamespace(reply="reply", routine={"op": "propose"}))
+            return complete(types.SimpleNamespace(reply="reply", routine={"op": "propose"}, clarification=None))
 
         with (
             mock.patch.object(
@@ -208,8 +214,9 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         ):
             local_chat_api._segment_response(subject, response)
         self.assertEqual(caught.exception.code, "chat-stopped")
-        # Stop won the commit, so the turn's Routine offer is withdrawn with its reply; so does a failed commit.
-        subject._withdraw_routine_proposal.assert_called_once_with("team_1", {"proposal_id": "p" * 32})
+        # Stop won the commit, so the turn's compiled Routine change was admitted but never written.
+        subject._routine_change.assert_called_once()
+        subject._routine_change.return_value.assert_not_called()
 
         def failing_commit(*_args):
             raise local_app.ApiProblem(503, "memory", code="memory-store-failed")
@@ -220,7 +227,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             self.assertRaises(local_app.ApiProblem),
         ):
             local_chat_api._segment_response(subject, response)
-        self.assertEqual(subject._withdraw_routine_proposal.call_count, 2)
+        subject._routine_change.return_value.assert_not_called()
 
         with (
             mock.patch.object(
@@ -244,19 +251,35 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
                 local_chat_api.chat(
                     subject,
                     "team_1",
-                    {"message": message, "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                    {
+                        "message": message,
+                        "files": [],
+                        "assistant_ids": [],
+                        "conversation": [],
+                        "locale": None,
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
+                    },
                     "openai",
                     "key",
                 )
             self.assertEqual(caught.exception.code, "invalid-message")
 
         pending = {"status": "pending"}
-        subject._pending_chat_continuation = lambda _team_id: pending
+        subject._pending_chat_continuation = lambda _team_id, _locale: pending
         self.assertIs(
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "key",
             ),
@@ -264,13 +287,21 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         )
 
         responses = iter((None, pending))
-        subject._pending_chat_continuation = lambda _team_id: next(responses)
+        subject._pending_chat_continuation = lambda _team_id, _locale: next(responses)
         subject._exclusive_chat_turn = lambda _team_id: nullcontext("token")
         self.assertIs(
             local_chat_api.chat(
                 subject,
                 "team_1",
-                {"message": "hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "key",
             ),
@@ -378,8 +409,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "different",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
         self.assertEqual(caught.exception.code, "team-context-changed")
 
@@ -391,8 +426,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
         subject = self._invocation_subject()
@@ -409,8 +448,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             ),
             "ok",
         )
@@ -430,8 +473,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
         subject = self._invocation_subject()
@@ -443,8 +490,12 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 "token",
                 request,
                 "container",
-                action_human.ActionTranscript(""),
-                _action_private_inputs(),
+                local_app.action_execution.ActionInvocationEvidence(
+                    _action_private_inputs(),
+                    action_human.ActionTranscript(""),
+                    "a" * 64,
+                    "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                ),
             )
 
     def test_problem_mapping_covers_every_closed_failure_family(self) -> None:
@@ -514,7 +565,9 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
         )
         spec = types.SimpleNamespace(stored_inputs={"token": types.SimpleNamespace(kind="password")})
         action_spec = types.SimpleNamespace(stored_inputs=("token",))
-        missing_origin = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        missing_origin = local_app.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
             local_chat_execution.seal_stored_inputs(
                 mock.Mock(),
@@ -525,7 +578,9 @@ class LocalChatExecutionBoundaryEdgeTests(unittest.TestCase):
                 missing_origin,
             )
 
-        evidence = local_app.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "b" * 64)
+        evidence = local_app.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, "b" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaises(KeyError):
             local_chat_execution.seal_stored_inputs(
                 mock.Mock(),

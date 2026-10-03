@@ -12,6 +12,7 @@ from local.errors import ApiProblemError as ApiProblem
 from local.install import developers, preview, snapshots
 from local.install.registry import is_successor
 from local.validation import validate_team_id
+from protocol.http.v1 import payload as http_payload
 
 
 def list_local_snapshots(self) -> dict[str, object]:
@@ -57,8 +58,25 @@ def list_local_snapshots(self) -> dict[str, object]:
 
 
 def local_snapshot_icon(self, image_id: str) -> bytes:
+    return _preview(lambda: self.local_snapshot_previews.icon(image_id))
+
+
+def local_snapshot_summary(self, image_id: str, locale: object) -> dict[str, object]:
+    """One staged snapshot's summary in one closed interface language, read only from its own pack (ADR-0091)."""
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise ApiProblem(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "locale must be one interface language",
+            code="invalid-locale",
+        )
+    summary = _preview(lambda: self.local_snapshot_previews.summary(image_id, canonical))
+    return {"locale": canonical, "summary": summary}
+
+
+def _preview[T](load: Callable[[], T]) -> T:
     try:
-        return self.local_snapshot_previews.icon(image_id)
+        return load()
     except preview.PreviewBusyError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,

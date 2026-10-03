@@ -47,6 +47,33 @@ are JSON integers: `365` is octal `0555`, and `292` is octal `0444`. No port,
 health endpoint, authored server, mutable image, capability, or alternative
 runtime setting is admitted.
 
+The machine contract carries the Assistant's English message catalog as a sorted `messages` list of
+`{id, msgid, max_length, params}` (Developers Assistant Spec v1 owns its complete semantics). Every `id` is the
+lowercase SHA-256 of its `msgid` bytes, and the published `summary` is one catalog message with no parameters and a
+`max_length` of at most 160.
+
+Every machine-contract Action carries its `effect`, `read_only` or `mutating`, and a `mutating` Action may carry one
+closed `verifier` descriptor naming a `read_only` Action of the same contract, its typed input bindings from the
+original input or `operation_id`, and the RFC 6901 pointers of its outcome and recovered result. A `mutating` Action
+may also carry one closed `idempotency` declaration: the provider host, the key location and name, the key scope,
+the provider's retention in seconds, and whether a reused key requires the same payload. These schemas fix
+the shape only; Developers Assistant Spec v1 owns the semantics, and Developers and Team each enforce them.
+
+Every machine-contract Action also carries `input_files`, the input properties that hold a Team file (ADR-0093):
+`[]` for an ordinary Action and at most one property name in v1. A declared name must be a required direct property
+of the Action's `input_schema` whose subschema is exactly
+`{"type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$"}`, compared as JSON values, and an
+Action that declares one must declare exactly one authorization capability; otherwise resolve fails with
+`resolve_input_file_mismatch`. The declaration, not the string shape, makes a property a file. The invocation that
+delivers the file and every further rule belong to Developers Assistant Spec v1.
+
+Language packs travel with the artifact. Each final image holds the canonical pack for that catalog at the fixed
+read-only `/opt/shimpz/shimpz.pack.json` (`language_pack` in the runtime), and resolve carries its `pack_digest`:
+`sha256:` over the exact pack bytes. The signed provenance binds the same digest beside the manifest and machine
+contract digests. The Controller reads the pack from the verified image, requires that its bytes hash to
+`pack_digest` and that it is complete and valid for the resolved catalog, and keeps it with the reviewed binding.
+A missing, modified, incomplete, or mismatched pack fails closed.
+
 Signature and DSSE provenance bundles are not embedded. Resolve supplies
 immutable references under
 `ghcr.io/theshimpz/shimpz-assistant-trust` and the signer identity. The

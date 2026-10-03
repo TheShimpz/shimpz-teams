@@ -203,6 +203,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 hosted_lifecycle,
                 _owned_teardown_runtime=lambda *_args: (True, runtime),
                 _stop_teardown_runtime=phase("stop"),
+                _teardown_preparation_helpers=phase("helpers"),
                 _teardown_assistants=phase("assistants"),
                 _teardown_storage=phase("storage"),
                 _teardown_inference=phase("inference"),
@@ -229,6 +230,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 "egress_policies",
                 "inference_configuration",
                 "integration_credentials",
+                "preparation_helpers",
                 "publication_bindings",
                 "runtime_container",
                 "stored_inputs",
@@ -242,6 +244,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             events,
             [
                 "stop",
+                "helpers",
                 "assistants",
                 "storage",
                 "inference",
@@ -264,6 +267,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
                 hosted_lifecycle,
                 _owned_teardown_runtime=lambda *_args: (True, runtime),
                 _stop_teardown_runtime=lambda _brain: True,
+                _teardown_preparation_helpers=lambda _team_id: True,
                 _teardown_assistants=lambda _team_id: False,
             ),
         ):
@@ -271,7 +275,7 @@ class HostedLimitAndTeardownTests(unittest.TestCase):
             pending = cleanup_state.load("team_1")
 
         self.assertFalse(result.complete)
-        self.assertEqual(result.residue_absent, ())
+        self.assertEqual(result.residue_absent, ("preparation_helpers",))
         self.assertIsNotNone(pending)
         self.assertEqual((pending.owner, pending.runtime_id, pending.db_dropped), ("account_1", runtime.id, False))
 

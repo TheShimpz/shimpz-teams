@@ -12,6 +12,7 @@ import docker.errors
 
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from assistant import spec as assistant_registry
 from core.container import network as network_policy
@@ -24,6 +25,8 @@ from hosted.team import resources as hosted_resources
 from install import bindings as dynamic_assistants
 from install import icons as assistant_icons
 from integrations import store as integration_store
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from protocol.http.v1 import payload as http_payload
 
 
 class _IncompleteInstallRollback(runtime_state.ApiError):
@@ -73,6 +76,13 @@ def _require_assistant_allowed_hosts(
             declared.integrations,
             declared.stored_inputs,
             spec.contract.machine_contract,
+            summary=spec.summary,
+            allowed_hosts=declared.allowed_hosts,
+        )
+        runtime_state._assistant_language_cache.get(
+            container,
+            spec.contract.machine_contract,
+            spec.contract.pack_digest,
         )
     except assistant_manifest.ManifestError as exc:
         raise runtime_state.ApiError(
@@ -80,6 +90,20 @@ def _require_assistant_allowed_hosts(
             "installed Assistant manifest failed its reviewed contract",
         ) from exc
     return declared.allowed_hosts
+
+
+def _assistant_language(
+    contract: assistant_registry.AssistantContract,
+    container,
+) -> assistant_language.LanguagePack:
+    """The verified language pack of this exact container generation and its reviewed binding (ADR-0091)."""
+    try:
+        return runtime_state._assistant_language_cache.get(container, contract.machine_contract, contract.pack_digest)
+    except assistant_manifest.ManifestError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT,
+            "installed Assistant manifest failed its reviewed contract",
+        ) from exc
 
 
 def _admit_assistant_contract(
@@ -349,6 +373,7 @@ def _teardown_assistant(
             runtime_state._assistant_genesis_cache.discard(container_id)
             runtime_state._assistant_allowed_hosts_cache.discard(container_id)
             runtime_state._assistant_machine_contract_cache.discard(container_id)
+            runtime_state._assistant_language_cache.discard(container_id)
     elif container is not None:
         with contextlib.suppress(runtime_state.ApiError):
             hosted_resources._fail_stop_team(container)
@@ -797,3 +822,34 @@ def _assistant_icon(
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 "Assistant icon is unavailable",
             ) from exc
+
+
+def _assistant_summary(
+    team_id: str,
+    assistant_id: str,
+    locale: object,
+    lease: hosted_resources._AuthorizationLease,
+) -> dict[str, object]:
+    """One installed Assistant's summary in one closed interface language, read from its binding's pack (ADR-0091).
+
+    English is the binding's catalog summary itself; any other language is only that message's translation from the
+    pack verified against the binding's digest, so a missing or mismatched pack fails closed instead of answering in
+    English.
+    """
+    canonical = http_payload.canonical_locale(locale)
+    if canonical is None:
+        raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "locale must be one interface language")
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            assistant_id, spec = _resolve_team_assistant(team_id, assistant_id)
+        except assistant_registry.AssistantSpecError as exc:
+            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "Assistant is not installed in this Team") from exc
+        if canonical == assistant_language.ENGLISH:
+            return {"locale": canonical, "summary": spec.summary}
+        container = hosted_resources._get_container(container_spec.team_assistant_container_name(team_id, assistant_id))
+        if container is None:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant is not running in this Team")
+        pack = _assistant_language(spec.contract, container)
+        summary = pack.template(catalog_validator.message_id(spec.summary), canonical)
+    return {"locale": canonical, "summary": summary}

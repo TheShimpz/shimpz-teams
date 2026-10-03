@@ -159,6 +159,8 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             document["machine_contract"],
             declarations,
             stored_input_declarations,
+            summary=document["summary"],
+            allowed_hosts=assistant_manifest.canonical_allowed_hosts(document["allowed_hosts"]),
         )
         if machine_contract != document["machine_contract"]:
             raise assistant_manifest.ManifestError("machine contract is not canonical")
@@ -178,17 +180,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             integrations=integrations,
             stored_inputs=stored_inputs,
         )
-        actions = {
-            action["id"]: assistant_registry.ActionSpec(
-                summary=assistant_registry.action_summary(action["id"]),
-                input_schema=action["input_schema"],
-                output_schema=action["output_schema"],
-                integrations=tuple(action["integrations"]),
-                stored_inputs=tuple(action["stored_inputs"]),
-                human_requests=tuple(action["human_requests"]),
-            )
-            for action in machine_contract["actions"]
-        }
+        actions = {action["id"]: assistant_registry.action_spec(action) for action in machine_contract["actions"]}
         image, required_labels = _runtime_identity(binding)
         return AssistantSpec(
             assistant_id=binding.assistant_id,
@@ -202,6 +194,7 @@ def _spec(binding: bindings.DynamicAssistantBinding) -> AssistantSpec:
             integrations=integrations,
             stored_inputs=stored_inputs,
             machine_contract=machine_contract,
+            pack_digest=str(document["pack_digest"]),
             provenance=binding.provenance,
             platform=str(document["platform"]) if binding.provenance == "local" else None,
         )

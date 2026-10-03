@@ -24,6 +24,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _assistant_genesis_cache=cache,
             _assistant_allowed_hosts_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_machine_contract_cache=types.SimpleNamespace(discard=mock.Mock()),
+            _assistant_language_cache=types.SimpleNamespace(discard=mock.Mock()),
             _fail_stop_action=mock.Mock(),
             _release_assistant_egress=mock.Mock(),
         )
@@ -45,6 +46,8 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
                 egress_prepared=False,
             )
         )
+        # The verified language pack is removed with the container generation it was admitted from (ADR-0091).
+        subject._assistant_language_cache.discard.assert_called_once_with("container")
 
         subject._release_assistant_egress.side_effect = local_app.ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -165,6 +168,7 @@ class LocalAssistantLifecycleHelperEdgeTests(unittest.TestCase):
             _assistant_genesis_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_allowed_hosts_cache=types.SimpleNamespace(discard=mock.Mock()),
             _assistant_machine_contract_cache=types.SimpleNamespace(discard=mock.Mock()),
+            _assistant_language_cache=types.SimpleNamespace(discard=mock.Mock()),
             _create_assistant_container=mock.Mock(),
             _team_has_egress_assistant=mock.Mock(return_value=False),
             _release_assistant_egress=mock.Mock(),

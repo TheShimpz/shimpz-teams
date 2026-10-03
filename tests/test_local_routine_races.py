@@ -10,7 +10,6 @@ from unittest import mock
 from test_local_routine_service import (
     API_KEY,
     ASSISTANT,
-    CHANGE,
     KEY,
     RoutineServiceCase,
     Runtime,
@@ -20,7 +19,7 @@ from test_local_routine_service import (
 
 from action import human as action_human
 from local import app as local_app
-from local.chat.segment import RoutineSegment
+from local.routine import compiled as routine_compiled
 from local.routine import human as routine_human
 from local.routine import run as routine_run
 from local.routine import turn as routine_turn
@@ -69,32 +68,9 @@ class LockOrderTests(RoutineServiceCase):
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
             observed = self.observe_routine_updates(service)
-            self.assertIsNotNone(service.claim_routine_run(("anthropic", "openai")))
+            self.assertIsNotNone(service.claim_routine_run())
             self.assertEqual(observed, [True])
             self.assertFalse(held_elsewhere(service._lock("team_1")))
-
-    def test_a_confirmation_holds_the_team_lifecycle_lock_from_validation_to_creation(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            _controller, service = self.service(directory, Runtime())
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", CHANGE, contracts)
-            lifecycle = service._lock("team_1")
-            validated: list[bool] = []
-            current = routine_turn.current_contracts
-
-            def validating(*args):
-                result = current(*args)
-                validated.append(held_elsewhere(lifecycle))
-                return result
-
-            observed = self.observe_routine_updates(service)
-            with mock.patch.object(routine_turn, "current_contracts", side_effect=validating):
-                service.confirm_routine("team_1", {"proposal_id": proposal.proposal_id, "timezone": "UTC"})
-            # Held once the contract check returns and still held when the Routine is written: a teardown cannot
-            # remove the Team between them and have its Routine state recreated.
-            self.assertEqual((validated, observed), ([True], [True]))
-            self.assertEqual(len(self.state(service).routines), 1)
-            self.assertFalse(held_elsewhere(lifecycle))
 
 
 class FrozenCase(RoutineServiceCase):
@@ -106,7 +82,7 @@ class FrozenCase(RoutineServiceCase):
 
         controller.assistant_lifecycle.invoke = invoke
         self.routine(service)
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         self.assertEqual(self.run_claim(service, claim)["status"], "frozen")
         return service, claim
 
@@ -126,7 +102,7 @@ class NoticeTests(FrozenCase):
             service.acknowledge_routine_notices(
                 {"deliveries": [{"team_id": "team_1", "notice_id": claim["run_id"], "version": 1}]}
             )
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             service.resume_routine_human(
                 "team_1",
                 claim["run_id"],
@@ -144,7 +120,7 @@ class EndingRaceTests(FrozenCase):
     def test_a_deleting_routine_never_resumes_its_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
             with self.assertRaises(local_app.ApiProblem) as caught:
                 service.resume_routine_human(
@@ -160,7 +136,7 @@ class EndingRaceTests(FrozenCase):
     def test_an_ending_decided_on_a_frozen_read_never_lands_on_a_resumed_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             snapshot = record.run(self.state(service), claim["run_id"])
             now = int(time.time())
             service.routine_store.update("team_1", lambda state: record.thaw(state, claim["run_id"], now))
@@ -193,7 +169,7 @@ class ExecutionBoundTests(RoutineServiceCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             with mock.patch.object(routine_turn, "current_contracts", return_value={ASSISTANT: "sha256:" + "0" * 64}):
                 self.assertEqual(self.run_claim(service, claim)["status"], "failed")
             self.assertEqual(self.state(service).notices[-1].detail, {"code": "team-context-changed", "actions": []})
@@ -203,14 +179,16 @@ class ExecutionBoundTests(RoutineServiceCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.service(directory, Runtime())
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 0)
             routine_watchdog.check(service)
             self.assertIn("token", service._cancelled_chat_tokens)
             stopped = local_app.ApiProblem(409, "stopped", code="chat-stopped")
-            outcome = routine_run._failed(
-                service, "team_1", claim["run_id"], RoutineSegment(claim["run_id"], ""), stopped
-            )
+            lease = record.lease_of(claim["lease_token"], KEY)
+            run = routine_run._Run("team_1", claim["run_id"], lease, "token", "openai", self.state(service).routines[0])
+            # Nothing was dispatched, so a stop that ran out of active time fails the run instead of holding it.
+            value = record.run(self.state(service), claim["run_id"])
+            outcome = routine_compiled._ended(service, run, value, [], stopped)
             self.assertEqual(outcome, "failed")
             self.assertEqual(self.state(service).notices[-1].detail, {"code": "active-time-exceeded", "actions": []})
 
@@ -218,7 +196,7 @@ class ExecutionBoundTests(RoutineServiceCase):
 class WatchdogRaceTests(RoutineServiceCase):
     def bound(self, controller, service):
         """A claimed run whose generation is bound, and a journal read during which its worker finishes."""
-        claim = service.claim_routine_run(("anthropic", "openai"))
+        claim = service.claim_routine_run()
         network = controller.assistant_lifecycle._network("team_1").id
         lease = record.lease_of(claim["lease_token"], KEY)
         now = int(time.time())
@@ -239,7 +217,7 @@ class WatchdogRaceTests(RoutineServiceCase):
             self.routine(service)
             claim, worker_finishes = self.bound(controller, service)
             snapshot = record.run(self.state(service), claim["run_id"])
-            with mock.patch.object(service.action_state, "uncertain_fingerprint", side_effect=worker_finishes):
+            with mock.patch.object(service.action_state, "current_batch", side_effect=worker_finishes):
                 self.assertIsNone(routine_watchdog._recover(service, "team_1", snapshot))
             self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
 
@@ -251,7 +229,7 @@ class WatchdogRaceTests(RoutineServiceCase):
             routine_run.register_routine_run(service, "team_1", claim["run_id"], "token", 600)
             self.assertFalse(service.delete_routine("team_1", value.routine_id)["deleted"])
             routine_run.unregister_routine_run(service, claim["run_id"])
-            with mock.patch.object(service.action_state, "uncertain_fingerprint", side_effect=worker_finishes):
+            with mock.patch.object(service.action_state, "current_batch", side_effect=worker_finishes):
                 routine_watchdog.check(service, startup=True)
             self.assertEqual(self.state(service).routines, ())
             self.assertEqual(self.state(service).discards, ())
@@ -263,13 +241,13 @@ class StopBeforeRegistrationTests(FrozenCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertTrue(service.stop_routine("team_1", claim["run_id"])["stopped"])
             with self.assertRaises(local_app.ApiProblem) as late:
                 self.run_claim(service, claim)
             self.assertEqual(late.exception.code, "routine-lease-invalid")
             value = self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.assertTrue(service.delete_routine("team_1", value.routine_id)["deleted"])
             self.assertEqual(runtime.contexts, [])
             self.assertEqual(self.state(service).discards, ())
@@ -279,7 +257,7 @@ class StopBeforeRegistrationTests(FrozenCase):
             runtime = Runtime(acting())
             _controller, service = self.service(directory, runtime)
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             service._routine_halting.add(claim["run_id"])
             with self.assertRaises(local_app.ApiProblem) as fenced:
                 self.run_claim(service, claim)
@@ -297,7 +275,7 @@ class StopBeforeRegistrationTests(FrozenCase):
     def test_a_stop_while_a_replay_is_admitted_ends_the_frozen_run_before_it_resumes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             service, claim = self.frozen(directory)
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             admit = routine_human._current_context
 
             def stopped_meanwhile(*args):

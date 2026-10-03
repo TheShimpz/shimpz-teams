@@ -9,6 +9,7 @@ from inference import usage as brain_usage
 from local.chat import continuation as local_chat_continuations
 from local.errors import ApiProblemError
 from local.install.runtime import AssistantSpec
+from routine.request import Request as RoutineRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,8 @@ class ResponseRequest:
     requests_used: int = 0
     # What the turn consumed before this request; a chat turn always has one (ADR-0082).
     usage: brain_usage.TurnUsage | None = None
+    # The authenticated request of a new chat turn, which a compiled Routine change binds (ADR-0092).
+    routine_request: RoutineRequest | None = None
 
 
 def required_active_assistant(

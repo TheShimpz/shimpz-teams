@@ -26,6 +26,7 @@ from local.http import stream as local_http_stream
 from local.http.audit import RequestAudit
 from local.validation import (
     MODEL_BOUND_OPERATIONS,
+    OPTIONAL_MODEL_OPERATIONS,
     credential_binding,
     decision_binding,
     validate_decision_credential_header,
@@ -64,6 +65,7 @@ _JSON_BODY_LIMITS = {
     "chat-intent-route": MAX_INTENT_ROUTE_BODY_BYTES,
     "chat-integration-submit": MAX_BODY_BYTES,
     "chat-human-submit": MAX_HUMAN_RESPONSE_BODY_BYTES,
+    "chat-human-open": MAX_BODY_BYTES,
     "chat-stop": MAX_BODY_BYTES,
     "inference-configure": MAX_BODY_BYTES,
     "team-create": MAX_BODY_BYTES,
@@ -284,8 +286,20 @@ class Handler(BaseHTTPRequestHandler):
             )
         return parts, route
 
+    def _model_credential(self, operation: str) -> tuple[str, str] | None:
+        """The private model credential, or None when an operation that may go without one carries none at all."""
+        absent = not self.headers.get_all("X-Shimpz-Model-Provider", failobj=[]) and not self.headers.get_all(
+            "X-Shimpz-Model-Api-Key", failobj=[]
+        )
+        if operation in OPTIONAL_MODEL_OPERATIONS and absent:
+            return None
+        return self._model_credential_headers()
+
     def _model_binding(self, operation: str) -> dict[str, str] | None:
-        return credential_binding(*self._model_credential_headers()) if operation in MODEL_BOUND_OPERATIONS else None
+        if operation not in MODEL_BOUND_OPERATIONS:
+            return None
+        credential = self._model_credential(operation)
+        return None if credential is None else credential_binding(*credential)
 
     def _space_reset_route(self, parts: list[str]) -> tuple[HTTPStatus, dict[str, object], str, None, None] | None:
         if self.command != "DELETE" or parts[:2] != ["v1", "space"]:
@@ -448,6 +462,12 @@ class Handler(BaseHTTPRequestHandler):
         operation = getattr(self.server.controller.chat_turn_service, method_name)
         return HTTPStatus.OK, operation(team_id), operation_name, team_id, None
 
+    def _chat_open(self, team_id: str) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None]:
+        """Open the pending human challenge in the Admin interface language its request copy renders in (ADR-0091)."""
+        service = self.server.controller.chat_turn_service
+        payload = service.open_chat_human(team_id, self._body(max_bytes=MAX_BODY_BYTES))
+        return HTTPStatus.OK, payload, "chat-human-open", team_id, None
+
     def _chat_submit(
         self,
         team_id: str,
@@ -521,19 +541,30 @@ class Handler(BaseHTTPRequestHandler):
         self,
         parts: list[str],
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
-        if len(parts) not in {4, 5} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
+        if len(parts) not in {4, 5, 6} or parts[:2] != ["v1", "teams"] or parts[3] != "chat":
             return None
         team_id = validate_team_id(parts[2])
         if len(parts) == 4:
             return self._chat_start(team_id) if self.command == "POST" else None
-        segment = parts[4]
+        segment = "/".join(parts[4:])
         if self.command == "GET":
             return self._chat_pending(team_id, segment)
-        if self.command == "POST" and segment == "stop":
-            return self._chat_stop(team_id)
         if self.command != "POST":
             return None
-        return self._chat_decision(team_id, segment) or self._chat_submit(team_id, segment)
+        return (
+            self._chat_control(team_id, segment)
+            or self._chat_decision(team_id, segment)
+            or self._chat_submit(team_id, segment)
+        )
+
+    def _chat_control(
+        self,
+        team_id: str,
+        segment: str,
+    ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
+        """The non-streamed chat controls: Stop, and opening the pending human challenge in one language."""
+        control = {"stop": self._chat_stop, "human/challenge": self._chat_open}.get(segment)
+        return control(team_id) if control is not None else None
 
     def _stream_chat_route(
         self,
@@ -719,37 +750,32 @@ class Handler(BaseHTTPRequestHandler):
                 assistant_id,
             )
         assistant_id = route.params["assistant_id"]
+        return (
+            HTTPStatus.OK,
+            self._installed_assistant_route(route, team_id, assistant_id),
+            operation,
+            team_id,
+            assistant_id,
+        )
+
+    def _installed_assistant_route(
+        self,
+        route: strict_http.ControllerRouteMatch,
+        team_id: str,
+        assistant_id: str,
+    ) -> dict[str, object]:
+        """Dispatch one operation on one installed Team Assistant."""
+        controller = self.server.controller
+        operation = route.operation
+        if operation == "assistant-summary":
+            return controller.assistant_summary(team_id, assistant_id, route.params["locale"])
         if operation == "assistant-action-labels":
             provider, api_key = self._model_credential_headers()
-            return (
-                HTTPStatus.OK,
-                controller.chat_turn_service.action_labels(
-                    team_id,
-                    assistant_id,
-                    self._body(),
-                    provider,
-                    api_key,
-                ),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.chat_turn_service.action_labels(team_id, assistant_id, self._body(), provider, api_key)
         if operation == "assistant-uninstall":
-            return (
-                HTTPStatus.OK,
-                controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
         if operation == "assistant-invoke":
-            return (
-                HTTPStatus.OK,
-                controller.invoke(team_id, assistant_id, route.params["action_id"], self._body()),
-                operation,
-                team_id,
-                assistant_id,
-            )
+            return controller.invoke(team_id, assistant_id, route.params["action_id"], self._body())
         raise AssertionError("canonical local route was not dispatched")
 
     def _authorized_route(
@@ -832,20 +858,25 @@ class Handler(BaseHTTPRequestHandler):
             request_audit.record("assistant-icon", result="ok", team_id=team_id, assistant=assistant_id)
             self._send_icon(contents)
             return None
-        if route.operation == "local-assistant-icon":
-            self._local_assistant_icon(route, request_audit)
+        if route.operation in {"local-assistant-icon", "local-assistant-summary"}:
+            self._local_assistant_preview(route, request_audit)
             return None
         return self._route(parts, route)
 
-    def _local_assistant_icon(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+    def _local_assistant_preview(self, route: strict_http.ControllerRouteMatch, request_audit: RequestAudit) -> None:
+        """Send one staged snapshot's icon or localized summary; a busy preview tells the caller when to retry."""
         image_id = f"sha256:{route.params['image_hash']}"
+        controller = self.server.controller
         try:
-            contents = self.server.controller.local_snapshot_icon(image_id)
+            if route.operation == "local-assistant-icon":
+                contents = controller.local_snapshot_icon(image_id)
+            else:
+                summary = controller.local_snapshot_summary(image_id, route.params["locale"])
         except ApiProblem as exc:
             if exc.code != "local-assistant-preview-busy":
                 raise
             trace_id = request_audit.record(
-                "local-assistant-icon",
+                route.operation,
                 result="error",
                 detail=exc.code,
             )
@@ -859,8 +890,11 @@ class Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        request_audit.record("local-assistant-icon", result="ok")
-        self._send_icon(contents)
+        trace_id = request_audit.record(route.operation, result="ok")
+        if route.operation == "local-assistant-icon":
+            self._send_icon(contents)
+        else:
+            self._send(HTTPStatus.OK, {**summary, "trace_id": trace_id})
 
     def _expected_human_assurance(
         self,

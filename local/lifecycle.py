@@ -12,6 +12,7 @@ from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import icons
 from local import names as local_names
+from local import prepare as local_prepare
 from local.assistant.egress import PROFILE
 from local.errors import ApiProblemError as ApiProblem
 from local.labels import (
@@ -38,6 +39,7 @@ _TEAM_RESIDUE_ABSENCE = frozenset(
         "integration_credentials",
         "stored_inputs",
         "action_checkpoints",
+        "preparation_helpers",
         "publication_bindings",
         "routines",
         "runtime_state",
@@ -96,6 +98,17 @@ def _delete_team_conversation(self, team_id: str, network) -> None:
             code="brain-runtime-failed",
         ) from exc
     self._purge_action_generation(network.id)
+
+
+def _remove_team_helpers(self, team_id: str) -> None:
+    try:
+        local_prepare.remove_helpers(self.client, self.space_id, team_id)
+    except DockerException as exc:
+        raise ApiProblem(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Docker could not destroy the Team",
+            code="docker-remove-failed",
+        ) from exc
 
 
 def _remove_team_assistants(self, team_id: str, containers: list) -> int:
@@ -232,6 +245,8 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
             self._validate_destroy_containers(containers, team_id, network)
             self._delete_team_conversation(team_id, network)
             residue_absent.update(("brain_checkpoints", "action_checkpoints"))
+            _remove_team_helpers(self, team_id)
+            residue_absent.add("preparation_helpers")
             self._delete_team_routines(team_id)
             residue_absent.add("routines")
             removed = self._remove_team_assistants(team_id, containers)
@@ -408,6 +423,15 @@ def reset_space(self) -> dict[str, object]:
                 code="docker-reset-failed",
             ) from exc
         residue_absent.add("chat_continuations")
+        try:
+            local_prepare.remove_helpers(self.client, self.space_id)
+        except DockerException as exc:
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Docker could not reset the Space",
+                code="docker-reset-failed",
+            ) from exc
+        residue_absent.add("preparation_helpers")
         if residue_absent != _TEAM_RESIDUE_ABSENCE:
             raise ApiProblem(
                 HTTPStatus.INTERNAL_SERVER_ERROR,

@@ -14,33 +14,34 @@ import types
 from pathlib import Path
 from unittest import mock
 
+import routine_fixture
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from test_local_authority import _claims, _segment
+from test_local_chat_scope import LOOKUP_RESULT
 from test_local_routine_service import (
     API_KEY,
     API_KEY_SHA256,
-    ASSISTANT,
-    CHANGE,
     RoutineServiceCase,
     Runtime,
     acting,
     approval,
-    completed,
 )
 
 from action import human as action_human
 from local import authority as local_authority
 from local.http import server
-from local.routine import turn as routine_turn
+from local.routine import diagnostics as routine_diagnostics
 from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
+from routine import grant as routine_grant
 from routine import record
+from tests import human_request_fixtures
 
 TOKEN = "t" * 43
 EMPTY = b"{}"
-CLAIM = b'{"providers":["anthropic","openai"]}'
+CLAIM = b"{}"
 
 
 class RoutineHttpCase(RoutineServiceCase):
@@ -66,7 +67,13 @@ class RoutineHttpCase(RoutineServiceCase):
     def run_claim(self, service, claim: dict[str, object]) -> dict[str, object]:
         lease = hashlib.sha256(claim["lease_token"].encode("ascii")).hexdigest()
         evidence = local_authority.RoutineEvidence(self.fingerprint, lease, "a" * 32, 0)
-        return service.run_routine("team_1", claim["run_id"], evidence, "openai", API_KEY)
+        return service.run_routine(
+            "team_1",
+            claim["run_id"],
+            evidence,
+            (claim["revision"], claim["plan_digest"], claim["mode"]),
+            ("openai", API_KEY),
+        )
 
     def serve(self, directory: str, runtime: Runtime):
         controller, service = self.service(directory, runtime)
@@ -96,8 +103,17 @@ class RoutineHttpCase(RoutineServiceCase):
     def model(self) -> dict[str, str]:
         return {"X-Shimpz-Model-Provider": "openai", "X-Shimpz-Model-Api-Key": API_KEY}
 
-    def routine_headers(self, path: str, lease_token: str, *, key: Ed25519PrivateKey | None = None) -> dict[str, str]:
+    def routine_headers(
+        self,
+        path: str,
+        lease_token: str,
+        *,
+        key: Ed25519PrivateKey | None = None,
+        body: bytes = EMPTY,
+        keyless: bool = False,
+    ) -> dict[str, str]:
         now = int(time.time())
+        model = None if keyless else {"provider": "openai", "key_sha256": API_KEY_SHA256}
         claims = _claims(
             aud=contract.ROUTINE_AUDIENCE,
             authority=contract.ROUTINE_AUTHORITY,
@@ -107,41 +123,84 @@ class RoutineHttpCase(RoutineServiceCase):
             exp=now + contract.ASSERTION_MAX_TTL_SECONDS,
             method="POST",
             path=path,
-            body={"kind": "json", "length": len(EMPTY), "sha256": hashlib.sha256(EMPTY).hexdigest()},
-            model={"provider": "openai", "key_sha256": API_KEY_SHA256},
+            body={"kind": "json", "length": len(body), "sha256": hashlib.sha256(body).hexdigest()},
         )
+        if model is not None:
+            claims["model"] = model
         jwt = _segment(contract.canonical_json(contract.ROUTINE_JWT_HEADER))
         payload = _segment(contract.claims_json(claims, audience=contract.ROUTINE_AUDIENCE))
         signature = _segment((key or self.routine_key).sign(f"{jwt}.{payload}".encode("ascii")))
-        return {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}", **self.model()}
+        assertion = {contract.ROUTINE_ASSERTION_HEADER: f"Bearer {jwt}.{payload}.{signature}"}
+        return assertion if keyless else {**assertion, **self.model()}
+
+
+class KeylessRunTests(RoutineHttpCase):
+    def test_a_healthy_run_is_claimed_and_runs_end_to_end_with_no_model_key(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Runtime()
+            controller, service = self.serve(directory, runtime)
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
+            self.routine(service)
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
+            claim = json.loads(raw)["run"]
+            path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            segment = json.dumps(bound).encode()
+            # No model credential travels, and the assertion binds none.
+            headers = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
+            self.assertNotIn("X-Shimpz-Model-Api-Key", headers)
+            status, _type, raw = self.request("POST", path, segment, headers)
+            state = self.state(service)
+        self.assertEqual((status, self.terminal(raw)["body"]["status"]), (200, "done"))
+        self.assertEqual((state.runs, state.notices[-1].outcome), ((), "done"))
+        self.assertEqual(runtime.contexts, [])
+
+    def test_a_model_credential_that_travels_must_still_be_whole_and_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, service = self.serve(directory, Runtime())
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
+            self.routine(service)
+            claim = service.claim_routine_run()
+            path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            segment = json.dumps(bound).encode()
+            keyless = self.routine_headers(path, claim["lease_token"], body=segment, keyless=True)
+            # A half credential is refused, and a key the assertion does not bind is never admitted.
+            status, _type, raw = self.request("POST", path, segment, {**keyless, "X-Shimpz-Model-Provider": "openai"})
+            self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-model-credential"))
+            status, _type, raw = self.request("POST", path, segment, {**keyless, **self.model()})
+            self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
 
 
 class SchedulerRouteTests(RoutineHttpCase):
     def test_the_scheduler_claims_and_delivers_under_the_team_bearer_only(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
-            self.routine(service)
+            value = self.routine(service)
             status, _type, _raw = self.request("POST", "/v1/routines/claim", CLAIM, {"Authorization": "Bearer x"})
             self.assertEqual(status, 401)
             status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"any":1}')
             self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            for invalid in (
-                EMPTY,
-                b'{"providers":[]}',
-                b'{"providers":["openai","anthropic"]}',
-                b'{"providers":["other"]}',
-            ):
+            # No model key gates a claim any more: the retired providers list is refused like any other body.
+            for invalid in (b'{"providers":["openai"]}', b'{"providers":[]}', b"[]"):
                 status, _type, raw = self.request("POST", "/v1/routines/claim", invalid)
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-            # A Team whose model provider Admin holds no key for is never claimed.
-            status, _type, raw = self.request("POST", "/v1/routines/claim", b'{"providers":["anthropic"]}')
-            self.assertIsNone(json.loads(raw)["run"])
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
-            claim = json.loads(raw)["run"]
-            self.assertEqual(claim["provider"], "openai")
+            claimed = json.loads(raw)
+            claim = claimed["run"]
+            self.assertEqual((claim["provider"], claimed["next_due_at"]), ("openai", None))
+            self.assertEqual((claim["revision"], claim["plan_digest"]), (1, routine_grant.plan_digest(value.plan)))
             self.assertEqual((status, claim["team_id"]), (200, "team_1"))
             status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
-            self.assertIsNone(json.loads(raw)["run"])
+            # Nothing to claim: the hint is the Routine's next firing, which the claim moved past now.
+            idle = json.loads(raw)
+            next_run_at = record.routine(self.state(service), value.routine_id).next_run_at
+            self.assertEqual((idle["run"], idle["next_due_at"]), (None, None))
+            service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, runs=()), None))
+            status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
+            self.assertEqual(
+                json.loads(raw), {"run": None, "next_due_at": next_run_at, "trace_id": json.loads(raw)["trace_id"]}
+            )
             status, _type, raw = self.request("GET", "/v1/routines/notices")
             self.assertEqual((status, json.loads(raw)["notices"]), (200, []))
             status, _type, raw = self.request("POST", "/v1/routines/notices/ack", b'{"deliveries":[]}')
@@ -155,26 +214,45 @@ class SchedulerRouteTests(RoutineHttpCase):
 class RunRouteTests(RoutineHttpCase):
     def test_a_leased_run_runs_only_under_its_own_routine_assertion(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime = Runtime(completed("Listed."))
-            _controller, service = self.serve(directory, runtime)
+            runtime = Runtime()
+            controller, service = self.serve(directory, runtime)
+            controller.assistant_lifecycle.invoke = lambda *_args: {"result": LOOKUP_RESULT}
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             path = f"/v1/teams/team_1/routines/runs/{claim['run_id']}/segment"
-            status, _type, raw = self.request("POST", path, EMPTY, self.model())
+            bound = {"revision": claim["revision"], "plan_digest": claim["plan_digest"], "mode": claim["mode"]}
+            self.assertEqual(claim["mode"], "scheduled")
+            segment = json.dumps(bound).encode()
+            status, _type, raw = self.request("POST", path, segment, self.model())
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate())
-            status, _type, raw = self.request("POST", path, EMPTY, forged)
+            forged = self.routine_headers(path, claim["lease_token"], key=Ed25519PrivateKey.generate(), body=segment)
+            status, _type, raw = self.request("POST", path, segment, forged)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            other_lease = self.routine_headers(path, "another-lease")
-            status, _type, raw = self.request("POST", path, EMPTY, other_lease)
+            other_lease = self.routine_headers(path, "another-lease", body=segment)
+            status, _type, raw = self.request("POST", path, segment, other_lease)
             self.assertEqual(self.terminal(raw)["body"]["code"], "routine-lease-invalid")
-            headers = self.routine_headers(path, claim["lease_token"])
-            status, content_type, raw = self.request("POST", path, EMPTY, headers)
+            # A segment that names another revision, plan, or mode than its claim is refused before anything runs.
+            for stale in (
+                {**bound, "revision": claim["revision"] + 1},
+                {**bound, "plan_digest": "sha256:" + "0" * 64},
+                {**bound, "mode": "continuous"},
+            ):
+                body = json.dumps(stale).encode()
+                status, _type, raw = self.request(
+                    "POST", path, body, self.routine_headers(path, claim["lease_token"], body=body)
+                )
+                self.assertEqual(self.terminal(raw)["body"]["code"], "routine-revision-stale")
+            self.assertEqual(record.run(self.state(service), claim["run_id"]).status, "leased")
+            status, _type, raw = self.request("POST", path, EMPTY, self.routine_headers(path, claim["lease_token"]))
+            self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
+            headers = self.routine_headers(path, claim["lease_token"], body=segment)
+            status, content_type, raw = self.request("POST", path, segment, headers)
             self.assertEqual((status, content_type), (200, "application/x-ndjson"))
             self.assertEqual(self.terminal(raw)["body"]["status"], "done")
-            status, _type, raw = self.request("POST", path, EMPTY, headers)
+            status, _type, raw = self.request("POST", path, segment, headers)
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-routine"))
-            self.assertEqual(len(runtime.contexts), 1)
+            # The compiled run never reached the Brain.
+            self.assertEqual(runtime.contexts, [])
 
     def test_a_routine_key_that_cannot_be_read_is_unavailable_not_denied(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -207,20 +285,33 @@ class SessionRouteTests(RoutineHttpCase):
                 raise action_human.HumanRequestSuspensionError(approval())
 
             controller.assistant_lifecycle.invoke = invoke
+            opened_title = next(
+                item["msgid"]
+                for item in approval().messages()
+                if item["id"] == approval().payload()["title"]["message"]
+            )
             value = self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
             with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 self.assertEqual(json.loads(raw)["runs"][0]["status"], "frozen")
                 self.assertEqual(verify.call_args.kwargs["request"].authority_kinds, frozenset({"session"}))
-                status, _type, raw = self.request("POST", run + "/challenge", b'{"x":1}')
+                # Opening names exactly the Admin interface language its copy renders in (ADR-0091).
+                for invalid in (b'{"x":1}', EMPTY, b'{"locale":null}', b'{"locale":"pt-BR"}', b'{"locale":"pt","x":1}'):
+                    with self.subTest(body=invalid):
+                        status, _type, raw = self.request("POST", run + "/challenge", invalid)
+                        self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
+                status, _type, raw = self.request("POST", run + "/stop", b'{"x":1}')
                 self.assertEqual((status, json.loads(raw)["code"]), (422, "invalid-body"))
-                status, _type, raw = self.request("POST", run + "/challenge", EMPTY)
-                challenge_id = json.loads(raw)["challenge_id"]
+                status, _type, raw = self.request("POST", run + "/challenge", b'{"locale":"pt"}')
+                opened = json.loads(raw)
+                self.assertEqual((opened["locale"], opened["rendered"]["title"]), ("pt", f"PT {opened_title}"))
+                challenge_id = opened["challenge_id"]
+                # The retired release of an uncertain run stays absent.
                 status, _type, raw = self.request("POST", run + "/resolve", b'{"batch_fingerprint":"x"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (409, "routine-run-not-uncertain"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
                 answer = json.dumps({"challenge_id": challenge_id, "decision": "deny"}).encode()
                 status, _type, raw = self.request("POST", run + "/human", answer, self.model())
                 self.assertEqual(self.terminal(raw)["body"]["status"], "denied")
@@ -232,20 +323,64 @@ class SessionRouteTests(RoutineHttpCase):
                 self.assertEqual(self.terminal(raw)["body"]["code"], "routine-run-not-found")
                 status, _type, raw = self.request("DELETE", f"/v1/teams/team_1/routines/{value.routine_id}")
                 self.assertEqual((status, json.loads(raw)["deleted"]), (200, True))
+                # The retired confirmation and preview routes stay absent: a Routine is created only from a chat.
                 preview = "/v1/teams/team_1/routines/proposals/" + "0" * 32 + "/preview"
                 status, _type, raw = self.request("POST", preview, b'{"timezone":"UTC"}')
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-proposal-unavailable"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
                 confirm = json.dumps({"proposal_id": "0" * 32, "timezone": "UTC"}).encode()
                 status, _type, raw = self.request("POST", "/v1/teams/team_1/routines", confirm)
-                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-proposal-unavailable"))
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "route-not-found"))
             with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
                 status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
             self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
 
+    def test_a_supervisor_reads_a_runs_diagnostics_only_in_the_teams_current_incarnation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _service = self.serve(directory, Runtime(acting()))
+            incarnation = controller.assistant_lifecycle._network("team_1").id
+            run_id = "d" * 32
+            diagnostic = routine_diagnostics.Diagnostic(
+                routine_id="c" * 32,
+                run_id=run_id,
+                operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                attempt=1,
+                assistant_id="shimpz-cloudflare",
+                action="list-zones",
+                recorded_at=int(time.time()),
+                condition="stderr-output",
+            )
+            controller.routine_diagnostics.record("team_1", incarnation, diagnostic, ())
+            path = f"/v1/teams/team_1/routines/runs/{run_id}/diagnostics"
+            with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
+                status, _type, raw = self.request("GET", path)
+                self.assertEqual(status, 200)
+                self.assertEqual(verify.call_args.kwargs["request"].authority_kinds, frozenset({"session"}))
+                body = json.loads(raw)
+                # The Local API adds its trace id to every response; Admin strips it before admitting the view.
+                self.assertRegex(body.pop("trace_id"), r"\A[0-9a-f]{32}\Z")
+                view = http_routine.canonical_diagnostics(body)
+                self.assertEqual(view["diagnostics"], [diagnostic.view()])
+                status, _type, raw = self.request("GET", "/v1/teams/team_1/routines/runs/bad/diagnostics")
+                self.assertEqual((status, json.loads(raw)["code"]), (404, "routine-run-not-found"))
+                with mock.patch.object(
+                    controller.assistant_lifecycle, "_network", return_value=types.SimpleNamespace(id="e" * 64)
+                ):
+                    status, _type, raw = self.request("GET", path)
+                self.assertEqual((status, json.loads(raw)["diagnostics"]), (200, []))
+                # A corrupted body of the current incarnation is never silently left out.
+                [sealed] = controller.routine_diagnostics._team_dir("team_1").iterdir()
+                envelope = json.loads(sealed.read_bytes())
+                envelope["ciphertext"] = ("B" if envelope["ciphertext"][0] == "A" else "A") + envelope["ciphertext"][1:]
+                sealed.write_text(json.dumps(envelope))
+                status, _type, raw = self.request("GET", path)
+                self.assertEqual((status, json.loads(raw)["code"]), (503, "routine-state-unavailable"))
+            with mock.patch.object(local_authority, "verify", side_effect=local_authority.SupervisorDeniedError):
+                status, _type, raw = self.request("GET", path)
+            self.assertEqual((status, json.loads(raw)["code"]), (403, "invalid-supervisor"))
+
     def test_approving_a_frozen_authentication_request_binds_its_assurance(self) -> None:
         descriptor = {"kind": "auth:password", "ordinal": 0, "title": "Sign in", "description": "Enter the password."}
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        password = action_human.validate_request(descriptor, ("auth:password",))
+        password = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("auth:password",))
         with tempfile.TemporaryDirectory() as directory:
             controller, service = self.serve(directory, Runtime(acting()))
 
@@ -254,10 +389,10 @@ class SessionRouteTests(RoutineHttpCase):
 
             controller.assistant_lifecycle.invoke = invoke
             self.routine(service)
-            claim = service.claim_routine_run(("anthropic", "openai"))
+            claim = service.claim_routine_run()
             self.run_claim(service, claim)
             run = f"/v1/teams/team_1/routines/runs/{claim['run_id']}"
-            opened = service.open_routine_challenge("team_1", claim["run_id"])
+            opened = service.open_routine_challenge("team_1", claim["run_id"], "en")
             answer = json.dumps({"challenge_id": opened["challenge_id"], "decision": "submit", "value": True}).encode()
             with mock.patch.object(
                 local_authority, "verify", side_effect=local_authority.SupervisorDeniedError
@@ -275,16 +410,79 @@ class SessionRouteTests(RoutineHttpCase):
                     self.assertIsNone(verify.call_args.kwargs["request"].assurance)
 
 
+class RecoveryRouteTests(RoutineHttpCase):
+    def test_a_session_opens_and_answers_recovery_cards_and_resumes_a_routine(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.serve(directory, Runtime())
+            value = self.routine(service)
+            base = "/v1/teams/team_1/routines"
+            incident = f"{base}/incidents/{'a' * 32}"
+            nonce = '{"nonce":"' + "b" * 32 + '","choice":"run"}'
+            with mock.patch.object(local_authority, "verify", return_value=self.session) as verify:
+                status, _type, raw = self.request("GET", base)
+                listed = json.loads(raw)
+                self.assertEqual((listed["incidents"], listed["routines"][0]["paused"]), ([], False))
+                self.assertIsNotNone(http_routine.canonical_routine_view(listed["routines"][0]))
+                cases = (
+                    (f"{base}/incidents/bad/card", EMPTY, 404, "routine-incident-unavailable"),
+                    (incident + "/card", b'{"x":1}', 422, "invalid-body"),
+                    (incident + "/card", EMPTY, 404, "routine-incident-unavailable"),
+                    (incident + "/answer", b'{"nonce":"x","choice":"skip"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"other"}', 422, "invalid-body"),
+                    # Excluir is the Routine's confirmed deletion, never a card answer; nor are the retired choices.
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"delete"}', 422, "invalid-body"),
+                    (incident + "/answer", b'{"nonce":"' + b"b" * 32 + b'","choice":"skip"}', 422, "invalid-body"),
+                    # Recriar needs the model credential the assertion binds; the route never makes it optional.
+                    (
+                        incident + "/answer",
+                        b'{"nonce":"' + b"b" * 32 + b'","choice":"recreate"}',
+                        422,
+                        "routine-card-credential-invalid",
+                    ),
+                    (incident + "/answer", nonce.encode(), 404, "routine-incident-unavailable"),
+                    (f"{base}/{'f' * 32}/resume", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/bad/resume", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/{value.routine_id}/resume", b'{"x":1}', 422, "invalid-body"),
+                    (f"{base}/{'f' * 32}/pause", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/bad/pause", EMPTY, 404, "routine-not-found"),
+                    (f"{base}/{value.routine_id}/pause", b'{"x":1}', 422, "invalid-body"),
+                )
+                for path, body, code, problem in cases:
+                    with self.subTest(path=path, body=body):
+                        status, _type, raw = self.request("POST", path, body)
+                        self.assertEqual((status, json.loads(raw)["code"]), (code, problem))
+                # A credential on an answer is bound by the Supervisor assertion; Rodar never carries one.
+                status, _type, raw = self.request("POST", incident + "/answer", nonce.encode(), self.model())
+                self.assertEqual((status, json.loads(raw)["code"]), (422, "routine-card-credential-invalid"))
+                self.assertIsNotNone(verify.call_args.kwargs["request"].model)
+                # Pausar turns the whole Routine's dispatch off; Retomar turns it back on.
+                status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/pause", EMPTY)
+                paused = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
+                self.assertEqual(paused, {"team_id": "team_1", "routine_id": value.routine_id, "paused": True})
+                self.assertTrue(record.routine(self.state(service), value.routine_id).paused)
+                status, _type, raw = self.request("POST", f"{base}/{value.routine_id}/resume", EMPTY)
+                resumed = {key: item for key, item in json.loads(raw).items() if key != "trace_id"}
+                self.assertEqual(resumed, {"team_id": "team_1", "routine_id": value.routine_id, "paused": False})
+                self.assertFalse(record.routine(self.state(service), value.routine_id).paused)
+                # An opened card and its answer travel exactly as Team's recovery card produced them.
+                card = {"incident_id": "a" * 32}
+                with mock.patch.object(service, "open_routine_card", return_value=card) as opened:
+                    status, _type, raw = self.request("POST", incident + "/card", EMPTY)
+                self.assertEqual((status, json.loads(raw)["incident_id"]), (200, "a" * 32))
+                self.assertEqual(opened.call_args.args, ("team_1", "a" * 32))
+                with mock.patch.object(service, "answer_routine_card", return_value=card) as answered:
+                    status, _type, raw = self.request("POST", incident + "/answer", nonce.encode())
+                self.assertEqual((status, answered.call_args.args[2]), (200, json.loads(nonce)))
+
+
 class NoticeBacklogTests(RoutineHttpCase):
     def test_a_backlog_of_maximum_notices_drains_in_bounded_batches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service = self.serve(directory, Runtime())
             value = self.routine(service)
-            reply = "\x01" * http_routine.MAX_NOTICE_REPLY_CHARS
+            large = routine_fixture.large_definition()
             notices = tuple(
-                record.Notice(
-                    f"{index:032x}", value.routine_id, "", "done", int(time.time()), {"reply": reply}, 1, value.quote
-                )
+                record.Notice(f"{index:032x}", value.routine_id, "", "created", int(time.time()), large, 1, value.quote)
                 for index in range(9)
             )
             service.routine_store.update("team_1", lambda state: (dataclasses.replace(state, notices=notices), None))
@@ -323,9 +521,6 @@ class ProtocolViewTests(RoutineHttpCase):
                 raise action_human.HumanRequestSuspensionError(approval())
 
             controller.assistant_lifecycle.invoke = invoke
-            contracts = routine_turn.current_contracts(service, "team_1", (ASSISTANT,))
-            proposal = service.routine_proposals.create("team_1", dict(CHANGE), contracts)
-            self.assertIsNotNone(http_routine.canonical_proposal(proposal.view(time.time())))
             self.routine(service)
             _status, _type, raw = self.request("POST", "/v1/routines/claim", CLAIM)
             claim = body(raw)
@@ -336,13 +531,9 @@ class ProtocolViewTests(RoutineHttpCase):
             self.assertEqual(http_routine.canonical_notice_batch(notices), notices)
             self.assertEqual(notices["notices"][0]["outcome"], "frozen")
             with mock.patch.object(local_authority, "verify", return_value=self.session):
-                preview_path = f"/v1/teams/team_1/routines/proposals/{proposal.proposal_id}/preview"
-                _status, _type, raw = self.request("POST", preview_path, b'{"timezone":"America/Sao_Paulo"}')
-                preview = body(raw)
-                self.assertEqual(http_routine.canonical_preview(preview), preview)
                 _status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
                 listed = body(raw)
-            self.assertEqual(set(listed), {"team_id", "routines", "runs"})
+            self.assertEqual(set(listed), {"team_id", "routines", "runs", "incidents"})
             for item in listed["routines"]:
                 self.assertEqual(http_routine.canonical_routine_view(item), item)
             (run,) = listed["runs"]

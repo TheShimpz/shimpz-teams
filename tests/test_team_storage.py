@@ -38,9 +38,10 @@ class TeamStorageTests(unittest.TestCase):
         selected = storage.metadata("alpha", [first["id"]])[0]
         self.assertEqual(
             set(selected),
-            {"id", "name", "media_type", "size"},
+            {"id", "name", "media_type", "size", "sha256"},
         )
         self.assertEqual(selected["name"], "brief.txt")
+        self.assertEqual(selected["sha256"], metadata["sha256"])
         with self.assertRaises(team_storage.StorageNotFoundError):
             storage.metadata("beta", [first["id"]])
 

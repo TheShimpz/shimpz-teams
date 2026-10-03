@@ -1,8 +1,9 @@
 """Team enforces every Routine lease and deadline itself, even if Admin's worker stalls or Team restarts (ADR-0086).
 
 A leased run whose lease or active time ran out, or whose routine key is no longer current, is stopped when its
-segment is running; otherwise nothing can be running it, so it is recovered: a batch that may have acted holds the
-run uncertain, and anything else ends it interrupted. Nothing is replayed automatically.
+segment is running; otherwise nothing can be running it, so it is recovered from its sealed cursor, recovery snapshot,
+and journal (ADR-0092): a run that completed every step ends done, one that may have acted is held as an incident, and
+one that dispatched nothing ends interrupted. Nothing is replayed automatically.
 """
 
 from __future__ import annotations
@@ -15,8 +16,11 @@ from action import journal as action_journal
 from local import audit as local_audit
 from local import authority as local_authority
 from local.errors import ApiProblemError
+from local.routine import compiled as routine_compiled
+from local.routine import incident as routine_incident
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
+from local.routine import source as routine_source
 from local.routine import store as routine_store
 from routine import record
 
@@ -47,19 +51,23 @@ def _audit(operation: str, detail: str, team_id: str | None = None) -> None:
 
 
 def _recover(service, team_id: str, value: record.Run) -> str | None:
-    """End a leased run that nothing is running; its journal decides whether its effects are uncertain.
+    """End a leased run that nothing is running, as its sealed cursor, recovery snapshot, and journal show it went.
 
-    The run is re-read in the same write: one that ended or changed lease since the pass read it is left alone.
+    A run whose cursor completed every step ends done; a run that may have acted is held, so its incident keeps the
+    evidence of its partial effects; only a run that dispatched nothing fails interrupted. The run is re-read in the
+    same write: one that ended or changed lease since the pass read it is left alone.
     """
     now = int(time.time())
-    fingerprint = service.action_state.uncertain_fingerprint(value.generation) if value.generation else None
+    progress = routine_compiled.progress(service, team_id, value)
 
     def recover(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == value.run_id), None)
         if current is None or current.status != "leased" or current.lease_sha256 != value.lease_sha256:
             return state, None
-        if fingerprint is not None:
-            return record.end(state, value.run_id, now, "uncertain", {"actions": []}, fingerprint), "uncertain"
+        if progress == "done":
+            return record.complete_recovered(state, value.run_id, value.lease_sha256, now), "done"
+        if progress == "partial":
+            return record.hold_recovered(state, value.run_id, value.lease_sha256), "held"
         return record.end(state, value.run_id, now, "failed", {"code": "interrupted", "actions": []}), "failed"
 
     return service.routine_store.update(team_id, recover)
@@ -79,11 +87,25 @@ def _check_team(service, team_id: str, now: int, key: str | None, *, startup: bo
         outcome = _recover(service, team_id, value)
         if outcome is not None:
             _audit("routine-recover", outcome, team_id)
+    # A held run finishes its hold from its last durable step, without dispatching anything (ADR-0092).
+    routine_incident.reconcile_team(service, team_id)
     # A continuation whose run no longer exists was left by a crash; an ended run's own is queued for removal anyway.
-    runs = {item.run_id for item in service.routine_store.load(team_id).runs}
+    # A cursor also stays while its unresolved incident may still resume the run.
+    current = service.routine_store.load(team_id)
+    runs = {item.run_id for item in current.runs}
     for run_id in service.routine_store.continuations(team_id):
         if run_id not in runs:
             service.routine_store.delete_continuation(team_id, run_id)
+    for run_id in service.routine_store.recoveries(team_id):
+        if run_id not in runs:
+            service.routine_store.delete_recovery(team_id, run_id)
+    # A set-aside incident keeps its cursor until its own release, which waits for anything still executing for it.
+    kept = runs | {item.incident_id for item in current.incidents if item.status != "released"}
+    for run_id in service.routine_store.cursors(team_id):
+        if run_id not in kept:
+            service.routine_store.delete_cursor(team_id, run_id)
+    # A creation source a crash left without its Routine.
+    routine_source.sweep(service, team_id)
     routine_manage.settle_team(service, team_id)
 
 

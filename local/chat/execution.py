@@ -1,10 +1,14 @@
 """Local chat Action execution and context validation operations."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import NoReturn
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
+from action import failure as action_failure
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -26,6 +30,8 @@ def project_action_result(
     action_spec: object,
     private: action_execution.ResolvedInvocationEvidence,
     validate: Callable[[object, str, object], object],
+    spec: object,
+    capabilities: tuple[str, ...] = (),
 ) -> object:
     return action_execution.project_rpc_result(
         raw_result,
@@ -41,8 +47,76 @@ def project_action_result(
             declared_stored_inputs=action_spec.stored_inputs,
             supplied_stored_inputs=frozenset(private.stored_inputs)
             | frozenset(private.transcript.submitted_stored_inputs()),
+            catalog=action_human.catalog_by_id(spec.machine_contract) if action_spec.human_requests else None,
+            capabilities=capabilities,
+            file_withheld=private.file is not None
+            and not action_files.authorized(action_spec.human_requests, private.transcript),
         ),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Invocation:
+    """The reviewed Action one RPC ran, and the capabilities Team injected into its workload."""
+
+    team_id: str
+    assistant_id: str
+    action: str
+    action_spec: object
+    spec: object
+    capabilities: tuple[str, ...]
+
+
+# Each refused projection: its audit reason, public message, and problem code.
+_REFUSED_PROJECTIONS = (
+    (action_failure.ActionFailedError, "action-failed", "the Assistant Action failed", "assistant-action-failed"),
+    (
+        action_execution.RpcSecretExposureError,
+        "secret-exposure",
+        "the Assistant returned an unsafe result",
+        "assistant-secret-exposure",
+    ),
+    (
+        action_execution.RpcInvalidResultError,
+        "invalid-output",
+        "the Assistant returned an invalid result",
+        "invalid-action-output",
+    ),
+)
+
+
+def project_invocation(
+    store: action_stored_input.StoredInputStore,
+    invocation: Invocation,
+    raw_result: object,
+    private: action_execution.ResolvedInvocationEvidence,
+    validate: Callable[[object, str, object], object],
+) -> object:
+    """Project one RPC result, or audit and raise the public problem of a rejection or a handled failure."""
+    try:
+        return project_action_result(
+            raw_result, invocation.action_spec, private, validate, invocation.spec, invocation.capabilities
+        )
+    except action_execution.StoredInputRejectedError as exc:
+        clear_rejected_stored_input(
+            store, invocation.team_id, invocation.assistant_id, invocation.action, exc.stored_input
+        )
+    except (
+        action_failure.ActionFailedError,
+        action_execution.RpcSecretExposureError,
+        action_execution.RpcInvalidResultError,
+    ) as exc:
+        reason, message, code = next(row[1:] for row in _REFUSED_PROJECTIONS if isinstance(exc, row[0]))
+        local_audit.record_request(
+            "assistant-action",
+            result="error",
+            team_id=invocation.team_id,
+            assistant=invocation.assistant_id,
+            detail=f"{reason}:{invocation.action}",
+        )
+        # A secret echo never travels as a cause; a handled failure keeps its sanitized diagnostic as one.
+        cause = None if isinstance(exc, action_execution.RpcSecretExposureError) else exc
+        raise ApiProblem(HTTPStatus.BAD_GATEWAY, message, code=code) from cause
 
 
 def seal_stored_inputs(
@@ -107,8 +181,7 @@ def _invoke_chat_action(
     token: str,
     action_request: brain_runtime_client.ActionRequest,
     frozen_container_id: str,
-    transcript: action_human.ActionTranscript,
-    private_inputs: action_execution.RpcPrivateInputs,
+    evidence: action_execution.ActionInvocationEvidence,
 ) -> object:
     assistant_id = action_request.assistant_id
     with self._lock(team_id):
@@ -128,7 +201,9 @@ def _invoke_chat_action(
                 or token in self._cancelled_chat_tokens
                 or team_id in self._active_action_containers
             ):
-                raise chat_orchestrator.ChatStoppedError("chat turn stopped")
+                # Nothing was dispatched, so the journal returns this attempt to prepared.
+                refused = action_dispatch.DispatchRefusedError("the turn was stopped before its Action could run")
+                raise chat_orchestrator.ChatStoppedError("chat turn stopped") from refused
             self._active_action_containers[team_id] = (token, container)
     try:
         invocation = self.assistant_lifecycle.invoke(
@@ -136,15 +211,13 @@ def _invoke_chat_action(
             assistant_id,
             action_request.action,
             action_request.input,
-            action_execution.ActionInvocationEvidence(
-                private_inputs,
-                transcript,
-                action_execution.stored_input_origin(action_request),
-            ),
+            evidence,
         )
-    except ApiProblem:
+    except ApiProblem as exc:
         if self._chat_cancelled(token):
-            raise chat_orchestrator.ChatStoppedError("chat turn stopped") from None
+            # Only Team's own refusal before dispatch stays chained, so the journal knows that attempt never ran.
+            refused = exc if action_dispatch.never_dispatched(exc) else None
+            raise chat_orchestrator.ChatStoppedError("chat turn stopped") from refused
         raise
     finally:
         with self._active_chat_guard:

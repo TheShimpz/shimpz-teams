@@ -1,8 +1,9 @@
-"""Local Routine persistence: one private state file per Team and encrypted frozen continuations (ADR-0086).
+"""Local Routine persistence: one private state file per Team and its sealed run records (ADR-0086, ADR-0092).
 
-A Team's Routines, runs, and notices live in one private JSON file that every transition replaces atomically. A frozen
-run's secret-free continuation is encrypted separately; it is written before the state that references it, so a crash
-leaves at worst an unreferenced continuation, which recovery removes.
+A Team's Routines, runs, notices, and incident index live in one private JSON file that every transition replaces
+atomically. A frozen run's secret-free continuation, a compiled run's cursor, an incident's compact evidence, and a
+Routine's creation source are each encrypted separately, bound by their AAD to exactly what they belong to; each is
+written before the state that relies on it, so a crash leaves at worst an unreferenced one, which recovery removes.
 """
 
 from __future__ import annotations
@@ -25,21 +26,36 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from core import strict_json
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from routine import cursor as routine_cursor
+from routine import grant as routine_grant
+from routine import plan as routine_plan
 from routine import record
+from routine import starts as routine_starts
 from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 1
+SCHEMA = 6
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
-_DAY_RE = re.compile(r"(?:\d{4}-\d{2}-\d{2})?\Z")
+# Holds the compact evidence and the recovery snapshot it copies: a 64 KiB plan plus its binding and grant.
+MAX_INCIDENT_BYTES = 192 * 1024
+# Reads of one state file that may race its atomic replace before a failure is taken as real.
+UNLOCKED_READ_ATTEMPTS = 3
+MAX_RECOVERY_BYTES = 128 * 1024
 _CONTINUATION_NAME_RE = re.compile(r"[0-9a-f]{32}\.continuation\Z")
+_CURSOR_NAME_RE = re.compile(r"[0-9a-f]{32}\.cursor\Z")
+_RECOVERY_NAME_RE = re.compile(r"[0-9a-f]{32}\.recovery\Z")
+_SOURCE_NAME_RE = re.compile(r"[0-9a-f]{32}\.source\Z")
+# A Routine's creation message of at most 16,000 characters, at four bytes each, and the value its person selected.
+MAX_SOURCE_BYTES = 128 * 1024
 _ROUTINE_FIELDS = frozenset(
     {
         "routine_id",
+        "name",
         "quote",
+        "plan",
         "schedule",
         "timezone",
         "assistants",
@@ -50,6 +66,13 @@ _ROUTINE_FIELDS = frozenset(
         "gap_started_at",
         "missed",
         "reported_missed",
+        "revision",
+        "paused",
+        "grant",
+        "failures",
+        "rollup_minute",
+        "rollup_runs",
+        "run_requested",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -66,15 +89,53 @@ _RUN_FIELDS = frozenset(
         "assistant_id",
         "action",
         "generation",
-        "batch",
         "notice_version",
-        "held_actions",
     }
 )
 _NOTICE_FIELDS = frozenset({"notice_id", "routine_id", "run_id", "outcome", "created_at", "detail", "version", "quote"})
-_STATE_FIELDS = frozenset(
-    {"schema", "team_id", "routines", "runs", "notices", "served_at", "starts_day", "starts", "discards"}
+_INCIDENT_FIELDS = frozenset(
+    {
+        "incident_id",
+        "routine_id",
+        "generation",
+        "created_at",
+        "revision",
+        "status",
+        "notice_version",
+        "quote",
+        "assistant_id",
+        "action",
+        "active_seconds_left",
+    }
 )
+_STATE_FIELDS = frozenset(
+    {
+        "schema",
+        "team_id",
+        "routines",
+        "runs",
+        "notices",
+        "served_at",
+        "starts",
+        "discards",
+        "incidents",
+        "receipts",
+    }
+)
+
+
+def _read_unlocked(path: Path) -> bytes | None:
+    """A state file read without its Team's lock, which the Team is only known from once it is read.
+
+    A writer's atomic replace can unlink the very file a reader just opened, which then fails the ownership contract
+    for that one read; reading again sees the replacement, and a file that keeps failing really breaks it.
+    """
+    for _attempt in range(UNLOCKED_READ_ATTEMPTS - 1):
+        try:
+            return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
+        except RoutineStoreError:
+            continue
+    return _PRIVATE.read_private_file(path, MAX_STATE_BYTES, "Routine state")
 
 
 class RoutineStoreError(RuntimeError):
@@ -116,6 +177,11 @@ def _count(value: object) -> int:
     return value
 
 
+def _rollup_runs(value: object) -> int:
+    _require(type(value) is int and 0 <= value <= http_routine.MAX_ROLLUP_RUNS)
+    return value
+
+
 def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
     def routine_value(item: record.Routine) -> dict[str, object]:
         value = {name: getattr(item, name) for name in _ROUTINE_FIELDS}
@@ -123,10 +189,7 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         return value
 
     def run_value(item: record.Run) -> dict[str, object]:
-        value = {name: getattr(item, name) for name in _RUN_FIELDS}
-        value["batch"] = list(item.batch)
-        value["held_actions"] = [list(pair) for pair in item.held_actions]
-        return value
+        return {name: getattr(item, name) for name in _RUN_FIELDS}
 
     payload = {
         "schema": SCHEMA,
@@ -135,9 +198,10 @@ def _encode(state: record.TeamRoutines, team_id: str) -> bytes:
         "runs": [run_value(item) for item in state.runs],
         "notices": [{name: getattr(item, name) for name in _NOTICE_FIELDS} for item in state.notices],
         "served_at": state.served_at,
-        "starts_day": state.starts_day,
-        "starts": state.starts,
+        "starts": [list(item) for item in state.starts],
         "discards": [list(item) for item in state.discards],
+        "incidents": [{name: getattr(item, name) for name in _INCIDENT_FIELDS} for item in state.incidents],
+        "receipts": [list(item) for item in state.receipts],
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
 
@@ -149,7 +213,9 @@ def _decode_routine(value: object) -> record.Routine:
     _require(
         isinstance(value["routine_id"], str)
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
+        and http_routine.canonical_name(value["name"]) is not None
         and http_routine.canonical_quote(value["quote"]) is not None
+        and routine_plan.well_formed(value["plan"])
         and schedule is not None
         and http_routine.canonical_timezone(value["timezone"]) is not None
         and isinstance(assistants, list)
@@ -165,10 +231,16 @@ def _decode_routine(value: object) -> record.Routine:
         )
         and type(value["needs_reconfirm"]) is bool
         and type(value["deleting"]) is bool
+        and type(value["revision"]) is int
+        and 1 <= value["revision"] < 2**31
+        and type(value["paused"]) is bool
+        and routine_grant.valid(value["grant"], value["plan"], value["revision"])
     )
     return record.Routine(
         routine_id=value["routine_id"],
+        name=value["name"],
         quote=value["quote"],
+        plan=value["plan"],
         schedule=schedule,
         timezone=value["timezone"],
         assistants=tuple((pair[0], pair[1]) for pair in assistants),
@@ -179,12 +251,18 @@ def _decode_routine(value: object) -> record.Routine:
         gap_started_at=_instant(value["gap_started_at"]),
         missed=_count(value["missed"]),
         reported_missed=_count(value["reported_missed"]),
+        revision=value["revision"],
+        paused=value["paused"],
+        grant=value["grant"],
+        failures=_count(value["failures"]),
+        rollup_minute=_instant(value["rollup_minute"]),
+        rollup_runs=_rollup_runs(value["rollup_runs"]),
+        run_requested=_instant(value["run_requested"]),
     )
 
 
 def _decode_run(value: object) -> record.Run:
     _require(isinstance(value, dict) and set(value) == _RUN_FIELDS)
-    batch = value["batch"]
     strings = ("run_id", "routine_id", "status", "lease_sha256", "lease_key", "request_kind", "assistant_id", "action")
     _require(all(isinstance(value[name], str) for name in strings) and isinstance(value["generation"], str))
     run_id = value["run_id"]
@@ -192,19 +270,13 @@ def _decode_run(value: object) -> record.Run:
         http_routine.ROUTINE_ID_RE.fullmatch(run_id) is not None
         and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
         and _generation_of(run_id, value["generation"])
-        and isinstance(batch, list)
-        and len(batch) == 2
-        and all(isinstance(part, str) for part in batch)
         and type(value["active_seconds_left"]) is int
         and value["active_seconds_left"] <= record.ACTIVE_SECONDS
         and type(value["notice_version"]) is int
         and value["notice_version"] >= 0
-        and http_routine.canonical_notice_detail("uncertain", {"actions": value["held_actions"]}) is not None
-        and (value["status"] == "uncertain" or value["held_actions"] == [])
     )
     unleased = value["lease_sha256"] == "" and value["lease_key"] == "" and value["lease_expires_at"] == 0
     no_request = value["request_kind"] == "" and value["assistant_id"] == "" and value["action"] == ""
-    no_batch = batch == ["", ""]
     # Each status admits exactly its own fields, so teardown and recovery never act on a mixed record.
     _require(
         {
@@ -213,18 +285,12 @@ def _decode_run(value: object) -> record.Run:
                 value["lease_key"] == record.HUMAN_LEASE
                 or http_payload.SHA256_RE.fullmatch(value["lease_key"]) is not None
             )
-            and no_request
-            and no_batch,
+            and no_request,
             "frozen": unleased
             and value["request_kind"] in {"human", "integrations"}
             and http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
-            and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
-            and no_batch,
-            "uncertain": unleased
-            and no_request
-            and value["generation"] != ""
-            and batch[0] == value["generation"]
-            and http_payload.SHA256_RE.fullmatch(batch[1]) is not None,
+            and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None,
+            "held": unleased and no_request and value["generation"] != "",
         }.get(value["status"], False)
     )
     return record.Run(
@@ -240,9 +306,7 @@ def _decode_run(value: object) -> record.Run:
         assistant_id=value["assistant_id"],
         action=value["action"],
         generation=value["generation"],
-        batch=(batch[0], batch[1]),
         notice_version=value["notice_version"],
-        held_actions=tuple((pair[0], pair[1]) for pair in value["held_actions"]),
     )
 
 
@@ -275,7 +339,8 @@ def _decode_notice(value: object) -> record.Notice:
 
 def _generation_of(run_id: str, generation: object) -> bool:
     return isinstance(generation, str) and (
-        generation == "" or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}", generation) is not None
+        generation == ""
+        or re.fullmatch(rf"[0-9a-f]{{64}}:routine:{run_id}(?::s[1-9][0-9]{{0,2}})?", generation) is not None
     )
 
 
@@ -288,6 +353,68 @@ def _decode_discard(value: object) -> tuple[str, str]:
         and _generation_of(value[0], value[1])
     )
     return value[0], value[1]
+
+
+def _decode_incident(value: object) -> record.Incident:
+    _require(
+        isinstance(value, dict)
+        and set(value) == _INCIDENT_FIELDS
+        and isinstance(value["incident_id"], str)
+        and http_routine.ROUTINE_ID_RE.fullmatch(value["incident_id"]) is not None
+        and isinstance(value["routine_id"], str)
+        and http_routine.ROUTINE_ID_RE.fullmatch(value["routine_id"]) is not None
+        and value["generation"] != ""
+        and _generation_of(value["incident_id"], value["generation"])
+        and value["status"] in ("unresolved", "skipped", "released")
+        and type(value["revision"]) is int
+        and 1 <= value["revision"] < 2**31
+        and http_routine.canonical_quote(value["quote"]) is not None
+        and type(value["active_seconds_left"]) is int
+        and value["active_seconds_left"] <= record.ACTIVE_SECONDS
+        and isinstance(value["assistant_id"], str)
+        and isinstance(value["action"], str)
+        # The held step: both named, or both empty when the run sealed no cursor before it was held.
+        and (
+            (value["assistant_id"], value["action"]) == ("", "")
+            or (
+                http_routine.ASSISTANT_ID_RE.fullmatch(value["assistant_id"]) is not None
+                and http_routine.ACTION_ID_RE.fullmatch(value["action"]) is not None
+            )
+        )
+    )
+    return record.Incident(
+        value["incident_id"],
+        value["routine_id"],
+        value["generation"],
+        _instant(value["created_at"]),
+        value["revision"],
+        value["status"],
+        _count(value["notice_version"]),
+        value["quote"],
+        value["assistant_id"],
+        value["action"],
+        value["active_seconds_left"],
+    )
+
+
+def _decode_start(value: object) -> tuple[str, int]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and http_routine.ROUTINE_ID_RE.fullmatch(value[0]) is not None
+    )
+    return value[0], _instant(value[1])
+
+
+def _decode_receipt(value: object) -> tuple[str, int]:
+    _require(
+        isinstance(value, list)
+        and len(value) == 2
+        and isinstance(value[0], str)
+        and http_payload.SHA256_RE.fullmatch(value[0]) is not None
+    )
+    return value[0], _instant(value[1])
 
 
 def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
@@ -306,28 +433,35 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
         and len(value["runs"]) <= record.MAX_ROUTINES
         and isinstance(value["notices"], list)
         and len(value["notices"]) <= record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES
-        and isinstance(value["starts_day"], str)
-        and _DAY_RE.fullmatch(value["starts_day"]) is not None
-        and type(value["starts"]) is int
-        and 0 <= value["starts"] <= record.MAX_DAILY_STARTS
+        and isinstance(value["starts"], list)
+        and len(value["starts"]) <= routine_starts.TEAM_CEILING
         and isinstance(value["discards"], list)
         and len(value["discards"]) <= record.MAX_DISCARDS
+        and isinstance(value["incidents"], list)
+        and len(value["incidents"]) <= record.MAX_INCIDENTS
+        and isinstance(value["receipts"], list)
+        and len(value["receipts"]) <= record.MAX_RECEIPTS
     )
     state = record.TeamRoutines(
         routines=tuple(_decode_routine(item) for item in value["routines"]),
         runs=tuple(_decode_run(item) for item in value["runs"]),
         notices=tuple(_decode_notice(item) for item in value["notices"]),
         served_at=_instant(value["served_at"]),
-        starts_day=value["starts_day"],
-        starts=value["starts"],
+        starts=tuple(_decode_start(item) for item in value["starts"]),
         discards=tuple(_decode_discard(item) for item in value["discards"]),
+        incidents=tuple(_decode_incident(item) for item in value["incidents"]),
+        receipts=tuple(_decode_receipt(item) for item in value["receipts"]),
     )
     identifiers = [item.routine_id for item in state.routines]
     _require(
         len(set(identifiers)) == len(identifiers)
+        and [at for _routine_id, at in state.starts] == sorted(at for _routine_id, at in state.starts)
         and len({item.run_id for item in state.runs}) == len(state.runs)
         and len({item.notice_id for item in state.notices}) == len(state.notices)
-        and len({item[0] for item in state.discards}) == len(state.discards)
+        and len(set(state.discards)) == len(state.discards)
+        and len({item.incident_id for item in state.incidents}) == len(state.incidents)
+        and len({item[0] for item in state.receipts}) == len(state.receipts)
+        and sum(item.status == "unresolved" for item in state.incidents) <= record.MAX_UNRESOLVED_INCIDENTS
         and all(item.routine_id in identifiers for item in state.runs)
     )
     return state
@@ -335,6 +469,33 @@ def _decode(payload: bytes, team_id: str) -> record.TeamRoutines:
 
 def _aad(team_id: str, run_id: str) -> bytes:
     return json.dumps(["shimpz-local-routine-continuation-v1", team_id, run_id], separators=(",", ":")).encode()
+
+
+def _cursor_aad(team_id: str, binding: routine_cursor.Binding) -> bytes:
+    """A cursor opens only for its Team incarnation, Routine revision, and run."""
+    return json.dumps(
+        [
+            "shimpz-local-routine-cursor-v1",
+            team_id,
+            binding.incarnation,
+            binding.routine_id,
+            binding.revision,
+            binding.run_id,
+        ],
+        separators=(",", ":"),
+    ).encode()
+
+
+def _recovery_aad(team_id: str, run_id: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-recovery-v1", team_id, run_id], separators=(",", ":")).encode()
+
+
+def _source_aad(team_id: str, routine_id: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-source-v1", team_id, routine_id], separators=(",", ":")).encode()
+
+
+def _incident_aad(team_id: str, incident_id: str) -> bytes:
+    return json.dumps(["shimpz-local-routine-incident-v1", team_id, incident_id], separators=(",", ":")).encode()
 
 
 class RoutineStore:
@@ -367,8 +528,10 @@ class RoutineStore:
         return self.root / hashlib.sha256(team_id.encode()).hexdigest()
 
     def load(self, team_id: object) -> record.TeamRoutines:
+        """The Team's current state, read under its lock so a concurrent atomic replace is never seen half-done."""
         team = _team_id(team_id)
-        payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
+        with self.lock(team):
+            payload = _PRIVATE.read_private_file(self._team_dir(team) / "state.json", MAX_STATE_BYTES, "Routine state")
         return record.TeamRoutines() if payload is None else _decode(payload, team)
 
     def _save(self, team: str, state: record.TeamRoutines) -> None:
@@ -420,7 +583,7 @@ class RoutineStore:
         teams = []
         for name in self._owned_directories():
             directory = self.root / name
-            payload = _PRIVATE.read_private_file(directory / "state.json", MAX_STATE_BYTES, "Routine state")
+            payload = _read_unlocked(directory / "state.json")
             if payload is None:
                 continue
             try:
@@ -435,69 +598,199 @@ class RoutineStore:
         team, run = _team_id(team_id), _run_id(run_id)
         if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_CONTINUATION_BYTES:
             raise RoutineStoreError("Routine continuation is invalid")
+        self._sealed_write(team, f"{run}.continuation", payload, _aad(team, run), "Routine continuation")
+
+    def _sealed_write(self, team: str, name: str, payload: bytes, aad: bytes, label: str, *, maximum: int = 0) -> None:
+        """Seal one record under the Team lock; with ``maximum``, it is write-once.
+
+        A write-once record accepts only its exact first bytes again, idempotently; different bytes are refused and
+        the sealed record is left as it was.
+        """
         epoch = self._current_epoch()
         with self.lock(team):
             self._writable(epoch)
-            self._write_continuation(team, run, payload)
+            if maximum:
+                sealed = self._sealed_read(team, name, aad, label, maximum)
+                if sealed is not None:
+                    if sealed != payload:
+                        raise RoutineStoreError(f"{label} is immutable")
+                    return
+            nonce = os.urandom(12)
+            # One keyring for every Team: concurrent first writers must not each create a different key.
+            with self._key_lock:
+                key = _PRIVATE.key(self.key_path, "Routine keyring", allow_create=True)
+            envelope = {
+                "algorithm": "AES-256-GCM",
+                "nonce": base64.b64encode(nonce).decode("ascii"),
+                "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, payload, aad)).decode("ascii"),
+            }
+            encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("ascii")
+            _PRIVATE.atomic_write(self._team_dir(team) / name, encoded, label)
 
-    def _write_continuation(self, team: str, run: str, payload: bytes) -> None:
-        nonce = os.urandom(12)
-        # One keyring for every Team: concurrent first writers must not each create a different key.
-        with self._key_lock:
-            key = _PRIVATE.key(self.key_path, "Routine keyring", allow_create=True)
-        envelope = {
-            "algorithm": "AES-256-GCM",
-            "nonce": base64.b64encode(nonce).decode("ascii"),
-            "ciphertext": base64.b64encode(AESGCM(key).encrypt(nonce, payload, _aad(team, run))).decode("ascii"),
-        }
-        encoded = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("ascii")
-        _PRIVATE.atomic_write(self._team_dir(team) / f"{run}.continuation", encoded, "Routine continuation")
-
-    def continuation(self, team_id: object, run_id: object) -> bytes:
-        team, run = _team_id(team_id), _run_id(run_id)
-        raw = _PRIVATE.read_private_file(
-            self._team_dir(team) / f"{run}.continuation", MAX_CONTINUATION_BYTES * 2 + 256, "Routine continuation"
-        )
+    def _sealed_read(self, team: str, name: str, aad: bytes, label: str, maximum: int) -> bytes | None:
+        raw = _PRIVATE.read_private_file(self._team_dir(team) / name, maximum * 2 + 256, label)
         if raw is None:
-            raise RoutineStoreError("Routine continuation is unavailable")
+            return None
         try:
             envelope = strict_json.loads(raw)
         except (UnicodeDecodeError, ValueError) as exc:
-            raise RoutineStoreError("Routine continuation is malformed") from exc
+            raise RoutineStoreError(f"{label} is malformed") from exc
         if (
             not isinstance(envelope, dict)
             or set(envelope) != {"algorithm", "nonce", "ciphertext"}
             or envelope["algorithm"] != "AES-256-GCM"
         ):
-            raise RoutineStoreError("Routine continuation is malformed")
+            raise RoutineStoreError(f"{label} is malformed")
         try:
             return AESGCM(_PRIVATE.key(self.key_path, "Routine keyring")).decrypt(
                 _PRIVATE.decode_part(envelope["nonce"], expected=12),
-                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=MAX_CONTINUATION_BYTES + 16),
-                _aad(team, run),
+                _PRIVATE.decode_part(envelope["ciphertext"], minimum=17, maximum=maximum + 16),
+                aad,
             )
         except InvalidTag as exc:
-            raise RoutineStoreError("Routine continuation authentication failed") from exc
+            raise RoutineStoreError(f"{label} authentication failed") from exc
+
+    def _sealed_delete(self, team: str, name: str, label: str) -> None:
+        try:
+            (self._team_dir(team) / name).unlink(missing_ok=True)
+        except OSError as exc:
+            raise RoutineStoreError(f"{label} could not be removed") from exc
+
+    def continuation(self, team_id: object, run_id: object) -> bytes:
+        team, run = _team_id(team_id), _run_id(run_id)
+        payload = self._sealed_read(
+            team, f"{run}.continuation", _aad(team, run), "Routine continuation", MAX_CONTINUATION_BYTES
+        )
+        if payload is None:
+            raise RoutineStoreError("Routine continuation is unavailable")
+        return payload
 
     def delete_continuation(self, team_id: object, run_id: object) -> None:
         team, run = _team_id(team_id), _run_id(run_id)
+        self._sealed_delete(team, f"{run}.continuation", "Routine continuation")
+
+    def put_cursor(self, team_id: object, cursor: routine_cursor.Cursor) -> None:
+        """Seal one compiled run's cursor under exactly its binding (ADR-0092)."""
+        team = _team_id(team_id)
         try:
-            (self._team_dir(team) / f"{run}.continuation").unlink(missing_ok=True)
-        except OSError as exc:
-            raise RoutineStoreError("Routine continuation could not be removed") from exc
+            payload = routine_cursor.encode(cursor)
+        except routine_cursor.CursorError as exc:
+            raise RoutineStoreError("Routine cursor is invalid") from exc
+        binding = cursor.binding
+        self._sealed_write(
+            team, f"{_run_id(binding.run_id)}.cursor", payload, _cursor_aad(team, binding), "Routine cursor"
+        )
+
+    def cursor(self, team_id: object, binding: routine_cursor.Binding) -> routine_cursor.Cursor | None:
+        """The run's cursor when one was sealed under exactly this binding; another binding never opens it."""
+        team = _team_id(team_id)
+        name = f"{_run_id(binding.run_id)}.cursor"
+        payload = self._sealed_read(
+            team, name, _cursor_aad(team, binding), "Routine cursor", routine_cursor.MAX_CURSOR_BYTES
+        )
+        if payload is None:
+            return None
+        try:
+            return routine_cursor.decode(payload, binding)
+        except routine_cursor.CursorError as exc:
+            raise RoutineStoreError("Routine cursor is malformed") from exc
+
+    def handoff(self, team_id: object, cursor: routine_cursor.Cursor, deliver: Callable[[], None]) -> None:
+        """Seal an advanced cursor, and only then let the journal remove the receipts it no longer needs (ADR-0092).
+
+        The cursor holds every value later steps select, so once it is durable the completed step's full receipts may
+        go; a crash in between leaves receipts that the next delivery removes, and the step is never run again.
+        """
+        self.put_cursor(team_id, cursor)
+        deliver()
+
+    def delete_cursor(self, team_id: object, run_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.cursor", "Routine cursor")
+
+    def put_recovery(self, team_id: object, run_id: object, payload: object) -> None:
+        """Seal one compiled run's immutable recovery snapshot before its first dispatch (ADR-0092).
+
+        It is write-once: resealing the exact canonical bytes succeeds, and any other snapshot for the run is refused.
+        """
+        team, run = _team_id(team_id), _run_id(run_id)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_RECOVERY_BYTES:
+            raise RoutineStoreError("Routine recovery snapshot is invalid")
+        self._sealed_write(
+            team,
+            f"{run}.recovery",
+            payload,
+            _recovery_aad(team, run),
+            "Routine recovery snapshot",
+            maximum=MAX_RECOVERY_BYTES,
+        )
+
+    def recovery(self, team_id: object, run_id: object) -> bytes | None:
+        team, run = _team_id(team_id), _run_id(run_id)
+        return self._sealed_read(
+            team, f"{run}.recovery", _recovery_aad(team, run), "Routine recovery snapshot", MAX_RECOVERY_BYTES
+        )
+
+    def delete_recovery(self, team_id: object, run_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.recovery", "Routine recovery snapshot")
+
+    def recoveries(self, team_id: object) -> tuple[str, ...]:
+        """The run ids with a stored recovery snapshot, including any a crash left unreferenced."""
+        return self._sealed_names(_team_id(team_id), _RECOVERY_NAME_RE, ".recovery", "recovery snapshots")
+
+    def put_incident(self, team_id: object, incident_id: object, payload: object) -> None:
+        """Seal one incident's compact safety evidence; it is durable before its batch is archived."""
+        team, incident = _team_id(team_id), _run_id(incident_id)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_INCIDENT_BYTES:
+            raise RoutineStoreError("Routine incident is invalid")
+        self._sealed_write(team, f"{incident}.incident", payload, _incident_aad(team, incident), "Routine incident")
+
+    def incident(self, team_id: object, incident_id: object) -> bytes | None:
+        team, incident = _team_id(team_id), _run_id(incident_id)
+        return self._sealed_read(
+            team, f"{incident}.incident", _incident_aad(team, incident), "Routine incident", MAX_INCIDENT_BYTES
+        )
+
+    def delete_incident(self, team_id: object, incident_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(incident_id)}.incident", "Routine incident")
+
+    def put_source(self, team_id: object, routine_id: object, payload: object) -> None:
+        """Seal one Routine's creation source before the write that creates the Routine; it is write-once."""
+        team, routine = _team_id(team_id), _run_id(routine_id)
+        if not isinstance(payload, bytes) or not 1 <= len(payload) <= MAX_SOURCE_BYTES:
+            raise RoutineStoreError("Routine source is invalid")
+        self._sealed_write(
+            team, f"{routine}.source", payload, _source_aad(team, routine), "Routine source", maximum=MAX_SOURCE_BYTES
+        )
+
+    def source(self, team_id: object, routine_id: object) -> bytes | None:
+        team, routine = _team_id(team_id), _run_id(routine_id)
+        return self._sealed_read(
+            team, f"{routine}.source", _source_aad(team, routine), "Routine source", MAX_SOURCE_BYTES
+        )
+
+    def delete_source(self, team_id: object, routine_id: object) -> None:
+        self._sealed_delete(_team_id(team_id), f"{_run_id(routine_id)}.source", "Routine source")
+
+    def sources(self, team_id: object) -> tuple[str, ...]:
+        """The Routine ids with a sealed creation source, including any a crash left unreferenced."""
+        return self._sealed_names(_team_id(team_id), _SOURCE_NAME_RE, ".source", "sources")
 
     def continuations(self, team_id: object) -> tuple[str, ...]:
         """The run ids with a stored continuation, including any a crash left unreferenced."""
-        team = _team_id(team_id)
+        return self._sealed_names(_team_id(team_id), _CONTINUATION_NAME_RE, ".continuation", "continuations")
+
+    def cursors(self, team_id: object) -> tuple[str, ...]:
+        """The run ids with a stored cursor, including any a crash left unreferenced."""
+        return self._sealed_names(_team_id(team_id), _CURSOR_NAME_RE, ".cursor", "cursors")
+
+    def _sealed_names(self, team: str, pattern: re.Pattern[str], suffix: str, label: str) -> tuple[str, ...]:
         try:
             names = [path.name for path in self._team_dir(team).iterdir()]
         except FileNotFoundError:
             return ()
         except OSError as exc:
-            raise RoutineStoreError("Routine continuations could not be listed") from exc
-        return tuple(
-            sorted(name.removesuffix(".continuation") for name in names if _CONTINUATION_NAME_RE.fullmatch(name))
-        )
+            raise RoutineStoreError(f"Routine {label} could not be listed") from exc
+        return tuple(sorted(name.removesuffix(suffix) for name in names if pattern.fullmatch(name)))
 
     def delete(self, team_id: object) -> None:
         """Remove the Team's Routine state and continuations; an absent Team is already clean."""

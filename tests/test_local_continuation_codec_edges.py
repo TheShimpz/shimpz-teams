@@ -192,6 +192,16 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._continuation(raw)
 
+        # A turn never admits more file-taking logical Actions than its budget (ADR-0093).
+        for file_actions in (-1, 3, True, "1"):
+            raw = copy.deepcopy(self.raw_pending["continuation"])
+            raw["file_actions"] = file_actions
+            with self.subTest(file_actions=file_actions), self.assertRaises(continuation.ContinuationCodecError):
+                continuation._continuation(raw)
+        raw = copy.deepcopy(self.raw_pending["continuation"])
+        raw["file_actions"] = 2
+        self.assertEqual(continuation._continuation(raw).file_actions, 2)
+
     def test_identity_rejects_network_assistant_file_and_inference_drift(self) -> None:
         base = self.raw_pending["identity"]
         mutations = []
@@ -295,9 +305,12 @@ class ContinuationCodecDecodeEdgeTests(unittest.TestCase):
             "action_summary": "Summary",
             "interrupt_id": "interrupt",
             "request": {},
+            "messages": [],
             "assistant_version": "0.4.2",
+            "copy": {},
             "help_url": None,
             "purpose": None,
+            "purpose_locale": None,
         }
         with self.assertRaises(continuation.ContinuationCodecError):
             continuation._human_requirement(invalid_human)

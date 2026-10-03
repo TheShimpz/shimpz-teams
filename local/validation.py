@@ -92,7 +92,16 @@ MODEL_BOUND_OPERATIONS = frozenset(
         "routine-run",
         "routine-human-submit",
         "routine-integration-submit",
+        "routine-card-answer",
     }
+)
+
+
+# Routine requests a healthy compiled run serves without a model (ADR-0092): Admin sends the Team's model credential
+# only when it holds one, so a held run's recovery can use it; when it does, the assertion binds it as for any other.
+# Recriar's card answer carries the credential and Rodar's carries none; the card itself requires the right one.
+OPTIONAL_MODEL_OPERATIONS = frozenset(
+    {"routine-run", "routine-human-submit", "routine-integration-submit", "routine-card-answer"}
 )
 
 
@@ -184,7 +193,7 @@ def brain_thread_id(space_id: str, team_id: str, network_id: str) -> str:
 
 
 def routine_thread_id(space_id: str, team_id: str, network_id: str, run_id: str) -> str:
-    """One Routine run's own Brain thread, beside the Team's conversation in the same network generation."""
+    """One Routine run's journal thread label, beside the Team's conversation in the same network generation."""
     if not isinstance(run_id, str) or http_routine.ROUTINE_ID_RE.fullmatch(run_id) is None:
         raise ApiProblemError(
             HTTPStatus.CONFLICT,

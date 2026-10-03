@@ -45,7 +45,15 @@ TEAM_LIST_COUNTS = (1, 9, 33)
 PEER_DELAYS_MS = (0, 250)
 TEAM_MEMORY_MIB = 256
 TEAM_CPUS = 1
-CHAT_PAYLOAD = {"message": OBJECTIVE, "files": [], "assistant_ids": [], "conversation": [], "locale": "en"}
+CHAT_PAYLOAD = {
+    "message": OBJECTIVE,
+    "files": [],
+    "assistant_ids": [],
+    "conversation": [],
+    "locale": "en",
+    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+    "timezone": None,
+}
 CHAT_SPAN_PREFIX = "SHIMPZ-PERF-CHAT-ADMISSION "
 INVENTORY_SPAN_PREFIX = "SHIMPZ-PERF-INVENTORY "
 INVENTORY_SPAN_NAMES = (

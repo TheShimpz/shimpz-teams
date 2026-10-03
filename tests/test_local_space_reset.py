@@ -13,6 +13,8 @@ from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase,
 from action import challenges as action_challenges
 from local import app as local_app
 from local import labels as local_labels
+from local.routine import card as routine_card
+from local.routine import lineage as routine_lineage
 from routine import record as routine_record
 
 LOCAL_TEAM_RESIDUES = [
@@ -23,6 +25,7 @@ LOCAL_TEAM_RESIDUES = [
     "egress_policies",
     "inference_configuration",
     "integration_credentials",
+    "preparation_helpers",
     "publication_bindings",
     "routines",
     "runtime_state",
@@ -54,8 +57,9 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: events.append("delete-inference"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+        controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -63,6 +67,11 @@ class LocalSpaceResetTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("delete-thread", thread_id))
@@ -116,8 +125,9 @@ class LocalSpaceResetTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy_all=lambda: events.append("destroy-storage") or True)
         controller.inference_store = SimpleNamespace(delete_all=lambda: None)
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+        controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -125,6 +135,11 @@ class LocalSpaceResetTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller.brain_runtime = SimpleNamespace(delete_thread=lambda _thread_id: None)
         controller.action_state = SimpleNamespace(purge=lambda _generation: None)

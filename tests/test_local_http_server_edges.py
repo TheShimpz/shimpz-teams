@@ -450,6 +450,16 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
                 result = handler._route([], self.route(operation, **params))
                 self.assertEqual(result[2], operation)
 
+        controller.assistant_summary = mock.Mock(return_value={"locale": "pt", "summary": "Resumo."})
+        result = handler._route(
+            [],
+            self.route("assistant-summary", team_id="team_1", assistant_id="assistant", locale="pt"),
+        )
+        self.assertEqual(
+            result, (200, {"locale": "pt", "summary": "Resumo."}, "assistant-summary", "team_1", "assistant")
+        )
+        controller.assistant_summary.assert_called_once_with("team_1", "assistant", "pt")
+
         handler.command = "POST"
         result = handler._route(
             ["v1", "teams", "team_1", "assistants", "local"],
@@ -505,6 +515,8 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
             "candidates": [{"id": "shimpz-cloudflare", "name": "Shimpz Cloudflare", "summary": ""}],
             "lifecycle_reference": None,
             "conversation": [],
+            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+            "timezone": None,
             "locale": "en",
         }
         handler._body = mock.Mock(return_value=exact_body)
@@ -574,6 +586,7 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         controller = SimpleNamespace(
             assistant_icon=mock.Mock(return_value=b"png"),
             local_snapshot_icon=mock.Mock(return_value=b"local-png"),
+            local_snapshot_summary=mock.Mock(return_value={"locale": "pt", "summary": "Resumo."}),
         )
         handler = self.handler(controller=controller)
         handler._resolved_route = mock.Mock(return_value=([], self.route("team-list")))
@@ -660,6 +673,37 @@ class HandlerStreamAndAuthorityEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase
         ):
             handler._authorized_route(http_audit.RequestAudit())
         self.assertEqual(caught.exception.code, "local-assistant-preview-unavailable")
+
+        # A staged snapshot's localized summary shares the bounded preview, including its busy retry hint.
+        handler._resolved_route.return_value = (
+            [],
+            self.route("local-assistant-summary", image_hash="a" * 64, locale="pt"),
+        )
+        handler._send.reset_mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value="a" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        controller.local_snapshot_summary.assert_called_once_with("sha256:" + "a" * 64, "pt")
+        handler._send.assert_called_once_with(
+            HTTPStatus.OK,
+            {"locale": "pt", "summary": "Resumo.", "trace_id": "a" * 32},
+        )
+        controller.local_snapshot_summary.side_effect = ApiProblemError(
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Local Assistant preview capacity is busy",
+            code="local-assistant-preview-busy",
+        )
+        handler._send.reset_mock()
+        with (
+            mock.patch.object(authority, "credential_state", return_value="assertion_present"),
+            mock.patch.object(authority, "verify", return_value=self.evidence()),
+            mock.patch.object(http_audit.local_audit, "record", return_value="b" * 32),
+        ):
+            self.assertIsNone(handler._authorized_route(http_audit.RequestAudit()))
+        self.assertEqual(handler._send.call_args.args[1]["retry_after_ms"], 250)
 
     def test_bootstrap_reset_uses_machine_authority_without_human_assertion(self) -> None:
         controller = HandlerRouteEdgeTests.controller()

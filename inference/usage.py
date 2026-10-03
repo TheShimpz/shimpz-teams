@@ -24,7 +24,16 @@ FIELDS = (
     "cache_read_tokens",
     "cache_write_tokens",
 )
-OPERATIONS = ("action-labels", "capability-plan", "intent-route", "purpose", "turn", "turn-resume")
+OPERATIONS = (
+    "action-labels",
+    "capability-plan",
+    "intent-route",
+    "purpose",
+    "routine-compile",
+    "routine-recovery",
+    "turn",
+    "turn-resume",
+)
 MAX_COUNT = 10**12
 
 

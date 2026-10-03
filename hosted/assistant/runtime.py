@@ -11,7 +11,10 @@ from typing import NoReturn
 import docker
 import docker.errors
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
+from action import failure as action_failure
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from action import stored_input as action_stored_input
@@ -90,6 +93,8 @@ class _PendingHostedChat:
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # The interface language the turn's start pinned (ADR-0091).
+    locale: str | None = None
     # What the paused turn consumed so far (ADR-0082).
     usage: brain_usage.TurnUsage | None = None
 
@@ -254,11 +259,16 @@ def _select_team_assistants(
 
 
 def _register_active_action(team_id: str, token: str, container) -> None:
+    # Both refusals come before any RPC, so each carries Team's own pre-dispatch refusal: the journal then settles the
+    # attempt as never run instead of uncertain.
     with runtime_state._active_chat_guard:
         if runtime_state._active_chat_tokens.get(team_id) != token or token in runtime_state._cancelled_chat_tokens:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
+            refused = action_dispatch.DispatchRefusedError("the turn was stopped before its Action could run")
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped") from refused
         if team_id in runtime_state._active_action_container_ids:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team already has an active Assistant Action")
+            refused = action_dispatch.DispatchRefusedError("another Action of the Team was running")
+            message = "Team already has an active Assistant Action"
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, message) from refused
         runtime_state._active_action_container_ids[team_id] = (token, container.id)
 
 
@@ -306,18 +316,30 @@ class AssistantRpcRequest:
 
 
 def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
-    team_id = request.team_id
-    container = request.container
-    token = request.token
     try:
         encoded = action_execution.encode_rpc_invocation(
             request.payload["input"],
             request.payload["integrations"],
             request.payload["stored_inputs"],
+            request.payload["operation_id"],
             request.payload.get("responses", ()),
+            request.payload.get("files", {}),
         )
     except (KeyError, ValueError) as exc:
         raise runtime_state.ApiError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Action input is too large") from exc
+    try:
+        deadline = action_files.rpc_deadline(request.payload.get("files", {}))
+    except action_files.FileDeliveryError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
+        ) from exc
+    return _exchange_registered(request, encoded, deadline)
+
+
+def _exchange_registered(request: AssistantRpcRequest, encoded: bytes, deadline: float | None) -> object:
+    team_id = request.team_id
+    container = request.container
+    token = request.token
     _register_optional_action(team_id, token, container)
 
     def close_stream(stream: object) -> None:
@@ -340,6 +362,7 @@ def _assistant_rpc_exchange(request: AssistantRpcRequest) -> object:
                     fail_stop=lambda: _fail_stop_action(team_id, container),
                     cancelled=lambda exc: _raise_if_rpc_cancelled(token, exc),
                     close_stream=close_stream,
+                    deadline=deadline,
                 ),
             )
         except action_execution.RpcExchangeError as exc:
@@ -478,16 +501,27 @@ def _require_hosted_action_rpc_envelope(
     team_id: str,
     bindings: dict[str, _ActiveAssistant],
     request: brain_runtime_client.ActionRequest,
+    selected: dict[str, action_files.ActionFile] | None = None,
 ) -> Mapping[str, Mapping[str, object]]:
     active = bindings.get(request.assistant_id)
     if active is None:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Brain requested an unavailable Assistant")
+    action_spec = active.contract.actions.get(request.action)
+    try:
+        file = action_files.action_file(
+            () if action_spec is None else action_spec.input_files, request.input, selected or {}
+        )
+    except action_files.FileDeliveryError as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
+        ) from exc
     try:
         return action_execution.require_rpc_envelope(
             active,
             request,
             lambda binding, action_id: _resolve_action_integrations(team_id, binding, action_id),
             lambda binding, action_id: _resolve_action_stored_inputs(team_id, binding, action_id),
+            file,
         )
     except ValueError as exc:
         raise runtime_state.ApiError(
@@ -606,8 +640,26 @@ def _project_hosted_action_result(
                 declared_stored_inputs=tuple(action_spec.stored_inputs),
                 supplied_stored_inputs=frozenset(private.stored_inputs)
                 | frozenset(private.transcript.submitted_stored_inputs()),
+                catalog=(
+                    action_human.catalog_by_id(request.contract.machine_contract)
+                    if action_spec.human_requests
+                    else None
+                ),
+                capabilities=action_failure.capability_values(request.container),
+                file_withheld=private.file is not None
+                and not action_files.authorized(action_spec.human_requests, private.transcript),
             ),
         )
+    except action_failure.ActionFailedError as exc:
+        audit.log(
+            "assistant_action",
+            request.team_id,
+            result="error",
+            assistant=request.assistant_id,
+            action=action,
+            reason="action-failed",
+        )
+        raise runtime_state.ApiError(HTTPStatus.BAD_GATEWAY, "Assistant Action failed") from exc
     except action_execution.StoredInputRejectedError as exc:
         audit.log(
             "assistant_action",
@@ -675,6 +727,27 @@ def _seal_hosted_stored_inputs(
         )
 
 
+def _action_files(
+    team_id: str,
+    action_spec: object,
+    private: action_execution.ResolvedInvocationEvidence,
+    safe_input: dict[str, object],
+) -> dict[str, object]:
+    """The invocation's files: the turn's selected file, with its bytes only behind the Action's authorization."""
+    try:
+        return action_files.deliver(
+            action_spec,
+            private.file,
+            private.transcript,
+            safe_input,
+            lambda file_id: runtime_state._storage().get(team_id, file_id),
+        )
+    except (action_files.FileDeliveryError, team_storage.StorageError) as exc:
+        raise runtime_state.ApiError(
+            HTTPStatus.CONFLICT, "the attached file is unavailable for this Action; attach it again"
+        ) from exc
+
+
 def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, object]:
     team_id = request.team_id
     assistant_id = request.assistant_id
@@ -713,6 +786,7 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         lambda: _resolve_action_integrations(team_id, active, action),
         lambda: _resolve_action_stored_inputs(team_id, active, action),
     )
+    files = _action_files(team_id, contract.actions[action], private, safe_input)
     audit.log(
         "assistant_action",
         team_id,
@@ -725,9 +799,13 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
         "input": safe_input,
         "integrations": action_execution.integration_access_tokens(private.integrations),
         "stored_inputs": private.stored_inputs,
+        "files": files,
+        "operation_id": private.operation_id,
     }
     if private.transcript.responses:
         rpc_payload["responses"] = private.transcript.payloads()
+    # Audit names a delivered file by its opaque id and size only, never its name or content (ADR-0093).
+    sent = action_files.delivered(files)
     try:
         raw_result = _assistant_rpc(
             team_id,
@@ -745,7 +823,30 @@ def _invoke_assistant_action(request: ActionInvocationRequest) -> dict[str, obje
             action=action,
             status=int(exc.status),
         )
+        if sent is not None:
+            # The exchange failed, so whether the workload received the bytes is unknown.
+            audit.log(
+                "assistant_action",
+                team_id,
+                result="error",
+                phase="file-delivery-unconfirmed",
+                assistant=assistant_id,
+                action=action,
+                file=sent.id,
+                size=sent.size,
+            )
         raise
+    if sent is not None:
+        audit.log(
+            "assistant_action",
+            team_id,
+            result="ok",
+            phase="file-delivered",
+            assistant=assistant_id,
+            action=action,
+            file=sent.id,
+            size=sent.size,
+        )
     projected = _project_hosted_action_result(request, raw_result, private)
     try:
         _seal_hosted_stored_inputs(request, private)

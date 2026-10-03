@@ -11,6 +11,7 @@ from http import HTTPStatus
 from pathlib import Path
 from unittest import mock
 
+from action import journal as action_journal
 from assistant import spec as assistant_registry
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
@@ -19,6 +20,7 @@ from integrations import flow as integration_flow
 from integrations import http as integration_http
 from integrations import pkce as integration_pkce
 from integrations import store as integration_store
+from tests import human_request_fixtures
 
 TESTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TESTS))
@@ -168,6 +170,8 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertEqual(result["result"]["zones"][0]["name"], "example.com")
         self.assertEqual(len(inspected), 1)
         self.assertIs(inspected[0], inspect_memo)
+        # A direct invocation is one fresh logical operation; its id is the protocol's random version 4 UUID.
+        self.assertTrue(action_journal.valid_operation_id(captured[0].pop("operation_id")))
         self.assertEqual(
             captured,
             [
@@ -175,6 +179,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                     "input": ZONE_INPUT,
                     "integrations": {"cloudflare": ACCESS_TOKEN},
                     "stored_inputs": {},
+                    "files": {},
                 }
             ],
         )
@@ -223,6 +228,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                         hosted_assistants.action_execution.RpcPrivateInputs(integration_values, {}),
                         action_human.ActionTranscript("interrupt"),
                         "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
             )
@@ -232,18 +238,18 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_hosted_rpc_admits_a_declared_human_request_frame(self) -> None:
         turn_token = "-".join(("turn", "token"))
-        request = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Publish zone",
-            "description": "Publish this reviewed DNS zone.",
-        }
-        request["fingerprint"] = action_human._fingerprint(request)
+        request = human_request_fixtures.descriptor(
+            "approval", title="Publish zone", description="Publish this reviewed DNS zone."
+        )
         contract = replace(
             self.contract,
             actions={
                 action_id: replace(action, human_requests=("approval",))
                 for action_id, action in self.contract.actions.items()
+            },
+            machine_contract={
+                **self.contract.machine_contract,
+                "messages": list(human_request_fixtures.CATALOG.values()),
             },
         )
         active = hosted_assistants._ActiveAssistant(
@@ -275,6 +281,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
                         hosted_assistants.action_execution.RpcPrivateInputs({}, {}),
                         action_human.ActionTranscript("interrupt"),
                         "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                     ),
                 )
             )

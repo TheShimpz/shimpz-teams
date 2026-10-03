@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import io
 import json
 import re
@@ -19,8 +20,11 @@ from referencing.exceptions import Unresolvable
 
 from assistant import action_schema
 from assistant import cache as assistant_cache
+from assistant import effect as action_effect
 from core import strict_json
 from integrations import providers as integration_providers
+from protocol.assistant.v1.validators import input_file as input_file_validator
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
 MANIFEST_PATH = "/opt/shimpz/shimpz.toml"
@@ -173,6 +177,11 @@ def canonical_allowed_hosts(value: object) -> tuple[str, ...]:
     return tuple(sorted(hosts))
 
 
+def resembles_credential(value: str) -> bool:
+    """Whether text looks like credential material: a bearer token, an assigned secret, a provider key, or a JWT."""
+    return _SECRET_VALUE_RE.search(value) is not None or _JWT_RE.fullmatch(value.strip()) is not None
+
+
 def _identifier(value: object, *, kind: str, maximum: int = MAX_IDENTIFIER_LENGTH) -> str:
     if not isinstance(value, str) or len(value) > maximum or http_payload.ASSISTANT_ID_RE.fullmatch(value) is None:
         raise ManifestError(f"Assistant {kind} identifier is invalid")
@@ -189,7 +198,7 @@ def _public_text(value: object, *, kind: str, maximum: int) -> str:
         or any(ord(character) < 32 or ord(character) == 127 for character in value)
     ):
         raise ManifestError(f"Assistant {kind} is invalid")
-    if _SECRET_VALUE_RE.search(value) or _JWT_RE.fullmatch(value.strip()):
+    if resembles_credential(value):
         raise ManifestError(f"Assistant {kind} resembles credential material")
     return value
 
@@ -347,97 +356,125 @@ def _machine_schema(value: object, *, kind: str) -> dict[str, Any]:
         raise ManifestError(f"Assistant Action {kind} schema {exc}") from exc.__cause__
 
 
+_ACTION_FIELDS = frozenset(
+    {"id", "input_schema", "output_schema", "integrations", "stored_inputs", "input_files", "human_requests"}
+)
+_ACTION_REQUIRED = _ACTION_FIELDS | {"effect"}
+_ACTION_OPTIONAL = frozenset({"verifier", "idempotency"})
+
+
 def canonical_machine_contract(
     value: object,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
+    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
-    """Validate and canonicalize an untrusted SDK-generated Action contract."""
-    if not isinstance(value, dict) or set(value) != {"version", "actions"} or value["version"] != 1:
+    """Validate and canonicalize an untrusted SDK-generated Action contract and its English message catalog.
+
+    The published summary must be one catalog message (ADR-0091), so the caller supplies the summary it admitted, and
+    an idempotency provider must be one of the manifest's exact outbound hosts (ADR-0092), so it supplies those too.
+    """
+    if not isinstance(value, dict) or set(value) != {"version", "actions", "messages"} or value["version"] != 1:
         raise ManifestError("Assistant machine contract has an unsupported shape")
     if not action_schema.json_nodes_within(value, MAX_CONTRACT_NODES):
         raise ManifestError("Assistant machine contract is too large")
+    if catalog_validator.catalog_error(value["messages"], summary) is not None:
+        raise ManifestError("Assistant machine contract message catalog is invalid")
     raw_actions = value["actions"]
     if not isinstance(raw_actions, list) or not 1 <= len(raw_actions) <= 128:
         raise ManifestError("Assistant machine contract Actions are invalid")
     declared_ids = {integration.id for integration in declared_integrations}
     declared_stored_input_ids = {stored_input.id for stored_input in declared_stored_inputs}
-    used_integrations: set[str] = set()
-    actions: list[dict[str, Any]] = []
-    ids: set[str] = set()
-    for raw_action in raw_actions:
-        if not isinstance(raw_action, dict) or set(raw_action) != {
-            "id",
-            "input_schema",
-            "output_schema",
-            "integrations",
-            "stored_inputs",
-            "human_requests",
-        }:
-            raise ManifestError("Assistant machine contract Action is invalid")
-        action_id = _identifier(raw_action["id"], kind="Action")
-        if action_id in ids:
-            raise ManifestError("Assistant machine contract Action id is duplicated")
-        ids.add(action_id)
-        integrations = raw_action["integrations"]
-        if (
-            not isinstance(integrations, list)
-            or len(integrations) > 4
-            or len(integrations) != len(set(integrations))
-            or any(
-                not isinstance(integration_id, str) or integration_id not in declared_ids
-                for integration_id in integrations
-            )
-        ):
-            raise ManifestError("Assistant machine contract Action integrations are invalid")
-        used_integrations.update(integrations)
-        stored_inputs = raw_action["stored_inputs"]
-        if (
-            not isinstance(stored_inputs, list)
-            or len(stored_inputs) > 1
-            or len(stored_inputs) != len(set(stored_inputs))
-            or any(
-                not isinstance(stored_input_id, str) or stored_input_id not in declared_stored_input_ids
-                for stored_input_id in stored_inputs
-            )
-        ):
-            raise ManifestError("Assistant machine contract Action Stored Inputs are invalid")
-        human_requests = raw_action["human_requests"]
-        if (
-            not isinstance(human_requests, list)
-            or len(human_requests) > 8
-            or len(human_requests) != len(set(human_requests))
-            or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
-            or sum(kind in AUTHORIZATION_REQUEST_KINDS for kind in human_requests) > 1
-        ):
-            raise ManifestError("Assistant machine contract Action human requests are invalid")
-        if stored_inputs and "input:password" not in human_requests:
-            raise ManifestError("Assistant machine contract Action Stored Input request is undeclared")
-        actions.append(
-            {
-                "id": action_id,
-                "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
-                "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
-                "integrations": sorted(integrations),
-                "stored_inputs": sorted(stored_inputs),
-                "human_requests": sorted(human_requests),
-            }
-        )
+    actions = [_canonical_action(raw, declared_ids, declared_stored_input_ids) for raw in raw_actions]
+    if len({action["id"] for action in actions}) != len(actions):
+        raise ManifestError("Assistant machine contract Action id is duplicated")
+    used_integrations = {integration for action in actions for integration in action["integrations"]}
     if used_integrations != declared_ids:
         raise ManifestError("Assistant machine contract must use every declared integration")
-    return {"version": 1, "actions": sorted(actions, key=lambda action: action["id"])}
+    refused = action_effect.refusal(actions, allowed_hosts)
+    if refused is not None:
+        raise ManifestError(f"Assistant machine contract Action effect is invalid: {refused}")
+    return {
+        "version": 1,
+        "actions": sorted(actions, key=lambda action: action["id"]),
+        "messages": json.loads(catalog_validator.canonical_json(value["messages"])),
+    }
+
+
+def _canonical_action(
+    raw_action: object, declared_ids: set[str], declared_stored_input_ids: set[str]
+) -> dict[str, Any]:
+    """One Action's closed members, its declared capabilities, and its admitted schemas."""
+    if not isinstance(raw_action, dict) or not _ACTION_REQUIRED <= set(raw_action) <= (
+        _ACTION_REQUIRED | _ACTION_OPTIONAL
+    ):
+        raise ManifestError("Assistant machine contract Action is invalid")
+    action_id = _identifier(raw_action["id"], kind="Action")
+    integrations = raw_action["integrations"]
+    if (
+        not isinstance(integrations, list)
+        or len(integrations) > 4
+        or len(integrations) != len(set(integrations))
+        or any(
+            not isinstance(integration_id, str) or integration_id not in declared_ids for integration_id in integrations
+        )
+    ):
+        raise ManifestError("Assistant machine contract Action integrations are invalid")
+    stored_inputs = raw_action["stored_inputs"]
+    if (
+        not isinstance(stored_inputs, list)
+        or len(stored_inputs) > 1
+        or len(stored_inputs) != len(set(stored_inputs))
+        or any(
+            not isinstance(stored_input_id, str) or stored_input_id not in declared_stored_input_ids
+            for stored_input_id in stored_inputs
+        )
+    ):
+        raise ManifestError("Assistant machine contract Action Stored Inputs are invalid")
+    human_requests = raw_action["human_requests"]
+    if (
+        not isinstance(human_requests, list)
+        or len(human_requests) > 8
+        or len(human_requests) != len(set(human_requests))
+        or any(kind not in HUMAN_REQUEST_KINDS for kind in human_requests)
+        or sum(kind in AUTHORIZATION_REQUEST_KINDS for kind in human_requests) > 1
+    ):
+        raise ManifestError("Assistant machine contract Action human requests are invalid")
+    if stored_inputs and "input:password" not in human_requests:
+        raise ManifestError("Assistant machine contract Action Stored Input request is undeclared")
+    # A file input is one required direct file-id property behind exactly one authorization request (ADR-0093).
+    if input_file_validator.declaration_error(raw_action) is not None:
+        raise ManifestError("Assistant machine contract Action file input is invalid")
+    return {
+        "id": action_id,
+        "input_schema": _machine_schema(raw_action["input_schema"], kind="input"),
+        "output_schema": _machine_schema(raw_action["output_schema"], kind="output"),
+        "integrations": sorted(integrations),
+        "stored_inputs": sorted(stored_inputs),
+        "input_files": list(raw_action["input_files"]),
+        "human_requests": sorted(human_requests),
+        # The effect class and its optional declarations, closed by the effect validator; copied, never aliased.
+        **{key: copy.deepcopy(raw_action[key]) for key in sorted(raw_action.keys() - _ACTION_FIELDS)},
+    }
 
 
 def parse_machine_contract(
     raw: bytes,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
+    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Parse a bounded SDK artifact without executing Assistant code."""
     return canonical_machine_contract(
         _strict_json(raw, maximum=MAX_CONTRACT_BYTES, kind="machine contract"),
         declared_integrations,
         declared_stored_inputs,
+        summary=summary,
+        allowed_hosts=allowed_hosts,
     )
 
 
@@ -496,12 +533,15 @@ def load_reviewed_catalog(path: Path) -> dict[str, ReviewedAssistant]:
         if not isinstance(raw_stored_inputs, dict):
             raise ManifestError("Assistant reviewed catalog Stored Inputs are invalid")
         stored_inputs = canonical_stored_input_declarations(raw_stored_inputs)
-        machine_contract = canonical_machine_contract(metadata["contract"], integrations, stored_inputs)
+        allowed_hosts = canonical_allowed_hosts(metadata["allowed_hosts"])
+        machine_contract = canonical_machine_contract(
+            metadata["contract"], integrations, stored_inputs, summary=summary, allowed_hosts=allowed_hosts
+        )
         reviewed[assistant_id] = ReviewedAssistant(
             assistant_id=assistant_id,
             name=name,
             summary=summary,
-            allowed_hosts=canonical_allowed_hosts(metadata["allowed_hosts"]),
+            allowed_hosts=allowed_hosts,
             integrations=integrations,
             stored_inputs=stored_inputs,
             actions={action["id"]: action for action in machine_contract["actions"]},
@@ -536,7 +576,7 @@ def _reject_credential_material(value: object) -> None:
                 pending.append((child, (*path, key), depth + 1))
         elif isinstance(current, list):
             pending.extend((child, path, depth + 1) for child in current)
-        elif isinstance(current, str) and (_SECRET_VALUE_RE.search(current) or _JWT_RE.fullmatch(current.strip())):
+        elif isinstance(current, str) and resembles_credential(current):
             raise ManifestError("Assistant manifest contains credential material")
 
 
@@ -762,6 +802,9 @@ def read_container_machine_contract(
     container,
     declared_integrations: tuple[IntegrationDeclaration, ...],
     declared_stored_inputs: tuple[StoredInputDeclaration, ...] = (),
+    *,
+    summary: str,
+    allowed_hosts: tuple[str, ...],
 ) -> dict[str, Any]:
     """Read and validate the fixed SDK contract artifact from an immutable image."""
     raw = read_container_file(
@@ -770,7 +813,9 @@ def read_container_machine_contract(
         name="shimpz.contract.json",
         maximum=MAX_CONTRACT_BYTES,
     )
-    return parse_machine_contract(raw, declared_integrations, declared_stored_inputs)
+    return parse_machine_contract(
+        raw, declared_integrations, declared_stored_inputs, summary=summary, allowed_hosts=allowed_hosts
+    )
 
 
 class ManifestContractCache:
@@ -821,6 +866,9 @@ class MachineContractCache:
         declared_integrations: tuple[IntegrationDeclaration, ...],
         declared_stored_inputs: tuple[StoredInputDeclaration, ...],
         reviewed: object,
+        *,
+        summary: str,
+        allowed_hosts: tuple[str, ...],
     ) -> dict[str, Any]:
         """Return the machine contract only after exact semantic equality."""
         container_id = getattr(container, "id", None)
@@ -833,7 +881,13 @@ class MachineContractCache:
             raise ManifestError("Assistant container identity is invalid")
         declared = self._cache.get(
             container_id,
-            lambda: read_container_machine_contract(container, declared_integrations, declared_stored_inputs),
+            lambda: read_container_machine_contract(
+                container,
+                declared_integrations,
+                declared_stored_inputs,
+                summary=summary,
+                allowed_hosts=allowed_hosts,
+            ),
         )
         if declared != reviewed:
             raise ManifestError("Assistant machine contract does not match controller review")

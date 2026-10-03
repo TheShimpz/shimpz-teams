@@ -19,10 +19,12 @@ from action import challenges as action_challenges
 from action import journal as action_journal
 from action import stored_input as action_stored_input
 from assistant import genesis as assistant_genesis
+from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from hosted import container as container_spec
 from hosted import token as token_store
 from hosted.install import developers_client, developers_delegation
+from inference import abort as request_abort
 from inference import client as brain_runtime_client
 from inference import config as inference_config
 from install import artifact_trust, registry_auth
@@ -150,9 +152,12 @@ _active_action_container_ids: dict[str, tuple[str, str]] = {}
 _blocked_action_workloads: set[tuple[str, str]] = set()
 _cancelled_chat_tokens: set[str] = set()
 # The abort handle of each active turn's in-flight Brain request, keyed by chat token (ADR-0079).
-_brain_aborts: dict[str, brain_runtime_client.RequestAbort] = {}
+_brain_aborts: dict[str, request_abort.RequestAbort] = {}
 # Teams being destroyed: no new chat turn may register until destruction ends.
 _draining_chats: set[str] = set()
+# The selected files each Team's Brain thread may still reference; absent means unknown, as after a restart, so a
+# file's deletion then purges that thread (ADR-0093).
+_brain_files: dict[str, frozenset[str]] = {}
 # Docker inventory and slow provisioning run outside this lock. The generation detects snapshot churn.
 _capacity_lock = threading.Lock()
 _capacity_reservations: dict[str, object] = {}
@@ -165,6 +170,7 @@ _brain_runtime = brain_runtime_client.BrainRuntimeClient()
 _assistant_genesis_cache = assistant_genesis.GenesisCache()
 _assistant_allowed_hosts_cache = assistant_manifest.ManifestContractCache()
 _assistant_machine_contract_cache = assistant_manifest.MachineContractCache()
+_assistant_language_cache = assistant_language.LanguagePackCache()
 _assistant_integrations = integration_store.OAuthIntegrationStore(
     ASSISTANT_INTEGRATION_STATE_PATH,
     ASSISTANT_INTEGRATION_KEY_PATH,

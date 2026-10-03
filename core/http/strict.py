@@ -399,6 +399,12 @@ CONTROLLER_ROUTES = (
     _controller_route("POST", "/v1/teams/:team_id/chat/integrations", "chat-integration-submit"),
     _controller_route("GET", "/v1/teams/:team_id/chat/human", "chat-human-pending"),
     _controller_route("POST", "/v1/teams/:team_id/chat/human", "chat-human-submit"),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/chat/human/challenge",
+        "chat-human-open",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("POST", "/v1/teams/:team_id/chat/stop", "chat-stop"),
     _controller_route("GET", "/v1/teams/:team_id/assistant-integrations", "assistant-integration-list"),
     _controller_route(
@@ -435,13 +441,6 @@ CONTROLLER_ROUTES = (
     _controller_route("GET", "/v1/routines/notices", "routine-notices", _LOCAL_CONTROLLER_ONLY),
     _controller_route("POST", "/v1/routines/notices/ack", "routine-notice-ack", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/teams/:team_id/routines", "routine-list", _LOCAL_CONTROLLER_ONLY),
-    _controller_route("POST", "/v1/teams/:team_id/routines", "routine-confirm", _LOCAL_CONTROLLER_ONLY),
-    _controller_route(
-        "POST",
-        "/v1/teams/:team_id/routines/proposals/:proposal_id/preview",
-        "routine-preview",
-        _LOCAL_CONTROLLER_ONLY,
-    ),
     _controller_route("DELETE", "/v1/teams/:team_id/routines/:routine_id", "routine-delete", _LOCAL_CONTROLLER_ONLY),
     _controller_route(
         "POST", "/v1/teams/:team_id/routines/runs/:run_id/segment", "routine-run", _LOCAL_CONTROLLER_ONLY
@@ -461,10 +460,30 @@ CONTROLLER_ROUTES = (
         "routine-integration-submit",
         _LOCAL_CONTROLLER_ONLY,
     ),
-    _controller_route(
-        "POST", "/v1/teams/:team_id/routines/runs/:run_id/resolve", "routine-resolve", _LOCAL_CONTROLLER_ONLY
-    ),
     _controller_route("POST", "/v1/teams/:team_id/routines/runs/:run_id/stop", "routine-stop", _LOCAL_CONTROLLER_ONLY),
+    # A held run's recovery card (ADR-0092): open it, then answer it once with Verificar, Pular, or Pausar.
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/incidents/:incident_id/card",
+        "routine-card-open",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST",
+        "/v1/teams/:team_id/routines/incidents/:incident_id/answer",
+        "routine-card-answer",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "POST", "/v1/teams/:team_id/routines/:routine_id/resume", "routine-resume", _LOCAL_CONTROLLER_ONLY
+    ),
+    _controller_route("POST", "/v1/teams/:team_id/routines/:routine_id/pause", "routine-pause", _LOCAL_CONTROLLER_ONLY),
+    _controller_route(
+        "GET",
+        "/v1/teams/:team_id/routines/runs/:run_id/diagnostics",
+        "routine-diagnostics",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
     _controller_route("GET", "/healthz", "health", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/activity", "activity", _LOCAL_CONTROLLER_ONLY),
     _controller_route("GET", "/v1/local-assistants", "local-assistant-list", _LOCAL_CONTROLLER_ONLY),
@@ -472,6 +491,12 @@ CONTROLLER_ROUTES = (
         "GET",
         "/v1/local-assistants/:image_hash/icon",
         "local-assistant-icon",
+        _LOCAL_CONTROLLER_ONLY,
+    ),
+    _controller_route(
+        "GET",
+        "/v1/local-assistants/:image_hash/summary/:locale",
+        "local-assistant-summary",
         _LOCAL_CONTROLLER_ONLY,
     ),
     _controller_route("GET", "/v1/assistants", "registry-list", _LOCAL_CONTROLLER_ONLY),
@@ -482,6 +507,11 @@ CONTROLLER_ROUTES = (
         "GET",
         "/v1/teams/:team_id/assistants/:assistant_id/icon",
         "assistant-icon",
+    ),
+    _controller_route(
+        "GET",
+        "/v1/teams/:team_id/assistants/:assistant_id/summary/:locale",
+        "assistant-summary",
     ),
     _controller_route(
         "POST",

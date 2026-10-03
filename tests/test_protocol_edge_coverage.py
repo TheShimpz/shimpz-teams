@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from protocol.assistant.v1 import human_request_validator
+from protocol.assistant.v1.validators import human_request as human_request_validator
 from protocol.http.v1 import payload, progress, supervisor
 
 

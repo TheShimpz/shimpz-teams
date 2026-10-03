@@ -19,6 +19,7 @@ from integrations import challenges as integration_challenges
 from local.chat import continuation as local_chat_continuations
 from local.chat import continuation_store as local_chat_continuation_store
 from protocol.http.v1 import payload as http_payload
+from tests import human_request_fixtures
 
 _OBJECT = {"type": "object", "additionalProperties": False}
 
@@ -83,8 +84,7 @@ def _rounds(journey=JOURNEY) -> list[brain_runtime_client.RuntimeTurn]:
 
 def _approval() -> action_human.AdmittedHumanRequest:
     descriptor = {"kind": "approval", "ordinal": 0, "title": "Change DNS", "description": "Replace the record."}
-    descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-    return action_human.validate_request(descriptor, ("approval",))
+    return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
 
 class LongJourneyTests(unittest.TestCase):

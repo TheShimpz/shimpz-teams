@@ -96,15 +96,16 @@ COPY --from=dependencies /opt/venv /opt/venv
 COPY --from=dependencies /usr/local/bin/cosign /usr/local/bin/cosign
 
 COPY hosted/__init__.py hosted/app.py hosted/audit.py hosted/authority.py hosted/cleanup.py \
-     hosted/container.py hosted/healthcheck.py hosted/state.py hosted/token.py \
+     hosted/container.py hosted/healthcheck.py hosted/prepare.py hosted/state.py hosted/token.py \
      hosted/validation.py ./hosted/
-COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/genesis.py assistant/manifest.py assistant/spec.py \
+COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/effect.py assistant/genesis.py \
+    assistant/language.py assistant/manifest.py assistant/spec.py \
     ./assistant/
-COPY chat/__init__.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/attachments.py chat/contract.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
 COPY hosted/assistant/__init__.py hosted/assistant/lifecycle.py hosted/assistant/runtime.py \
      ./hosted/assistant/
-COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/human.py hosted/chat/lifecycle.py \
-     hosted/chat/segment.py ./hosted/chat/
+COPY hosted/chat/__init__.py hosted/chat/api.py hosted/chat/attachments.py hosted/chat/human.py \
+     hosted/chat/lifecycle.py hosted/chat/segment.py ./hosted/chat/
 # Keep the vendored protocol byte-complete for its independent digest re-verification.
 COPY hosted/install/__init__.py hosted/install/developers_client.py hosted/install/developers_delegation.py \
      hosted/install/http.py hosted/install/publication.py \
@@ -131,20 +132,28 @@ COPY protocol/account/authority/v1/README.md protocol/account/authority/v1/contr
      protocol/account/authority/v1/evaluation-response.schema.json \
      protocol/account/authority/v1/vectors.json protocol/account/authority/v1/verify.py \
      ./protocol/account/authority/v1/
-COPY protocol/http/v1/payload.py protocol/http/v1/routine.py ./protocol/http/v1/
+COPY protocol/http/v1/payload.py ./protocol/http/v1/
+COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
+    protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
+    protocol/assistant/v1/validators/message_catalog.py \
+    ./protocol/assistant/v1/validators/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
-COPY inference/__init__.py inference/client.py inference/config.py inference/integration_secrets.py \
+COPY inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
+     inference/integration_secrets.py \
      inference/model_catalog.json inference/token.py inference/usage.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
      integrations/challenges.py integrations/flow.py integrations/http.py \
      integrations/pkce.py integrations/providers.py \
      integrations/service.py integrations/store.py ./integrations/
-COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
+COPY action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
+     action/files.py action/human.py action/journal.py \
      action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
+    prepare/service.py prepare/worker.py ./prepare/
 
 # Pre-create + own every named-volume mountpoint so the fresh (root:root) volume is writable by the
 # non-root user. /run/shimpz-team gets GROUP `shimpzteam-token` so the fresh volume's

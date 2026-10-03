@@ -41,6 +41,7 @@ TEARDOWN_RESIDUES = (
     "inference_configuration",
     "integration_credentials",
     "stored_inputs",
+    "preparation_helpers",
     "publication_bindings",
     "runtime_container",
     "team_networks",
@@ -57,6 +58,7 @@ TEAM_RESIDUES = [
     "egress_policies",
     "inference_configuration",
     "integration_credentials",
+    "preparation_helpers",
     "publication_bindings",
     "runtime_container",
     "runtime_state",
@@ -384,7 +386,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             ("one Action", (1,), 5),
             ("four Actions in one batch", (4,), 8),
             ("four single-Action rounds", (1, 1, 1, 1), 14),
-            ("eight Actions in one batch", (8,), 12),
+            ("seven Actions in one batch", (7,), 11),
             ("eight single-Action rounds", (1, 1, 1, 1, 1, 1, 1, 1), 26),
         )
         action_result = {"zones": [], "page": 1, "per_page": 25, "total_pages": 0}
@@ -422,10 +424,14 @@ class HostedChatLifecycleTests(unittest.TestCase):
                 self.assertIsNotNone(checks.sessions[0])
 
     def test_hosted_team_context_contains_and_routes_two_active_assistants(self) -> None:
-        place_action = types.SimpleNamespace(summary="Find a place.", input_schema={"type": "object"})
+        place_action = types.SimpleNamespace(
+            summary="Find a place.", input_schema={"type": "object"}, human_requests=(), input_files=()
+        )
         weather_action = types.SimpleNamespace(
             summary="Read current weather.",
             input_schema={"type": "object"},
+            human_requests=(),
+            input_files=(),
         )
         place_contract = types.SimpleNamespace(name="Places", actions={"search": place_action}, stored_inputs={})
         weather_contract = types.SimpleNamespace(name="Weather", actions={"current": weather_action}, stored_inputs={})

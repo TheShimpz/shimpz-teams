@@ -11,7 +11,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import routine_fixture
+
 from local.routine import store as routine_store
+from routine import hold as routine_hold
 from routine import record
 
 UTC = datetime.UTC
@@ -26,14 +29,18 @@ def put(store: routine_store.RoutineStore, team_id: str, state: record.TeamRouti
 
 
 def routine(routine_id: str = "a" * 32) -> record.Routine:
-    value = record.Routine(
-        routine_id=routine_id,
-        quote="Todo dia às 9, resuma as mudanças de DNS.",
-        schedule={"kind": "daily", "time": "09:00"},
-        timezone="America/Sao_Paulo",
-        assistants=(("dns", "sha256:" + "c" * 64),),
-        anchor=NINE - 86_400,
-        next_run_at=0,
+    value = routine_fixture.granted(
+        record.Routine(
+            routine_id=routine_id,
+            name="Resumo de DNS",
+            quote="Todo dia às 9, resuma as mudanças de DNS.",
+            plan=routine_fixture.plan_document(timezone="America/Sao_Paulo"),
+            schedule={"kind": "daily", "time": "09:00"},
+            timezone="America/Sao_Paulo",
+            assistants=(("dns", "sha256:" + "c" * 64),),
+            anchor=NINE - 86_400,
+            next_run_at=0,
+        )
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, value.anchor))
 
@@ -50,7 +57,7 @@ def busy_state() -> record.TeamRoutines:
     state, second = record.claim(state, now, KEY)
     lease = record.lease_of(second.lease_token, KEY)
     state = record.bind_generation(state, second.run.run_id, lease, now, NETWORK)
-    state = record.hold_uncertain(state, second.run.run_id, lease, now, "d" * 64, {"actions": [["dns", "x"]]})
+    state = record.fence(state, second.run.run_id, lease, now)
     state, third = record.claim(state, now, KEY)
     lease = record.lease_of(third.lease_token, KEY)
     state = record.bind_generation(state, third.run.run_id, lease, now, NETWORK)
@@ -92,7 +99,14 @@ class RoundTripTests(StoreCase):
             busy_state(),
             notices=tuple(
                 record.Notice(
-                    f"{index:032x}", "a" * 32, "", "done", NINE, {"reply": "\U0001f600" * 16_000}, 1, "\U0001f600" * 500
+                    f"{index:032x}",
+                    "a" * 32,
+                    "",
+                    "created",
+                    NINE,
+                    routine_fixture.large_definition(),
+                    1,
+                    "\U0001f600" * 500,
                 )
                 for index in range(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES)
             ),
@@ -131,9 +145,9 @@ class TamperTests(StoreCase):
     def test_every_altered_field_fails_closed(self):
         base = self.baseline()
         frozen = next(index for index, item in enumerate(base["runs"]) if item["status"] == "frozen")
-        uncertain = next(index for index, item in enumerate(base["runs"]) if item["status"] == "uncertain")
+        held = next(index for index, item in enumerate(base["runs"]) if item["status"] == "held")
         mutations = {
-            "schema": lambda value: value.update(schema=2),
+            "schema": lambda value: value.update(schema=1),
             "team": lambda value: value.update(team_id="team_2"),
             "extra field": lambda value: value.update(extra=1),
             "routine shape": lambda value: value["routines"][0].pop("quote"),
@@ -146,25 +160,23 @@ class TamperTests(StoreCase):
             "run status": lambda value: value["runs"][0].update(status="running"),
             "lease key": lambda value: value["runs"][0].update(lease_key="short"),
             "frozen with lease": lambda value: value["runs"][frozen].update(lease_sha256="d" * 64, lease_key=KEY),
-            "uncertain without batch": lambda value: value["runs"][uncertain].update(batch=["", ""]),
-            "uncertain with a request": lambda value: value["runs"][uncertain].update(request_kind="human"),
-            "frozen with a batch": lambda value: value["runs"][frozen].update(batch=["x", "d" * 64]),
+            "held without a generation": lambda value: value["runs"][held].update(generation=""),
+            "held with a request": lambda value: value["runs"][held].update(request_kind="human"),
+            "held with a lease": lambda value: value["runs"][held].update(lease_key=KEY),
             "frozen without an action": lambda value: value["runs"][frozen].update(action=""),
             "frozen without an assistant": lambda value: value["runs"][frozen].update(assistant_id=""),
-            "arbitrary generation": lambda value: value["runs"][uncertain].update(generation="other:routine:x"),
+            "arbitrary generation": lambda value: value["runs"][held].update(generation="other:routine:x"),
             "generation of another run": lambda value: value["runs"][frozen].update(
                 generation=NETWORK + ":routine:" + "0" * 32
             ),
             "unknown status": lambda value: value["runs"][0].update(status="paused"),
-            "batch generation": lambda value: value["runs"][uncertain].update(batch=["other:routine:x", "d" * 64]),
             "orphan run": lambda value: value["runs"][0].update(routine_id="f" * 32),
             "active time": lambda value: value["runs"][0].update(active_seconds_left=record.ACTIVE_SECONDS + 1),
             "notice detail": lambda value: value["notices"][0].update(detail={"actions": [["dns", "x"]], "result": 1}),
             "notice version": lambda value: value["notices"][0].update(version=0),
             "notice quote": lambda value: value["notices"][0].update(quote=""),
             "run notice version": lambda value: value["runs"][0].update(notice_version=-1),
-            "held actions on a live run": lambda value: value["runs"][frozen].update(held_actions=[["dns", "x"]]),
-            "held action shape": lambda value: value["runs"][uncertain].update(held_actions=[["dns"]]),
+            "retired run field": lambda value: value["runs"][held].update(batch=["", ""]),
             "discard shape": lambda value: value["discards"][0].append("x"),
             "discard run": lambda value: value["discards"][0].__setitem__(0, "not-a-run"),
             "discard of another generation": lambda value: value["discards"][0].__setitem__(
@@ -174,8 +186,17 @@ class TamperTests(StoreCase):
             "too many discards": lambda value: value.update(
                 discards=[[f"{index:032x}", ""] for index in range(record.MAX_DISCARDS + 1)]
             ),
-            "starts day": lambda value: value.update(starts_day="yesterday"),
-            "starts": lambda value: value.update(starts=record.MAX_DAILY_STARTS + 1),
+            "rollup runs": lambda value: value["routines"][0].update(
+                rollup_runs=record.http_routine.MAX_ROLLUP_RUNS + 1
+            ),
+            "rollup minute": lambda value: value["routines"][0].update(rollup_minute=-1),
+            "starts shape": lambda value: value.update(starts=[["a" * 32]]),
+            "start routine": lambda value: value.update(starts=[["not-a-routine", 5]]),
+            "start instant": lambda value: value.update(starts=[["a" * 32, -1]]),
+            "starts out of order": lambda value: value.update(starts=[["a" * 32, 9], ["a" * 32, 5]]),
+            "too many starts": lambda value: value.update(
+                starts=[["a" * 32, index] for index in range(record.routine_starts.TEAM_CEILING + 1)]
+            ),
         }
         for name, mutate in mutations.items():
             with self.subTest(name=name):
@@ -186,6 +207,30 @@ class TamperTests(StoreCase):
         self.state_file().write_bytes(b"{not json")
         with self.assertRaisesRegex(routine_store.RoutineStoreError, "not valid JSON"):
             self.store.load("team_1")
+
+    def test_an_altered_incident_fails_closed(self):
+        state = busy_state()
+        held = next(item for item in state.runs if item.status == "held")
+        put(self.store, "team_1", routine_hold.settle_hold(state, held.run_id, NINE, 1, ("dns", "replace-dns-record")))
+        base = json.loads(self.state_file().read_text())
+        self.assertEqual(base["incidents"][0]["assistant_id"], "dns")
+        mutations = {
+            "quote": {"quote": ""},
+            "assistant": {"assistant_id": "Bad"},
+            "half a step": {"action": ""},
+            "action type": {"action": 1},
+            "time beyond the run's": {"active_seconds_left": record.ACTIVE_SECONDS + 1},
+            "time type": {"active_seconds_left": True},
+        }
+        for name, change in mutations.items():
+            with self.subTest(name=name):
+                value = json.loads(json.dumps(base))
+                value["incidents"][0].update(change)
+                self.assert_refused(value)
+        value = json.loads(json.dumps(base))
+        value["incidents"][0].update(assistant_id="", action="")
+        self.write(value)
+        self.assertEqual(self.store.load("team_1").incidents[0].action, "")
 
     def test_a_state_file_that_is_not_private_fails_closed(self):
         put(self.store, "team_1", busy_state())
@@ -379,3 +424,38 @@ class ExclusionTests(StoreCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConcurrentReadTests(StoreCase):
+    def test_a_listing_read_that_races_a_replace_reads_again_and_a_lasting_failure_still_fails(self) -> None:
+        put(self.store, "team_1", busy_state())
+        real = routine_store._PRIVATE.read_private_file
+        failures = [routine_store.RoutineStoreError("Routine state failed its ownership contract")] * 2
+
+        def racing(path, maximum, label):
+            if failures:
+                raise failures.pop()
+            return real(path, maximum, label)
+
+        with mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=racing):
+            self.assertEqual(self.store.teams(), ("team_1",))
+        broken = routine_store.RoutineStoreError("Routine state failed its ownership contract")
+        with (
+            mock.patch.object(type(routine_store._PRIVATE), "read_private_file", side_effect=broken),
+            self.assertRaisesRegex(routine_store.RoutineStoreError, "ownership"),
+        ):
+            self.store.teams()
+
+
+class StartWindowTests(StoreCase):
+    def test_alternating_routines_persist_their_starts_in_time_order_and_rollups_round_trip(self) -> None:
+        first = 1_790_000_000
+        starts: record.routine_starts.Starts = ()
+        for routine_id, offset in (("a" * 32, 0), ("b" * 32, 3), ("a" * 32, 8), ("b" * 32, 11)):
+            starts = record.routine_starts.started(starts, routine_id, first + offset)
+        self.assertEqual([at - first for _routine_id, at in starts], [0, 3, 8, 11])
+        state = dataclasses.replace(busy_state(), starts=starts)
+        rolled = dataclasses.replace(state.routines[0], rollup_minute=first - first % 60, rollup_runs=12)
+        state = dataclasses.replace(state, routines=(rolled, *state.routines[1:]))
+        put(self.store, "team_1", state)
+        self.assertEqual(self.store.load("team_1").starts, starts)

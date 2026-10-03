@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import contextvars
 import hashlib
 import http.client
 import json
 import os
 import re
-import socket
 import threading
 import unicodedata
-from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager, suppress
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -20,9 +17,10 @@ from urllib.parse import urlparse
 
 from action import journal as action_journal
 from core import strict_json
+from inference import abort as brain_abort
 from inference import usage as brain_usage
+from inference.errors import BrainRuntimeError
 from protocol.http.v1 import payload as http_payload
-from protocol.http.v1 import routine as http_routine
 
 RUNTIME_URL = os.environ.get("SHIMPZ_BRAIN_RUNTIME_URL", "http://brain-runtime:8080")
 TOKEN_FILE = Path(os.environ.get("SHIMPZ_BRAIN_RUNTIME_TOKEN_FILE", "/run/shimpz-brain-runtime/token"))
@@ -51,15 +49,16 @@ _LANGUAGE_LAYOUT_CONTROLS = frozenset({"\n", "\r", "\t"})
 REPLY_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
-class BrainRuntimeError(RuntimeError):
-    """The private runtime was unavailable or violated its closed response contract."""
-
-
 @dataclass(frozen=True, slots=True)
 class RuntimeAction:
     id: str
     summary: str
     input_schema: Mapping[str, Any]
+    # Whether the Action declares an authorization capability: only such an Action may run while attachment content is
+    # in the turn (ADR-0093).
+    authorization: bool = False
+    # The input properties that carry one Team file id each (ADR-0093).
+    input_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,16 +68,21 @@ class RuntimeAssistant:
     actions: tuple[RuntimeAction, ...]
 
 
+def _action_wire(action: RuntimeAction) -> dict[str, object]:
+    """One Action exactly as the private Brain request carries it."""
+    return {
+        "id": action.id,
+        "summary": action.summary,
+        "input_schema": dict(action.input_schema),
+        "authorization": action.authorization,
+        "input_files": list(action.input_files),
+    }
+
+
 def contract_digest(assistant: RuntimeAssistant) -> str:
     """The `sha256:` fingerprint of one Assistant contract as Brain receives it; a changed contract changes it."""
-    contract = {
-        "id": assistant.id,
-        "genesis": assistant.genesis,
-        "actions": [
-            {"id": action.id, "summary": action.summary, "input_schema": dict(action.input_schema)}
-            for action in assistant.actions
-        ],
-    }
+    actions = [_action_wire(action) for action in assistant.actions]
+    contract = {"id": assistant.id, "genesis": assistant.genesis, "actions": actions}
     body = json.dumps(contract, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     return "sha256:" + hashlib.sha256(body.encode()).hexdigest()
 
@@ -103,6 +107,9 @@ class RuntimeContext:
     # The interface language a new turn is written in (ADR-0090), or None to follow the message; the Brain pins it at
     # the start, so only a start sends it.
     locale: str | None = None
+    # The selected files prepared for this message (ADR-0093): request-local model content that Team rehydrates for the
+    # start and every resume of the logical turn, never persisted by Brain.
+    attachments: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +129,7 @@ class RuntimeTurn:
     clarification: dict[str, object] | None = None
     # The memory changes a completed turn proposed; the profile saves them only when its reply commits (ADR-0084).
     memory: tuple[dict[str, str], ...] = ()
-    # The one Routine change a completed turn proposed and the Brain's check confirmed (ADR-0086), or None.
+    # The one Routine change a completed turn's isolated compiler produced (ADR-0092), or None; Local Team admits it.
     routine: dict[str, object] | None = None
 
 
@@ -198,69 +205,27 @@ ConnectionFactory = Callable[[str, int, float], http.client.HTTPConnection]
 
 # Brain shares a local network with Team, so a connection is established quickly or not at all; a turn then may
 # legitimately wait on the model provider.
+# The Brain refuses a request body above this many bytes (brain/runtime_api.py MAX_REQUEST_BYTES).
+MAX_REQUEST_BYTES = 4 * 1024 * 1024
+# A resume keys each result by its interrupt id: at most 256 characters, quoted, plus a colon and a comma.
+_RESULT_KEY_BYTES = 256 + 4
 CONNECT_TIMEOUT_SECONDS = 5.0
 RESPONSE_TIMEOUT_SECONDS = 65.0
 # An optional purpose sentence may delay a person's prompt only this long in total, connection included (ADR-0090).
 PURPOSE_DEADLINE_SECONDS = 15.0
 
 
-class RequestAbort:
-    """Stop's handle on the Brain request a Local chat turn is waiting for (ADR-0079).
+def resume_capacity(context: RuntimeContext, result_bytes: int) -> int:
+    """How many Action results of at most ``result_bytes`` each one resume of this turn can carry to the Brain.
 
-    ``abort`` shuts down the attached connection's socket, which wakes the blocked read and makes Brain see the
-    disconnect and cancel the turn's provider call. A request attached after the abort fails before connecting, and
-    one still connecting fails as soon as its bounded connect returns. The connected socket is pinned, because a
-    response that closes the connection detaches it from the connection while its body is still being read.
+    The fixed part is the exact serialized turn context, attachments included; each result reserves its worst case.
     """
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._aborted = False
-        self._connection: http.client.HTTPConnection | None = None
-        self._socket: socket.socket | None = None
-
-    def abort(self) -> None:
-        # Shutting down under the lock keeps the request from detaching and closing the connection meanwhile.
-        with self._lock:
-            self._aborted = True
-            sock = self._socket or getattr(self._connection, "sock", None)
-            if sock is not None:
-                with suppress(OSError):
-                    sock.shutdown(socket.SHUT_RDWR)
-
-    def pin(self, sock: socket.socket) -> None:
-        """Keep the connected socket abortable for the whole response, even after the connection releases it."""
-        with self._lock:
-            self._socket = sock
-        self.check()
-
-    def attach(self, connection: http.client.HTTPConnection) -> None:
-        with self._lock:
-            self._connection = connection
-        self.check()
-
-    def check(self) -> None:
-        with self._lock:
-            if self._aborted:
-                raise BrainRuntimeError("Brain runtime request was stopped")
-
-    def detach(self) -> None:
-        with self._lock:
-            self._connection = None
-            self._socket = None
+    fixed = len(_body({**BrainRuntimeClient._context(context), "results": {}}))
+    return max(0, (MAX_REQUEST_BYTES - fixed) // (result_bytes + _RESULT_KEY_BYTES))
 
 
-_ABORT: contextvars.ContextVar[RequestAbort | None] = contextvars.ContextVar("brain_request_abort", default=None)
-
-
-@contextmanager
-def abortable(handle: RequestAbort) -> Iterator[None]:
-    """Let ``handle`` abort every Brain request this thread makes inside the block."""
-    token = _ABORT.set(handle)
-    try:
-        yield
-    finally:
-        _ABORT.reset(token)
+def _body(payload: Mapping[str, object]) -> bytes:
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
 
 
 def _connection(host: str, port: int, timeout: float) -> http.client.HTTPConnection:
@@ -323,14 +288,7 @@ class BrainRuntimeClient:
                 {
                     "id": assistant.id,
                     "genesis": assistant.genesis,
-                    "actions": [
-                        {
-                            "id": action.id,
-                            "summary": action.summary,
-                            "input_schema": dict(action.input_schema),
-                        }
-                        for action in assistant.actions
-                    ],
+                    "actions": [_action_wire(action) for action in assistant.actions],
                 }
                 for assistant in context.assistants
             ],
@@ -344,14 +302,15 @@ class BrainRuntimeClient:
             "skills": None if context.skills is None else [dict(skill) for skill in context.skills],
             "routines": None if context.routines is None else [dict(item) for item in context.routines],
             "knowledge_writable": context.knowledge_writable,
+            "attachments": [dict(item) for item in context.attachments],
         }
 
     def _post(self, path: str, payload: Mapping[str, object], *, deadline: float | None = None) -> object:
-        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
-        abort = _ABORT.get()
+        body = _body(payload)
+        abort = brain_abort.current()
         connection = self._connection_factory(self._host, self._port, CONNECT_TIMEOUT_SECONDS)
         # An overall deadline shuts the socket down from a timer, like Stop, so Brain sees the disconnect.
-        expiry = RequestAbort()
+        expiry = brain_abort.RequestAbort()
         timer = None if deadline is None else threading.Timer(deadline, expiry.abort)
         try:
             if timer is not None:
@@ -409,6 +368,23 @@ class BrainRuntimeClient:
         return rest
 
     @staticmethod
+    def _parse_routine(value: dict[str, object]) -> dict[str, object] | None:
+        """A completed turn's one compiled Routine change, or the Routine question beside exactly its clarification.
+
+        Local Team admits its shape.
+        """
+        routine = value["routine"]
+        if routine is None:
+            return None
+        if (
+            not isinstance(routine, dict)
+            or value["status"] != "completed"
+            or (value["clarification"] is None) == ("question" in routine)
+        ):
+            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        return routine
+
+    @staticmethod
     def _parse_turn(value: object) -> RuntimeTurn:
         if not isinstance(value, dict) or set(value) != {
             "status",
@@ -422,9 +398,7 @@ class BrainRuntimeClient:
         memory = http_payload.canonical_memory_changes(value["memory"])
         if memory is None or (memory and value["status"] != "completed"):
             raise BrainRuntimeError("Brain runtime returned an invalid response")
-        routine = None if value["routine"] is None else http_routine.canonical_routine_change(value["routine"])
-        if (value["routine"] is not None and routine is None) or (routine and value["status"] != "completed"):
-            raise BrainRuntimeError("Brain runtime returned an invalid response")
+        routine = BrainRuntimeClient._parse_routine(value)
         clarification = value["clarification"]
         if clarification is not None:
             clarification = http_payload.canonical_clarification(clarification)
@@ -828,6 +802,14 @@ class BrainRuntimeClient:
         if not isinstance(rest, dict) or set(rest) != {"purpose"} or rest["purpose"] is None:
             return None
         return http_payload.canonical_purpose(rest["purpose"])
+
+    def routine_recovery(self, payload: Mapping[str, object], provider: str, model: str) -> object:
+        """Send one Routine recovery request ``inference.recovery`` admitted; return its metered answer."""
+        return self._metered(self._post("/v1/routine-recovery", dict(payload)), "routine-recovery", provider, model)
+
+    def routine_compile(self, payload: Mapping[str, object], provider: str, model: str) -> object:
+        """Send one Routine compile request ``inference.recreate`` admitted; return its metered answer."""
+        return self._metered(self._post("/v1/routine-compile", dict(payload)), "routine-compile", provider, model)
 
     def delete_thread(self, thread_id: str) -> None:
         if not isinstance(thread_id, str) or action_journal.SAFE_ID_RE.fullmatch(thread_id) is None:

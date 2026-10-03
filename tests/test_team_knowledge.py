@@ -330,10 +330,16 @@ class CommitTests(unittest.TestCase):
         principal.__enter__()
         self.addCleanup(principal.__exit__, None, None, None)
 
-    def _complete(self, token: str, changes: tuple[dict[str, str], ...], actions=()):
+    def _complete(self, token: str, changes: tuple[dict[str, str], ...], actions=(), file_ids=()):
         outcome = chat_orchestrator.ChatOutcome(reply="Ok.", actions=tuple(actions), memory=changes)
         segment = chat_turn_engine.SegmentResult("Team", ("identity",), outcome, (), ())
-        return self.service._segment_response(ResponseRequest("team_1", token, segment, (), (), "openai"))
+        return self.service._segment_response(ResponseRequest("team_1", token, segment, (), file_ids, "openai"))
+
+    def test_a_turn_that_consumed_selected_files_learns_nothing(self):
+        with self.service._exclusive_chat_turn("team_1") as token:
+            reply = self._complete(token, (REMEMBER_LANGUAGE,), ZONE_THEN_RECORD, file_ids=("a" * 32,))
+        self.assertEqual(reply["reply"], "Ok.")
+        self.assertEqual(self.store.load_knowledge("team_1"), ([], []))
 
     def test_memory_and_the_learned_skill_are_saved_exactly_when_the_reply_commits(self):
         with self.service._exclusive_chat_turn("team_1") as token:

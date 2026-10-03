@@ -49,6 +49,12 @@ class ControllerRoutingTests(unittest.TestCase):
                     "stored_input_id": "whatsapp-token",
                 },
             ),
+            (
+                "GET",
+                "/v1/teams/team_1/assistants/helper/summary/pt",
+                "assistant-summary",
+                {"team_id": "team_1", "assistant_id": "helper", "locale": "pt"},
+            ),
         )
         for method, path, operation, params in common:
             with self.subTest(method=method, path=path):
@@ -93,6 +99,12 @@ class ControllerRoutingTests(unittest.TestCase):
                 "GET",
                 "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/icon",
                 "local-assistant-icon",
+            ),
+            (
+                strict_http.LOCAL_CONTROLLER,
+                "GET",
+                "/v1/local-assistants/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/summary/pt",
+                "local-assistant-summary",
             ),
             (
                 strict_http.LOCAL_CONTROLLER,

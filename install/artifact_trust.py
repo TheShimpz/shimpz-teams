@@ -280,6 +280,7 @@ def _predicate_matches(predicate: dict[str, Any], resolution: dict[str, Any]) ->
         "source_digest": resolution["source_digest"],
         "manifest_digest": resolution["manifest_digest"],
         "machine_contract_digest": resolution["machine_contract_digest"],
+        "pack_digest": resolution["pack_digest"],
     }
     return (
         build_definition.get("buildType") == "https://shimpz.com/build-types/assistant/v1"

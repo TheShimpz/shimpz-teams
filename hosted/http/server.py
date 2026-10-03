@@ -146,6 +146,11 @@ class Handler(BaseHTTPRequestHandler):
                         "team_id": result["team_id"],
                         "team_name": result["team_name"],
                         **({"usage": result["usage"]} if "usage" in result else {}),
+                        **(
+                            {"restricted_actions": result["restricted_actions"]}
+                            if "restricted_actions" in result
+                            else {}
+                        ),
                     }
                 )
                 emit(terminal)
@@ -901,6 +906,15 @@ class Handler(BaseHTTPRequestHandler):
         )
         self._send_icon(contents)
 
+    def _route_assistant_summary(self, request: _AuthorizedRequest) -> None:
+        summary = assistant_lifecycle._assistant_summary(
+            request.team_id,
+            request.params["assistant_id"],
+            request.params["locale"],
+            request.lease,
+        )
+        self._send_json(HTTPStatus.OK, summary, no_store=True)
+
     def _route_assistant_uninstall(self, request: _AuthorizedRequest) -> None:
         assistant_id = assistant_registry.validate_assistant_id(request.params["assistant_id"])
         result = assistant_lifecycle._uninstall_assistant(
@@ -952,6 +966,7 @@ _AUTHORIZED_ROUTES = {
     "assistant-stored-input-clear": Handler._route_assistant_stored_input_clear,
     "assistant-install": Handler._route_assistant_install,
     "assistant-icon": Handler._route_assistant_icon,
+    "assistant-summary": Handler._route_assistant_summary,
     "assistant-list": Handler._route_assistant_list,
     "assistant-uninstall": Handler._route_assistant_uninstall,
     "team-status": Handler._route_team_status,

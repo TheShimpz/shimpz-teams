@@ -13,6 +13,8 @@ from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 from action import challenges as action_challenges
 from inference import client as brain_runtime_client
 from local import app as local_app
+from local.routine import card as routine_card
+from local.routine import lineage as routine_lineage
 from routine import record as routine_record
 
 
@@ -58,7 +60,10 @@ class LocalTeamDestroyTests(LocalContractCase):
             remove=lambda *, force: events.append(("container-remove", force)),
         )
 
-        def list_containers(**_filters):
+        def list_containers(**filters):
+            if "com.shimpz.local.kind=prepare" in filters.get("filters", {}).get("label", []):
+                events.append("helpers-read")
+                return []
             events.append("containers-read")
             return [container]
 
@@ -79,8 +84,9 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("action-purge", generation)))
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+        controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -88,6 +94,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller._wire_collaborators()
         controller.chat_turn_service._active_chat_tokens = {"team_1": "turn-token"}
@@ -124,7 +135,9 @@ class LocalTeamDestroyTests(LocalContractCase):
                 "container-validated",
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
+                "helpers-read",
                 "routines-delete",
+                "diagnostics-delete",
                 ("container-remove", True),
                 ("residue-add", "sha256:" + "a" * 64),
                 "residue-sweep",
@@ -180,8 +193,9 @@ class LocalTeamDestroyTests(LocalContractCase):
         )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+        controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -189,6 +203,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock
@@ -240,8 +259,9 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.action_state = SimpleNamespace(purge=fail_purge)
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy"))
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
-        controller.routine_proposals = SimpleNamespace(drop_team=lambda _team_id: None, fenced=contextlib.nullcontext)
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
+        controller.routine_lineage = routine_lineage.LineageBook()
+        controller.routine_cards = routine_card.CardBook()
         controller.routine_store = SimpleNamespace(
             load=lambda _team_id: routine_record.TeamRoutines(),
             delete=lambda _team_id: events.append("routines-delete"),
@@ -249,6 +269,11 @@ class LocalTeamDestroyTests(LocalContractCase):
             delete_all=lambda: events.append("routines-delete-all"),
             lock=lambda _team_id: contextlib.nullcontext(),
             exclusive=contextlib.nullcontext,
+        )
+        controller.routine_diagnostics = SimpleNamespace(
+            delete=lambda _team_id: events.append("diagnostics-delete"),
+            delete_all=lambda: events.append("diagnostics-delete-all"),
+            delete_routine=lambda _team_id, _routine_id: None,
         )
         controller._wire_collaborators()
         controller.chat_turn_service._chat_lock = lambda _team_id: lock

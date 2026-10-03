@@ -1,0 +1,1044 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "ordinary Actions declare no file input",
+      "actions": [
+        {
+          "id": "list-folders",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [],
+          "human_requests": [],
+          "effect": "read_only"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "one file input behind approval",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "one file input behind password authentication",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "auth:password",
+            "input:text"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "one file input behind passkey authentication",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "auth:passkey"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "a read-only Action may take a file",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "read_only"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "an undeclared file-shaped string stays an ordinary string",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [],
+          "human_requests": [],
+          "effect": "mutating"
+        }
+      ],
+      "valid": true
+    },
+    {
+      "name": "a missing declaration is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "two file inputs are refused in v1",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document",
+            "folder"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an empty property name is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            ""
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a non-string property name is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            7
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an unknown property is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "attachment"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an optional property is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an ordinary string property is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "folder"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an annotated file schema is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$",
+                "description": "File"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a wider file schema is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 33,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a float bound is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32.0,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a nested file position is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "upload": {
+                "type": "object",
+                "properties": {
+                  "document": {
+                    "type": "string",
+                    "minLength": 32,
+                    "maxLength": 32,
+                    "pattern": "^[0-9a-f]{32}$"
+                  }
+                },
+                "required": [
+                  "document"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "upload"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "upload"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "an array of files is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 32,
+                  "maxLength": 32,
+                  "pattern": "^[0-9a-f]{32}$"
+                }
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a referenced file schema is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "$ref": "#/$defs/file"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false,
+            "$defs": {
+              "file": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              }
+            }
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "approval"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a file input without authorization is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "input:text"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    },
+    {
+      "name": "a file input with only a password field is refused",
+      "actions": [
+        {
+          "id": "upload-document",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "document": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 32,
+                "pattern": "^[0-9a-f]{32}$"
+              },
+              "folder": {
+                "type": "string",
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "document",
+              "folder"
+            ],
+            "additionalProperties": false
+          },
+          "output_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "integrations": [],
+          "stored_inputs": [],
+          "input_files": [
+            "document"
+          ],
+          "human_requests": [
+            "input:password"
+          ],
+          "effect": "mutating"
+        }
+      ],
+      "valid": false
+    }
+  ]
+}

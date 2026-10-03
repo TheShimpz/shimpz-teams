@@ -4,7 +4,6 @@ import hashlib
 import math
 import multiprocessing
 import os
-import shutil
 import sqlite3
 import stat
 import tempfile
@@ -105,7 +104,9 @@ class ActionJournalTests(unittest.TestCase):
     def test_reopen_returns_canonical_cached_result_without_reexecution(self) -> None:
         journal = self.journal()
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
-        self.assertEqual(journal.begin(batch, self.first), action_journal.Execution(True, None))
+        started = journal.begin(batch, self.first)
+        self.assertEqual(started, action_journal.Execution(True, None, started.operation_id))
+        self.assertTrue(action_journal.valid_operation_id(started.operation_id))
         journal.complete(batch, self.first, {"z": [2, 1], "a": "ok"})
         journal.close()
 
@@ -115,7 +116,7 @@ class ActionJournalTests(unittest.TestCase):
         self.assertEqual(same, batch)
         self.assertEqual(
             reopened.begin(same, self.first),
-            action_journal.Execution(False, {"a": "ok", "z": [2, 1]}),
+            action_journal.Execution(False, {"a": "ok", "z": [2, 1]}, started.operation_id),
         )
         self.assertEqual(stat.S_IMODE(self.path.parent.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
@@ -171,62 +172,15 @@ class ActionJournalTests(unittest.TestCase):
                 ).fetchone()
                 self.assertEqual(row, persisted)
 
-    def test_uses_bounded_wal_normal_durability_policy(self) -> None:
+    def test_uses_bounded_wal_full_durability_policy(self) -> None:
         journal = self.journal()
 
         self.assertEqual(journal._connection.execute("PRAGMA journal_mode").fetchone(), ("wal",))
-        self.assertEqual(journal._connection.execute("PRAGMA synchronous").fetchone(), (1,))
+        self.assertEqual(journal._connection.execute("PRAGMA synchronous").fetchone(), (2,))
         self.assertEqual(
             journal._connection.execute("PRAGMA wal_autocheckpoint").fetchone(),
             (action_journal.WAL_AUTOCHECKPOINT_PAGES,),
         )
-
-    def test_action_loss_model_bounds_acknowledged_state_loss(self) -> None:
-        journal = self.journal()
-        operations = tuple(operation(f"interrupt-{index}", f"validated-input-{index}") for index in range(16))
-        batch = journal.prepare_batch("generation-1", "thread-1", operations)
-        self.assertEqual(
-            journal._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone(),
-            (0, 0, 0),
-        )
-        stable_checkpoint = Path(self.temporary.name) / "stable-checkpoint.sqlite3"
-        shutil.copy2(self.path, stable_checkpoint)
-
-        transitions = 0
-        for selected in operations[:-1]:
-            journal.begin(batch, selected)
-            journal.complete(batch, selected, {"interrupt": selected.interrupt_id})
-            transitions += 2
-        final = operations[-1]
-        journal.begin(batch, final)
-        transitions += 1
-
-        page_size = journal._connection.execute("PRAGMA page_size").fetchone()[0]
-        wal_size = self.path.with_name(f"{self.path.name}-wal").stat().st_size
-        frames = (wal_size - 32) // (page_size + 24)
-        self.assertEqual(transitions, action_journal.MAX_ACKNOWLEDGED_TRANSITIONS_AT_RISK)
-        self.assertEqual(frames, transitions)
-
-        simulated_loss = Path(self.temporary.name) / "loss" / "journal.sqlite3"
-        simulated_loss.parent.mkdir(mode=0o700)
-        shutil.copy2(stable_checkpoint, simulated_loss)
-        recovered_before_checkpoint = action_journal.ActionJournal(simulated_loss)
-        self.addCleanup(recovered_before_checkpoint.close)
-        states = recovered_before_checkpoint._connection.execute(
-            "SELECT state FROM operations ORDER BY ordinal"
-        ).fetchall()
-        self.assertEqual(states, [("prepared",)] * len(operations))
-
-        journal.complete(batch, final, {"interrupt": final.interrupt_id})
-        after_checkpoint = Path(self.temporary.name) / "checkpointed" / "journal.sqlite3"
-        after_checkpoint.parent.mkdir(mode=0o700)
-        shutil.copy2(self.path, after_checkpoint)
-        recovered_after_checkpoint = action_journal.ActionJournal(after_checkpoint)
-        self.addCleanup(recovered_after_checkpoint.close)
-        states = recovered_after_checkpoint._connection.execute(
-            "SELECT state FROM operations ORDER BY ordinal"
-        ).fetchall()
-        self.assertEqual(states, [("completed",)] * len(operations))
 
     def test_changed_pending_batch_and_changed_completed_result_fail_closed(self) -> None:
         journal = self.journal()
@@ -461,7 +415,7 @@ class ActionJournalTests(unittest.TestCase):
             journal.prepare_batch("generation-2", "thread-2", [self.second])
 
         self.assertEqual(journal.prepare_batch("generation-1", "thread-1", [self.first]), completed)
-        self.assertEqual(journal.begin(completed, self.first), action_journal.Execution(False, {"answer": 1}))
+        self.assertEqual(journal.begin(completed, self.first).result, {"answer": 1})
         self.assertTrue(journal.end(completed))
         fresh = journal.prepare_batch("generation-1", "thread-1", [self.second])
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "replaced this ending handle"):
@@ -680,7 +634,7 @@ class ActionJournalTests(unittest.TestCase):
             action_journal.ActionJournal(self.path)
 
         journal = self.journal()
-        journal._connection.execute("PRAGMA user_version = 2")
+        journal._connection.execute("PRAGMA user_version = 1")
         journal.close()
         with self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "schema"):
             action_journal.ActionJournal(self.path)
@@ -711,7 +665,16 @@ class ActionJournalTests(unittest.TestCase):
             mock.patch.object(
                 journal,
                 "_load_operation",
-                return_value=(0, self.first.interrupt_id, self.first.fingerprint, "prepared", b"result"),
+                return_value=(
+                    0,
+                    self.first.interrupt_id,
+                    self.first.fingerprint,
+                    "prepared",
+                    b"result",
+                    action_journal.new_operation_id(),
+                    None,
+                    None,
+                ),
             ),
             self.assertRaisesRegex(action_journal.ActionJournalCorruptionError, "durable state"),
         ):
@@ -735,7 +698,7 @@ class ActionJournalTests(unittest.TestCase):
         journal = self.journal()
         self.assert_sql_failure(
             journal,
-            "SELECT fingerprint, state FROM batches",
+            "SELECT fingerprint, state, archivable FROM batches",
             lambda: journal.prepare_batch("generation", "thread", (self.first,)),
             "prepared",
         )
@@ -756,7 +719,7 @@ class ActionJournalTests(unittest.TestCase):
         )
         self.assert_sql_failure(
             journal,
-            "UPDATE operations SET state = 'completed'",
+            "UPDATE operations SET state = ?, origin = ?",
             lambda: journal.complete(batch, self.first, {"ok": True}),
             "committed",
         )

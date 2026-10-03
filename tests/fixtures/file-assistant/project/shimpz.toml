@@ -1,0 +1,12 @@
+[shimpz]
+spec = 1
+id = "documents"
+version = "0.1.0"
+name = "Documents"
+summary = "Store reviewed documents."
+creators = ["@roxygens"]
+github = "https://github.com/TheShimpz/documents"
+genesis = "Store documents only after approval."
+
+[network]
+allowed_hosts = []

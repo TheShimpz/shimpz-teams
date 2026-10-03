@@ -11,6 +11,11 @@ from local.install import preview, snapshots
 
 IMAGE_ID = "sha256:" + ("a" * 64)
 ICON = b"validated icon"
+SUMMARIES = {"en": "Summary.", "pt": "Resumo."}
+
+
+def _preview(icon: bytes = ICON) -> snapshots.SnapshotPreview:
+    return snapshots.SnapshotPreview(icon=icon, summaries=SUMMARIES)
 
 
 class LocalSnapshotPreviewCacheTests(unittest.TestCase):
@@ -20,7 +25,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
 
     def test_reuses_validated_bytes_after_revalidating_exact_presence(self) -> None:
         with (
-            mock.patch.object(preview.snapshots, "preview_icon", return_value=ICON) as load,
+            mock.patch.object(preview.snapshots, "preview", return_value=_preview()) as load,
             mock.patch.object(preview.snapshots, "require_candidate") as require,
         ):
             self.assertEqual(self.cache.icon(IMAGE_ID), ICON)
@@ -32,7 +37,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
     def test_removed_image_is_evicted_and_never_served(self) -> None:
         absent = snapshots.LocalSnapshotAbsentError("absent")
         with (
-            mock.patch.object(preview.snapshots, "preview_icon", side_effect=(ICON, absent)) as load,
+            mock.patch.object(preview.snapshots, "preview", side_effect=(_preview(), absent)) as load,
             mock.patch.object(preview.snapshots, "require_candidate", side_effect=absent),
         ):
             self.assertEqual(self.cache.icon(IMAGE_ID), ICON)
@@ -46,7 +51,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
     def test_transient_docker_failure_does_not_evict_validated_bytes(self) -> None:
         transient = snapshots.LocalSnapshotUnavailableError("offline")
         with (
-            mock.patch.object(preview.snapshots, "preview_icon", return_value=ICON) as load,
+            mock.patch.object(preview.snapshots, "preview", return_value=_preview()) as load,
             mock.patch.object(preview.snapshots, "require_candidate", side_effect=(transient, mock.DEFAULT)),
         ):
             self.assertEqual(self.cache.icon(IMAGE_ID), ICON)
@@ -58,7 +63,7 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
 
     def test_failed_preview_is_not_cached(self) -> None:
         failure = snapshots.LocalSnapshotError("invalid")
-        with mock.patch.object(preview.snapshots, "preview_icon", side_effect=failure) as load:
+        with mock.patch.object(preview.snapshots, "preview", side_effect=failure) as load:
             for _ in range(2):
                 with self.assertRaises(snapshots.LocalSnapshotError):
                     self.cache.icon(IMAGE_ID)
@@ -66,13 +71,15 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
         self.assertEqual(load.call_count, 2)
 
     def test_evicts_the_least_recently_used_icon_at_the_byte_bound(self) -> None:
-        image_ids = [f"sha256:{value:064x}" for value in range(preview.MAX_CACHED_ICONS + 1)]
-        large_icon = b"x" * (1024 * 1024)
+        image_ids = [f"sha256:{value:064x}" for value in range(preview.MAX_CACHED_PREVIEWS + 1)]
+        # Eight previews fill the byte bound exactly; a ninth evicts the least recently used one.
+        summary_bytes = sum(len(text.encode()) for text in SUMMARIES.values())
+        large_icon = b"x" * (1024 * 1024 - summary_bytes)
         with (
             mock.patch.object(
                 preview.snapshots,
-                "preview_icon",
-                return_value=large_icon,
+                "preview",
+                return_value=_preview(large_icon),
             ) as load,
             mock.patch.object(preview.snapshots, "require_candidate"),
         ):
@@ -85,16 +92,38 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
         self.assertEqual(load.call_count, 10)
 
     def test_bounds_small_icons_by_the_staged_candidate_limit(self) -> None:
-        image_ids = [f"sha256:{value:064x}" for value in range(preview.MAX_CACHED_ICONS + 1)]
+        image_ids = [f"sha256:{value:064x}" for value in range(preview.MAX_CACHED_PREVIEWS + 1)]
         with (
-            mock.patch.object(preview.snapshots, "preview_icon", return_value=b"x") as load,
+            mock.patch.object(preview.snapshots, "preview", return_value=_preview(b"x")) as load,
             mock.patch.object(preview.snapshots, "require_candidate"),
         ):
             for image_id in image_ids:
                 self.cache.icon(image_id)
             self.cache.icon(image_ids[0])
 
-        self.assertEqual(load.call_count, preview.MAX_CACHED_ICONS + 2)
+        self.assertEqual(load.call_count, preview.MAX_CACHED_PREVIEWS + 2)
+
+    def test_serves_each_summary_from_the_same_validated_preview(self) -> None:
+        with (
+            mock.patch.object(preview.snapshots, "preview", return_value=_preview()) as load,
+            mock.patch.object(preview.snapshots, "require_candidate") as require,
+        ):
+            self.assertEqual(self.cache.icon(IMAGE_ID), ICON)
+            self.assertEqual(self.cache.summary(IMAGE_ID, "pt"), "Resumo.")
+            self.assertEqual(self.cache.summary(IMAGE_ID, "en"), "Summary.")
+
+        load.assert_called_once_with(self.client, IMAGE_ID, platform="linux/amd64")
+        self.assertEqual(require.call_count, 2)
+
+    def test_a_repeated_miss_replaces_its_entry_without_leaking_its_budget(self) -> None:
+        with mock.patch.object(preview.snapshots, "preview", return_value=_preview()):
+            self.cache._remember(IMAGE_ID, _preview())
+            self.cache._remember(IMAGE_ID, _preview(b"other icon"))
+        expected = len(b"other icon") + sum(len(text.encode()) for text in SUMMARIES.values())
+        self.assertEqual(self.cache._cached_bytes, expected)
+        self.cache._discard("sha256:" + ("b" * 64))
+        self.cache._discard(IMAGE_ID)
+        self.assertEqual(self.cache._cached_bytes, 0)
 
     def test_rejects_a_busy_miss_without_blocking(self) -> None:
         with (

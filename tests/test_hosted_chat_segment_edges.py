@@ -107,12 +107,16 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         )
         execution = segment.HostedActionExecution("team_1", "token", {}, {})
         with self.assertRaises(state.ApiError):
-            segment._execute_hosted_action(execution, action_request, object(), {}, object())
+            segment._execute_hosted_action(
+                execution, action_request, object(), {}, object(), "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+            )
 
         active = SimpleNamespace(contract=object(), container=object())
         execution = segment.HostedActionExecution("team_1", "token", {"assistant": active}, {})
         with self.assertRaises(segment.action_journal.ActionJournalConflictError):
-            segment._execute_hosted_action(execution, action_request, object(), {}, object())
+            segment._execute_hosted_action(
+                execution, action_request, object(), {}, object(), "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+            )
 
     def test_integration_challenge_pause_and_human_pending_failures(self) -> None:
         challenge = SimpleNamespace(team_id="team_1", requirements=(SimpleNamespace(assistant_id="assistant"),))
@@ -257,7 +261,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             )
 
     def test_segment_callbacks_require_fresh_action_and_human_evidence(self) -> None:
-        action = SimpleNamespace(summary="Action", input_schema={})
+        action = SimpleNamespace(summary="Action", input_schema={}, human_requests=(), input_files=())
         help_url = "https://keys.example.com/api-keys"
         stored = SimpleNamespace(help_url=help_url)
         contract = SimpleNamespace(name="Reviewed Assistant", actions={"action": action}, stored_inputs={"key": stored})
@@ -270,6 +274,8 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
         )
         config = SimpleNamespace(provider="openai", model="model", effort="low")
         identity = ("identity",)
+        pack = object()
+        rendered = object()
         request = segment.HostedChatSegmentRequest(
             "team_1",
             (),
@@ -285,23 +291,40 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             execute = prepared.durable_batch._strategy.execute
             requested = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "action", {})
             with self.assertRaises(AssertionError):
-                execute(requested, {})
+                execute(requested, {}, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6")
 
             strategy.validate_context()
             with self.assertRaises(AssertionError):
-                execute(requested, {})
+                execute(requested, {}, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6")
 
             missing = segment.brain_runtime_client.ActionRequest("interrupt", "missing", "action", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
-                strategy.human_requirement(missing, object())
+                strategy.human_requirement(missing, object(), "en")
             missing_action = segment.brain_runtime_client.ActionRequest("interrupt", "assistant", "missing", {})
             with self.assertRaises(segment.chat_orchestrator.ChatOrchestrationError):
-                strategy.human_requirement(missing_action, object())
+                strategy.human_requirement(missing_action, object(), "en")
             stored_request = SimpleNamespace(kind="input:password", stored_input="key")
-            requirement = strategy.human_requirement(requested, stored_request)
+            with (
+                mock.patch.object(segment.assistant_lifecycle, "_assistant_language", return_value=pack) as language,
+                mock.patch.object(segment.action_challenges, "render_copy", return_value=rendered) as render,
+            ):
+                requirement = strategy.human_requirement(requested, stored_request, "de")
+            language.assert_called_once_with(contract, active.container)
+            render.assert_called_once_with(stored_request, pack, "de")
             self.assertEqual(requirement.action_id, "action")
             self.assertEqual(requirement.assistant_name, "Reviewed Assistant")
             self.assertEqual(requirement.help_url, help_url)
+            self.assertIs(requirement.copy, rendered)
+            with (
+                mock.patch.object(segment.assistant_lifecycle, "_assistant_language", return_value=pack),
+                mock.patch.object(
+                    segment.action_challenges,
+                    "render_copy",
+                    side_effect=segment.action_challenges.HumanChallengeError("binding"),
+                ),
+                self.assertRaisesRegex(segment.chat_orchestrator.ChatOrchestrationError, "copy"),
+            ):
+                strategy.human_requirement(requested, stored_request, "de")
             return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
 
         with (

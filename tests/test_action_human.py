@@ -2,18 +2,14 @@ import json
 import unittest
 
 from action import human
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
+from tests import catalog_fixtures, human_request_fixtures
+
+CATALOG = human_request_fixtures.CATALOG
 
 
 def request(kind: str, ordinal: int = 0, **fields: object) -> human.HumanRequest:
-    descriptor = {
-        "kind": kind,
-        "ordinal": ordinal,
-        "title": "Continue safely",
-        "description": "Provide the reviewed value before the Action continues.",
-        **fields,
-    }
-    descriptor["fingerprint"] = human._fingerprint(descriptor)
-    return human.validate_request(descriptor, (kind,))
+    return human_request_fixtures.request(kind, ordinal, **fields)
 
 
 class HumanResponseTests(unittest.TestCase):
@@ -84,25 +80,22 @@ class HumanResponseTests(unittest.TestCase):
             human.ActionTranscript("interrupt-1").append(request("approval", 1), True)
 
     def test_stored_input_password_is_exactly_declared_and_kept_out_of_replay(self) -> None:
-        descriptor = {
-            "kind": "input:password",
-            "ordinal": 0,
-            "title": "Connect WhatsApp",
-            "description": "Provide the token once to continue this Action.",
-            "label": "WhatsApp token",
-            "required": True,
-            "placeholder": None,
-            "min_length": 1,
-            "max_length": 1024,
-            "stored_input": "whatsapp-token",
-        }
-        descriptor["fingerprint"] = human._fingerprint(descriptor)
-
-        current = human.validate_request(
-            descriptor,
-            ("input:password",),
-            ("whatsapp-token",),
+        descriptor = human_request_fixtures.fingerprinted(
+            {
+                "kind": "input:password",
+                "ordinal": 0,
+                "title": "Connect WhatsApp",
+                "description": "Provide the token once to continue this Action.",
+                "label": "WhatsApp token",
+                "required": True,
+                "placeholder": None,
+                "min_length": 1,
+                "max_length": 1024,
+                "stored_input": "whatsapp-token",
+            }
         )
+
+        current = human.validate_request(descriptor, ("input:password",), ("whatsapp-token",), catalog=CATALOG)
         transcript = human.ActionTranscript("interrupt-1").append(current, "private-token")
 
         self.assertEqual(current.stored_input, "whatsapp-token")
@@ -117,14 +110,11 @@ class HumanResponseTests(unittest.TestCase):
                     "undeclared",
                 ),
             ):
-                human.validate_request(descriptor, ("input:password",), stored_inputs)
+                human.validate_request(descriptor, ("input:password",), stored_inputs, catalog=CATALOG)
 
-        malformed = {**descriptor, "stored_input": "WhatsApp_Token"}
-        malformed["fingerprint"] = human._fingerprint(
-            {key: value for key, value in malformed.items() if key != "fingerprint"}
-        )
+        malformed = human_request_fixtures.fingerprinted({**descriptor, "stored_input": "WhatsApp_Token"})
         with self.assertRaises(human.HumanRequestError):
-            human.validate_request(malformed, ("input:password",), ("whatsapp-token",))
+            human.validate_request(malformed, ("input:password",), ("whatsapp-token",), catalog=CATALOG)
 
         ambiguous = human.ActionTranscript(
             "interrupt-1",
@@ -187,90 +177,82 @@ class HumanResponseTests(unittest.TestCase):
 
     def test_request_admission_rejects_shape_capability_and_fingerprint_drift(self) -> None:
         with self.assertRaises(human.HumanRequestError):
-            human.validate_request({}, ("approval",))
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Continue safely",
-            "description": "Approve the reviewed action.",
-            "fingerprint": "0" * 64,
-        }
+            human.validate_request({}, ("approval",), catalog=CATALOG)
+        descriptor = {**human_request_fixtures.descriptor("approval"), "fingerprint": "0" * 64}
         with self.assertRaisesRegex(human.HumanRequestError, "fingerprint"):
-            human.validate_request(descriptor, ("approval",))
+            human.validate_request(descriptor, ("approval",), catalog=CATALOG)
+        # A fingerprint that is not exactly 64 lowercase ASCII hex characters fails closed before any comparison.
+        canonical = human._fingerprint({key: value for key, value in descriptor.items() if key != "fingerprint"})
+        malformed_fingerprints = (
+            "\u00e9" * 64,
+            canonical[:-1] + "\u00e9",
+            "\uff10" * 64,
+            "A" * 64,
+            canonical.upper(),
+            "0" * 63,
+            "0" * 64 + "\n",
+            canonical + "\n",
+        )
+        for malformed_fingerprint in malformed_fingerprints:
+            malformed_request = {**descriptor, "fingerprint": malformed_fingerprint}
+            with (
+                self.subTest(fingerprint=malformed_fingerprint),
+                self.assertRaisesRegex(human.HumanRequestError, "^Assistant Action human request is invalid$"),
+            ):
+                human.validate_request(malformed_request, ("approval",), catalog=CATALOG)
+        admitted = human.validate_request({**descriptor, "fingerprint": canonical}, ("approval",), catalog=CATALOG)
+        self.assertEqual(admitted.fingerprint, canonical)
         with self.assertRaises(human.HumanRequestError):
-            human.validate_request({**descriptor, "fingerprint": human._fingerprint(descriptor)}, ())
+            human.validate_request(human_request_fixtures.descriptor("approval"), (), catalog=CATALOG)
+        with self.assertRaises(human.HumanRequestError):
+            human._canonical({"value": object()})
 
         malformed = human.HumanRequest("approval", 0, "0" * 64, b"[]")
         with self.assertRaises(AssertionError):
             malformed.payload()
 
-    def test_request_admission_refuses_non_hex_fingerprints_before_comparing(self) -> None:
-        descriptor = {
-            "kind": "approval",
-            "ordinal": 0,
-            "title": "Continue safely",
-            "description": "Approve the reviewed action.",
-        }
-        canonical = human._fingerprint(descriptor)
-        malformed = ("\u00e9" * 64, canonical[:-1] + "\u00e9", "\uff10" * 64, canonical.upper(), canonical + "\n")
-        for fingerprint in malformed:
-            with (
-                self.subTest(fingerprint=fingerprint),
-                self.assertRaisesRegex(human.HumanRequestError, "^Assistant Action human request is invalid$"),
-            ):
-                human.validate_request({**descriptor, "fingerprint": fingerprint}, ("approval",))
-        admitted = human.validate_request({**descriptor, "fingerprint": canonical}, ("approval",))
-        self.assertEqual(admitted.fingerprint, canonical)
+    def test_copy_must_reference_declared_messages_with_exactly_their_parameters(self) -> None:
+        zone = catalog_fixtures.ref(catalog_fixtures.ZONE_TITLE, record="rec-1", zone="example.com")
+        admitted = human_request_fixtures.admit(human_request_fixtures.descriptor("approval", title=zone))
+        self.assertEqual(admitted.payload()["title"], zone)
+        self.assertEqual(
+            [message["msgid"] for message in admitted.messages()],
+            sorted(
+                (catalog_fixtures.ZONE_TITLE, human_request_fixtures.DESCRIPTION),
+                key=catalog_validator.message_id,
+            ),
+        )
 
-    def test_internal_request_shapes_cover_all_closed_descriptor_families(self) -> None:
-        self.assertEqual(human._request_error(object()), "shape")
-        self.assertEqual(human._request_error({}), "base")
-        base = {
-            "kind": "unknown",
-            "ordinal": 0,
-            "title": "Title",
-            "description": "Description",
+        refused = {
+            "plain string copy": {"title": "Continue safely"},
+            "undeclared message": {"title": {"message": "0" * 64, "params": {}}},
+            "missing parameter": {"title": catalog_fixtures.ref(catalog_fixtures.ZONE_TITLE, record="rec-1")},
+            "extra parameter": {"title": catalog_fixtures.ref(catalog_fixtures.TITLE, zone="example.com")},
+            "parameter of the wrong kind": {
+                "title": catalog_fixtures.ref(catalog_fixtures.ZONE_TITLE, record="rec-1", zone="not a domain")
+            },
+            "message bound wider than its field": {"title": catalog_fixtures.ref(catalog_fixtures.DESCRIPTION)},
         }
-        self.assertEqual(human._request_error(base), "kind")
-        self.assertEqual(human._kind_error({**base, "kind": "approval", "extra": True}, "approval"), "shape")
+        for name, fields in refused.items():
+            descriptor = {
+                "kind": "approval",
+                "ordinal": 0,
+                "title": catalog_fixtures.ref(catalog_fixtures.TITLE),
+                "description": catalog_fixtures.ref(catalog_fixtures.DESCRIPTION),
+                **fields,
+            }
+            descriptor["fingerprint"] = human._fingerprint(descriptor)
+            with self.subTest(name), self.assertRaises(human.HumanRequestError):
+                human.validate_request(descriptor, ("approval",), catalog=CATALOG)
 
-        length = {
-            **base,
-            "kind": "input:text",
-            "label": "Value",
-            "required": True,
-            "placeholder": None,
-            "min_length": 0,
-            "max_length": 8,
-        }
-        self.assertIsNone(human._length_error(length, 8))
-        self.assertEqual(human._length_error({**length, "label": ""}, 8), "shape")
-        self.assertEqual(human._length_error({**length, "max_length": 9}, 8), "bounds")
-
-        options = [
-            {"value": "one", "label": "One", "description": None},
-            {"value": "two", "label": "Two", "description": None},
-        ]
-        choice = {
-            **base,
-            "kind": "input:choice",
-            "label": "Value",
-            "required": True,
-            "options": options,
-        }
-        self.assertEqual(human._choice_error({**choice, "options": []}, multiple=False), "options")
-        duplicate = {**choice, "options": [options[0], options[0]]}
-        self.assertEqual(human._choice_error(duplicate, multiple=False), "options")
-        multiple = {
-            **choice,
-            "kind": "input:choices",
-            "min_selections": 2,
-            "max_selections": 1,
-        }
-        self.assertEqual(human._choice_error(multiple, multiple=True), "bounds")
-
-        with self.assertRaises(human.HumanRequestError):
-            human._canonical({"value": object()})
+    def test_the_fingerprint_covers_references_and_never_a_display_language(self) -> None:
+        first = human_request_fixtures.descriptor("approval")
+        changed = human_request_fixtures.descriptor("approval", title="Approve this other Action")
+        self.assertNotEqual(first["fingerprint"], changed["fingerprint"])
+        self.assertEqual(
+            first["fingerprint"],
+            human._fingerprint({key: value for key, value in first.items() if key != "fingerprint"}),
+        )
 
     def test_response_helpers_reject_malformed_replay_descriptors(self) -> None:
         single = human.HumanRequest(

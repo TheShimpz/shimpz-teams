@@ -7,19 +7,23 @@ state, never a mix.
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import datetime
 import hashlib
+import re
 import secrets
 from dataclasses import dataclass
 
 from action import journal as action_journal
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from routine import grant as routine_grant
+from routine import plan as routine_plan
 from routine import schedule
+from routine import starts as routine_starts
 
 MAX_ROUTINES = http_routine.MAX_ROUTINES
-MAX_DAILY_STARTS = 24
 MAX_FROZEN_RUNS = 8
 MAX_UNDELIVERED_NOTICES = 32
 LEASE_SECONDS = 900
@@ -29,12 +33,30 @@ MAX_GRACE_SECONDS = 12 * 3600
 MAX_COUNTED_MISSES = 24 * 400
 HUMAN_LEASE = "human"
 _PERIOD_SECONDS = {"daily": 86_400, "weekly": 7 * 86_400, "monthly": 28 * 86_400}
+_SUFFIX_RE = re.compile(r"[sv][1-9][0-9]{0,2}\Z")
+_GENERATION_RE = re.compile(
+    r"(?P<network>[A-Za-z0-9][A-Za-z0-9._/-]{0,127}):routine:(?P<run>[0-9a-f]{32})(?::[sv][1-9][0-9]{0,2})?\Z"
+)
 # From a frozen run only these outcomes are possible: nobody answered it, or someone refused or stopped it.
 _FROZEN_OUTCOMES = frozenset({"denied", "stopped", "failed"})
-_RUN_OUTCOMES = http_routine.OUTCOMES - {"skipped", "scope-changed", "frozen"}
-# Ended runs whose Brain thread, journal generation, and continuation Team has yet to remove. Claims stop while any
+# A worker ends its run done or failed; a completed continuation after a hold ends recovered.
+_RUN_OUTCOMES = frozenset({"done", "recovered", "failed", "denied", "stopped"})
+# Why recovery paused a held run's Routine; each is published on the run's notice.
+PAUSE_REASONS = http_routine.PAUSE_REASONS
+# Ended runs whose journal generation, continuation, and cursor Team has yet to remove. Claims stop while any
 # wait, and each run ends once, so the queue never outgrows the runs a Team can hold.
 MAX_DISCARDS = 2 * MAX_ROUTINES
+# Unresolved incidents a Team may hold (ADR-0092); a claim reserves one for every run that could still be held.
+MAX_UNRESOLVED_INCIDENTS = http_routine.MAX_UNRESOLVED_INCIDENTS
+# Incident records kept in all; a released one gives way, oldest first, but an unresolved one, or a skipped one whose
+# cleanup is still pending, never does.
+MAX_INCIDENTS = 2 * MAX_UNRESOLVED_INCIDENTS
+# Live receipts of requests that changed a Routine (ADR-0092); saturation refuses a change, never evicts a receipt.
+MAX_RECEIPTS = 256
+# A new or changed Routine never fires sooner than this after it is durable.
+INITIAL_DELAY_SECONDS = 30
+# Consecutive no-effect failures that pause a Routine (ADR-0092 section 6).
+MAX_FAILURE_STREAK = 3
 
 
 class RoutineStateError(ValueError):
@@ -44,11 +66,15 @@ class RoutineStateError(ValueError):
 @dataclass(frozen=True, slots=True)
 class Routine:
     routine_id: str
+    name: str
+    # The user's own words that state the standing request (ADR-0092).
     quote: str
     schedule: dict[str, object]
     timezone: str
-    # (assistant_id, contract digest) pinned at confirmation, sorted by assistant id.
+    # (assistant_id, scope pin) of each Assistant the plan uses, pinned at creation, sorted by assistant id.
     assistants: tuple[tuple[str, str], ...]
+    # The canonical compiled plan document: its ordered steps, each Action's complete pin, and every input source.
+    plan: dict[str, object]
     anchor: int
     next_run_at: int
     needs_reconfirm: bool = False
@@ -57,13 +83,28 @@ class Routine:
     gap_started_at: int = 0
     missed: int = 0
     reported_missed: int = 0
+    # Each authenticated change of the Routine is a new revision, which a compiled cursor binds (ADR-0092).
+    revision: int = 1
+    # Pausar: no dispatch until resumed; an unresolved incident still holds the Routine after that.
+    paused: bool = False
+    # The evidence of the request that granted this revision, bound to its receipt, revision, and plan (grant.py).
+    grant: dict[str, object] | None = None
+    # Consecutive runs that failed with no effect; a success resets it, and three pause the Routine (ADR-0092).
+    failures: int = 0
+    # A continuous Routine's healthy runs rolled up into the notice of the minute starting at ``rollup_minute``.
+    rollup_minute: int = 0
+    rollup_runs: int = 0
+    # A person's Rodar: when they asked for one fresh run of a fixed schedule, kept until a claim starts it, so neither
+    # a cap nor a late scheduler turns it into a missed firing; 0 when none is pending. It never moves the cadence.
+    run_requested: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class Run:
     run_id: str
     routine_id: str
-    # "leased": may run a segment; "frozen": waits for a human; "uncertain": holds an unresolved Action batch.
+    # "leased": may run a segment; "frozen": waits for a human; "held": fenced for an incident that recovery or a
+    # person must resolve (ADR-0092).
     status: str
     scheduled_at: int
     lease_sha256: str = ""
@@ -73,14 +114,10 @@ class Run:
     request_kind: str = ""
     assistant_id: str = ""
     action: str = ""
-    # The run's own Action journal generation, bound at its first segment, and the batch an uncertain run holds.
+    # The run's own Action journal generation, bound at its first segment, or its continuation's after a hold.
     generation: str = ""
-    batch: tuple[str, str] = ("", "")
     # A run has one notice, keyed by its id; each freeze and its end update it, so Admin replaces one transcript row.
     notice_version: int = 0
-    # The Assistant Actions an uncertain run's batch may have run, shown to the Supervisor who resolves it; empty when
-    # recovery after a restart cannot know them.
-    held_actions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,21 +135,64 @@ class Notice:
 
 
 @dataclass(frozen=True, slots=True)
+class Incident:
+    """The compact index of one held run's incident; its evidence is sealed apart, and it never expires.
+
+    It names its Routine even after that Routine is deleted, so it stays resolvable, but resolving it never recreates
+    the Routine or dispatches a cycle.
+    """
+
+    incident_id: str
+    routine_id: str
+    generation: str
+    created_at: int
+    # The Routine revision the held run executed, which its cursor binding names (ADR-0092).
+    revision: int = 1
+    # "unresolved" holds its Routine; "skipped" (Pular) permits future cycles while its possible effects stay unknown
+    # and its archive marker, cursor, and evidence are still being released; "released" has nothing left to release.
+    status: str = "unresolved"
+    # The held run's last notice version, which its continuation goes on from so Admin replaces the same row.
+    notice_version: int = 0
+    # The Routine's quoted request, so the incident's notices still name the work after the Routine is deleted.
+    quote: str = ""
+    # The step the run was held at, as its sealed cursor names it; both empty when no snapshot was sealed.
+    assistant_id: str = ""
+    action: str = ""
+    # The run's active time left when it was held, which its continuation goes on from; a hold never refills it.
+    active_seconds_left: int = ACTIVE_SECONDS
+
+
+@dataclass(frozen=True, slots=True)
 class TeamRoutines:
     routines: tuple[Routine, ...] = ()
     runs: tuple[Run, ...] = ()
     notices: tuple[Notice, ...] = ()
     served_at: int = 0
-    starts_day: str = ""
-    starts: int = 0
-    # (run_id, generation) of ended runs whose Brain thread, journal generation, and continuation are still held.
+    # (routine_id, instant) of every start in the last rolling 24 hours (ADR-0092 section 9).
+    starts: routine_starts.Starts = ()
+    # (run_id, generation) of ended runs whose journal generation, continuation, and cursor are still held.
     discards: tuple[tuple[str, str], ...] = ()
+    incidents: tuple[Incident, ...] = ()
+    # (receipt, expires_at) of each request that changed a Routine; a receipt outlives the Routine it changed.
+    receipts: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Replacement:
+    """A Routine's recompiled definition and its request's receipt and expiry, which replace it as its next revision."""
+
+    value: Routine
+    receipt: tuple[str, int]
 
 
 @dataclass(frozen=True, slots=True)
 class Claim:
     run: Run
     lease_token: str
+    # The Routine revision and plan digest the run was claimed at; its segment request must name exactly these.
+    revision: int = 1
+    plan_digest: str = ""
+    mode: str = "scheduled"
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -150,6 +230,10 @@ def next_after(routine_value: Routine, after: int) -> int:
     )
 
 
+def continuous(routine_value: Routine) -> bool:
+    return routine_value.schedule["kind"] == "continuous"
+
+
 def grace_seconds(routine_value: Routine) -> int:
     """How late a run may still start: one period, and at most 12 hours."""
     kind = routine_value.schedule["kind"]
@@ -157,8 +241,8 @@ def grace_seconds(routine_value: Routine) -> int:
     return min(period, MAX_GRACE_SECONDS)
 
 
-def _admitted(value: Routine) -> Routine:
-    """A copy of a new Routine in the closed contract; anything else is refused before it can be persisted."""
+def _admitted(value: Routine, revision: int = 1) -> Routine:
+    """A copy of a new Routine revision in the closed contract; anything else is refused before it can be persisted."""
     canonical = http_routine.canonical_schedule(value.schedule)
     assistants = tuple(value.assistants)
     try:
@@ -167,7 +251,11 @@ def _admitted(value: Routine) -> Routine:
         raise RoutineStateError("routine-invalid") from exc
     if (
         http_routine.ROUTINE_ID_RE.fullmatch(value.routine_id) is None
+        or http_routine.canonical_name(value.name) is None
         or http_routine.canonical_quote(value.quote) is None
+        or not routine_plan.well_formed(value.plan)
+        or value.plan["timezone"] != value.timezone
+        or sorted({step["assistant"] for step in value.plan["steps"]}) != [item for item, _pin in assistants]
         or canonical is None
         or not assistants
         or len(assistants) > http_routine.MAX_NOTICE_ASSISTANTS
@@ -179,15 +267,128 @@ def _admitted(value: Routine) -> Routine:
         )
         or type(value.anchor) is not int
         or value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
+        or not routine_grant.valid(value.grant, value.plan, revision)
     ):
         raise RoutineStateError("routine-invalid")
     return Routine(
-        value.routine_id, value.quote, canonical, value.timezone, assistants, value.anchor, value.next_run_at
+        value.routine_id,
+        value.name,
+        value.quote,
+        canonical,
+        value.timezone,
+        assistants,
+        copy.deepcopy(value.plan),
+        value.anchor,
+        value.next_run_at,
+        revision=revision,
+        grant=copy.deepcopy(value.grant),
     )
 
 
+def scheduled(value: Routine, now: int) -> Routine:
+    """A defined Routine scheduled from ``now``: its first firing comes no sooner than 30 s after it is durable."""
+    anchored = dataclasses.replace(value, anchor=now + INITIAL_DELAY_SECONDS)
+    try:
+        return dataclasses.replace(anchored, next_run_at=next_after(anchored, anchored.anchor))
+    except (KeyError, TypeError, schedule.ScheduleError) as exc:
+        raise RoutineStateError("routine-invalid") from exc
+
+
+def definition(value: Routine) -> dict[str, object]:
+    """What a created or changed notice says the Routine does: its name, its plan's safe projection, and when."""
+    return {
+        "name": value.name,
+        "steps": routine_grant.steps(value.plan, value.grant),
+        "schedule": dict(value.schedule),
+        "timezone": value.timezone,
+    }
+
+
+def _receipt(state: TeamRoutines, receipt: str, expires_at: int, now: int) -> tuple[TeamRoutines, bool]:
+    """Record one request's receipt; False when that request already changed a Routine, so it never acts twice.
+
+    Expired receipts go first: their requests can no longer change anything. Saturation refuses the change and never
+    evicts a live receipt.
+    """
+    if http_payload.SHA256_RE.fullmatch(receipt) is None or type(expires_at) is not int:
+        raise RoutineStateError("routine-receipt-invalid")
+    if expires_at <= now:
+        # An expired request can no longer be told apart from a replay once its receipt is gone: it never acts.
+        raise RoutineStateError("routine-request-expired")
+    live = tuple(item for item in state.receipts if item[1] > now)
+    if any(key == receipt for key, _expires in live):
+        return dataclasses.replace(state, receipts=live), False
+    if len(live) >= MAX_RECEIPTS:
+        raise RoutineStateError("routine-receipts-full")
+    return dataclasses.replace(state, receipts=(*live, (receipt, expires_at))), True
+
+
+def change_room(state: TeamRoutines, now: int, notices: int) -> str | None:
+    """Why one more Routine change adding ``notices`` new notices cannot be admitted now; None when it fits.
+
+    It is checked before anything is paid for; the change's own write checks again, together with what only its
+    definition can tell, such as its daily cap.
+    """
+    if sum(expires > now for _receipt, expires in state.receipts) >= MAX_RECEIPTS:
+        return "routine-receipts-full"
+    if len(state.notices) + notices > MAX_UNDELIVERED_NOTICES + MAX_ROUTINES:
+        return "notices-full"
+    return None
+
+
+def create(state: TeamRoutines, value: Routine, now: int, receipt: str, expires_at: int) -> tuple[TeamRoutines, bool]:
+    """Add a Routine with its created notice and the receipt of the request that made it, in one transition.
+
+    A request whose receipt is already live changes nothing, so a resend never creates a second Routine, and a deleted
+    Routine's receipt never recreates it.
+    """
+    state, fresh = _receipt(state, receipt, expires_at, now)
+    if not fresh:
+        return state, False
+    state = add_routine(
+        state, dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, 1, value.plan))
+    )
+    admitted = routine(state, value.routine_id)
+    return _notice(state, Notice(new_id(), admitted.routine_id, "", "created", now, definition(admitted))), True
+
+
+def update(
+    state: TeamRoutines, value: Routine, expected_revision: int, now: int, receipt: str, expires_at: int
+) -> tuple[TeamRoutines, bool]:
+    """Replace a Routine's definition as its next revision, with its changed notice and the request's receipt.
+
+    Only the revision the request saw changes, never while one of its runs is live or it is being deleted; an
+    authenticated change clears a scope hold and keeps a pause and the minute rollup. Its schedule restarts from the
+    change.
+    """
+    state, fresh = _receipt(state, receipt, expires_at, now)
+    if not fresh:
+        return state, False
+    current = routine(state, value.routine_id)
+    if current.deleting:
+        raise RoutineStateError("routine-not-found")
+    if current.revision != expected_revision:
+        raise RoutineStateError("routine-revision-changed")
+    if any(item.routine_id == current.routine_id for item in state.runs):
+        raise RoutineStateError("routine-busy")
+    revision = current.revision + 1
+    granted = dataclasses.replace(value, grant=routine_grant.complete(value.grant, receipt, revision, value.plan))
+    admitted = _admitted(granted, revision)
+    others = tuple(item for item in state.routines if item.routine_id != current.routine_id)
+    if not daily_rate_allows(others, admitted.schedule):
+        raise RoutineStateError("routine-rate-limit")
+    # The minute rollup outlives a change: its notice id is the Routine's and the minute's, so a count restarted at 1
+    # would reuse a delivered version of the same notice.
+    changed = dataclasses.replace(
+        admitted, paused=current.paused, rollup_minute=current.rollup_minute, rollup_runs=current.rollup_runs
+    )
+    state = _replace_routine(state, changed)
+    return _notice(state, Notice(new_id(), changed.routine_id, "", "changed", now, definition(changed))), True
+
+
 def daily_rate_allows(routines: tuple[Routine, ...], schedule_value: dict[str, object]) -> bool:
-    total = sum((http_routine.daily_rate(item.schedule) for item in routines), http_routine.daily_rate(schedule_value))
+    """Whether the Routines' rolling 24-hour caps, with this schedule's, fit under the Team ceiling together."""
+    total = sum((http_routine.daily_cap(item.schedule) for item in routines), http_routine.daily_cap(schedule_value))
     return total <= http_routine.MAX_DAILY_RUNS
 
 
@@ -228,25 +429,46 @@ def _replace_run(state: TeamRoutines, updated: Run) -> TeamRoutines:
     )
 
 
-def _without_run(state: TeamRoutines, run_id: str) -> TeamRoutines:
-    """Remove an ended run and, in the same write, queue the removal of everything it held."""
+def _without_run(state: TeamRoutines, run_id: str, now: int) -> TeamRoutines:
+    """Remove an ended run and, in the same write, queue the removal of everything it held.
+
+    A continuous Routine's next run becomes due its gap after this one ended, so its runs never overlap.
+    """
     value = run(state, run_id)
-    return dataclasses.replace(
+    state = dataclasses.replace(
         state,
         runs=tuple(item for item in state.runs if item.run_id != run_id),
         discards=(*state.discards, (run_id, value.generation)),
     )
+    return rebase_continuous(state, value.routine_id, now)
 
 
-def discarded(state: TeamRoutines, run_id: str) -> TeamRoutines:
-    """Team removed an ended run's thread, journal generation, and continuation."""
-    return dataclasses.replace(state, discards=tuple(item for item in state.discards if item[0] != run_id))
+def rebase_continuous(state: TeamRoutines, routine_id: str, now: int) -> TeamRoutines:
+    """A continuous Routine's run ended at ``now``, so its next one is due its gap later; any other is unchanged."""
+    current = next((item for item in state.routines if item.routine_id == routine_id), None)
+    if current is None or not continuous(current):
+        return state
+    return _replace_routine(state, dataclasses.replace(current, next_run_at=now + current.schedule["gap"]))
+
+
+def discarded(state: TeamRoutines, run_id: str, generation: str) -> TeamRoutines:
+    """Team removed what one ended generation of a run held; a resumed run may queue more than one."""
+    return dataclasses.replace(state, discards=tuple(item for item in state.discards if item != (run_id, generation)))
 
 
 def _run_notice(state: TeamRoutines, value: Run, outcome: str, now: int, detail: dict[str, object]):
-    """Publish the next version of the run's one notice; returns the state and the run carrying that version."""
+    """Publish the next version of the run's one notice; returns the state and the run carrying that version.
+
+    A completed or recovered run resets its Routine's failure streak; a failed one, which had no effect, extends it, and
+    the third in a row pauses the Routine.
+    """
     version = value.notice_version + 1
     state = _notice(state, Notice(value.run_id, value.routine_id, value.run_id, outcome, now, detail, version))
+    if outcome in {"done", "recovered", "failed"}:
+        current = routine(state, value.routine_id)
+        failures = current.failures + 1 if outcome == "failed" else 0
+        paused = current.paused or failures >= MAX_FAILURE_STREAK
+        state = _replace_routine(state, dataclasses.replace(current, failures=failures, paused=paused))
     return state, dataclasses.replace(value, notice_version=version)
 
 
@@ -263,7 +485,7 @@ def _notice(state: TeamRoutines, notice: Notice) -> TeamRoutines:
     detail = http_routine.canonical_notice_detail(notice.outcome, notice.detail)
     if detail is None:
         raise RoutineStateError("notice-invalid")
-    notice = dataclasses.replace(notice, detail=detail, quote=routine(state, notice.routine_id).quote)
+    notice = dataclasses.replace(notice, detail=detail, quote=notice.quote or routine(state, notice.routine_id).quote)
     if type(notice.version) is not int or notice.version < 1:
         raise RoutineStateError("notice-invalid")
     kept = tuple(item for item in state.notices if item.notice_id != notice.notice_id)
@@ -315,6 +537,9 @@ def _miss(routine_value: Routine, first: int, count: int, next_run_at: int) -> R
 def sweep(state: TeamRoutines, now: int) -> TeamRoutines:
     """Skip every firing too late to start; a Routine's continuous gap is one notice, updated as it grows."""
     for item in state.routines:
+        if continuous(item):
+            # A continuous Routine has no backlog to skip: it starts again once it may.
+            continue
         cutoff = now - grace_seconds(item)
         if item.next_run_at < cutoff:
             count, next_run_at = _count_before(item, item.next_run_at, cutoff)
@@ -324,29 +549,86 @@ def sweep(state: TeamRoutines, now: int) -> TeamRoutines:
     return state
 
 
-def _utc_day(now: int) -> str:
-    return _instant(now).date().isoformat()
+def free_at(state: TeamRoutines, routine_value: Routine, now: int) -> int:
+    """The earliest instant a due Routine may start under the Team ceiling and, for a continuous one, its own cap.
+
+    A scheduled Routine's own firings already bound its starts, and a late start never delays the next firing.
+    """
+    cap = http_routine.daily_cap(routine_value.schedule) if continuous(routine_value) else None
+    return routine_starts.free_at(state.starts, routine_value.routine_id, cap, now)
 
 
-def starts_today(state: TeamRoutines, now: int) -> int:
-    return state.starts if state.starts_day == _utc_day(now) else 0
+def _due_at(routine_value: Routine) -> int:
+    """When the Routine is next due: its next firing, or sooner a person's pending Rodar."""
+    if routine_value.run_requested:
+        return min(routine_value.next_run_at, routine_value.run_requested)
+    return routine_value.next_run_at
+
+
+def _ready(state: TeamRoutines, busy: set[str]) -> list[Routine]:
+    """The Routines that may start once due and under their caps: listed, confirmed, not paused, held, or running."""
+    return [
+        item
+        for item in state.routines
+        if not item.needs_reconfirm and not item.deleting and not item.paused and item.routine_id not in busy
+    ]
+
+
+def _segment_leased(state: TeamRoutines) -> bool:
+    """Whether one of the Team's runs is leased to drive a segment; frozen and held runs hold no slot."""
+    return any(item.status == "leased" for item in state.runs)
+
+
+def _backpressured(state: TeamRoutines) -> bool:
+    """Whether the Team must catch up before any run starts: undelivered notices, cleanup, or incident room."""
+    return (
+        undelivered(state) >= MAX_UNDELIVERED_NOTICES
+        or len(state.discards) >= MAX_ROUTINES
+        or not incident_capacity(state)
+    )
 
 
 def claimable(state: TeamRoutines, now: int) -> Routine | None:
-    """The Team's oldest due Routine that may start now, or None; the caller has already swept."""
-    if (
-        undelivered(state) >= MAX_UNDELIVERED_NOTICES
-        or starts_today(state, now) >= MAX_DAILY_STARTS
-        or len(state.discards) >= MAX_ROUTINES
-    ):
+    """The Team's oldest due Routine that may start now, or None; the caller has already swept.
+
+    A Team leases one run at a time, so its runs never contend for its one execution slot (ADR-0092 section 9).
+    """
+    if _backpressured(state) or _segment_leased(state):
         return None
-    busy = {item.routine_id for item in state.runs}
-    due = [
-        item
-        for item in state.routines
-        if item.next_run_at <= now and not item.needs_reconfirm and not item.deleting and item.routine_id not in busy
-    ]
-    return min(due, key=lambda item: (item.next_run_at, item.routine_id)) if due else None
+    busy = {item.routine_id for item in state.runs} | held_routines(state)
+    due = [item for item in _ready(state, busy) if _due_at(item) <= now and free_at(state, item, now) <= now]
+    return min(due, key=lambda item: (_due_at(item), item.routine_id)) if due else None
+
+
+def next_due(state: TeamRoutines, now: int) -> int | None:
+    """The earliest instant after ``now`` one of the Team's Routines becomes due to start, or None.
+
+    A Routine at its cap is due only when its earliest start leaves the window. A paused, held, busy, deleting, or
+    unconfirmed Routine never wakes anything; its own resolution does, as a leased run's end does for its whole Team.
+    """
+    if _backpressured(state) or _segment_leased(state):
+        # Nothing starts until notices are delivered or ended runs are cleaned up; the next reconciliation retries.
+        return None
+    busy = {item.routine_id for item in state.runs} | held_routines(state)
+    due = [max(_due_at(item), free_at(state, item, now)) for item in _ready(state, busy)]
+    return min((item for item in due if item > now), default=None)
+
+
+def held_routines(state: TeamRoutines) -> set[str]:
+    """Routines an unresolved incident holds: no cycle of theirs starts, whatever else resumes them."""
+    return {item.routine_id for item in state.incidents if item.status == "unresolved"}
+
+
+def incident_capacity(state: TeamRoutines) -> bool:
+    """Whether one more run may start, reserving the room its incident would need.
+
+    Each run that could still be held reserves an unresolved incident's room and a record's room, so a hold never has
+    to displace an unresolved incident or one whose cleanup is still pending.
+    """
+    unresolved = sum(item.status == "unresolved" for item in state.incidents)
+    retained = sum(item.status != "released" for item in state.incidents)
+    runs = len(state.runs) + 1
+    return unresolved + runs <= MAX_UNRESOLVED_INCIDENTS and retained + runs <= MAX_INCIDENTS
 
 
 def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRoutines, Claim | None]:
@@ -363,12 +645,28 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
     if due is None:
         # The swept state is still returned: its skipped notices and advanced schedules must be persisted.
         return state, None
+    if due.run_requested and due.next_run_at > now:
+        # A person's Rodar starts on its own: the standing cadence and any gap it reports stay as they are.
+        return _lease(state, dataclasses.replace(due, run_requested=0), due.run_requested, now, key_fingerprint)
     scheduled_at = due.next_run_at
-    following = next_after(due, scheduled_at)
-    extra, next_run_at = _count_before(due, following, now + 1)
-    due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
+    # A firing due now also serves any pending Rodar: one run, never two.
+    due = dataclasses.replace(due, run_requested=0)
+    if continuous(due):
+        # Provisional: the run's end sets the next one its gap after it, and nothing starts while it runs.
+        due = dataclasses.replace(due, next_run_at=next_after(due, now))
+    else:
+        following = next_after(due, scheduled_at)
+        extra, next_run_at = _count_before(due, following, now + 1)
+        due = _miss(due, following, extra, next_run_at) if extra else dataclasses.replace(due, next_run_at=next_run_at)
     state = _report_gap(_replace_routine(state, due), due, now, in_flight=True)
     ended = dataclasses.replace(routine(state, due.routine_id), gap_started_at=0, missed=0, reported_missed=0)
+    return _lease(state, ended, scheduled_at, now, key_fingerprint)
+
+
+def _lease(
+    state: TeamRoutines, due: Routine, scheduled_at: int, now: int, key_fingerprint: str
+) -> tuple[TeamRoutines, Claim]:
+    """Start one run of the claimed Routine, counted under every start cap like any other."""
     token = secrets.token_urlsafe(32)
     leased = Run(
         run_id=new_id(),
@@ -380,13 +678,13 @@ def claim(state: TeamRoutines, now: int, key_fingerprint: str) -> tuple[TeamRout
         lease_expires_at=now + LEASE_SECONDS,
     )
     state = dataclasses.replace(
-        _replace_routine(state, ended),
+        _replace_routine(state, due),
         runs=(*state.runs, leased),
         served_at=now,
-        starts_day=_utc_day(now),
-        starts=starts_today(state, now) + 1,
+        starts=routine_starts.started(state.starts, due.routine_id, now),
     )
-    return state, Claim(leased, token)
+    mode = http_routine.run_mode(due.schedule)
+    return state, Claim(leased, token, due.revision, routine_grant.plan_digest(due.plan), mode)
 
 
 def require_lease(value: Run, lease: Lease, now: int) -> None:
@@ -415,15 +713,31 @@ def _live(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> Run:
     return value
 
 
-def generation_for(network_id: str, run_id: str) -> str:
-    return f"{network_id}:routine:{run_id}"
+def generation_for(network_id: str, run_id: str, suffix: str = "") -> str:
+    """A run's journal generation in the Team's network.
+
+    A continuation (``s<n>``) or verification (``v<n>``) after a hold gets its own, since the held generation is
+    archived (ADR-0092).
+    """
+    if suffix and _SUFFIX_RE.fullmatch(suffix) is None:
+        raise RoutineStateError("generation-invalid")
+    return f"{network_id}:routine:{run_id}" + (f":{suffix}" if suffix else "")
+
+
+def network_of(generation: object, run_id: str) -> str | None:
+    """The Team network a run's generation, or one of its continuation or verification generations, belongs to."""
+    match = _GENERATION_RE.fullmatch(generation) if isinstance(generation, str) else None
+    return match["network"] if match is not None and match["run"] == run_id else None
 
 
 def bind_generation(state: TeamRoutines, run_id: str, lease: Lease, now: int, network_id: str) -> TeamRoutines:
-    """Bind the run's own journal generation, derived from the Team's trusted network id, once; it never changes."""
+    """Bind the run's own journal generation, derived from the Team's trusted network id, once; it never changes.
+
+    A continuation after a hold already names its own generation, which must belong to the same network.
+    """
     value = _live(state, run_id, lease, now)
-    generation = generation_for(network_id, run_id)
-    if action_journal.SAFE_ID_RE.fullmatch(generation) is None or value.generation not in {"", generation}:
+    generation = value.generation or generation_for(network_id, run_id)
+    if action_journal.SAFE_ID_RE.fullmatch(generation) is None or network_of(generation, run_id) != network_id:
         raise RoutineStateError("generation-invalid")
     return _replace_run(state, dataclasses.replace(value, generation=generation))
 
@@ -485,38 +799,37 @@ def thaw(state: TeamRoutines, run_id: str, now: int) -> tuple[TeamRoutines, str]
     return _replace_run(state, resumed), token
 
 
-def _hold(state: TeamRoutines, value: Run, fingerprint: str, now: int, detail: dict[str, object]) -> TeamRoutines:
-    if not value.generation or http_payload.SHA256_RE.fullmatch(fingerprint) is None:
-        raise RoutineStateError("batch-invalid")
-    state, value = _run_notice(state, value, "uncertain", now, detail)
-    held = dataclasses.replace(
-        value,
-        status="uncertain",
-        lease_sha256="",
-        lease_key="",
-        lease_expires_at=0,
-        batch=(value.generation, fingerprint),
-        held_actions=tuple((assistant, action) for assistant, action in detail["actions"]),
-    )
-    return _replace_run(state, held)
-
-
 def finish(
     state: TeamRoutines, run_id: str, lease: Lease, now: int, outcome: str, detail: dict[str, object]
 ) -> TeamRoutines:
     """A worker ends its leased run with a durable notice; only its live lease may."""
     value = _live(state, run_id, lease, now)
-    if outcome not in _RUN_OUTCOMES - {"uncertain"}:
+    if outcome not in _RUN_OUTCOMES:
         raise RoutineStateError("invalid-outcome")
-    state, _value = _run_notice(state, value, outcome, now, detail)
-    return _without_run(state, run_id)
+    rolled = _healthy(state, value, now) if outcome == "done" else None
+    state = rolled if rolled is not None else _run_notice(state, value, outcome, now, detail)[0]
+    return _without_run(state, run_id, now)
 
 
-def hold_uncertain(
-    state: TeamRoutines, run_id: str, lease: Lease, now: int, fingerprint: str, detail: dict[str, object]
-) -> TeamRoutines:
-    """A worker's batch in the run's own generation may have acted: hold the run until a human resolves it."""
-    return _hold(state, _live(state, run_id, lease, now), fingerprint, now, detail)
+def _healthy(state: TeamRoutines, value: Run, now: int) -> TeamRoutines | None:
+    """Roll a continuous Routine's healthy run into the one versioned notice of the minute it ended in, or None.
+
+    A healthy run completed with no earlier notice of its own; any other run, such as one a person answered, keeps its
+    own notice, as do failures and holds. Its count doubles as the notice version Admin acknowledges, so a notice
+    delivered and acknowledged mid-minute is replaced by the next version (ADR-0092 section 9).
+    """
+    current = routine(state, value.routine_id)
+    if value.notice_version or not continuous(current):
+        return None
+    minute = now - now % 60
+    runs = current.rollup_runs + 1 if current.rollup_minute == minute else 1
+    # The rollup minute only moves forward: a clock stepped back into an earlier minute, which may already be
+    # delivered, or past the count gaps allow, gives the run its own notice and leaves the counters as they are.
+    if minute < current.rollup_minute or runs > http_routine.MAX_ROLLUP_RUNS:
+        return None
+    notice_id = hashlib.sha256(f"healthy:{current.routine_id}:{minute}".encode()).hexdigest()[:32]
+    state = _replace_routine(state, dataclasses.replace(current, rollup_minute=minute, rollup_runs=runs, failures=0))
+    return _notice(state, Notice(notice_id, current.routine_id, "", "healthy", minute, {"runs": runs}, runs))
 
 
 def end(
@@ -525,36 +838,79 @@ def end(
     now: int,
     outcome: str,
     detail: dict[str, object],
-    fingerprint: str = "",
     *,
     status: str = "",
 ) -> TeamRoutines:
     """Team itself ends a run without its lease: a human Stop or answer, an expired lease or deadline, or recovery.
 
-    A leased run ends stopped or failed, or is held uncertain when ``fingerprint`` names a batch that may have acted in
-    its generation; a frozen run ends denied, stopped, or failed. With ``status``, the run must still be in it, so an
-    ending decided on an earlier read never lands on a run that changed since.
+    A leased run ends stopped or failed; a frozen run ends denied, stopped, or failed. A run that may have acted is
+    held for recovery instead (``fence``). With ``status``, the run must still be in it, so an ending decided on an
+    earlier read never lands on a run that changed since.
     """
     value = run(state, run_id)
     if status and value.status != status:
         raise RoutineStateError("run-changed")
-    if value.status == "leased" and fingerprint:
-        if outcome != "uncertain":
-            raise RoutineStateError("invalid-outcome")
-        return _hold(state, value, fingerprint, now, detail)
     allowed = {"leased": frozenset({"stopped", "failed"}), "frozen": _FROZEN_OUTCOMES}.get(value.status, frozenset())
     if outcome not in allowed:
         raise RoutineStateError("invalid-outcome")
     state, _value = _run_notice(state, value, outcome, now, detail)
-    return _without_run(state, run_id)
+    return _without_run(state, run_id, now)
 
 
-def resolve_uncertain(state: TeamRoutines, run_id: str, fingerprint: str) -> TeamRoutines:
-    """A Supervisor's informed resolution of that exact batch: the only transition that releases its Routine."""
-    value = run(state, run_id)
-    if value.status != "uncertain" or value.batch != (value.generation, fingerprint):
-        raise RoutineStateError("run-not-uncertain")
-    return _without_run(state, run_id)
+def fence(state: TeamRoutines, run_id: str, lease: Lease, now: int) -> TeamRoutines:
+    """Stop the live lease of a run that must be held (ADR-0092): no worker may advance it, nothing ends it yet."""
+    value = _live(state, run_id, lease, now)
+    if not value.generation:
+        raise RoutineStateError("generation-invalid")
+    held = dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    return _replace_run(state, held)
+
+
+def hold_recovered(state: TeamRoutines, run_id: str, lease_sha256: str) -> TeamRoutines:
+    """Team's watchdog holds a leased run nothing runs any more whose durable state shows it may have acted.
+
+    Only the exact lease the watchdog read is fenced, so a run that ended or was claimed again meanwhile is untouched.
+    """
+    value = _leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise RoutineStateError("run-changed")
+    if not value.generation:
+        raise RoutineStateError("generation-invalid")
+    return _replace_run(
+        state, dataclasses.replace(value, status="held", lease_sha256="", lease_key="", lease_expires_at=0)
+    )
+
+
+def complete_recovered(state: TeamRoutines, run_id: str, lease_sha256: str, now: int) -> TeamRoutines:
+    """Team's watchdog ends a leased run whose sealed cursor completed every step before its end was recorded."""
+    value = _leased(state, run_id)
+    if not secrets.compare_digest(value.lease_sha256, lease_sha256):
+        raise RoutineStateError("run-changed")
+    actions = plan_actions(routine(state, value.routine_id).plan)
+    state, _value = _run_notice(state, value, completed(value), now, {"actions": actions})
+    return _without_run(state, run_id, now)
+
+
+def plan_actions(plan: dict[str, object]) -> list[list[str]]:
+    """The ordered Assistant Actions of a plan's steps, which a completed run's notice names; never their data."""
+    return [[step["assistant"], step["action"]] for step in plan["steps"]]
+
+
+def completed(value: Run) -> str:
+    """How a run that completed every step ends: recovered when a continuation after a hold completed it."""
+    first = generation_for(network_of(value.generation, value.run_id), value.run_id)
+    return "done" if value.generation == first else "recovered"
+
+
+def set_paused(state: TeamRoutines, routine_id: str, paused: bool) -> TeamRoutines:
+    """Pausar, or resume: resuming never bypasses an unresolved incident, which still holds the Routine.
+
+    A resume starts a fresh failure streak, so the person's decision is not undone by the failures before it.
+    """
+    value = routine(state, routine_id)
+    if value.deleting:
+        raise RoutineStateError("routine-not-found")
+    return _replace_routine(state, dataclasses.replace(value, paused=paused, failures=value.failures if paused else 0))
 
 
 def acknowledge(state: TeamRoutines, delivered: frozenset[tuple[str, int]]) -> TeamRoutines:
@@ -583,12 +939,10 @@ def rekeyed(state: TeamRoutines, key_fingerprint: str) -> tuple[Run, ...]:
 def begin_delete(state: TeamRoutines, routine_id: str) -> tuple[TeamRoutines, tuple[Run, ...]]:
     """Mark a Routine as deleting, so it is never claimed or resumed again; its runs are returned for the caller to end.
 
-    An uncertain run refuses the deletion: only a Supervisor's informed resolution of its exact batch releases it.
+    A held run settles into its incident, which outlives the Routine (ADR-0092).
     """
     value = routine(state, routine_id)
     runs = tuple(item for item in state.runs if item.routine_id == routine_id)
-    if any(item.status == "uncertain" for item in runs):
-        raise RoutineStateError("routine-run-uncertain")
     return _replace_routine(state, dataclasses.replace(value, deleting=True)), runs
 
 
@@ -601,7 +955,7 @@ def complete_delete(state: TeamRoutines, routine_id: str) -> TeamRoutines:
 
 
 def mark_scope_changed(state: TeamRoutines, routine_id: str, now: int, assistants: list[str]) -> TeamRoutines:
-    """The Routine's Assistants no longer match what the user confirmed: record it and stop claiming it."""
+    """The Routine's Assistants no longer match its pins: no claim until an authenticated update."""
     value = routine(state, routine_id)
     state = _notice(state, Notice(new_id(), routine_id, "", "scope-changed", now, {"assistants": assistants}))
     return _replace_routine(state, dataclasses.replace(value, needs_reconfirm=True))

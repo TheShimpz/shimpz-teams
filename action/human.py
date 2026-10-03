@@ -8,6 +8,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from protocol.assistant.v1.validators import human_request as human_request_validator
 from protocol.http.v1 import payload as http_payload
 
 MAX_REQUESTS_PER_ACTION = 8
@@ -27,7 +28,10 @@ AUTH_KINDS = frozenset(
     }
 )
 AUTHORIZATION_KINDS = frozenset({"approval", *AUTH_KINDS})
-_BASE_FIELDS = frozenset({"kind", "ordinal", "title", "description"})
+# The copy fields of a request, each a reviewed catalog reference (ADR-0091); option copy lives in each option.
+COPY_FIELDS = ("title", "description", "label", "placeholder")
+OPTION_COPY_FIELDS = ("label", "description")
+type Catalog = Mapping[str, Mapping[str, object]]
 
 
 class HumanRequestError(ValueError):
@@ -36,13 +40,18 @@ class HumanRequestError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class HumanRequest:
-    """One canonical request safe to bind into a Team-owned challenge."""
+    """One canonical request safe to bind into a Team-owned challenge.
+
+    ``catalog`` holds the canonical English catalog entries the request's copy references, so the request can be
+    rendered and revalidated without the rest of its binding (ADR-0091).
+    """
 
     kind: str
     ordinal: int
     fingerprint: str
     canonical: bytes
     stored_input: str | None = None
+    catalog: bytes = b"[]"
 
     def payload(self) -> dict[str, object]:
         """Return an independent JSON object for projection or continuation binding."""
@@ -50,6 +59,10 @@ class HumanRequest:
         if not isinstance(value, dict):
             raise AssertionError("canonical human request is not an object")
         return value
+
+    def messages(self) -> list[dict[str, object]]:
+        """Return the referenced catalog entries sorted by id."""
+        return json.loads(self.catalog)
 
 
 class HumanRequestSuspensionError(RuntimeError):
@@ -186,13 +199,19 @@ def validate_request(
     value: object,
     capabilities: tuple[str, ...],
     stored_inputs: tuple[str, ...] = (),
+    *,
+    catalog: Catalog,
 ) -> HumanRequest:
-    """Validate one request and bind its advertised fingerprint to canonical bytes."""
+    """Validate one request against its reviewed catalog and bind its advertised fingerprint to canonical bytes.
+
+    Every copy field must reference a declared message with exactly its declared parameters (ADR-0091); the
+    fingerprint covers the references, never a display language.
+    """
     if not isinstance(value, dict) or "fingerprint" not in value:
         raise HumanRequestError("Assistant Action human request is invalid")
     request = dict(value)
     fingerprint = request.pop("fingerprint")
-    error = _request_error(request)
+    error = human_request_validator.request_error(request, catalog)
     kind = request.get("kind")
     if (
         error is not None
@@ -210,13 +229,28 @@ def validate_request(
     stored_input = request.get("stored_input")
     if stored_input is not None and stored_input not in stored_inputs:
         raise HumanRequestError("Assistant Action Stored Input request is undeclared")
+    referenced = sorted(set(referenced_messages(request)))
     return HumanRequest(
         kind=kind,
         ordinal=int(request["ordinal"]),
         fingerprint=fingerprint,
         canonical=_canonical(framed),
         stored_input=stored_input if isinstance(stored_input, str) else None,
+        catalog=_canonical([catalog[identifier] for identifier in referenced]),
     )
+
+
+def catalog_by_id(machine_contract: Mapping[str, object]) -> dict[str, Mapping[str, object]]:
+    """Index a reviewed machine contract's English message catalog by message id."""
+    return {message["id"]: message for message in machine_contract["messages"]}
+
+
+def referenced_messages(request: Mapping[str, object]) -> list[str]:
+    """The message ids of every non-null copy reference of an already-admitted request."""
+    references = [request[field] for field in COPY_FIELDS if field in request]
+    for option in request.get("options", ()):
+        references.extend(option[field] for field in OPTION_COPY_FIELDS)
+    return [reference["message"] for reference in references if reference is not None]
 
 
 def admit_response(request: HumanRequest, value: object) -> HumanResponse:
@@ -286,96 +320,3 @@ def _canonical(value: object) -> bytes:
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
         raise HumanRequestError("Assistant Action human request is invalid") from exc
-
-
-def _request_error(request: object) -> str | None:
-    if not isinstance(request, dict):
-        return "shape"
-    ordinal = request.get("ordinal")
-    kind = request.get("kind")
-    if (
-        not isinstance(kind, str)
-        or type(ordinal) is not int
-        or not 0 <= ordinal < MAX_REQUESTS_PER_ACTION
-        or not _text(request.get("title"), 80)
-        or not _text(request.get("description"), 500)
-    ):
-        return "base"
-    return _kind_error(request, kind)
-
-
-def _kind_error(request: dict[str, object], kind: str) -> str | None:
-    if kind == "approval" or kind in AUTH_KINDS:
-        return None if set(request) == _BASE_FIELDS else "shape"
-    if kind in LENGTH_KINDS:
-        return _length_error(request, LENGTH_KINDS[kind])
-    if kind in CHOICE_KINDS:
-        return _choice_error(request, multiple=False)
-    if kind == "input:choices":
-        return _choice_error(request, multiple=True)
-    return "kind"
-
-
-def _length_error(request: dict[str, object], limit: int) -> str | None:
-    expected = _BASE_FIELDS | {"label", "required", "placeholder", "min_length", "max_length"}
-    if request.get("kind") == "input:password" and "stored_input" in request:
-        expected |= {"stored_input"}
-    if set(request) != expected or not _input_base(request):
-        return "shape"
-    if "stored_input" in request and (
-        not isinstance(request["stored_input"], str)
-        or http_payload.ASSISTANT_ID_RE.fullmatch(request["stored_input"]) is None
-    ):
-        return "stored-input"
-    placeholder = request["placeholder"]
-    minimum = request["min_length"]
-    maximum = request["max_length"]
-    if (
-        (placeholder is not None and not _text(placeholder, 120))
-        or type(minimum) is not int
-        or type(maximum) is not int
-        or not 0 <= minimum <= maximum <= limit
-    ):
-        return "bounds"
-    return None
-
-
-def _choice_error(request: dict[str, object], *, multiple: bool) -> str | None:
-    bounds = {"min_selections", "max_selections"} if multiple else set()
-    expected = _BASE_FIELDS | {"label", "required", "options"} | bounds
-    options = request.get("options")
-    if (
-        set(request) != expected
-        or not _input_base(request)
-        or not isinstance(options, list)
-        or not 2 <= len(options) <= 32
-        or not all(_option(option) for option in options)
-    ):
-        return "options"
-    values = [option["value"] for option in options]
-    if len(values) != len(set(values)):
-        return "options"
-    if multiple:
-        minimum = request["min_selections"]
-        maximum = request["max_selections"]
-        if type(minimum) is not int or type(maximum) is not int or not 0 <= minimum <= maximum <= len(options):
-            return "bounds"
-    return None
-
-
-def _input_base(request: Mapping[str, object]) -> bool:
-    return type(request.get("required")) is bool and _text(request.get("label"), 80)
-
-
-def _option(value: object) -> bool:
-    return (
-        isinstance(value, dict)
-        and set(value) == {"value", "label", "description"}
-        and _text(value["value"], 128)
-        and _text(value["label"], 80)
-        and (value["description"] is None or _text(value["description"], 160))
-    )
-
-
-def _text(value: object, maximum: int) -> bool:
-    return isinstance(value, str) and value == value.strip() and 0 < len(value) <= maximum and value.isprintable()

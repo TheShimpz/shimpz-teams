@@ -34,19 +34,23 @@ WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
-    local/inference.py local/labels.py local/lifecycle.py local/names.py local/token.py local/validation.py ./local/
+    local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \
+    local/validation.py ./local/
 COPY local/install/__init__.py local/install/automatic.py local/install/collector.py local/install/developers.py local/install/inventory.py local/install/preview.py \
     local/install/registry.py local/install/runtime.py local/install/service.py local/install/snapshots.py \
     local/install/source_package.py ./local/install/
-COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/genesis.py assistant/manifest.py assistant/spec.py \
+COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assistant/effect.py assistant/genesis.py \
+    assistant/language.py assistant/manifest.py assistant/spec.py \
     ./assistant/
-COPY chat/__init__.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py chat/turn.py ./chat/
+COPY chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
+    chat/turn.py ./chat/
 COPY core/__init__.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
-COPY inference/__init__.py inference/client.py inference/config.py inference/model_catalog.json \
-    inference/token.py inference/usage.py ./inference/
+COPY inference/__init__.py inference/abort.py inference/client.py inference/config.py inference/errors.py \
+    inference/model_catalog.json \
+    inference/recovery.py inference/recreate.py inference/token.py inference/usage.py ./inference/
 COPY integrations/__init__.py integrations/account_egress.py integrations/broker.py integrations/challenge_store.py \
     integrations/challenges.py integrations/flow.py integrations/http.py \
     integrations/pkce.py integrations/providers.py \
@@ -54,15 +58,24 @@ COPY integrations/__init__.py integrations/account_egress.py integrations/broker
 COPY local/assistant/__init__.py local/assistant/api.py local/assistant/egress.py \
     local/assistant/isolation.py local/assistant/lifecycle.py local/assistant/resources.py \
     local/assistant/rpc.py ./local/assistant/
-COPY local/chat/__init__.py local/chat/api.py local/chat/capabilities.py local/chat/continuation.py \
+COPY local/chat/__init__.py local/chat/api.py local/chat/attachments.py local/chat/capabilities.py \
+    local/chat/continuation.py \
     local/chat/continuation_store.py local/chat/execution.py local/chat/human.py local/chat/pause.py \
     local/chat/private.py local/chat/resume.py local/chat/segment.py local/chat/service.py \
     local/chat/state.py local/chat/types.py ./local/chat/
-COPY local/routine/__init__.py local/routine/human.py local/routine/lifecycle.py local/routine/manage.py \
-    local/routine/notices.py local/routine/proposal.py local/routine/run.py local/routine/state.py local/routine/store.py \
+COPY local/routine/__init__.py local/routine/card.py local/routine/compiled.py local/routine/diagnostics.py \
+    local/routine/human.py \
+    local/routine/lifecycle.py \
+    local/routine/incident.py local/routine/lineage.py local/routine/manage.py \
+    local/routine/notices.py local/routine/question.py local/routine/recovery.py local/routine/recreate.py \
+    local/routine/run.py local/routine/source.py local/routine/state.py \
+    local/routine/store.py \
     local/routine/turn.py \
     local/routine/watchdog.py ./local/routine/
-COPY routine/__init__.py routine/record.py routine/schedule.py ./routine/
+COPY routine/__init__.py routine/change.py routine/cursor.py routine/grant.py routine/hold.py routine/pin.py \
+    routine/plan.py routine/starts.py \
+    routine/record.py routine/request.py \
+    routine/schedule.py ./routine/
 COPY local/http/__init__.py local/http/audit.py local/http/dispatch.py local/http/inference.py local/http/routine.py \
     local/http/server.py local/http/stream.py ./local/http/
 COPY install/__init__.py install/artifact_trust.py install/bindings.py install/contract.py install/icons.py install/update.py \
@@ -80,9 +93,16 @@ COPY protocol/install/v1/README.md protocol/install/v1/contract-files.sha256 \
     ./protocol/install/v1/
 COPY protocol/http/v1/payload.py protocol/http/v1/progress.py protocol/http/v1/routine.py \
     protocol/http/v1/supervisor.py ./protocol/http/v1/
-COPY action/__init__.py action/challenges.py action/execution.py action/human.py action/journal.py \
+COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/validators/failure.py \
+    protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
+    protocol/assistant/v1/validators/message_catalog.py \
+    ./protocol/assistant/v1/validators/
+COPY action/__init__.py action/challenges.py action/dispatch.py action/execution.py action/failure.py \
+    action/files.py action/human.py action/journal.py \
     action/stored_input.py ./action/
 COPY storage/__init__.py storage/files.py storage/private_state.py ./storage/
+COPY prepare/__init__.py prepare/detect.py prepare/helper.py prepare/image.py prepare/limits.py prepare/pdf.py \
+    prepare/service.py prepare/worker.py ./prepare/
 
 RUN test -x /usr/bin/timeout && \
     groupadd --gid 10001 shimpzlocal && \

@@ -25,15 +25,56 @@ resumption after Account consumes it successfully. Handle issuance, freshness, b
 semantics, and factor custody remain Account authority. Authentication factor material never crosses
 to Team, Brain, an Assistant, or a progress event.
 
-A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact Assistant-authored
-`request` with its fingerprint. Beside them, never inside `request` and never part of its fingerprint, it may carry
-two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for why the user's task needs this
-Action, written in the turn's interface language from only the turn's message and the reviewed Action identity:
+A `human-required` challenge carries the reviewed `assistant` and `action` identity and the exact canonical
+Assistant `request` with its fingerprint: every copy field is a catalog reference `{"message": id, "params": {...}}`
+(Assistant Spec v1), so the fingerprint never depends on the display language. Beside it, never inside `request` and
+never part of its fingerprint, the challenge carries three required localization fields (ADR-0091): `locale`, the one
+concrete closed interface language (`payload.canonical_locale`, never `null`) the challenge was created for;
+`pack_digest`, the `sha256:` digest of the reviewed binding's language pack (`payload.canonical_pack_digest`); and
+`rendered`, the display text of exactly the request's copy fields in that locale (`payload.canonical_rendered`):
+`title` (at most 80 characters) and `description` (500); `label` (80) for an input; `placeholder` (120, `null`
+exactly when the request's placeholder is `null`) for a text, textarea, password, or phone input; and, for a choice,
+`options` in request order, each exactly `{label, description}` (80 and 160, `description` `null` exactly when the
+request option's is). Rendered text is trimmed, printable, NFC, and within its bound without truncation. Team renders
+it from the English catalog or the pack, inserting each parameter once; Admin verifies the canonical fingerprint and
+validates this projection, while request kinds, option values, and the authorization scope stay canonical. A live
+challenge binds the canonical fingerprint, the exact binding, the catalog and pack digests, and the locale; a
+different locale needs a fresh challenge. Opening a frozen Routine run's challenge carries the Admin interface
+language as exactly `{"locale": "pt"}` (`routine.canonical_challenge_open`, never `null`). Local Admin opens the
+Team's pending chat challenge with the same exact body at `POST /v1/teams/:team_id/chat/human/challenge`
+(Local only), and a chat body that names a locale reopens a pending challenge the same way. Team answers
+`{team_id, status: "none"}` when nothing is pending and returns a challenge already in that locale unchanged.
+Otherwise, as for a Routine opening, it re-renders the same canonical request and fingerprint from the same binding's
+pack under Team's lock as a fresh challenge with a new `challenge_id` and the earlier expiry, and the earlier id stops
+answering at once. The turn keeps its own language and a purpose its origin locale. A binding whose catalog or pack
+changed ends the paused turn; Admin refuses an opened challenge whose `locale` is not the one it asked for.
+
+A staged Local snapshot's summary follows the interface language too (ADR-0091). Local Admin reads it at
+`GET /v1/local-assistants/:image_hash/summary/:locale` (Local only), where `locale` is one closed interface language;
+Team answers exactly `{locale, summary}` (`payload.canonical_snapshot_summary`): the snapshot catalog's English summary
+for `en`, otherwise that one message's translation from the snapshot's own pack, admitted complete for its own catalog
+and read from the immutable image without starting it. The summary is at most 160 trimmed, printable, NFC characters;
+no request copy, catalog, or pack is ever returned. Admin refuses an answer whose `locale` is not the one it asked for.
+The read shares the bounded icon preview: while extraction capacity is busy Team answers 503
+`local-assistant-preview-busy` with `retry_after_ms`.
+
+The challenge may also carry two optional presentation fields (ADR-0090). `purpose` is the Brain's own sentence for
+why the user's task needs this Action, projected only when its recorded origin locale equals the challenge `locale`,
+so a Routine challenge shows its localized scope without a purpose. It is written in the turn's interface language
+from only the turn's message and the reviewed Action identity:
 1 to 280 NFC characters with no control, format, or line-separator character, no dash punctuation other than a
 hyphen inside a word, and nothing that reads as a link (`payload.canonical_purpose`). `help_url` appears only when
 `request.kind` is `input:password` with a `stored_input`, and is that Stored Input's reviewed key page copied from
 the exact binding's declaration (`payload.canonical_help_url`, one pattern shared with the Developers manifest and
 the Assistant-install standard). Both are inert presentation: they request and authorize nothing.
+
+An authorization challenge (`approval`, `auth:password`, `auth:totp`, or `auth:passkey`) of an Action that declares a
+file input also carries `file`, the platform-controlled disclosure of the one selected file whose original bytes, with
+any metadata embedded in them, only the approved replay delivers to that Action (ADR-0093): exactly `{id, name,
+media_type, size, sha256}` with the opaque file id, the literal filename, the Team-determined media type, a size of at
+most 8 MiB, and the original lowercase SHA-256 (`payload.canonical_file_disclosure`). The filename is literal data that
+Admin renders as text, never a Creator translation parameter. Team binds the disclosed file to the challenge and
+delivers only bytes with that size and digest; any other challenge carries no `file`.
 
 A completed Team chat terminal body carries `clarification`, either `null` or one exact Brain
 multiple-choice question (ADR-0081): `question` (at most 240 characters), two to five `options` with a
@@ -56,6 +97,16 @@ nothing, and the intent route and capability plan that Admin requests before the
 it. `payload.canonical_turn_usage` validates it; a consumer refuses a terminal whose `usage` breaks the shape. It is
 presentation metadata only: it carries no price, prompt, reply, or credential and authorizes nothing.
 
+A completed Team chat terminal body may also carry `restricted_actions` (ADR-0093): while readable attachment content
+(text or an image) was in the turn, Team offered and admitted only Actions that declare an authorization capability,
+and this names the selected Assistants' Actions it withheld for that reason, so Admin can explain them in the
+interface language with an attachment-free next step. It is exactly `{actions, total}`: `actions` lists 1 to 16
+distinct `{assistant, action}` identities in identity order, the first of all withheld that fit; `total` counts every
+withheld Action, from the listed count up to 2,048; the canonical JSON is at most 2,048 bytes
+(`payload.canonical_restricted_actions`). It is absent when nothing was withheld, including every turn
+whose attachments were all opaque, and a resumed turn reports what its final segment withheld. It is presentation
+only: it never resends a message, removes an attachment, or grants any Action.
+
 A Team's learned memory (ADR-0084) is at most 32 entries of a distinct lowercase `topic` key and one `preference`
 line of 1 to 280 characters (`payload.canonical_memory`). A completed Brain turn may carry at most 40 changes
 (`payload.canonical_memory_changes`), enough to forget every memory and every skill at once: `remember` with a
@@ -71,12 +122,82 @@ skill), then its new skill, which becomes the newest while the oldest give way b
 forgets is not learned again.
 
 A Team Routine (ADR-0086) fires on a closed schedule (`routine.canonical_schedule`): `hourly` every 1 to 24 elapsed
-hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in
-an IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads). `routine.daily_rate` is
-a schedule's average runs per day; a Team's Routines may sum to at most 24. A Brain turn response carries `routine`:
-null, or the one change a chat turn proposed (`routine.canonical_routine_change`): `propose` with the user's quoted
-request, a schedule, and a timezone only when the user named one, or `cancel` with a Routine id. It is never a
-schedule or an authorization: Team turns it into a proposal a Local Supervisor must confirm.
+hours, `daily` at `HH:MM`, `weekly` on a weekday (0 is Monday) at `HH:MM`, or `monthly` on day 1 to 28 at `HH:MM`, in an
+IANA timezone name (`routine.canonical_timezone`; Team also requires that the zone loads), or, only when the user asks
+for it, `continuous`: its next run is due `gap` seconds (5 to 86,400) after the previous one ended, never overlapping,
+with at most `cap` (1 to 1,000) starts in any rolling 24 hours (ADR-0092). `routine.daily_rate` is a schedule's runs per
+day and `routine.daily_cap` its whole rolling 24-hour cap; a Team's Routines' caps may sum to at most
+`routine.MAX_DAILY_RUNS` (1,000), which also bounds the Team's starts in any rolling 24 hours, whatever Routine made
+them. A Routine is created or changed only from the authenticated user's own chat message, without a confirmation card
+(ADR-0092): Team validates the Brain's compiled change against that message and the exact installed contracts, and
+commits the Routine, its notice, and the request's receipt together with the reply. That notice has the Routine outcome
+`created` or `changed`, no run id, and exactly `{name, steps, schedule, timezone}` (`routine.canonical_notice`): the
+Routine's name (`routine.canonical_name`, 1 to 80 NFC printable characters on one line), its plan's safe projection, its
+schedule, and its zone. The projection (`routine.canonical_steps`) is 1 to 8 ordered steps of exactly `{id, assistant,
+action, inputs, stored_inputs}`: each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview`
+of its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is its
+format, or a `step_output` naming an earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the
+step's Action uses by id only, never a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`)
+carries the same name and projection. Team also keeps, never on the wire, the evidence of the request that granted each
+revision: its receipt, revision, plan digest, a commitment to the message, the quote's span, each input's validated
+provenance, and any answer a bound Routine question selected.
+
+A run has one notice, keyed by its run id, whose version grows as the run goes on (`routine.canonical_notice_detail`
+closes each outcome's detail). `done` and `recovered` name the ordered `actions`, `[assistant, action]` pairs of the
+steps it carried out, never their input or result; `recovered` is a run that a continuation completed after a hold.
+`held` names the step whose effect is unresolved as `{assistant_id, action}`, both `null` when the run sealed no plan
+cursor; the same run's notice then goes on as `paused`, the same step plus a `reason` (`decided`, `unavailable`,
+`exhausted`, `policy`, or `evidence`, recovery evidence that could not be read), or `user-skipped` when a person set
+the run aside, the same step plus the `choice` that did it (`run`, `recreate`, or `delete`, a deletion of its Routine).
+A person's `user-skipped` is a run outcome; the Routine outcome `skipped` reports missed firings and
+has no run id. A continuous Routine's healthy runs, each completed with no earlier notice, share one versioned `healthy`
+Routine notice per minute bucket instead: its instant is the minute's start and its `runs`, at most
+`routine.MAX_ROLLUP_RUNS`, counts them and is also its version. Every other outcome stays one notice per run. The rollup
+minute only moves forward: a run whose clock fell back into an earlier minute keeps its own notice. A Routine change
+keeps its minute's count, and the `routine_rollup_delivery` vectors pin exact delivery sequences, with the transcript
+rows Admin must end with. `failed` names its code and the Actions that completed; a run whose failed step may have acted
+is held instead.
+
+A Supervisor's `GET /v1/teams/:team_id/routines` lists each Routine (`routine.canonical_routine_view`, whose `paused`
+says dispatch is off), its live runs (`routine.canonical_run_view`), and its unresolved `incidents`, at most
+`routine.MAX_UNRESOLVED_INCIDENTS` (`routine.canonical_incident_view`): each held run's id, Routine, quote, creation
+instant, and step, which outlive a deleted Routine. `POST /v1/teams/:team_id/routines/incidents/:incident_id/card` with
+`{}` opens that run's recovery card (`routine.canonical_card`): the step it stopped at and its `step` ordinal of
+`steps` in the plan the run executed, that revision, the `evidence` of its failure (`recorded`, with the held
+operation's latest sanitized `diagnostic`; `absent` when none is kept; or `unavailable` when it could not be read), a
+one-use 32-hex `nonce`, `expires_in` of 300 seconds, and exactly the choices `run`, `recreate`, and `delete` in that
+order, none recommended. The card is bound to the authenticated person, the Team incarnation, the Routine and its
+current revision, the run, its operation, and the Routine's sealed creation source. `POST .../answer` with exactly
+`{nonce, choice}` (`routine.canonical_card_answer_request`) answers it once with `run` or `recreate`; `delete` is never
+a card answer but the Routine's own confirmed deletion. `routine.canonical_card_answer` says what it did. Rodar
+(`run`) sets the held run aside without verifying it and requests one fresh run of the current revision, answering
+`requested`; it carries no model credential. Recriar (`recreate`) carries the private model credential, which the
+assertion binds, compiles the Routine's sealed creation message from scratch, and replaces the Routine in place as its
+next revision, answering `recreated`. Both refuse while the held attempt's workload is not proven stopped
+(`routine-workload-unquiesced`), while another run of the Routine is live (`routine-busy`), or once it is deleted
+(`routine-not-found`); Rodar also refuses when the Routine's Assistant contracts changed
+(`routine-contracts-changed`), and Recriar when its source is gone (`routine-source-unavailable`), when the compile
+asks about a field its source never selected or refuses (`routine-recreate-refused`), or when the compile could not
+run (`routine-recreate-unavailable`). Anything refused changes nothing. An expired, foreign, or reused card is
+`routine-card-expired`, and one whose Routine revision, Team incarnation, held generation, operation, or creation
+source changed since it opened is `routine-card-stale`; every answer is checked and applied in the Team's execution
+slot, and its write checks the same state again. `POST /v1/teams/:team_id/routines/:routine_id/pause` with `{}` turns
+a Routine's dispatch off, answering `paused` true, while a run already going finishes;
+`POST /v1/teams/:team_id/routines/:routine_id/resume` with `{}` turns dispatch back on and starts a fresh failure
+streak; an unresolved incident still holds the Routine until its card settles it. Deleting a Routine sets every one of
+its unresolved incidents aside.
+
+A Local Supervisor reads one Routine run's execution details (ADR-0092) with `GET
+/v1/teams/:team_id/routines/runs/:run_id/diagnostics`, answered by `routine.canonical_diagnostics`: the Team and run ids
+and at most 32 diagnostics, oldest first, one per attempt of one logical operation (`operation_id`, the version 4 UUID
+Team journaled, and `attempt` from 1 to 64), each naming its Assistant Action and recording instant. Each holds exactly
+one of a `failure`, the Team-sanitized handled failure (`error_type`, `message`, `provider`, `http_status`,
+`response_excerpt`, and the `redacted` and `truncated` flags, with the Assistant Spec bounds), or a `condition`, the
+safe transport condition (`exit-status:<code>`, `stderr-output`, `timeout`, `frame-invalid`, `exit-unavailable`, or
+`transport-failed`); raw child output is never reflected. Text is literal evidence that Admin renders escaped, never as
+Markdown or HTML, and a diagnostic is never effect proof or authority. Team keeps these bodies encrypted for at most
+seven days and 10 MiB per Team, readable only by the same Team incarnation; deleting the Routine or the Team removes
+them.
 
 Local Admin may also emit the exact aggregate `assistant-install-plan` lifecycle for an authenticated
 Supervisor task. A `planned` event carries one socket-scoped plan id and at most four sorted Assistants
@@ -128,12 +249,34 @@ by Local Admin with the intent-route bounds: at most 8 entries of exactly `{role
 characters in total. It is untrusted evidence, never an instruction, fact guarantee, or Action authorization. Team
 forwards it only to the Brain's turn start; the Brain uses it only when it retains no completed exchange of its own.
 Hosted Team requires an empty window because Store relays browser frames and no Hosted history is server-derived.
+A Local chat body also carries `request` and `timezone` (`payload.LOCAL_CHAT_BODY_FIELDS`, ADR-0092); Hosted keeps
+the exact body above. `request` is the identity Local Admin issues once per sent message
+(`payload.canonical_request_identity`): `issued_at`, a whole UTC epoch second, and `nonce`, 32 lowercase hex. Admin
+returns the browser an authenticated seal of it; an ADR-0081 resend of that message carries the seal back, and Admin forwards the original identity only while `payload.request_identity_fresh`
+admits it, so an expired retry is never a new grant. Team binds it to the Supervisor
+principal, the Team incarnation, and the canonical message, and a Routine change carried by the request commits at most
+once with it: only while `issued_at` is less than 900 seconds old and at most 60 seconds ahead of Team's clock
+(`payload.request_identity_fresh`, exclusive at 900 s, the same second the receipt stops being live), and only while
+the Team holds fewer than 256 live receipts; expiry and saturation refuse the change and never evict a valid
+receipt. `timezone` is the browser's IANA zone name (`routine.canonical_timezone`) or `null`; Team uses it only as the
+default zone of a Routine the message creates.
 
 A Routine run (ADR-0086) is started by a separate Local Routine identity, never a human Supervisor assertion. Its
 Ed25519 assertion travels in `X-Shimpz-Routine` with the JWT key id `local-routine-v1` and the audience
 `team-local-routine`; `supervisor.canonical_claims(value, audience=ROUTINE_AUDIENCE)` admits the same request, body,
 model, lifetime, and one-use nonce bindings as a Supervisor assertion, requires `authority: "routine"` with
 `authority_sha256` equal to the SHA-256 of the run's lease token, and refuses any human assurance or decision binding.
+Admin's scheduler claims under the Team bearer with `POST /v1/routines/claim` and exactly `{}`
+(`routine.canonical_claim_request`): no model key gates a claim, because a healthy compiled run needs none (ADR-0092),
+and any Team with a configured model may be claimed. The answer (`routine.canonical_claim`) is one run with its lease
+token, lease expiry, the Team's configured provider, and the Routine `revision`, `plan_digest`, and `mode` (`scheduled`
+or `continuous`, `routine.RUN_MODES`) it was claimed at, or `null` with `next_due_at`, the earliest epoch second a
+Routine of a Team Admin can run becomes due (`null` when none will), so Admin wakes then while still reconciling on its
+own interval. The run's signed segment request, `POST /v1/teams/:team_id/routines/runs/:run_id/segment`, carries exactly
+that `{revision, plan_digest, mode}` (`routine.canonical_segment_request`); any other is refused as
+`routine-revision-stale` before anything runs. The run's segment and its frozen answers carry the private model
+credential only when Admin holds the Team's key; it then travels whole and the assertion binds it, and without it a held
+run's recovery pauses as `unavailable`.
 
 An intent-route classification (never selection, chat, or any other request) may also carry one Supervisor-configured
 TypeSafe key in `X-Shimpz-Decision-Api-Key` (ADR-0077). The Local Supervisor assertion then binds its digest as
@@ -171,6 +314,14 @@ An authenticated Supervisor may read the canonical PNG for one installed Assista
 `GET /v1/teams/:team_id/assistants/:assistant_id/icon`. Team resolves the current durable binding,
 verifies the icon digest again at read time, returns exactly `image/png`, and marks the response
 `no-store`. Missing bindings fail as absent; missing or tampered custody fails closed.
+
+An installed Assistant's summary follows the interface language (ADR-0091). Admin reads it at
+`GET /v1/teams/:team_id/assistants/:assistant_id/summary/:locale`, where `locale` is one closed interface language,
+and Team answers the same closed `{locale, summary}` as a staged snapshot's summary
+(`payload.canonical_snapshot_summary`): the current binding's English catalog summary for `en`, otherwise that one
+message's translation from the pack verified against the binding's `pack_digest`. No request copy, catalog, or pack is
+ever returned. A missing binding fails as absent, and a missing or mismatched pack fails closed. Admin refuses an answer
+whose `locale` is not the one it asked for.
 
 Local Admin may request presentation-only labels for one installed binding from
 `POST /v1/teams/:team_id/assistants/:assistant_id/action-labels`. The exact request body is

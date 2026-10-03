@@ -161,6 +161,10 @@ class LocalControllerResourceEdgeTests(unittest.TestCase):
             put=mock.Mock(return_value={"id": "file"}),
             list=mock.Mock(return_value={"files": []}),
             delete=mock.Mock(return_value={"deleted": True}),
+            metadata=mock.Mock(return_value=[{"id": "a" * 32}]),
+        )
+        controller.chat_turn_service = types.SimpleNamespace(
+            _file_deletion_slot=lambda _team_id: nullcontext(), _forget_file=mock.Mock()
         )
         controller.inference_store = types.SimpleNamespace(
             delete=mock.Mock(),
@@ -451,7 +455,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
     def controller() -> tuple[local_app.LocalController, object, object]:
         controller = object.__new__(local_app.LocalController)
         controller._locks = tuple(threading.RLock() for _ in range(64))
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
         spec = types.SimpleNamespace(actions={"action": action_spec}, stored_inputs={})
         container = types.SimpleNamespace(id="container", status="running", reload=mock.Mock())
         controller.assistant_lifecycle = types.SimpleNamespace(
@@ -477,7 +481,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             controller.invoke("team_1", "assistant", "action", {})
         self.assertEqual(caught.exception.code, "action-not-declared")
 
-        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=())}
+        spec.actions = {"action": types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())}
         with (
             mock.patch.object(
                 local_app,
@@ -521,9 +525,13 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_invoke_maps_projection_failures_and_returns_valid_result(self) -> None:
         controller, _spec, _container = self.controller()
+        handled = local_app.action_failure.ActionFailedError(
+            local_app.action_failure.ActionFailure("ValueError", "", None, None, None, False, False)
+        )
         failures = (
             (local_app.action_execution.RpcSecretExposureError("unsafe"), "assistant-secret-exposure"),
             (local_app.action_execution.RpcInvalidResultError("invalid"), "invalid-action-output"),
+            (handled, "assistant-action-failed"),
         )
         for failure, expected_code in failures:
             with (
@@ -539,6 +547,12 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
             ):
                 controller.invoke("team_1", "assistant", "action", {})
             self.assertEqual(caught.exception.code, expected_code)
+            self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
+            # Only a handled failure keeps its sanitized diagnostic as the cause; a secret echo never travels.
+            expected_cause = None if expected_code == "assistant-secret-exposure" else failure
+            self.assertIs(caught.exception.__cause__, expected_cause)
+            if failure is handled:
+                self.assertIs(local_app.action_failure.failure_of(caught.exception), handled.failure)
 
         with (
             mock.patch.object(local_app, "validate_action_payload", return_value={}),
@@ -554,11 +568,14 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_stored_input_is_sealed_reused_and_cleared_on_exact_rejection(self) -> None:
         controller, spec, _container = self.controller()
-        action_spec = types.SimpleNamespace(human_requests=("input:password",), stored_inputs=("whatsapp-token",))
+        action_spec = types.SimpleNamespace(
+            human_requests=("input:password",), stored_inputs=("whatsapp-token",), input_files=()
+        )
         declaration = types.SimpleNamespace(kind="password")
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
         spec.stored_inputs = {"whatsapp-token": declaration}
+        spec.machine_contract = {"messages": []}
         token = "whatsapp-private-token-123456789"
         response = action_human.HumanResponse(
             "input:password",
@@ -600,6 +617,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
                 local_app.action_execution.RpcPrivateInputs({}, {}),
                 transcript,
                 "b" * 64,
+                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             )
             with (
                 mock.patch.object(local_app, "validate_action_payload", side_effect=lambda _spec, _side, value: value),
@@ -633,7 +651,7 @@ class LocalControllerInvokeEdgeTests(unittest.TestCase):
 
     def test_stored_input_persistence_failure_is_redacted(self) -> None:
         controller, spec, _container = self.controller()
-        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=())
+        action_spec = types.SimpleNamespace(human_requests=(), stored_inputs=(), input_files=())
         spec.assistant_id = "assistant"
         spec.actions = {"action": action_spec}
         spec.stored_inputs = {}

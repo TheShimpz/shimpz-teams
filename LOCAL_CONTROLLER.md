@@ -45,8 +45,8 @@ failure. It does not remove shared images, the controller container, or unlabele
 - Persistent controller state: audit, Team storage, inference selection and learned memory, Action
   journal, Integration state/key, chat continuations, Routine state/key (ADR-0086), and egress policies each use
   dedicated paths or volumes. Integration tokens and continuations, including frozen Routine runs', are encrypted at
-  rest and never enter metadata-only audit JSONL. Destroy and Space reset delete every Routine run's Brain thread
-  and Action journal generation before its Routine state, and prove `routines` absent.
+  rest and never enter metadata-only audit JSONL. Destroy and Space reset delete every Routine run's
+  Action journal generation before its Routine state, and prove `routines` absent.
 - Model credentials: Admin supplies `X-Shimpz-Model-Provider` and `X-Shimpz-Model-Api-Key` only on chat
   and challenge-resume requests. Strict HTTP parsing rejects duplicate/missing credentials. The key is
   used for that operation and is never persisted, echoed, or forwarded to Assistant containers.
@@ -106,6 +106,13 @@ Chat accepts only `message`, opaque file IDs, and selected installed Assistant I
 one active/paused turn. Selection and workload identity are revalidated before provider start, each
 Action, resume, and completion. Only a missing OAuth Integration can pause a turn; the controller alone
 executes Actions and resumes the checkpoint.
+
+Selected files are prepared for every segment of their turn (ADR-0093). The controller reads text, code, CSV, JSON,
+and Markdown itself and sends images and PDFs to one short-lived, serialized, networkless helper container that runs
+its own image read-only as `nobody`, with no capabilities, mounts, or Docker socket, and is removed before the Brain
+is asked. The Brain receives the prepared content only in that request; while any text or image content is in the
+turn, only Actions that declare an authorization capability are admitted, and the turn learns no memory or skill.
+Stop reaches a running helper as it reaches an Action workload, and Team deletion and Space reset remove helpers.
 
 Capability planning is a stateless pre-turn operation. It receives only an objective and at most eight bounded
 public candidates, forwards them through the independently bounded Brain planner lane with the Team's request-only

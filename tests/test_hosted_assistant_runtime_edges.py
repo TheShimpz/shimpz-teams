@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from http import HTTPStatus
@@ -201,6 +202,49 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         with self.assertRaises(state.ApiError):
             assistants._select_team_assistants((active,), ("missing",))
 
+    def test_an_action_refused_at_registration_never_ran_and_leaves_no_uncertain_outcome(self) -> None:
+        execution = assistants.action_execution
+        journal_module = assistants.action_journal
+        request = SimpleNamespace(interrupt_id="interrupt-1", assistant_id=ASSISTANT_ID, action=ACTION_ID, input={})
+        container = _container()
+        binding = SimpleNamespace(container_id=container.id, spec=SimpleNamespace(image=harness.HOSTED_SPEC.image))
+
+        def execute(_request, _evidence, _operation_id):
+            return assistants._exchange_registered(
+                assistants.AssistantRpcRequest(TEAM_ID, container, ACTION_ID, {}, TURN_TOKEN), b"{}", None
+            )
+
+        for refusal in ("stopped", "busy"):
+            state._active_chat_tokens[TEAM_ID] = TURN_TOKEN
+            state._cancelled_chat_tokens.clear()
+            state._active_action_container_ids.clear()
+            if refusal == "stopped":
+                state._cancelled_chat_tokens.add(TURN_TOKEN)
+            else:
+                state._active_action_container_ids[TEAM_ID] = ("other-turn", "d" * 64)
+            with tempfile.TemporaryDirectory() as directory:
+                journal = journal_module.ActionJournal(Path(directory) / "journal.sqlite3")
+                self.addCleanup(journal.close)
+                batch = execution.ActionBatch(
+                    journal,
+                    "generation-1",
+                    "thread-1",
+                    {ASSISTANT_ID: binding},
+                    execution.ActionBatchStrategy(
+                        lambda item: (item.container_id, item.spec.image), execute, lambda _request: None
+                    ),
+                )
+                batch.prepare((request,))
+                with (
+                    mock.patch.object(execution, "rpc_exchange", side_effect=AssertionError("dispatched")),
+                    self.assertRaises(state.ApiError) as refused,
+                ):
+                    batch.invoke(request)
+                self.assertTrue(assistants.action_dispatch.never_dispatched(refused.exception), refusal)
+                # Zero RPCs ran, so nothing is left executing and the turn ends its batch.
+                self.assertIsNone(journal.uncertain_fingerprint("generation-1"), refusal)
+                self.assertTrue(batch.terminate(), refusal)
+
     def test_active_action_registration_release_cancellation_and_fail_stop(self) -> None:
         container = _container()
         with self.assertRaises(state.ApiError):
@@ -302,7 +346,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             assistants._require_hosted_action_rpc_envelope(
                 TEAM_ID,
                 {ASSISTANT_ID: active},
-                SimpleNamespace(assistant_id=ASSISTANT_ID),
+                SimpleNamespace(assistant_id=ASSISTANT_ID, action=ACTION_ID, input={}),
             )
         self.assertEqual(envelope.exception.status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
 
@@ -407,6 +451,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants.action_execution.RpcPrivateInputs({}, {}),
                 assistants.action_human.ActionTranscript("interrupt"),
                 "a" * 64,
+                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
             ),
         }
         for action in (None, "INVALID", "missing"):
@@ -424,10 +469,14 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 assistants.ActionInvocationRequest(**(base | {"validated_assistant": changed}))
             )
 
+        handled = assistants.action_failure.ActionFailedError(
+            assistants.action_failure.ActionFailure("ValueError", "", None, 502, None, False, False)
+        )
         for error, expected_message in (
             (state.ApiError(503, "rpc"), "rpc"),
             (assistants.action_execution.RpcSecretExposureError("secret"), "exposed protected data"),
             (assistants.action_execution.RpcInvalidResultError("invalid"), "invalid result"),
+            (handled, "Assistant Action failed"),
         ):
             patches = [mock.patch.object(assistants, "_assistant_rpc", return_value={})]
             if isinstance(error, state.ApiError):
@@ -440,6 +489,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                 with self.assertRaises(state.ApiError) as caught:
                     assistants._invoke_assistant_action(assistants.ActionInvocationRequest(**base))
             self.assertIn(expected_message, caught.exception.message)
+            if error is handled:
+                self.assertEqual(caught.exception.status, HTTPStatus.BAD_GATEWAY)
+                self.assertIs(assistants.action_failure.failure_of(caught.exception), handled.failure)
 
         with (
             mock.patch.object(assistants, "_assistant_rpc", return_value={}),
@@ -488,6 +540,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
                                 assistants.action_execution.RpcPrivateInputs({}, {}),
                                 transcript,
                                 "a" * 64,
+                                "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
                             )
                         }
                     )
@@ -527,6 +580,7 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         contract = SimpleNamespace(
             actions={ACTION_ID: action},
             stored_inputs={"whatsapp-token": declaration},
+            machine_contract={"messages": []},
         )
         request = assistants.ActionInvocationRequest(
             TEAM_ID,
@@ -545,7 +599,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
             "whatsapp-token",
         )
         transcript = assistants.action_human.ActionTranscript("interrupt", (response,))
-        private = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, "a" * 64)
+        private = assistants.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, "a" * 64, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
 
         with (
             mock.patch.object(
@@ -565,7 +621,9 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(rejected.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
         self.assertNotIn("private-token", rejected.exception.message)
 
-        without_origin = assistants.action_execution.ResolvedInvocationEvidence({}, {}, transcript, None)
+        without_origin = assistants.action_execution.ResolvedInvocationEvidence(
+            {}, {}, transcript, None, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+        )
         with self.assertRaisesRegex(AssertionError, "lacks Action evidence"):
             assistants._seal_hosted_stored_inputs(request, without_origin)
 

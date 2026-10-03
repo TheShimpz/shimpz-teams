@@ -1,0 +1,592 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "provider failure with status and excerpt",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "ordinary exception without provider details",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "ValueError",
+          "message": "zone is not delegated",
+          "provider": null,
+          "http_status": null,
+          "response_excerpt": null,
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "empty message",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "redacted and truncated diagnostic",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Authorization: [REDACTED]",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": true,
+          "truncated": true
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "multiline excerpt with tabs",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "line one\n\tline two",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "message at the byte bound in two-byte characters",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "excerpt at the byte bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "error type at its bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "highest status",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 599,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "lowest status",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 100,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "single-label provider",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "localhost",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "provider at its bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "message over the byte bound within the character bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9x",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "excerpt over the byte bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "message with a carriage return",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "first\rsecond",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "message with a bidi override",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "safe\u202etxt.exe",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "excerpt with a zero-width space",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "to\u200bken",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "message with a NUL",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "a\u0000b",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "message that is not a string",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": null,
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "empty error type",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error type with a space",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "Http Error",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error type with non-ASCII text",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "Erro\u00e9",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "error type over its bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "status below the HTTP range",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 99,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "status above the HTTP range",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 600,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "status as a boolean",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": true,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "status as a string",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": "404",
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "uppercase provider",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "API.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "provider URL",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "https://api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "provider over its bound",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "provider label with a trailing hyphen",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api-.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "flag that is not a boolean",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": 0,
+          "truncated": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "missing truncation flag",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown diagnostic member",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false,
+          "stack": "Traceback (most recent call last)"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "failure carrying a partial result",
+      "response": {
+        "type": "failure",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        },
+        "result": {
+          "id": "rec_1"
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "failure body that is not an object",
+      "response": {
+        "type": "failure",
+        "failure": "boom"
+      },
+      "valid": false
+    },
+    {
+      "name": "failure with another envelope type",
+      "response": {
+        "type": "error",
+        "failure": {
+          "error_type": "httpx.HTTPStatusError",
+          "message": "Client error '404 Not Found' for url 'https://api.example.com/v4/zones'",
+          "provider": "api.example.com",
+          "http_status": 404,
+          "response_excerpt": "{\"errors\":[{\"code\":7003,\"message\":\"Could not route to /zones\"}]}",
+          "redacted": false,
+          "truncated": false
+        }
+      },
+      "valid": false
+    }
+  ]
+}

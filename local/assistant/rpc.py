@@ -8,6 +8,7 @@ from pathlib import Path
 from docker.errors import DockerException, NotFound
 
 from action import execution as action_execution
+from action import files as action_files
 from local.errors import ApiProblemError as ApiProblem
 from local.install.runtime import AssistantSpec
 
@@ -67,7 +68,9 @@ def _rpc(
             payload["input"],
             payload["integrations"],
             payload["stored_inputs"],
+            payload["operation_id"],
             payload.get("responses", ()),
+            payload.get("files", {}),
         )
     except (KeyError, ValueError) as exc:
         raise ApiProblem(
@@ -76,6 +79,18 @@ def _rpc(
             code="body-too-large",
         ) from exc
 
+    try:
+        deadline = action_files.rpc_deadline(payload.get("files", {}))
+    except action_files.FileDeliveryError as exc:
+        raise ApiProblem(
+            HTTPStatus.CONFLICT,
+            "the attached file is unavailable for this Action; attach it again",
+            code="action-file-unavailable",
+        ) from exc
+    return _exchange(self, container, action_id, encoded, deadline)
+
+
+def _exchange(self, container, action_id: str, encoded: bytes, deadline: float | None) -> object:
     def close_stream(stream: object) -> None:
         with suppress(Exception):
             self._close_exec_stream(stream)
@@ -95,6 +110,7 @@ def _rpc(
                 fail_stop=lambda: self._fail_stop_action(container),
                 cancelled=lambda _exc: None,
                 close_stream=close_stream,
+                deadline=deadline,
             ),
         )
     except action_execution.RpcExchangeError as exc:

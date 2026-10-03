@@ -8,8 +8,11 @@ import json
 import unittest
 from pathlib import Path
 
+import routine_fixture
+
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from routine import hold as routine_hold
 from routine import record
 
 UTC = datetime.UTC
@@ -17,6 +20,8 @@ KEY = "e" * 64
 DIGEST = "sha256:" + "c" * 64
 DAILY = {"kind": "daily", "time": "09:00"}
 HOURLY = {"kind": "hourly", "every": 1}
+WEEKLY = {"kind": "weekly", "weekday": 0, "time": "09:00"}
+CONTINUOUS = {"kind": "continuous", "gap": 5, "cap": 1000}
 BATCH = ("net_1:routine:" + "f" * 32, "d" * 64)
 
 
@@ -29,14 +34,18 @@ ANCHOR = epoch(2026, 9, 1)
 
 
 def routine(routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR) -> record.Routine:
-    value = record.Routine(
-        routine_id=routine_id,
-        quote="Every day at 9, summarize the DNS changes.",
-        schedule=dict(schedule or DAILY),
-        timezone="UTC",
-        assistants=(("dns", DIGEST),),
-        anchor=anchor,
-        next_run_at=0,
+    value = routine_fixture.granted(
+        record.Routine(
+            routine_id=routine_id,
+            name="Daily DNS summary",
+            quote="Every day at 9, summarize the DNS changes.",
+            plan=routine_fixture.plan_document(),
+            schedule=dict(schedule or DAILY),
+            timezone="UTC",
+            assistants=(("dns", DIGEST),),
+            anchor=anchor,
+            next_run_at=0,
+        )
     )
     return dataclasses.replace(value, next_run_at=record.next_after(value, anchor))
 
@@ -64,9 +73,17 @@ def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Le
     return record.bind_generation(state, claim.run.run_id, lease, now, "net_1"), claim, lease
 
 
+DEFINED = {
+    "name": "Daily DNS summary",
+    "steps": [{"id": "check", "assistant": "dns", "action": "check", "inputs": [], "stored_inputs": []}],
+    "schedule": {"kind": "daily", "time": "09:00"},
+    "timezone": "UTC",
+}
+
+
 def full_notices(count: int = record.MAX_UNDELIVERED_NOTICES) -> tuple[record.Notice, ...]:
     return tuple(
-        record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, {"reply": "Done."}) for index in range(count)
+        record.Notice(f"{index:032x}", "c" * 32, "", "done", NINE, routine_fixture.DONE) for index in range(count)
     )
 
 
@@ -77,29 +94,49 @@ class ContractTests(unittest.TestCase):
         )
         self.assertEqual(http_routine.ACTION_ID_RE.pattern.removesuffix(r"\Z"), http_payload.ACTION_ID_PATTERN[1:-1])
 
+    def test_the_challenge_open_locales_match_the_chat_locales(self):
+        self.assertEqual(http_routine.LOCALES, http_payload.CHAT_LOCALES)
+
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
-            "done": {"reply": "Updated."},
-            "needs-input": {"question": "Which zone?"},
+            "done": {"actions": [["dns", "list-zones"], ["dns", "replace-dns-record"]]},
+            "recovered": {"actions": [["dns", "replace-dns-record"]]},
+            "held": {"assistant_id": "dns", "action": "replace-dns-record"},
+            "paused": {"assistant_id": None, "action": None, "reason": "exhausted"},
+            "user-skipped": {"assistant_id": "dns", "action": "replace-dns-record", "choice": "recreate"},
             "skipped": {"missed": 3},
+            "healthy": {"runs": http_routine.MAX_ROLLUP_RUNS},
             "scope-changed": {"assistants": ["dns"]},
             "failed": {"code": "assistant-rpc-failed", "actions": [["dns", "list-zones"]]},
             "denied": {"actions": []},
             "stopped": {"actions": [["dns", "list-zones"]]},
-            "uncertain": {"actions": [["dns", "replace-dns-record"]]},
             "frozen": {"request_kind": "human", "assistant_id": "dns", "action": "replace-dns-record"},
+            "created": DEFINED,
+            "changed": DEFINED,
         }
         self.assertEqual(set(valid), http_routine.OUTCOMES)
         for outcome, detail in valid.items():
             with self.subTest(outcome=outcome):
                 self.assertEqual(http_routine.canonical_notice_detail(outcome, detail), detail)
         invalid = (
-            ("done", {"reply": ""}),
-            ("done", {"reply": " padded "}),
-            ("done", {"reply": "x", "result": {"ip": "1.2.3.4"}}),
-            ("needs-input", {"question": "x" * 241}),
+            ("done", {"actions": []}),
+            ("done", {"actions": [["dns", "check"]] * 9}),
+            ("done", {"actions": [["dns", "check"]], "result": {"ip": "1.2.3.4"}}),
+            ("done", {"reply": "Done."}),
+            ("recovered", {"actions": [["dns"]]}),
+            ("held", {"assistant_id": "dns", "action": None}),
+            ("held", {"assistant_id": "Bad", "action": "x"}),
+            ("paused", {"assistant_id": "dns", "action": "x", "reason": "tired"}),
+            ("paused", {"assistant_id": "dns", "action": "x"}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x", "input": {}}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x"}),
+            ("user-skipped", {"assistant_id": "dns", "action": "x", "choice": "skip"}),
+            ("paused", {"assistant_id": "dns", "action": "x", "reason": "person"}),
             ("skipped", {"missed": 0}),
             ("skipped", {"missed": True}),
+            ("healthy", {"runs": 0}),
+            ("healthy", {"runs": http_routine.MAX_ROLLUP_RUNS + 1}),
+            ("healthy", {"runs": 1, "actions": [["dns", "list-zones"]]}),
             ("scope-changed", {"assistants": []}),
             ("scope-changed", {"assistants": ["Bad"]}),
             ("failed", {"code": "Bad Code", "actions": []}),
@@ -113,52 +150,26 @@ class ContractTests(unittest.TestCase):
             ("frozen", {"request_kind": "human", "assistant_id": "dns"}),
             (["done"], {"reply": "x"}),
             ("done", ["reply"]),
+            ("created", {**DEFINED, "name": ""}),
+            ("created", {**DEFINED, "steps": []}),
+            ("created", {**DEFINED, "steps": DEFINED["steps"] * 9}),
+            ("created", {**DEFINED, "steps": [{**DEFINED["steps"][0], "stored_inputs": ["Bad"]}]}),
+            ("created", {key: value for key, value in DEFINED.items() if key != "steps"}),
+            ("changed", {**DEFINED, "schedule": {"kind": "daily"}}),
+            ("changed", {**DEFINED, "timezone": "../etc"}),
+            ("changed", {**DEFINED, "input": {"zone": "example.com"}}),
         )
         for outcome, detail in invalid:
             with self.subTest(outcome=outcome, detail=detail):
                 self.assertIsNone(http_routine.canonical_notice_detail(outcome, detail))
 
 
-class ChangeContractTests(unittest.TestCase):
-    def test_a_brain_routine_change_is_one_closed_propose_or_cancel(self):
-        propose = {
-            "op": "propose",
-            "quote": "Every Monday at 9, check the DNS",
-            "schedule": {"kind": "weekly", "weekday": 0, "time": "09:00"},
-            "timezone": None,
-            "routine_id": None,
-        }
-        cancel = {
-            "op": "cancel",
-            "quote": "stop the daily summary",
-            "schedule": None,
-            "timezone": None,
-            "routine_id": "a" * 32,
-        }
-        for value in (propose, {**propose, "timezone": "Europe/Lisbon"}, cancel):
+class NameContractTests(unittest.TestCase):
+    def test_a_routine_name_is_one_short_canonical_line(self):
+        self.assertEqual(http_routine.canonical_name("Resumo diário de DNS"), "Resumo diário de DNS")
+        for value in (None, 7, "", " padded ", "x" * 81, "two\nlines", "Cafe\u0301"):
             with self.subTest(value=value):
-                self.assertEqual(http_routine.canonical_routine_change(value), value)
-        for value in (
-            None,
-            {**propose, "extra": 1},
-            {**propose, "quote": 7},
-            {**propose, "quote": ""},
-            {**propose, "quote": " padded "},
-            {**propose, "quote": "x" * 501},
-            {**propose, "quote": "check\nthe DNS"},
-            {**propose, "quote": "check\u2028the DNS"},
-            {**propose, "quote": "Cafe\u0301 check"},
-            {**propose, "schedule": {"kind": "daily"}},
-            {**propose, "routine_id": "a" * 32},
-            {**propose, "timezone": "../etc"},
-            {**cancel, "schedule": propose["schedule"]},
-            {**cancel, "timezone": "UTC"},
-            {**cancel, "routine_id": ["a" * 32]},
-            {**cancel, "routine_id": "A" * 32},
-            {**cancel, "op": "pause"},
-        ):
-            with self.subTest(value=value):
-                self.assertIsNone(http_routine.canonical_routine_change(value))
+                self.assertIsNone(http_routine.canonical_name(value))
 
 
 class AddTests(unittest.TestCase):
@@ -173,6 +184,10 @@ class AddTests(unittest.TestCase):
         good = routine()
         bad = (
             dataclasses.replace(good, routine_id="A" * 32),
+            dataclasses.replace(good, name=""),
+            dataclasses.replace(good, plan={}),
+            dataclasses.replace(good, plan=routine_fixture.plan_document(timezone="Europe/Lisbon")),
+            dataclasses.replace(good, plan=routine_fixture.plan_document("web")),
             dataclasses.replace(good, quote=""),
             dataclasses.replace(good, quote="x" * 501),
             dataclasses.replace(good, quote="Every day\nat 9"),
@@ -190,11 +205,12 @@ class AddTests(unittest.TestCase):
             with self.subTest(candidate=candidate), self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
                 record.add_routine(record.TeamRoutines(), candidate)
 
-    def test_a_team_holds_at_most_eight_routines_and_24_scheduled_runs_a_day(self):
+    def test_a_team_holds_at_most_eight_routines_whose_caps_fit_its_daily_ceiling(self):
         state = added(*(routine(f"{index:032x}") for index in range(record.MAX_ROUTINES)))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-limit"):
             record.add_routine(state, routine("f" * 32))
-        busy = added(routine("b" * 32, HOURLY))
+        # A continuous Routine's cap of 1,000 runs a day leaves no room for another Routine's single daily run.
+        busy = added(routine("b" * 32, CONTINUOUS))
         with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
             record.add_routine(busy, routine())
         with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
@@ -230,17 +246,21 @@ class ClaimTests(unittest.TestCase):
         self.assertEqual(record.rekeyed(state, "f" * 64), (value,))
         self.assertEqual(record.rekeyed(state, KEY), ())
 
-    def test_the_oldest_due_routine_wins_and_the_daily_start_cap_holds(self):
+    def test_the_oldest_due_routine_wins_and_the_rolling_team_ceiling_holds_to_the_second(self):
         eleven = epoch(2026, 10, 1, 23)
         state = at(at(added(routine("a" * 32), routine("b" * 32)), "a" * 32, eleven), "b" * 32, eleven - 60)
         self.assertEqual(record.claimable(state, eleven).routine_id, "b" * 32)
-        capped = dataclasses.replace(state, starts_day="2026-10-01", starts=record.MAX_DAILY_STARTS)
+        # The Team's ceiling counts every start in the last 24 hours, whatever Routine made it, even a deleted one.
+        first = eleven - 86_400 + 30
+        full = tuple(("c" * 32, first + index) for index in range(record.routine_starts.TEAM_CEILING))
+        capped = dataclasses.replace(state, starts=full)
         self.assertIsNone(record.claimable(capped, eleven))
-        # The cap is per UTC day: the same late firings may start once the next day begins, within their grace.
-        next_day = epoch(2026, 10, 2, 0, 30)
-        after, claim = record.claim(capped, next_day, KEY)
-        self.assertEqual((after.starts_day, after.starts, after.served_at), ("2026-10-02", 1, next_day))
-        self.assertEqual(claim.run.routine_id, "b" * 32)
+        # The window rolls to the second: the oldest start leaves it exactly 24 hours after it was made.
+        self.assertIsNone(record.claimable(capped, first + 86_400 - 1))
+        self.assertEqual(record.next_due(capped, eleven), first + 86_400)
+        after, claim = record.claim(capped, first + 86_400, KEY)
+        self.assertEqual((claim.run.routine_id, len(after.starts)), ("b" * 32, record.routine_starts.TEAM_CEILING))
+        self.assertEqual(after.starts[-1], ("b" * 32, first + 86_400))
 
     def test_reconfirmation_and_deletion_stop_claims(self):
         state = record.mark_scope_changed(at(added(routine()), "a" * 32, NINE), "a" * 32, NINE, ["dns"])
@@ -326,15 +346,14 @@ class RunLifecycleTests(unittest.TestCase):
         attempts = (
             lambda value: record.spend(state, run_id, value, NINE + 1, 1),
             lambda value: record.freeze(state, run_id, value, NINE + 1, "human", "dns", "replace-dns-record"),
-            lambda value: record.finish(state, run_id, value, NINE + 1, "done", {"reply": "Done."}),
-            lambda value: record.hold_uncertain(state, run_id, value, NINE + 1, "d" * 64, {"actions": [["dns", "x"]]}),
+            lambda value: record.finish(state, run_id, value, NINE + 1, "done", routine_fixture.DONE),
             lambda value: record.bind_generation(state, run_id, value, NINE + 1, "net_2"),
         )
         for attempt in attempts:
             with self.subTest(attempt=attempt), self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
                 attempt(forged)
         with self.assertRaisesRegex(record.RoutineStateError, "lease-invalid"):
-            record.finish(state, run_id, lease, expired, "done", {"reply": "Done."})
+            record.finish(state, run_id, lease, expired, "done", routine_fixture.DONE)
 
     def test_a_run_binds_its_generation_from_the_trusted_network_once(self):
         state, claim, lease = claimed()
@@ -394,40 +413,10 @@ class RunLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(record.RoutineStateError, "frozen-limit"):
             record.freeze(state, claim.run.run_id, lease, NINE, "human", "dns", "replace-dns-record")
 
-    def test_only_a_resolution_of_the_exact_batch_releases_an_uncertain_run(self):
-        state, claim, lease = bound()
-        run_id = claim.run.run_id
-        uncertain = {"actions": [["dns", "replace-dns-record"]]}
-        unbound, unbound_claim, unbound_lease = claimed()
-        with self.assertRaisesRegex(record.RoutineStateError, "batch-invalid"):
-            record.hold_uncertain(unbound, unbound_claim.run.run_id, unbound_lease, NINE, "d" * 64, uncertain)
-        with self.assertRaisesRegex(record.RoutineStateError, "batch-invalid"):
-            record.hold_uncertain(state, run_id, lease, NINE, "short", uncertain)
-        state = record.hold_uncertain(state, run_id, lease, NINE + 5, "d" * 64, uncertain)
-        held = record.run(state, run_id)
-        self.assertEqual((held.status, held.batch), ("uncertain", (record.generation_for("net_1", run_id), "d" * 64)))
-        # Neither another outcome nor delivering its notice releases it.
-        for outcome in ("done", "stopped", "uncertain"):
-            with self.subTest(outcome=outcome), self.assertRaises(record.RoutineStateError):
-                record.end(state, run_id, NINE, outcome, {"actions": []})
-        state = record.acknowledge(state, frozenset((item.notice_id, item.version) for item in state.notices))
-        self.assertEqual((state.notices, record.claimable(state, epoch(2026, 10, 2, 9))), ((), None))
-        with self.assertRaisesRegex(record.RoutineStateError, "run-not-uncertain"):
-            record.resolve_uncertain(state, run_id, "e" * 64)
-        leased, running, _lease = bound()
-        with self.assertRaisesRegex(record.RoutineStateError, "run-not-uncertain"):
-            record.resolve_uncertain(leased, running.run.run_id, "d" * 64)
-        state = record.resolve_uncertain(state, run_id, "d" * 64)
-        self.assertEqual(record.claimable(state, epoch(2026, 10, 2, 9)).routine_id, "a" * 32)
-
     def test_team_ends_runs_without_their_lease_by_state(self):
         state, claim, _lease = bound()
         run_id = claim.run.run_id
         self.assertEqual(record.end(state, run_id, NINE, "stopped", {"actions": []}).runs, ())
-        held = record.end(state, run_id, NINE, "uncertain", {"actions": [["dns", "x"]]}, "d" * 64)
-        self.assertEqual(record.run(held, run_id).status, "uncertain")
-        with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-            record.end(state, run_id, NINE, "stopped", {"actions": []}, "d" * 64)
         for outcome in ("done", "denied", "uncertain"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 record.end(state, run_id, NINE, outcome, {"actions": [["dns", "x"]]})
@@ -436,17 +425,17 @@ class RunLifecycleTests(unittest.TestCase):
         denied = record.end(frozen, claim.run.run_id, NINE, "denied", {"actions": []})
         self.assertEqual(denied.notices[0].outcome, "denied")
         with self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
-            record.end(frozen, claim.run.run_id, NINE, "done", {"reply": "x"})
+            record.end(frozen, claim.run.run_id, NINE, "done", routine_fixture.DONE)
 
     def test_worker_outcomes_are_closed(self):
         state, claim, lease = claimed()
-        done = record.finish(state, claim.run.run_id, lease, NINE + 9, "done", {"reply": "Done."})
+        done = record.finish(state, claim.run.run_id, lease, NINE + 9, "done", routine_fixture.DONE)
         self.assertEqual((done.runs, done.notices[0].outcome), ((), "done"))
         for outcome in ("skipped", "scope-changed", "uncertain", "unknown"):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 record.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            record.finish(state, claim.run.run_id, lease, NINE, "done", {"reply": "x", "result": {}})
+            record.finish(state, claim.run.run_id, lease, NINE, "done", {"actions": [["dns", "check"]], "result": {}})
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
             record.run(done, claim.run.run_id)
 
@@ -462,7 +451,7 @@ class RunLifecycleTests(unittest.TestCase):
     def test_in_flight_outcomes_always_fit_above_the_claim_bound(self):
         state, claim, lease = claimed()
         state = dataclasses.replace(state, notices=full_notices())
-        state = record.finish(state, claim.run.run_id, lease, NINE, "done", {"reply": "Done."})
+        state = record.finish(state, claim.run.run_id, lease, NINE, "done", routine_fixture.DONE)
         self.assertEqual(len(state.notices), record.MAX_UNDELIVERED_NOTICES + 1)
         over = dataclasses.replace(state, notices=full_notices(record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES))
         with self.assertRaisesRegex(record.RoutineStateError, "notices-full"):
@@ -525,6 +514,208 @@ def _replace(value, path, replaced):
     return copied
 
 
+class FailureStreakTests(unittest.TestCase):
+    def test_three_failures_in_a_row_pause_the_routine_and_a_success_resets_the_streak(self):
+        state = added(routine())
+        for index, outcome in enumerate(("failed", "failed", "done", "failed", "failed", "failed")):
+            claimed_state, claim = record.claim(at(state, "a" * 32, NINE), NINE, KEY)
+            state = (
+                record.end(claimed_state, claim.run.run_id, NINE + index, outcome, {"code": "x", "actions": []})
+                if (outcome == "failed")
+                else record.finish(
+                    claimed_state,
+                    claim.run.run_id,
+                    record.lease_of(claim.lease_token, KEY),
+                    NINE,
+                    "done",
+                    routine_fixture.DONE,
+                )
+            )
+            state = dataclasses.replace(state, discards=(), starts=())
+            current = record.routine(state, "a" * 32)
+            with self.subTest(index=index):
+                self.assertEqual(current.failures, (1, 2, 0, 1, 2, 3)[index])
+                self.assertEqual(current.paused, index == 5)
+        # A Stop or a denial is no execution failure.
+        claimed_state, claim = record.claim(
+            at(
+                dataclasses.replace(
+                    state, routines=(dataclasses.replace(record.routine(state, "a" * 32), paused=False, failures=2),)
+                ),
+                "a" * 32,
+                NINE,
+            ),
+            NINE,
+            KEY,
+        )
+        stopped = record.end(claimed_state, claim.run.run_id, NINE, "stopped", {"actions": []})
+        self.assertEqual(record.routine(stopped, "a" * 32).failures, 2)
+
+
+class IncidentNoticeTests(unittest.TestCase):
+    """A held run's one notice goes on through its incident: held, then paused or user-skipped (ADR-0092)."""
+
+    def held(self) -> tuple[record.TeamRoutines, str]:
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        return record.fence(state, run_id, lease, NINE), run_id
+
+    def test_a_hold_names_its_step_and_its_notice_goes_on_through_the_incident(self):
+        state, run_id = self.held()
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        held = routine_hold.incident(state, run_id)
+        self.assertEqual((held.quote, held.assistant_id, held.action), (routine().quote, "dns", "replace-dns-record"))
+        notice = state.notices[-1]
+        self.assertEqual(
+            (notice.notice_id, notice.outcome, notice.detail, notice.version),
+            (run_id, "held", {"assistant_id": "dns", "action": "replace-dns-record"}, 1),
+        )
+        self.assertEqual(held.notice_version, 1)
+        paused = routine_hold.pause_incident(state, run_id, NINE + 2, "decided")
+        self.assertTrue(record.routine(paused, "a" * 32).paused)
+        self.assertEqual(
+            (paused.notices[-1].outcome, paused.notices[-1].detail, paused.notices[-1].version),
+            ("paused", {"assistant_id": "dns", "action": "replace-dns-record", "reason": "decided"}, 2),
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
+            routine_hold.pause_incident(state, run_id, NINE, "bored")
+        # A person setting this run aside is never the Routine's missed-schedule skip.
+        skipped = routine_hold.skip_incident(paused, run_id, NINE + 3, choice="run")
+        self.assertEqual(routine_hold.incident(skipped, run_id).status, "skipped")
+        self.assertEqual(
+            (skipped.notices[-1].outcome, skipped.notices[-1].run_id, skipped.notices[-1].version),
+            ("user-skipped", run_id, 3),
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-not-unresolved"):
+            routine_hold.pause_incident(skipped, run_id, NINE, "person")
+        # A deleted Routine's incident still says what it was, from its own quote.
+        gone = dataclasses.replace(state, routines=())
+        self.assertEqual(
+            routine_hold.skip_incident(gone, run_id, NINE, choice="run").notices[-1].quote, routine().quote
+        )
+
+    def test_rodar_keeps_one_fresh_run_pending_through_any_delay_and_never_moves_the_cadence(self):
+        state, run_id = self.held()
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        state = routine_hold.pause_incident(state, run_id, NINE + 2, "exhausted")
+        cadence = record.routine(state, "a" * 32).next_run_at
+        expected = routine_hold.Expected(1, routine_hold.incident(state, run_id).generation, 1)
+        asked = routine_hold.run_incident(state, run_id, NINE + 10, expected)
+        requested = record.routine(asked, "a" * 32)
+        self.assertEqual(
+            (requested.paused, requested.run_requested, requested.next_run_at), (False, NINE + 10, cadence)
+        )
+        notice = asked.notices[-1]
+        self.assertEqual((notice.outcome, notice.detail["choice"]), ("user-skipped", "run"))
+        self.assertEqual(record.next_due(asked, NINE + 5), NINE + 10)
+        # A Team catching up its notices waits; the request outlasts the schedule's own grace and is never missed.
+        late = cadence - 60
+        self.assertGreater(late - (NINE + 10), record.grace_seconds(requested))
+        claimed_state, claim = record.claim(asked, late, KEY)
+        after = record.routine(claimed_state, "a" * 32)
+        self.assertEqual((claim.run.scheduled_at, after.run_requested, after.next_run_at), (NINE + 10, 0, cadence))
+        self.assertEqual(claimed_state.starts[-1], ("a" * 32, late))
+        # A firing due at the same time serves the request too: one run, never two.
+        both, claim = record.claim(asked, cadence, KEY)
+        self.assertEqual((claim.run.scheduled_at, record.routine(both, "a" * 32).run_requested), (cadence, 0))
+        self.assertEqual(len(both.runs), 1)
+        # The card's state is checked in the same write.
+        with self.assertRaisesRegex(record.RoutineStateError, "incident-changed"):
+            routine_hold.run_incident(state, run_id, NINE + 10, dataclasses.replace(expected, current=2))
+
+    def test_deleting_a_routine_sets_a_run_held_afterwards_aside_as_it_is_indexed(self):
+        state, run_id = self.held()
+        state, _runs = record.begin_delete(state, "a" * 32)
+        state = routine_hold.settle_hold(state, run_id, NINE + 1, 1, ("dns", "replace-dns-record"))
+        self.assertEqual(routine_hold.incident(state, run_id).status, "skipped")
+        self.assertEqual(
+            state.notices[-1].detail, {"assistant_id": "dns", "action": "replace-dns-record", "choice": "delete"}
+        )
+
+    def test_a_resume_starts_a_fresh_streak_and_a_deleting_routine_never_pauses_or_resumes(self):
+        state = added(routine())
+        state = dataclasses.replace(state, routines=(dataclasses.replace(state.routines[0], failures=3, paused=True),))
+        resumed = record.routine(record.set_paused(state, "a" * 32, False), "a" * 32)
+        self.assertEqual((resumed.paused, resumed.failures), (False, 0))
+        paused = record.routine(record.set_paused(state, "a" * 32, True), "a" * 32)
+        self.assertEqual(paused.failures, 3)
+        deleting, _runs = record.begin_delete(state, "a" * 32)
+        for value in (True, False):
+            with self.subTest(paused=value), self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+                record.set_paused(deleting, "a" * 32, value)
+
+    def test_the_wake_hint_is_the_earliest_future_firing_of_a_routine_that_may_start(self):
+        ids = [f"{index:x}" * 32 for index in range(1, 7)]
+        state = added(*(routine(routine_id) for routine_id in ids))
+        changes = {
+            ids[0]: {"next_run_at": NINE - 1},
+            ids[1]: {"next_run_at": NINE + 10, "paused": True},
+            ids[2]: {"next_run_at": NINE + 20, "deleting": True},
+            ids[3]: {"next_run_at": NINE + 30, "needs_reconfirm": True},
+            ids[4]: {"next_run_at": NINE + 40},
+            ids[5]: {"next_run_at": NINE + 50},
+        }
+        state = dataclasses.replace(
+            state, routines=tuple(dataclasses.replace(item, **changes[item.routine_id]) for item in state.routines)
+        )
+        self.assertEqual(record.next_due(state, NINE), NINE + 40)
+        # A Routine with a live run or an unresolved incident wakes nothing; its own end or resolution does.
+        busy = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "frozen", 0),))
+        self.assertEqual(record.next_due(busy, NINE), NINE + 50)
+        # A leased run holds the Team's one slot: no other Routine of the Team is claimed or hinted until it ends.
+        leased = dataclasses.replace(state, runs=(record.Run("f" * 32, ids[4], "leased", 0),))
+        self.assertEqual(record.claimable(busy, NINE).routine_id, ids[0])
+        self.assertIsNone(record.claimable(leased, NINE))
+        self.assertIsNone(record.next_due(leased, NINE))
+        held = dataclasses.replace(busy, incidents=(record.Incident("e" * 32, ids[5], "g", 0),))
+        self.assertIsNone(record.next_due(held, NINE))
+
+    def test_a_hold_without_a_sealed_cursor_names_no_step(self):
+        state, run_id = self.held()
+        state = routine_hold.settle_hold(state, run_id, NINE + 1)
+        self.assertEqual(state.notices[-1].detail, {"assistant_id": None, "action": None})
+
+    def test_a_completed_continuation_is_recovered_and_resets_the_streak(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        self.assertEqual(record.completed(record.run(state, run_id)), "done")
+        continued = record.run(state, run_id)
+        continued = dataclasses.replace(continued, generation=record.generation_for("net_1", run_id, "s1"))
+        self.assertEqual(record.completed(continued), "recovered")
+        streak = dataclasses.replace(record.routine(state, "a" * 32), failures=2)
+        state = dataclasses.replace(state, routines=(streak,))
+        ended = record.finish(state, run_id, lease, NINE + 1, "recovered", routine_fixture.DONE)
+        self.assertEqual((ended.notices[-1].outcome, record.routine(ended, "a" * 32).failures), ("recovered", 0))
+
+
+class RecoveredRunTests(unittest.TestCase):
+    """The watchdog's lease-less endings touch only the exact leased run it read."""
+
+    def test_a_recovered_run_is_held_or_done_only_under_the_lease_the_watchdog_read(self):
+        state, claim, _lease = bound()
+        run_id, lease_sha256 = claim.run.run_id, claim.run.lease_sha256
+        held = record.run(record.hold_recovered(state, run_id, lease_sha256), run_id)
+        self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
+        done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
+        self.assertEqual(done.runs, ())
+        self.assertEqual((done.notices[-1].outcome, done.notices[-1].detail), ("done", {"actions": [["dns", "check"]]}))
+        unbound, unclaimed, _lease = claimed()
+        for transition, code in (
+            (lambda: record.hold_recovered(state, run_id, "0" * 64), "run-changed"),
+            (lambda: record.complete_recovered(state, run_id, "0" * 64, NINE), "run-changed"),
+            (
+                lambda: record.hold_recovered(unbound, unclaimed.run.run_id, unclaimed.run.lease_sha256),
+                "generation-invalid",
+            ),
+            (
+                lambda: record.hold_recovered(record.hold_recovered(state, run_id, lease_sha256), run_id, lease_sha256),
+                "run-not-running",
+            ),
+        ):
+            with self.subTest(code=code), self.assertRaisesRegex(record.RoutineStateError, code):
+                transition()
+
+
 class RoutineViewContractTests(unittest.TestCase):
     """Admin admits every Routine response only in its closed view; the golden vectors pin each one."""
 
@@ -538,13 +729,16 @@ class RoutineViewContractTests(unittest.TestCase):
             "routine_views"
         ]
         admit = {
-            "proposal": http_routine.canonical_proposal,
-            "preview": http_routine.canonical_preview,
             "routine": http_routine.canonical_routine_view,
             "run": http_routine.canonical_run_view,
             "notice_batch": http_routine.canonical_notice_batch,
             "claim": http_routine.canonical_claim,
             "claim_request": http_routine.canonical_claim_request,
+            "incident": http_routine.canonical_incident_view,
+            "card": http_routine.canonical_card,
+            "card_answer_request": http_routine.canonical_card_answer_request,
+            "card_answer": http_routine.canonical_card_answer,
+            "segment_request": http_routine.canonical_segment_request,
         }
         for kind, function in admit.items():
             for value in views[kind]["valid"]:
@@ -562,13 +756,207 @@ class RoutineViewContractTests(unittest.TestCase):
                     with self.subTest(kind=kind, path=path, replaced=replaced):
                         admitted = function(_replace(value, path, replaced))
                         self.assertIn(admitted, (None, _replace(value, path, replaced)))
-        proposal = views["preview"]["valid"][0]
-        self.assertIsNone(http_routine.canonical_preview({**proposal, "expires_in": "soon"}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": "none", "more": False}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": ["x"], "more": False}))
         # Two notices at their bound exceed a batch's encoded bound; one alone fits.
-        largest = dict(views["notice_batch"]["valid"][0]["notices"][0], detail={"reply": "\x01" * 16_000})
-        second = dict(largest, notice_id="9" * 32, run_id="9" * 32)
+        largest = dict(
+            views["notice_batch"]["valid"][0]["notices"][0],
+            run_id=None,
+            outcome="created",
+            detail=routine_fixture.large_definition(),
+        )
+        second = dict(largest, notice_id="9" * 32)
         self.assertIsNotNone(http_routine.canonical_notice_batch({"notices": [largest], "more": True}))
         self.assertIsNone(http_routine.canonical_notice_batch({"notices": [largest, second], "more": False}))
         self.assertIsNone(http_routine.canonical_claim({"run": ["x"]}))
+
+
+RECEIPT = "e" * 64
+
+
+class CompiledChangeTests(unittest.TestCase):
+    """A request creates or changes a Routine with its notice and receipt in one transition (ADR-0092)."""
+
+    def test_a_defined_routine_first_fires_no_sooner_than_thirty_seconds_after_it_is_durable(self):
+        now = epoch(2026, 9, 1, 8, 59, 45)
+        value = record.scheduled(dataclasses.replace(routine(), anchor=0, next_run_at=0), now)
+        self.assertEqual(value.anchor, now + record.INITIAL_DELAY_SECONDS)
+        self.assertEqual(value.next_run_at, epoch(2026, 9, 2, 9))
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
+            record.scheduled(dataclasses.replace(routine(), schedule={"kind": "yearly"}), now)
+
+    def test_a_request_creates_once_with_its_notice_and_its_receipt(self):
+        state, created = record.create(record.TeamRoutines(), routine(), NINE, RECEIPT, NINE + 900)
+        self.assertTrue(created)
+        self.assertEqual([item.routine_id for item in state.routines], ["a" * 32])
+        self.assertEqual(state.receipts, ((RECEIPT, NINE + 900),))
+        (notice,) = state.notices
+        self.assertEqual((notice.outcome, notice.run_id, notice.detail), ("created", "", DEFINED))
+        again, created = record.create(state, routine("b" * 32), NINE + 5, RECEIPT, NINE + 900)
+        self.assertFalse(created)
+        self.assertEqual(again, state)
+        # Deleting the Routine keeps its receipt, so a resend of the same request never recreates it.
+        deleted = record.complete_delete(record.begin_delete(state, "a" * 32)[0], "a" * 32)
+        self.assertEqual(record.create(deleted, routine(), NINE + 9, RECEIPT, NINE + 900), (deleted, False))
+
+    def test_receipts_expire_but_saturation_refuses_without_evicting_a_live_one(self):
+        expired = dataclasses.replace(record.TeamRoutines(), receipts=(("f" * 64, NINE),))
+        state, created = record.create(expired, routine(), NINE, RECEIPT, NINE + 900)
+        self.assertTrue(created)
+        self.assertEqual(state.receipts, ((RECEIPT, NINE + 900),))
+        live = tuple((f"{index:064x}", NINE + 900) for index in range(record.MAX_RECEIPTS))
+        full = dataclasses.replace(record.TeamRoutines(), receipts=live)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-receipts-full"):
+            record.create(full, routine(), NINE, RECEIPT, NINE + 900)
+        # A request whose identity expired this very second never acts, though no receipt of it is live any more.
+        for moment in (NINE + 900, NINE + 901):
+            with self.subTest(moment=moment), self.assertRaisesRegex(record.RoutineStateError, "request-expired"):
+                record.create(record.TeamRoutines(), routine(), moment, RECEIPT, NINE + 900)
+        self.assertTrue(record.create(record.TeamRoutines(), routine(), NINE + 899, RECEIPT, NINE + 900)[1])
+        for receipt, expires_at in (("E" * 64, NINE + 900), (RECEIPT, float(NINE))):
+            with self.subTest(receipt=receipt), self.assertRaisesRegex(record.RoutineStateError, "receipt-invalid"):
+                record.create(record.TeamRoutines(), routine(), NINE, receipt, expires_at)
+
+    def test_an_update_is_the_next_revision_of_exactly_the_revision_the_request_saw(self):
+        state = dataclasses.replace(added(routine(), routine("b" * 32)))
+        state = record.mark_scope_changed(state, "a" * 32, NINE, ["dns"])
+        state = record.set_paused(state, "a" * 32, True)
+        changed = record.scheduled(dataclasses.replace(routine(), name="DNS summary", schedule=WEEKLY), NINE)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-revision-changed"):
+            record.update(state, changed, 2, NINE, RECEIPT, NINE + 900)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-rate-limit"):
+            record.update(
+                added(routine(), routine("b" * 32, {"kind": "continuous", "gap": 5, "cap": 990})),
+                record.scheduled(dataclasses.replace(routine(), schedule=HOURLY), NINE),
+                1,
+                NINE,
+                RECEIPT,
+                NINE + 900,
+            )
+        after, updated = record.update(state, changed, 1, NINE, RECEIPT, NINE + 900)
+        self.assertTrue(updated)
+        current = record.routine(after, "a" * 32)
+        self.assertEqual(
+            (current.revision, current.name, current.paused, current.needs_reconfirm), (2, changed.name, True, False)
+        )
+        self.assertEqual(after.notices[-1].outcome, "changed")
+        self.assertEqual(after.notices[-1].detail["schedule"], WEEKLY)
+        self.assertEqual(record.update(after, changed, 2, NINE, RECEIPT, NINE + 900), (after, False))
+
+    def test_an_update_never_lands_on_a_running_or_deleting_routine(self):
+        claimed_state, _claim, _lease = claimed()
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-busy"):
+            record.update(claimed_state, routine(), 1, NINE, RECEIPT, NINE + 900)
+        deleting = record.begin_delete(added(routine()), "a" * 32)[0]
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+            record.update(deleting, routine(), 1, NINE, RECEIPT, NINE + 900)
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-not-found"):
+            record.update(record.TeamRoutines(), routine(), 1, NINE, RECEIPT, NINE + 900)
+
+
+class HoldTimeTests(unittest.TestCase):
+    def test_a_hold_keeps_the_run_balance_and_a_continuation_restores_it(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = record.spend(state, run_id, lease, NINE, 250)
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        self.assertEqual(routine_hold.incident(state, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
+        reopened, _token = routine_hold.reopen_incident(
+            state, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1")
+        )
+        self.assertEqual(record.run(reopened, run_id).active_seconds_left, record.ACTIVE_SECONDS - 250)
+        spent = dataclasses.replace(
+            state, incidents=(dataclasses.replace(routine_hold.incident(state, run_id), active_seconds_left=0),)
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "run-time-exhausted"):
+            routine_hold.reopen_incident(spent, run_id, NINE + 2, record.generation_for("net_1", run_id, "s1"))
+
+    def test_recovery_time_is_charged_and_refunded_only_against_the_same_held_run(self):
+        state, claim, lease = bound()
+        run_id = claim.run.run_id
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1, 1)
+        charged = routine_hold.charge_incident(state, run_id, 60)
+        self.assertEqual(routine_hold.incident(charged, run_id).active_seconds_left, record.ACTIVE_SECONDS - 60)
+        for seconds in (0, -1, True, record.ACTIVE_SECONDS + 1):
+            with self.subTest(seconds=seconds), self.assertRaisesRegex(record.RoutineStateError, "time-invalid"):
+                routine_hold.charge_incident(state, run_id, seconds)
+        generation = routine_hold.incident(state, run_id).generation
+        refunded = routine_hold.refund_incident(charged, run_id, generation, 1_000)
+        self.assertEqual(routine_hold.incident(refunded, run_id).active_seconds_left, record.ACTIVE_SECONDS)
+        for target, seconds in ((("x", generation), 5), ((run_id, "other"), 5), ((run_id, generation), 0)):
+            with self.subTest(target=target):
+                self.assertIs(routine_hold.refund_incident(charged, *target, seconds), charged)
+
+
+class ContinuousTests(unittest.TestCase):
+    """A continuous Routine runs again its gap after each run ends, never overlapping, within its rolling cap."""
+
+    def continuous(self, cap: int = 3) -> record.TeamRoutines:
+        value = routine(schedule={"kind": "continuous", "gap": 5, "cap": cap})
+        return at(added(value), "a" * 32, NINE)
+
+    def test_the_next_run_is_due_its_gap_after_the_previous_one_ended_and_never_overlaps(self):
+        state = self.continuous()
+        state, claim = record.claim(state, NINE, KEY)
+        run_id = claim.run.run_id
+        # The claim names how the run was scheduled; a scheduled Routine's claim says scheduled.
+        self.assertEqual(claim.mode, "continuous")
+        self.assertEqual(record.claim(at(added(routine()), "a" * 32, NINE), NINE, KEY)[1].mode, "scheduled")
+        # While it runs nothing else of it starts, however long it takes.
+        for later in (NINE + 5, NINE + 600):
+            self.assertIsNone(record.claimable(state, later))
+        self.assertIsNone(record.next_due(state, NINE + 600))
+        lease = record.lease_of(claim.lease_token, KEY)
+        ended = record.finish(state, run_id, lease, NINE + 40, "done", routine_fixture.DONE)
+        self.assertEqual(record.routine(ended, "a" * 32).next_run_at, NINE + 45)
+        self.assertIsNone(record.claimable(ended, NINE + 44))
+        self.assertEqual(record.next_due(ended, NINE + 40), NINE + 45)
+        self.assertEqual(record.claimable(ended, NINE + 45).routine_id, "a" * 32)
+        # Any ending counts, a Team-decided one included.
+        state, claim = record.claim(ended, NINE + 45, KEY)
+        stopped = record.end(state, claim.run.run_id, NINE + 50, "stopped", {"actions": []})
+        self.assertEqual(record.routine(stopped, "a" * 32).next_run_at, NINE + 55)
+
+    def test_a_continuous_routine_never_skips_a_backlog_and_waits_out_its_cap_to_the_second(self):
+        state = self.continuous(cap=2)
+        # A long outage reports no missed runs: it simply starts when it may.
+        swept = record.sweep(state, NINE + 7 * 86_400)
+        self.assertEqual((swept.notices, record.routine(swept, "a" * 32).missed), ((), 0))
+        starts = []
+        for _index in range(2):
+            now = NINE + 100 * len(starts)
+            state = at(state, "a" * 32, now)
+            state, claim = record.claim(state, now, KEY)
+            starts.append(now)
+            state = record.end(state, claim.run.run_id, now + 1, "stopped", {"actions": []})
+        # Its third start waits until its first leaves the rolling window, exactly.
+        boundary = starts[0] + 86_400
+        self.assertIsNone(record.claimable(state, boundary - 1))
+        self.assertEqual(record.next_due(state, boundary - 1), boundary)
+        self.assertEqual(record.claimable(state, boundary).routine_id, "a" * 32)
+
+    def test_a_skipped_hold_ends_the_run_so_the_next_one_waits_its_gap_after_the_skip(self):
+        state = self.continuous(cap=1000)
+        state, claim = record.claim(state, NINE, KEY)
+        run_id = claim.run.run_id
+        lease = record.lease_of(claim.lease_token, KEY)
+        state = record.bind_generation(state, run_id, lease, NINE, "net_1")
+        state = routine_hold.settle_hold(record.fence(state, run_id, lease, NINE), run_id, NINE + 1)
+        # Held for a day: the gap after the held run's own end has long passed, but the incident still holds it.
+        skipped_at = NINE + 86_400
+        self.assertIsNone(record.claimable(state, skipped_at))
+        skipped = routine_hold.skip_incident(state, run_id, skipped_at, choice="run")
+        self.assertEqual(record.routine(skipped, "a" * 32).next_run_at, skipped_at + 5)
+        self.assertIsNone(record.claimable(skipped, skipped_at + 4))
+        self.assertEqual(record.next_due(skipped, skipped_at), skipped_at + 5)
+        self.assertEqual(record.claimable(skipped, skipped_at + 5).routine_id, "a" * 32)
+        # Rodar on a continuous Routine asks for nothing more: it is due its gap after the run was set aside.
+        generation = routine_hold.incident(state, run_id).generation
+        ran = routine_hold.run_incident(state, run_id, skipped_at, routine_hold.Expected(1, generation, 1))
+        self.assertEqual(record.routine(ran, "a" * 32).run_requested, 0)
+        self.assertEqual(record.routine(ran, "a" * 32).next_run_at, skipped_at + 5)
+        # A scheduled Routine's next firing is its own and a skip leaves it unchanged.
+        scheduled, _run_id = IncidentNoticeTests().held()
+        before = record.routine(scheduled, "a" * 32).next_run_at
+        self.assertEqual(record.rebase_continuous(scheduled, "a" * 32, NINE + 10), scheduled)
+        self.assertEqual(record.routine(scheduled, "a" * 32).next_run_at, before)

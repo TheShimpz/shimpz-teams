@@ -8,6 +8,7 @@ from typing import NoReturn
 
 from action import human as action_human
 from action import journal as action_journal
+from assistant import language as assistant_language
 from chat import contract as assistant_chat
 from chat import orchestrator as chat_orchestrator
 from chat import progress as chat_progress
@@ -52,6 +53,8 @@ class SegmentResult:
     human: tuple[object, ...] = ()
     # The exact contract digest of each Assistant the Brain saw in this segment, for binding a Routine proposal.
     contracts: tuple[tuple[str, str], ...] = ()
+    # The interface language the turn's start pinned; a suspension keeps it for the rest of the turn (ADR-0091).
+    locale: str | None = None
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
         return self.integrations, self.human
@@ -68,7 +71,8 @@ class SegmentStrategy:
     cancelled: Callable[[], bool]
     validate_context: Callable[[], None]
     raise_problem: Callable[[str, BaseException | None], None]
-    human_requirement: Callable[[object, action_human.HumanRequest], object] = lambda _action, _request: (
+    # Builds the requirement with its copy rendered in the given concrete interface language (ADR-0091).
+    human_requirement: Callable[[object, action_human.HumanRequest, str], object] = lambda _action, _request, _locale: (
         _ for _ in ()
     ).throw(chat_orchestrator.ChatOrchestrationError("Action human requests are unavailable"))
     finalize: Callable[[], None] = lambda: None
@@ -247,12 +251,19 @@ def _with_purpose(
     segment: PreparedSegment,
     suspension: chat_orchestrator.ChatHumanSuspension,
 ) -> object:
-    """Attach the Brain's task-bound purpose to a new human requirement (ADR-0090).
+    """Render a new human requirement in the turn's language and attach the Brain's task-bound purpose (ADR-0090).
 
-    The purpose is optional: any Brain failure leaves it absent. Stop and a changed Team context still end the turn,
-    so they are checked again after the call and before the challenge exists.
+    A turn without a concrete interface language renders the English catalog and asks for no purpose: a purpose is
+    shown only in a challenge of its own concrete locale (ADR-0091). The purpose is optional: any Brain failure leaves
+    it absent. Stop and a changed Team context still end the turn, so they are checked again after the call and before
+    the challenge exists.
     """
-    requirement = strategy.human_requirement(suspension.action, suspension.request)
+    locale = segment.context.locale
+    requirement = strategy.human_requirement(
+        suspension.action, suspension.request, locale or assistant_language.ENGLISH
+    )
+    if locale is None:
+        return requirement
     purpose = strategy.runtime.purpose(
         segment.context,
         suspension.action,
@@ -262,7 +273,7 @@ def _with_purpose(
     if strategy.cancelled():
         raise chat_orchestrator.ChatStoppedError("chat turn stopped")
     strategy.validate_context()
-    return replace(requirement, purpose=purpose)
+    return replace(requirement, purpose=purpose, purpose_locale=None if purpose is None else locale)
 
 
 def suspension_gate_count(*requirements: tuple[object, ...]) -> int:
@@ -306,3 +317,10 @@ def dispatch(
         if group:
             return handler(outcome, group, state)
     _raise_unreachable_suspension()
+
+
+def with_restricted_actions(body: dict[str, object], outcome: chat_orchestrator.ChatOutcome) -> dict[str, object]:
+    """A completed terminal body, naming the Actions withheld for attachment content when there were any."""
+    if outcome.restricted_actions is not None:
+        body["restricted_actions"] = outcome.restricted_actions
+    return body

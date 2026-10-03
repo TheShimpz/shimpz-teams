@@ -7,7 +7,10 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any
 
+from action import files as action_files
 from action import human as action_human
+from action import journal as action_journal
+from chat import attachments as chat_attachments
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
 from protocol.http.v1 import payload as http_payload
@@ -40,7 +43,9 @@ class ChatOutcome:
     actions: tuple[InvokedAction, ...]
     clarification: dict[str, object] | None = None
     memory: tuple[dict[str, str], ...] = ()
-    routine: dict[str, object] | None = None
+    routine: object | None = None
+    # The selected Actions the turn withheld for its readable attachment content, for Admin's guidance (ADR-0093).
+    restricted_actions: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +56,8 @@ class ChatContinuation:
     seen_interrupts: tuple[str, ...]
     invoked: tuple[InvokedAction, ...]
     round_index: int
+    # The distinct file-taking logical Actions this turn admitted before this round (ADR-0093).
+    file_actions: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +121,17 @@ def _validate_batch(
     requests: tuple[brain_runtime_client.ActionRequest, ...],
     declared: Mapping[tuple[str, str], brain_runtime_client.RuntimeAction],
     validate_action: ActionValidator,
+    capacity: int,
+    selected: frozenset[str] = frozenset(),
 ) -> tuple[brain_runtime_client.ActionRequest, ...]:
-    """Validate a complete suspension before allowing its first side effect."""
+    """Validate a complete suspension before allowing its first side effect.
+
+    A file-taking Action may name only a file the turn selected; its file budget is checked by the caller.
+    """
     if not requests:
         raise ChatOrchestrationError("Brain suspended without an Action request")
+    if len(requests) > capacity:
+        raise ChatOrchestrationError("Action batch results could exceed the Brain request")
 
     seen_interrupts: set[str] = set()
     contracts: list[tuple[brain_runtime_client.ActionRequest, brain_runtime_client.RuntimeAction]] = []
@@ -135,6 +149,8 @@ def _validate_batch(
         safe_input = validate_action(request.assistant_id, action.id, request.input)
         if not isinstance(safe_input, Mapping):
             raise ChatOrchestrationError("Action validator returned an invalid input contract")
+        if action.input_files and safe_input.get(action.input_files[0]) not in selected:
+            raise ChatOrchestrationError("Brain named a file this turn did not select")
         validated.append(
             brain_runtime_client.ActionRequest(
                 interrupt_id=request.interrupt_id,
@@ -146,6 +162,40 @@ def _validate_batch(
     return tuple(validated)
 
 
+def _file_actions(
+    batch: tuple[brain_runtime_client.ActionRequest, ...],
+    declared: Mapping[tuple[str, str], brain_runtime_client.RuntimeAction],
+    before: int,
+) -> int:
+    """Reserve the batch's file-taking logical Actions against the turn's budget before any of them runs."""
+    total = before + sum(1 for request in batch if declared[(request.assistant_id, request.action)].input_files)
+    if total > action_files.MAX_FILE_ACTIONS_PER_TURN:
+        raise ChatOrchestrationError("Action batch exceeds the turn's file deliveries")
+    return total
+
+
+def _admit_batch(
+    turn: brain_runtime_client.RuntimeTurn,
+    context: brain_runtime_client.RuntimeContext,
+    declared: Mapping[tuple[str, str], brain_runtime_client.RuntimeAction],
+    strategy: ChatStrategy,
+    admitted: tuple[set[str], int],
+) -> tuple[tuple[brain_runtime_client.ActionRequest, ...], int]:
+    """Admit a round's whole batch, and the turn's file budget it reserves, before any of its side effects.
+
+    Every result must fit the one resume that returns them, so the batch is bounded by the exact serialized turn
+    context and each result's worst case (ADR-0093). ``admitted`` holds the interrupts already seen and the file-taking
+    Actions already reserved.
+    """
+    seen_interrupts, file_actions = admitted
+    capacity = brain_runtime_client.resume_capacity(context, action_journal.MAX_RESULT_BYTES)
+    selected = frozenset(str(item["id"]) for item in context.attachments)
+    batch = _validate_batch(turn.actions, declared, strategy.validate_action, capacity, selected)
+    if not seen_interrupts.isdisjoint(request.interrupt_id for request in batch):
+        raise ChatOrchestrationError("Brain repeated an Action interrupt across rounds")
+    return batch, _file_actions(batch, declared, file_actions)
+
+
 def _drive(
     runtime: brain_runtime_client.BrainRuntimeClient,
     context: brain_runtime_client.RuntimeContext,
@@ -155,7 +205,9 @@ def _drive(
     turn = continuation.turn
     invoked = list(continuation.invoked)
     seen_interrupts = set(continuation.seen_interrupts)
-    declared = {(assistant.id, action.id): action for assistant in context.assistants for action in assistant.actions}
+    file_actions = continuation.file_actions
+    # While attachment content is in the turn, only authorizing Actions are declared to it (ADR-0093).
+    declared = chat_attachments.admitted_actions(context)
     contracts = {assistant.id: brain_runtime_client.contract_digest(assistant) for assistant in context.assistants}
 
     for _round in range(continuation.round_index, MAX_ACTION_ROUNDS + 1):
@@ -165,6 +217,10 @@ def _drive(
             if turn.clarification is not None and (_round > 0 or invoked):
                 # A question is only admissible before any Action of the logical turn ran (ADR-0081).
                 raise ChatOrchestrationError("Brain asked a clarification after Actions ran")
+            if turn.routine is not None and (_round > 0 or invoked):
+                # Only the user's own message may change a Routine: never a turn that already saw any Action output,
+                # including one resumed after a person answered (ADR-0092 section 2).
+                raise ChatOrchestrationError("Brain changed a Routine after Actions ran")
             with strategy.progress.span("team-context"):
                 strategy.validate_context()
             return ChatOutcome(
@@ -173,16 +229,15 @@ def _drive(
                 clarification=turn.clarification,
                 memory=turn.memory,
                 routine=turn.routine,
+                restricted_actions=chat_attachments.restricted_actions(context),
             )
         if _round == MAX_ACTION_ROUNDS:
             raise ChatOrchestrationError("Brain exceeded the Action round limit")
 
         with strategy.progress.span("action-preparation"):
             strategy.validate_context()
-            batch = _validate_batch(turn.actions, declared, strategy.validate_action)
+            batch, batch_file_actions = _admit_batch(turn, context, declared, strategy, (seen_interrupts, file_actions))
             batch_interrupts = {request.interrupt_id for request in batch}
-            if not seen_interrupts.isdisjoint(batch_interrupts):
-                raise ChatOrchestrationError("Brain repeated an Action interrupt across rounds")
             if strategy.pause_before_batch(batch):
                 return ChatSuspension(
                     continuation=ChatContinuation(
@@ -190,6 +245,7 @@ def _drive(
                         seen_interrupts=tuple(sorted(seen_interrupts)),
                         invoked=tuple(invoked),
                         round_index=_round,
+                        file_actions=file_actions,
                     ),
                     requests=batch,
                 )
@@ -201,6 +257,7 @@ def _drive(
             seen_interrupts=tuple(sorted(seen_interrupts)),
             invoked=tuple(invoked),
             round_index=_round,
+            file_actions=file_actions,
         )
         for index, request in enumerate(batch, start=1):
             if strategy.cancelled():
@@ -239,6 +296,7 @@ def _drive(
         with strategy.progress.span("action-delivery"):
             strategy.batch_delivered(batch)
         invoked.extend(batch_invoked)
+        file_actions = batch_file_actions
         turn = resumed
 
     raise ChatOrchestrationError("Brain did not complete the chat turn")

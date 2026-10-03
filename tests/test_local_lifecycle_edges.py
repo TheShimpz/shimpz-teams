@@ -305,6 +305,28 @@ class LocalLifecycleEdgeTests(LocalContractCase):
             controller.reset_space()
         self.assertEqual(caught.exception.code, "teardown-incomplete")
 
+    def test_helper_removal_failures_refuse_destroy_and_reset(self) -> None:
+        subject = types.SimpleNamespace(client=object(), space_id="space")
+        with (
+            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=DockerException("busy")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            local_lifecycle._remove_team_helpers(subject, "team_1")
+        self.assertEqual(caught.exception.code, "docker-remove-failed")
+
+        controller, _container, _events = self._lifecycle_controller()
+        controller.chat_turn_service._clear_chat_continuations = mock.Mock()
+        controller.chat_turn_service.human_challenges.cancel_all = mock.Mock()
+        controller._reset_inventory = mock.Mock(return_value=([], []))
+        controller._reset_assistant_identities = mock.Mock(return_value=set())
+        controller._remove_space_resources = mock.Mock(return_value=(False, set()))
+        with (
+            mock.patch.object(local_lifecycle.local_prepare, "remove_helpers", side_effect=DockerException("busy")),
+            self.assertRaises(local_app.ApiProblem) as caught,
+        ):
+            controller.reset_space()
+        self.assertEqual(caught.exception.code, "docker-reset-failed")
+
 
 if __name__ == "__main__":
     unittest.main()

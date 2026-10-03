@@ -20,8 +20,9 @@ from core import strict_json
 from inference import config as inference_config
 from install import bindings
 from local.chat import continuation as local_chat_continuations
-from local.chat.segment import RoutineSegment, SegmentRequest
+from local.chat import human as local_chat_human
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import compiled as routine_compiled
 from local.routine import manage as routine_manage
 from local.routine import run as routine_run
 from local.routine import state as routine_state
@@ -39,6 +40,8 @@ class _Frozen:
     value: record.Run
     routine: record.Routine
     pending: local_chat_continuations.PendingLocalChat
+    # The answered request, whose copy must still come from the Team's current binding (ADR-0091).
+    requirement: action_challenges.HumanRequirement | None = None
 
 
 def _problem(status: HTTPStatus, message: str, code: str) -> ApiProblem:
@@ -111,10 +114,17 @@ def _proven_changed(self, team_id: str, pending: local_chat_continuations.Pendin
     return set(current) != set(pending.assistant_ids) or provider != pending.provider
 
 
-def _current_context(self, team_id: str, value: record.Run, pending: local_chat_continuations.PendingLocalChat) -> None:
+def _current_context(
+    self,
+    team_id: str,
+    value: record.Run,
+    pending: local_chat_continuations.PendingLocalChat,
+    requirement: action_challenges.HumanRequirement | None = None,
+) -> tuple[object, ...]:
     """The Team must still be exactly as the run left it; otherwise the run ends and nothing replays.
 
-    When that cannot be read now, the run stays frozen and the person may retry.
+    A human request's copy must also still come from the binding's catalog and pack (ADR-0091). When the Team cannot
+    be read now, the run stays frozen and the person may retry. Returns the Team's running Assistants.
     """
     try:
         current = self._chat_setup(team_id, [], pending.provider, pending.assistant_ids)
@@ -122,23 +132,40 @@ def _current_context(self, team_id: str, value: record.Run, pending: local_chat_
         if not _proven_changed(self, team_id, pending):
             raise routine_turn.context_unavailable() from exc
         current = None
-    if current is None or self._chat_identity(*current) != pending.identity:
+    if (
+        current is None
+        or self._chat_identity(*current) != pending.identity
+        or (requirement is not None and not local_chat_human.copy_binding_current(requirement, current[2]))
+    ):
         _end_changed(self, team_id, value)
         raise _problem(HTTPStatus.CONFLICT, "Team capabilities changed; the run ended", "team-context-changed")
+    return current[2]
 
 
-def open_routine_challenge(self, team_id: str, run_id: str) -> dict[str, object]:
-    """A person opened a frozen run's notice: create a fresh one-use challenge for its exact request."""
+def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict[str, object]:
+    """A person opened a frozen run's notice: create a fresh one-use challenge for its exact request.
+
+    Each opening renders the request copy in the Admin interface language from the same binding's pack, so another
+    language is always a fresh challenge; a purpose from another language is not shown (ADR-0091).
+    """
     team_id = validate_team_id(team_id)
     value, _routine = _frozen(self, team_id, run_id)
     if value.request_kind != "human":
         return {"team_id": team_id, "run_id": value.run_id, "status": "integrations-required"}
     decoded = _decoded(self, team_id, value.run_id)
+    frozen = decoded.requirements[0]
     with self._lock(team_id):
-        _current_context(self, team_id, value, decoded.pending)
+        assistants = _current_context(self, team_id, value, decoded.pending, frozen)
+        active = next(item for item in assistants if item.spec.assistant_id == frozen.assistant_id)
+        try:
+            requirement = action_challenges.relocalize(frozen, self._assistant_language(active), locale)
+        except action_challenges.HumanChallengeError as exc:
+            raise _problem(
+                HTTPStatus.CONFLICT, "Action human request changed; the run stays frozen", "human-request-invalid"
+            ) from exc
         # One routine challenge per Team at a time: opening another returns the earlier run to waiting, still frozen.
         self.routine_human_challenges.cancel_team(team_id)
-        challenge = self.routine_human_challenges.create(team_id, decoded.requirements[0], (value.run_id, decoded))
+        challenge = self.routine_human_challenges.create(team_id, requirement, (value.run_id, decoded))
     return {**self._human_response(challenge), "run_id": value.run_id}
 
 
@@ -215,6 +242,8 @@ def resume_routine_human(
     if decision == "deny":
         return _deny(self, team_id, value, routine, challenge.id)
     pending = challenge.payload[1].pending
+    # Without a key Admin holds, the replay goes on with the provider the run froze with; only recovery needs a key.
+    provider = provider or pending.provider
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
     try:
@@ -231,8 +260,8 @@ def resume_routine_human(
             "Action human response does not match its request",
             "invalid-human-response",
         ) from exc
-    frozen = _Frozen(team_id, value, routine, pending)
-    return _replay(self, frozen, provider, api_key, progress, (admission, challenge.id))
+    frozen = _Frozen(team_id, value, routine, pending, challenge.requirement)
+    return _replay(self, frozen, (provider, api_key), progress, (admission, challenge.id))
 
 
 def resume_routine_integrations(
@@ -244,9 +273,10 @@ def resume_routine_integrations(
     if value.request_kind != "integrations":
         raise _problem(HTTPStatus.CONFLICT, "Routine run is waiting for an answer", "routine-run-not-frozen")
     pending = _decoded(self, team_id, value.run_id).pending
+    provider = provider or pending.provider
     if pending.provider != provider:
         raise _problem(HTTPStatus.CONFLICT, "configured model provider changed; retry", "inference-provider-mismatch")
-    return _replay(self, _Frozen(team_id, value, routine, pending), provider, api_key, progress, None)
+    return _replay(self, _Frozen(team_id, value, routine, pending), (provider, api_key), progress, None)
 
 
 def _thaw(state: record.TeamRoutines, run_id: str, now: int) -> tuple[record.TeamRoutines, str | None]:
@@ -278,16 +308,17 @@ def _resume(self, team_id: str, run_id: str, challenge_id: str | None) -> record
 def _replay(
     self,
     frozen: _Frozen,
-    provider: str,
-    api_key: str,
+    credentials: tuple[str, str],
     progress: chat_progress.Reporter | None,
     answered: tuple[action_human.HumanResponseAdmission, str] | None,
 ) -> dict[str, object]:
-    """Thaw the run under an internal lease and continue it in its own thread and generation.
+    """Thaw the run under an internal lease and continue it, with no model, in its own generation.
 
     The Team's execution slot is held before its lock and before anything is consumed: a concurrent chat refuses the
-    replay while the run stays frozen and its challenge stays answerable.
+    replay while the run stays frozen and its challenge stays answerable. Only a hold of the replayed run may use the
+    model key, for its one automatic recovery.
     """
+    provider, api_key = credentials
     team_id, value, routine, pending = frozen.team_id, frozen.value, frozen.routine, frozen.pending
     admission, challenge_id = answered if answered is not None else (None, None)
     transcripts = pending.transcripts if admission is None else admission.transcripts
@@ -297,24 +328,12 @@ def _replay(
         routine_run.registered(self, team_id, value.run_id, token, value.active_seconds_left),
     ):
         with self._lock(team_id):
-            _current_context(self, team_id, value, pending)
+            _current_context(self, team_id, value, pending, frozen.requirement)
             lease = _resume(self, team_id, value.run_id, challenge_id)
         routine_state.call(lambda: self.routine_store.delete_continuation(team_id, value.run_id))
         run = routine_run._Run(team_id, value.run_id, lease, token, provider, routine, transcripts, requests_used)
-        request = SegmentRequest(
-            team_id=team_id,
-            file_ids=[],
-            assistant_ids=pending.assistant_ids,
-            provider=provider,
-            api_key=api_key,
-            token=token,
-            continuation=pending.continuation,
-            expected_identity=pending.identity,
-            transcripts=transcripts,
-            requests_used=requests_used,
-            routine=RoutineSegment(value.run_id, value.generation),
-            progress=progress or chat_progress.Reporter(),
-        )
-        outcome = routine_run.run_segment(self, run, request)
+        outcome = routine_compiled.execute(self, run, value, progress, pending)
+        if outcome == "held":
+            outcome = self._recover_routine_run(run, api_key, progress)
     routine_run._after_run(self, team_id, value.run_id, routine.routine_id, outcome)
     return {"team_id": team_id, "run_id": value.run_id, "status": outcome}

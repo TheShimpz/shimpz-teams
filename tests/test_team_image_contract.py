@@ -7,8 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 UV_IMAGE = "ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded"
-HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck")
-LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck")
+# The preparation helper's fixed worker runs from the same image as the controller (ADR-0093).
+HOSTED_ENTRYPOINTS = ("hosted.app", "hosted.healthcheck", "prepare.worker")
+LOCAL_ENTRYPOINTS = ("local.app", "local.healthcheck", "prepare.worker")
 ROOT_RUNTIME_DATA: set[str] = set()
 PRODUCTION_PACKAGES = {
     "assistant",
@@ -21,6 +22,7 @@ PRODUCTION_PACKAGES = {
     "integrations",
     "local",
     "action",
+    "prepare",
     "routine",
     "storage",
 }
@@ -34,7 +36,16 @@ LOCAL_PACKAGE_DATA = {
     "install": set(),
 }
 PACKAGE_TOOLS: dict[str, set[str]] = {}
+# The Developers Assistant protocol reference validators Team imports at run time (ADR-0091, ADR-0092).
+ASSISTANT_PROTOCOL_RUNTIME = {
+    "protocol/assistant/v1/validators/action_effect.py",
+    "protocol/assistant/v1/validators/failure.py",
+    "protocol/assistant/v1/validators/human_request.py",
+    "protocol/assistant/v1/validators/input_file.py",
+    "protocol/assistant/v1/validators/message_catalog.py",
+}
 HOSTED_PROTOCOL_DATA = {
+    *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/account/authority/upstream.json",
     "protocol/account/authority/v1/README.md",
     "protocol/account/authority/v1/contract-files.sha256",
@@ -43,7 +54,6 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/account/authority/v1/vectors.json",
     "protocol/account/authority/v1/verify.py",
     "protocol/http/v1/payload.py",
-    "protocol/http/v1/routine.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
     "protocol/install/v1/contract-files.sha256",
@@ -60,6 +70,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/install/v1/verify.py",
 }
 LOCAL_PROTOCOL_DATA = {
+    *ASSISTANT_PROTOCOL_RUNTIME,
     "protocol/http/v1/payload.py",
     "protocol/http/v1/progress.py",
     "protocol/http/v1/routine.py",
@@ -209,6 +220,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "/usr/local/bin/cosign",
             "./protocol/account/authority/",
             "./protocol/account/authority/v1/",
+            "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
             "./protocol/install/",
             "./protocol/install/v1/",
@@ -408,11 +420,14 @@ class StaticTeamImageContractTests(unittest.TestCase):
             if path.is_file() and not any(part == "__pycache__" for part in path.relative_to(ROOT).parts)
         }
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
-        self.assertEqual(protocol_runtime_data, {"protocol/http/v1/payload.py", "protocol/http/v1/routine.py"})
+        self.assertEqual(
+            protocol_runtime_data,
+            {"protocol/http/v1/payload.py", *ASSISTANT_PROTOCOL_RUNTIME},
+        )
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
             local_protocol_runtime_data,
-            {path for path in LOCAL_PROTOCOL_DATA if path.startswith("protocol/http/")},
+            {path for path in LOCAL_PROTOCOL_DATA if path.startswith(("protocol/http/", "protocol/assistant/"))},
         )
         self.assertEqual(
             protocol_install_data | protocol_authority_data | protocol_runtime_data,

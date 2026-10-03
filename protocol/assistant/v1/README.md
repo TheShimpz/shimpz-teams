@@ -22,8 +22,8 @@ is the stable public Assistant identity: 1–40
 lowercase dash-separated characters, excluding Team infrastructure aliases.
 Every Creator entry is the canonical Account-owned handle: `@` followed by the 3–32 character
 lowercase username using only letters, digits, and internal dashes.
-`manifest-vectors.json` freezes complete positive and negative manifests across schema, publication,
-Team admission, and SDK implementations. `manifest-id-vectors.json` retains the focused portable-ID
+`vectors/manifest.json` freezes complete positive and negative manifests across schema, publication,
+Team admission, and SDK implementations. `vectors/manifest-id.json` retains the focused portable-ID
 boundary. Each implementation runs the vectors independently. The SDK contract generator also enforces invariants
 that JSON Schema cannot express cleanly, including public host validation, stable SemVer, and whitespace rules.
 Unknown fields and unsupported Spec versions fail closed.
@@ -34,14 +34,18 @@ Unknown fields and unsupported Spec versions fail closed.
 pre-build. `shimpz.contract.json` is build output and does not belong in an Assistant repository.
 Generation imports each Action in isolation, derives closed input and output schemas from annotations,
 sorts Actions by id, fixes every route to `POST /v1/actions/<id>`, and records the exact human-request
-capabilities and Stored Input ids declared by that Action. An undeclared capability never acquires a prompt channel.
+capabilities, Stored Input ids, file inputs, effect class, and optional idempotency and verifier declared by that
+Action. An undeclared capability
+never acquires a prompt channel.
 An Action declares at most one authorization capability: plain `approval` or exactly one of
 `auth:password`, `auth:totp`, and `auth:passkey`. Input capabilities remain independent.
 
 The Controller revalidates the generated contract without importing Assistant code. It also checks
 that Action ids are unique, paths match ids, Integrations are declared and used, Stored Input lists are sorted and
-unique, every used Stored Input is declared, every nested object schema is closed, and the canonical contract is at
-most 512 KiB and 32,768 JSON values.
+unique, every used Stored Input is declared, every nested object schema is closed, every file input, effect,
+idempotency, and verifier declaration is valid, the message catalog is valid, and the canonical contract is at most 512 KiB and 32,768 JSON values. The catalog comes from a static extractor over
+the Action files and `lib/**/*.py` that runs before any Creator code is imported: request copy is supplied only as a
+literal template, and a computed template, f-string, alias, or formatting expression is refused.
 
 Each Action `input_schema` and `output_schema` must describe a closed object (`"type": "object"` with
 `"additionalProperties": false` at every object position) and must not use a boolean subschema. It must be a valid
@@ -71,7 +75,7 @@ compiled program exceeds 16,384 instructions, or that Python `re` cannot compile
 anywhere in the string, with RE2 semantics: `\d`, `\w`, `\s`, and `\b` are ASCII (`\s` is tab, newline, form feed,
 carriage return, and space), `$` without the `m` flag matches only at the end of the text, `.` matches one code point
 other than newline, and the `i` flag folds Unicode case. A subject that is not valid Unicode, such as a lone
-surrogate, fails validation. `pattern-vectors.json` freezes these semantics as pattern, subject, and outcome cases.
+surrogate, fails validation. `vectors/pattern.json` freezes these semantics as pattern, subject, and outcome cases.
 One search costs at most its subject's UTF-8 length times its compiled program size, so Team and the Brain also bound
 the matching work of one payload validation: each search charges that product, and the validation fails once its
 charges exceed 67,108,864 (2^26), well under a second of RE2's slowest matching. SDK-generated patterns on bounded
@@ -98,33 +102,298 @@ ways:
   member for any other class, 2 more for `*`, `+`, or `?`, and, for a counted repetition, its upper count (or lower
   count when unbounded, and at least 1) times one more than its operand, plus 1.
 
-`action-schema-vectors.json` freezes admitted and refused schemas; each case holds in either Action schema
+`vectors/action-schema.json` freezes admitted and refused schemas; each case holds in either Action schema
 position.
+
+## Effect and verification
+
+Every Action declares `effect`: `read_only` or `mutating`. `read_only` is the Creator's reviewed declaration that the
+Action has no business side effect, such as publication, deletion, or message delivery; it is not a proof that
+arbitrary code is harmless, and isolation, least privilege, and egress enforcement stay unchanged. The SDK records an
+Action without an explicit declaration as `mutating`, so the contract always carries the class and only a positive
+declaration earns `read_only`.
+
+A `mutating` Action may declare one `verifier`, which Team needs for autonomous verification but not for admitting
+the Action. A `read_only` Action never declares one:
+
+```json
+{
+  "action": "find-record",
+  "input": {
+    "zone": { "from": "input", "pointer": "/zone" },
+    "name": { "from": "input", "pointer": "/record/name" },
+    "operation": { "from": "operation_id" }
+  },
+  "outcome": "/outcome",
+  "result": "/record"
+}
+```
+
+- `action` names another Action of the same contract whose effect is `read_only`. It declares no human request, or
+  only `input:password` together with its one declared Stored Input, which Team satisfies without a person.
+- `input` has 1 to 16 members, each named by a property of the verifier's `input_schema` of 1 to 128 characters, and
+  binds every property that schema requires. It must correlate the evidence with the exact operation: either one
+  binding is `{"from": "operation_id"}`, or for every member listed in the mutating Action input's top-level
+  `required`, one binding's pointer is exactly that member (`/<member>`), so the verifier receives the whole required
+  business payload. Binding only part of the payload, such as a zone without the record, is refused. A binding is closed: `{"from": "operation_id"}` copies the original
+  operation's `operation_id` into a property whose schema is exactly `{"type": "string"}`, and
+  `{"from": "input", "pointer": P}` copies one value of the original business input. There is no literal, model,
+  output, or expression source.
+- Every pointer is an RFC 6901 string of at most 256 characters with at least one reference token, no empty token,
+  and only the `~0` and `~1` escapes. Resolution follows literal `properties` members only, never `$ref`, and every
+  token must name a member that its object schema lists in `required`. An input pointer resolves in the mutating
+  Action's `input_schema` to a subschema that equals the destination property's subschema exactly, compared as JSON
+  values in which a boolean, an integer, and a number never equal one another, and annotations count.
+- `outcome` resolves in the verifier's `output_schema`, through required members only, to exactly
+  `{"type": "string", "enum": [...]}` whose three distinct members are `occurred`, `not_occurred`, and `inconclusive`
+  in any order.
+- `result` resolves in the verifier's `output_schema` through required members except its last token, which may name
+  an optional member, to a subschema exactly equal to the mutating Action's `output_schema`. It is neither the
+  `outcome` pointer nor a prefix or extension of it.
+
+The verifier is invoked as its own logical operation with its own `operation_id`. `occurred` permits an already
+authorized continuation only with a recovered result that validates under the original output schema and secret
+policy. `not_occurred` asserts terminal absence: the provider authoritatively reports that the correlated operation
+does not exist and can no longer complete, accounting for requests still in flight and for the provider's
+consistency delay; similar existing content or a temporary or eventually consistent absence is not `not_occurred`.
+Every other case, including a missing provider receipt, is `inconclusive` and holds for a person. There is no
+matcher language. Verification that depends on a retained provider receipt is not defined in v1.
+
+A `mutating` Action may also declare `idempotency`, how its provider honors the invocation's `operation_id` as an
+idempotency key. Absence means the provider offers no idempotency the Action relies on; that an `operation_id`
+exists proves nothing on its own. A `read_only` Action never declares it:
+
+```json
+{
+  "provider": "api.example.com",
+  "key": { "location": "header", "name": "Idempotency-Key" },
+  "scope": "account",
+  "retention_seconds": 86400,
+  "same_payload_required": true
+}
+```
+
+- `provider` is the lowercase public DNS host, of at least two labels and at most 253 characters, that receives the
+  key; it must be one of the manifest's `allowed_hosts`.
+- `key.location` is `header`, `query`, or `body`, and `key.name` is the field name: 1 to 128 ASCII letters, digits,
+  `.`, `_`, or `-`, starting with a letter or digit.
+- `scope` is `account` when the provider deduplicates a key across the whole credential or account, or `endpoint`
+  when only per operation path.
+- `retention_seconds`, from 60 to 31,536,000, is how long the provider remembers a key; outside it the same key
+  proves nothing.
+- `same_payload_required` is `true` when the provider requires an identical payload for a reused key.
+
+Team reuses one logical operation's key only within that retention and with an unchanged payload, and never across
+scheduled runs. The declaration is a reviewed Creator statement about the provider, not proof of external
+exactly-once execution. `vectors/action-effect.json` freezes admitted and refused declarations over complete Action
+lists, and `validators/action_effect.py` is the reference implementation.
+
+## File inputs
+
+Every Action declares `input_files`, the input properties that carry one Team file (ADR-0093). It is `[]` for an
+ordinary Action, and in v1 it names at most one property:
+
+```json
+{
+  "input_files": ["document"],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "document": { "type": "string", "minLength": 32, "maxLength": 32, "pattern": "^[0-9a-f]{32}$" }
+    },
+    "required": ["document"],
+    "additionalProperties": false
+  },
+  "human_requests": ["approval"]
+}
+```
+
+- A declared name of 1 to 128 characters is a direct member of the input schema's literal `properties` that is
+  listed in its `required`, and that property's subschema is exactly the file-id schema above, compared as JSON
+  values in which annotations count and an integer never equals a number. Nested, array, reference, and combinator
+  positions, optional properties, and more than one file are refused, and there are no output files.
+- The declaration, not the string shape, makes a property a file: a 32-hex string property that is not declared is an
+  ordinary string and never receives a file.
+- An Action that declares a file input declares exactly one authorization capability (`approval`, `auth:password`,
+  `auth:totp`, or `auth:passkey`), because its bytes are delivered only after that authorization.
+- A verifier binding never names a declared file input property, so a file id reaches an Action only through that
+  Action's own declaration. A file-taking Action needs authorization and therefore is never a verifier.
+
+The model argument carries only the opaque file id. Team admits only an id that the current logical turn selected,
+determines the media type from the bytes, and records the file in the invocation's `files` object, described below.
+`vectors/input-file.json` freezes admitted and refused declarations over complete Action lists, and
+`validators/input_file.py` is the reference implementation.
+
+## Message catalog
+
+Every user-visible string an Assistant authors is English catalog copy. The generated contract carries the catalog as
+a required `messages` list of `{id, msgid, max_length, params}` objects, sorted by `id` without duplicates, with 1 to
+256 messages, at most 131,072 bytes of canonical JSON, and at most 4,096 JSON values counted as above.
+
+- `msgid` is the English template: a trimmed, printable, NFC string of at most 500 characters without control, bidi
+  override or isolate, or zero-width formatting characters. `id` is the lowercase SHA-256 of its exact UTF-8 bytes.
+- A placeholder is one `string.Formatter` named field `{name}` whose name matches `[a-z][a-z0-9_]{0,31}`. Attribute
+  or index access, conversion, format specification, nesting, positional or numeric fields, escaped `{{` or `}}`,
+  and any other brace are refused. Each placeholder appears exactly once. There is no plural or context syntax.
+  A combining mark (Unicode general category `M`) must not directly follow a placeholder: every parameter kind is
+  ASCII-only, and an ASCII character composes under NFC only with a following combining mark, so this keeps every
+  rendering of an NFC template NFC. The rule relies on those ASCII-only kinds; a non-ASCII kind needs a new rule.
+- `params` declares exactly the template's placeholders, sorted by `name`, at most 8, each with a `kind` and a
+  `max_length`: `integer` (a non-negative JSON integer whose decimal form has at most `max_length` digits, at most
+  15), `domain` (a lowercase DNS name of at least two labels, at most 253), `dns_name` (an exact DNS record name
+  such as `_acme-challenge.example.com`: one or more dot-separated labels of 1 to 63 lowercase ASCII letters, digits,
+  `_`, or `-` that neither start nor end with `-`, at most 253, with no trailing dot and no `*` wildcard label, because
+  a wildcard names a scope rather than the exact record being authorized), or `identifier` (an opaque
+  `[A-Za-z0-9][A-Za-z0-9._:-]*` value, at most 128). Arbitrary prose is never a parameter kind.
+- `max_length` is the smallest character bound of every field that uses the message, one of 80, 120, 160, or 500.
+  The template's literal characters (the template without its placeholders) plus every parameter's `max_length`
+  must fit within it, so every rendering and every admitted translation fits its field without truncation.
+- The manifest `summary` joins the catalog: one message has exactly that `msgid`, no parameters, and a `max_length`
+  of at most 160. A summary that is not NFC or that contains a brace therefore cannot be published.
+
+The catalog digest is `sha256:` followed by the lowercase SHA-256 of the `messages` list in the canonical JSON
+profile used by request fingerprints.
+
+## Language packs
+
+`language-pack.schema.json` describes the canonical JSON pack `{format, catalog, policy, locales}` that Developers
+produces for a catalog and that travels with the built artifact. `format` is exactly `assistant-language-pack-v1`,
+`catalog` is the catalog digest, and `policy` is the `sha256:` identity of the pinned translation policy. `locales`
+holds exactly `ar`, `de`, `es`, `fr`, `ja`, `pt`, and `zh`; English is the catalog itself and never appears. Each
+locale maps every catalog `id`, and nothing else, to one translated template that is public text under the `msgid`
+rules, uses exactly the `msgid`'s placeholder set once each with the same syntax limits (including no combining
+mark directly after a placeholder), and fits the message's `max_length` budget without truncation. The pack bytes are exactly its canonical JSON encoding, at most 2,097,152
+bytes, and the pack digest is `sha256:` followed by the lowercase SHA-256 of those bytes.
+
+Rendering replaces each placeholder once with its parameter value (an integer in decimal) in the English `msgid` or
+the locale's translation. A parameter is never interpreted, translated, normalized, or reformatted, and a rendering is
+still validated as NFC public text within its field bound after insertion.
+
+`vectors/catalog.json` freezes admitted and refused catalogs (including generated count, byte, value, and nesting
+bounds), renderings, and packs; `validators/message_catalog.py` is the reference implementation. Each rendering vector
+uses a reference that the request rules below admit for a field with one of the admitted bounds.
 
 ## Invocation
 
 `invocation.schema.json` contains the validated Action input, invocation-scoped Integration bearer tokens,
-at most one exact Team-custodied Stored Input, and, only during deterministic logical replay, at most eight
-Team-admitted human responses. The request is
-passed over a private bounded stdin channel; tokens and responses never enter command-line arguments,
-environment variables, logs, generated artifacts, or the Brain.
+at most one exact Team-custodied Stored Input, the selected `files`, the logical `operation_id`, and, only during
+deterministic logical replay, at most eight Team-admitted human responses. The request is
+passed over a private bounded stdin channel; tokens, file bytes, and responses never enter command-line arguments,
+environment variables, logs, generated artifacts, or the Brain. An invocation is at most 524,288 bytes of UTF-8 JSON,
+or 12,582,912 bytes when it carries delivered file content.
+
+`files` is `{}` for an Action without a file input. For a file-taking Action it holds exactly the file named by the
+declared input property, keyed by that id:
+
+```json
+{
+  "0123456789abcdef0123456789abcdef": {
+    "name": "invoices.csv",
+    "media_type": "text/csv",
+    "size": 24,
+    "sha256": "<lowercase SHA-256 of the original bytes>",
+    "content": { "type": "withheld" }
+  }
+}
+```
+
+- `name` is the literal Team filename: trimmed, 1 to 255 UTF-8 bytes, without control characters, `/`, or `\`, and
+  never `.` or `..`. It is data, never a path, an instruction, or a catalog parameter.
+- `media_type` is the lowercase `type/subtype`, at most 127 characters without parameters, that Team determined from
+  the bytes; it is `application/octet-stream` when Team does not recognize them. An uploaded type, extension, or name
+  grants nothing.
+- `size` is 1 to 8,388,608 and `sha256` is the lowercase digest of the original bytes.
+- `content` is closed: `{"type": "withheld"}`, or `{"type": "delivered", "base64": B}` where `B` is canonical padded
+  standard base64 without whitespace whose decoding has exactly `size` bytes and hashes to `sha256`.
+
+Delivery uses the Action's one authorization ceremony in two phases. Before any file is bound, the response
+transcript must be well formed for the Action: every response closed, its ordinal equal to its position, its
+fingerprint a lowercase SHA-256, its kind one the Action declares, its value of that kind's type and bound, and at most
+one authorization response. Content is `withheld` until that transcript holds a response of exactly the Action's
+declared authorization kind, and `delivered` on every invocation whose transcript holds it; any other combination is
+refused. The runtime still matches each response's fingerprint to the request the Action makes during replay, and
+exposes the bytes only once the authorization response has matched. The first invocation therefore receives metadata only, the Action
+requests its declared authorization, Team adds a platform-rendered disclosure of the file to that card, and only the
+approved replay receives the original bytes, including any metadata they embed. An Action that never requests
+authorization never receives bytes. Reading withheld content is an error in the SDK, never an empty file.
+`vectors/file-invocation.json` freezes admitted and refused pairs of an Action and its invocation, and
+`validators/input_file.py` is the reference implementation. Its `files_shape_error` checks the `files` member before
+the Action's declaration is known, so a runtime can refuse a malformed invocation frame before it loads any Action;
+`invocation_files_error` adds the declaration, authorization, and content rules.
+
+`operation_id` is the canonical lowercase text of a random RFC 9562 version 4 UUID, such as
+`6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6`, exactly 36 characters. Team mints and persists it before the first
+invocation of one logical Action operation and sends the same value on every replay re-invocation, verification
+handoff, and permitted retry of that operation; a new scheduled run, a changed business input, or a verifier
+invocation is a new operation with a new value. It is distinct from Team's attempt identity and from the security
+fingerprint, carries no authority, and is not secret. The SDK exposes it as `Context.operation_id` so an Action may
+pass it to a provider as an idempotency key within that provider's documented key scope, retention, and same-payload
+rules; provider support is optional, so it never promises external exactly-once execution.
+`vectors/invocation.json` freezes admitted and refused invocations, including the `operation_id` format.
 
 `result.schema.json` describes the tagged object written to stdout. A terminal response is
 `{"type":"result","result":{...}}`; the SDK validates `result` against the reviewed Action output schema.
 A capability-declared request is `{"type":"request","request":{...}}`, with one closed request kind,
-ordinal, canonical fingerprint, and bounded inert copy. Team accepts it only for the exact reviewed Action,
+ordinal, canonical fingerprint, and catalog copy references. Team accepts it only for the exact reviewed Action,
 returns the journal operation to `prepared`, and later re-invokes the same operation with its admitted
-response transcript. An Action failure returns no partial result or private diagnostic.
+response transcript.
 The terminal `{"type":"stored_input_rejected","stored_input":"<id>"}` envelope lets an Action reject only a
 declared Stored Input supplied in that invocation. Team validates the relationship, clears that exact value, and
 terminates the turn with a sanitized retry instruction; generic failure never clears a value.
 
-The fingerprint is lowercase SHA-256 over the request object before its `fingerprint` member is added. Its
-preimage is UTF-8 JSON with object keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted
-directly rather than ASCII-escaped, and no non-finite numbers. Request keys are fixed ASCII protocol names, and
-request values are limited to strings, integers, booleans, null, arrays, and objects, so this profile is portable
-without a general numeric canonicalizer. `human-request-vectors.json` freezes representative preimages, digests,
-semantic request constraints, and replay transcript failures that JSON Schema cannot express alone.
+A handled application failure is the terminal `{"type":"failure","failure":{...}}` envelope. The process writes
+exactly one such stdout frame, exits 0, and leaves stderr empty. Its closed `failure` object always has all of
+these members:
+
+| Member | Value |
+| --- | --- |
+| `error_type` | The real exception or error type, 1 to 128 printable ASCII characters without space, such as `httpx.HTTPStatusError`. |
+| `message` | The real sanitized message, at most 2,048 UTF-8 bytes; it may be empty. |
+| `provider` | The lowercase DNS host of the failed provider request, at most 253 characters, or `null`. |
+| `http_status` | The provider's HTTP status from 100 to 599, or `null`. |
+| `response_excerpt` | The sanitized beginning of the provider response body, at most 2,048 UTF-8 bytes, or `null`. |
+| `redacted` | `true` when any content was replaced or withheld as possibly secret or unsafe to disclose, including an unsafe character replaced with U+FFFD. |
+| `truncated` | `true` when any content was cut to its bound. |
+
+Diagnostic text may contain tab and line feed but no other control, bidi override or isolate, or zero-width
+formatting character, and it must be valid Unicode. There is no closed business error code: the text is the actual
+condition, while Team's operational states and outcomes stay closed control data. A failure envelope never carries a
+partial successful result, a stack trace, or a secret response, and it is never evidence that an effect did or did
+not occur and never authority. A `mutating` Action's handled failure stays uncertain; only Team-admitted verifier
+evidence resolves it.
+
+The Assistant sanitizes every string member, including `error_type` and `provider`, before it bounds them. It
+replaces the exact value of every secret it holds for the invocation (each Integration token, Stored Input value,
+password response, and every derived secret the Action registers or acquires) in its common encodings (standard and
+URL-safe base64, JSON string escaping, upper- and lowercase percent-encoding, and case-insensitive spellings of
+hexadecimal or other case-insensitive tokens) and secret-shaped text such as bearer and basic credentials, provider API keys, JSON Web Tokens, private
+key blocks, `password=`, `token=`, or `api_key=` values, and URL user information, then truncates on a character
+boundary and sets the flags. Text longer than the sanitization window is withheld rather than partially matched, and a
+`provider` that is no longer a valid host after replacement becomes `null`. Content that cannot be disclosed safely is
+omitted while the real type, status, and safe message remain. Unknown or encoded secrets cannot be detected universally in arbitrary prose, so Team independently
+re-redacts every diagnostic string with the exact values it injected and the same secret-shaped patterns. Only the
+failure branch is sanitized: a result, a request, or a Stored Input rejection that echoes a secret is still refused.
+
+Nonzero exit, any stderr output, a timeout, a malformed or oversized frame, more than one frame, and unavailable
+exit inspection are transport faults, not handled failures. Team records only the actual safe condition, such as the
+exit status or the timeout, and never reflects unverifiable raw child output. `vectors/failure.json` freezes admitted
+and refused failure envelopes, including byte and character bounds, and `validators/failure.py` is the reference
+implementation.
+
+Every copy field of a request (`title`, `description`, `label`, `placeholder`, and each option's `label` and
+`description`) is a reference `{"message": id, "params": {...}}` to the reviewed catalog, never a string; only
+`placeholder` and an option `description` may instead be `null`. The `message` must be declared, `params` must name
+exactly its declared parameters with values of their declared kind and length, and its `max_length` must not exceed
+the field's bound: 80 for a title, label, or option label, 120 for a placeholder, 160 for an option description, and
+500 for a description. Request kinds, option values, and the authorization scope stay canonical and untranslated.
+
+The fingerprint is lowercase SHA-256 over the request object, including its references and parameters, before its
+`fingerprint` member is added, so it never depends on the display language. Its preimage is UTF-8 JSON with object
+keys sorted lexicographically, compact `,` and `:` separators, Unicode emitted directly rather than ASCII-escaped,
+and no non-finite numbers. Request keys are ASCII protocol or parameter names, and request values are limited to
+strings, integers, booleans, null, arrays, and objects, so this profile is portable without a general numeric
+canonicalizer. `vectors/human-request.json` freezes one reviewed catalog with representative preimages, digests,
+semantic request and reference constraints, and replay transcript failures that JSON Schema cannot express alone.
 
 Human responses are never answer logs. Non-secret replay values may exist only in Team continuation state. An
 ordinary `password` input is memory-only, protected from result echo, and must be the final request. A reviewed
@@ -136,11 +405,20 @@ cancellation, expiry, unsupported authentication, transcript divergence, and und
 Action without returning control to Assistant code.
 There are no authored HTTP servers or compatibility envelopes.
 
-Public prompt copy must be trimmed, printable Unicode and must not contain control, bidi override/isolate, or
-zero-width formatting characters. Option values are unique. Length and selection minima never exceed their
+Option values must be trimmed, printable Unicode and must not contain control, bidi override/isolate, or
+zero-width formatting characters, and they are unique. Length and selection minima never exceed their
 maxima, selection maxima never exceed the option count, and response ordinals are unique and contiguous from
 zero. The Assistant Spec owns the eight-request-per-Action limit; Team's chat protocol independently owns its
 turn-wide request limit and challenge lifetime.
+
+## Layout
+
+The root holds the five JSON Schemas, this README, `verify.py`, and `contract-files.sha256`. `vectors/` holds the
+golden conformance vectors and `validators/` the reference validators; each validator is a standalone module with no
+import of another. Every path in `contract-files.sha256` is relative to this directory, and nothing else may exist
+at any depth: `verify.py` refuses an unlisted file, a symbolic link, or any other directory, including `__pycache__`,
+before it imports a validator, reads the manifest and every artifact only as a regular file, and writes no bytecode
+into the tree.
 
 Validate the artifact set and vector shape from this directory:
 

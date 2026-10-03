@@ -68,16 +68,45 @@ class ScheduleContractTests(unittest.TestCase):
         self.assertEqual(http_routine.daily_rate({"kind": "daily", "time": "09:00"}), 1)
         self.assertEqual(http_routine.daily_rate({"kind": "weekly", "weekday": 0, "time": "09:00"}), Fraction(1, 7))
         self.assertEqual(http_routine.daily_rate({"kind": "monthly", "day": 1, "time": "09:00"}), Fraction(1, 28))
+        continuous = {"kind": "continuous", "gap": 5, "cap": 300}
+        self.assertEqual((http_routine.daily_rate(continuous), http_routine.daily_cap(continuous)), (300, 300))
+        self.assertEqual(http_routine.daily_cap({"kind": "weekly", "weekday": 0, "time": "09:00"}), 1)
+        self.assertEqual(http_routine.daily_cap({"kind": "hourly", "every": 5}), 5)
+
+    def test_a_continuous_schedule_is_bounded_in_gap_and_cap(self):
+        for gap, cap in ((5, 1), (86_400, 1000)):
+            value = {"kind": "continuous", "gap": gap, "cap": cap}
+            self.assertEqual(http_routine.canonical_schedule(value), value)
+        for value in (
+            {"kind": "continuous", "gap": 4, "cap": 10},
+            {"kind": "continuous", "gap": 86_401, "cap": 10},
+            {"kind": "continuous", "gap": 5, "cap": 0},
+            {"kind": "continuous", "gap": 5, "cap": 1001},
+            {"kind": "continuous", "gap": 5.0, "cap": 10},
+            {"kind": "continuous", "gap": 5, "cap": True},
+            {"kind": "continuous", "gap": 5},
+        ):
+            with self.subTest(value=value):
+                self.assertIsNone(http_routine.canonical_schedule(value))
+
+
+def upcoming(value, timezone, anchor, after, count):
+    """The next ``count`` firings after ``after``, one strictly after another."""
+    runs = []
+    for _index in range(count):
+        after = schedule.next_run(value, timezone, anchor, after)
+        runs.append(after)
+    return runs
 
 
 class NextRunTests(unittest.TestCase):
     def test_each_kind_fires_strictly_after_the_instant(self):
         weekly = {"kind": "weekly", "weekday": 0, "time": "09:00"}
-        runs = schedule.upcoming(weekly, "America/Sao_Paulo", ANCHOR, at(2026, 9, 30), 3)
+        runs = upcoming(weekly, "America/Sao_Paulo", ANCHOR, at(2026, 9, 30), 3)
         self.assertEqual(runs, [at(2026, 10, 5, 12), at(2026, 10, 12, 12), at(2026, 10, 19, 12)])
         monthly = {"kind": "monthly", "day": 28, "time": "23:30"}
         self.assertEqual(
-            schedule.upcoming(monthly, "UTC", ANCHOR, at(2026, 1, 28, 23, 30), 2),
+            upcoming(monthly, "UTC", ANCHOR, at(2026, 1, 28, 23, 30), 2),
             [
                 at(2026, 2, 28, 23, 30),
                 at(2026, 3, 28, 23, 30),
@@ -87,15 +116,22 @@ class NextRunTests(unittest.TestCase):
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 8, 59)), at(2026, 9, 30, 9))
         self.assertEqual(schedule.next_run(daily, "UTC", ANCHOR, at(2026, 9, 30, 9)), at(2026, 10, 1, 9))
 
-    def test_hourly_counts_elapsed_hours_from_confirmation(self):
+    def test_a_continuous_run_is_due_its_gap_after_an_instant_never_before_the_anchor(self):
+        continuous = {"kind": "continuous", "gap": 5, "cap": 10}
+        self.assertEqual(schedule.next_run(continuous, "UTC", ANCHOR, at(2026, 9, 30)), at(2026, 9, 30, 0, 0, 5))
+        self.assertEqual(
+            schedule.next_run(continuous, "UTC", at(2026, 10, 1), at(2026, 9, 30)), at(2026, 10, 1, 0, 0, 5)
+        )
+
+    def test_hourly_counts_elapsed_hours_from_the_anchor(self):
         every_six = {"kind": "hourly", "every": 6}
         anchor = at(2026, 9, 30, 10, 17)
-        # The first firing is one period after confirmation, never at or before it.
+        # The first firing is one period after the anchor, never at or before it.
         self.assertEqual(schedule.next_run(every_six, "UTC", anchor, at(2026, 9, 30, 9)), at(2026, 9, 30, 16, 17))
         self.assertEqual(schedule.next_run(every_six, "UTC", anchor, anchor), at(2026, 9, 30, 16, 17))
         self.assertEqual(schedule.next_run(every_six, "UTC", anchor, at(2026, 10, 2, 16, 17)), at(2026, 10, 2, 22, 17))
         # Elapsed time, not wall clock: across a daylight-saving change the local hour shifts.
-        across = schedule.upcoming(every_six, NEW_YORK, at(2026, 3, 7, 12), at(2026, 3, 8, 1), 2)
+        across = upcoming(every_six, NEW_YORK, at(2026, 3, 7, 12), at(2026, 3, 8, 1), 2)
         self.assertEqual(across, [at(2026, 3, 8, 6), at(2026, 3, 8, 12)])
 
     def test_a_nonexistent_local_time_runs_shifted_past_the_gap_and_an_ambiguous_one_first(self):

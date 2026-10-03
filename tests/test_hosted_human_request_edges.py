@@ -7,6 +7,8 @@ from unittest import mock
 
 import hosted_assistant_fixture as harness
 
+from tests import human_request_fixtures
+
 human = harness.hosted_chat_human
 segment = harness.hosted_chat_segment
 state = harness.runtime_state
@@ -80,20 +82,41 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             human._validate_pending_context("team_1", challenge, object(), "account_1")
 
         challenge.payload = self.pending(identity=("expected",))
-        with (
-            mock.patch.object(segment, "_hosted_chat_setup", return_value=(*("unused",) * 6, ("changed",))),
-            mock.patch.object(state._human_challenges, "cancel_team") as cancel,
-            mock.patch.object(segment, "_purge_hosted_human_pending") as purge,
-            self.assertRaises(state.ApiError),
+        requirement = human_request_fixtures.requirement(human_request_fixtures.request("approval"))
+        challenge.requirement = requirement
+        messages = requirement.request.messages()
+        current = SimpleNamespace(
+            assistant_id=requirement.assistant_id,
+            contract=SimpleNamespace(machine_contract={"messages": messages}, pack_digest=requirement.copy.pack_digest),
+        )
+        repacked = SimpleNamespace(
+            assistant_id=requirement.assistant_id,
+            contract=SimpleNamespace(machine_contract={"messages": messages}, pack_digest=f"sha256:{'9' * 64}"),
+        )
+        other = SimpleNamespace(assistant_id="other-assistant", contract=current.contract)
+        # A changed identity, a changed pack, or a missing Assistant all end the challenge (ADR-0091).
+        for assistants_now, identity in (
+            ((current,), ("changed",)),
+            ((repacked,), ("expected",)),
+            ((other,), ("expected",)),
         ):
-            human._validate_pending_context("team_1", challenge, object(), "account_1")
-        cancel.assert_called_once_with("team_1")
-        purge.assert_called_once_with(challenge.payload)
+            with (
+                self.subTest(identity=identity),
+                mock.patch.object(
+                    segment, "_hosted_chat_setup", return_value=("t", assistants_now, *("u",) * 4, identity)
+                ),
+                mock.patch.object(state._human_challenges, "cancel_team") as cancel,
+                mock.patch.object(segment, "_purge_hosted_human_pending") as purge,
+                self.assertRaises(state.ApiError),
+            ):
+                human._validate_pending_context("team_1", challenge, object(), "account_1")
+            cancel.assert_called_once_with("team_1")
+            purge.assert_called_once_with(challenge.payload)
 
         with mock.patch.object(
             segment,
             "_hosted_chat_setup",
-            return_value=("unused",) * 6 + (("expected",),),
+            return_value=("t", (current,), *("u",) * 4, ("expected",)),
         ):
             self.assertIs(
                 human._validate_pending_context("team_1", challenge, object(), "account_1"),

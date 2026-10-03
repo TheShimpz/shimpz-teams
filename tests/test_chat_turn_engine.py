@@ -6,6 +6,7 @@ import contextlib
 import dataclasses
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -31,6 +32,7 @@ from local.chat.segment import SegmentRequest
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
 from routine import record as routine_record
+from tests import human_request_fixtures
 
 hosted_app = hosted_harness.app
 
@@ -136,15 +138,14 @@ def _context_contract(prepared) -> tuple[object, ...]:
 
 
 class SharedChatTurnEngineTest(unittest.TestCase):
-    def _human_segment(self, *, purpose, cancelled=lambda: False, validate_context=lambda: None):
+    def _human_segment(self, *, purpose, cancelled=lambda: False, validate_context=lambda: None, locale="pt"):
         descriptor = {
             "kind": "approval",
             "ordinal": 0,
             "title": "Continue",
             "description": "Continue the reviewed Action operation.",
         }
-        descriptor["fingerprint"] = action_human._fingerprint(descriptor)
-        admitted = action_human.validate_request(descriptor, ("approval",))
+        admitted = human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
         asked: list[tuple[object, ...]] = []
 
         class Batch:
@@ -170,9 +171,16 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 asked.append(args)
                 return purpose()
 
-        def requirement(action, request):
+        def requirement(action, request, rendered_locale):
             return action_challenges.HumanRequirement(
-                "assistant", "Assistant", action.action, "Look up one value.", action.interrupt_id, request, "1.0.0"
+                "assistant",
+                "Assistant",
+                action.action,
+                "Look up one value.",
+                action.interrupt_id,
+                request,
+                "1.0.0",
+                human_request_fixtures.copy(request, rendered_locale),
             )
 
         problems: list[str] = []
@@ -183,7 +191,9 @@ class SharedChatTurnEngineTest(unittest.TestCase):
 
         strategy = chat_turn_engine.SegmentStrategy(
             runtime=Runtime(),
-            prepare=lambda: chat_turn_engine.PreparedSegment("Team", ("identity",), _context(), [], Batch()),
+            prepare=lambda: chat_turn_engine.PreparedSegment(
+                "Team", ("identity",), replace(_context(), locale=locale), [], Batch()
+            ),
             validate_action=lambda _assistant, _action, payload: payload,
             pause_for_private_inputs=lambda _requests, _requirements: False,
             cancelled=cancelled,
@@ -208,6 +218,8 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         self.assertEqual(result[3].integrations, ())
         [requirement] = result[3].human
         self.assertEqual((requirement.interrupt_id, requirement.purpose), ("interrupt-1", sentence))
+        # The copy is rendered in the turn's language, and the purpose records that same origin locale (ADR-0091).
+        self.assertEqual((requirement.copy.locale, requirement.purpose_locale), ("pt", "pt"))
         [(context, action, assistant_name, summary)] = asked
         self.assertEqual(context.thread_id, "thread-1")
         self.assertEqual(
@@ -220,6 +232,16 @@ class SharedChatTurnEngineTest(unittest.TestCase):
             strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
         )
         self.assertIsNone(result[3].human[0].purpose)
+        self.assertIsNone(result[3].human[0].purpose_locale)
+
+    def test_a_turn_without_an_interface_language_renders_english_and_asks_for_no_purpose(self) -> None:
+        strategy, asked, _problems = self._human_segment(purpose=lambda: "Never asked.", locale=None)
+        result = chat_turn_engine.run_segment(
+            strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+        )
+        [requirement] = result[3].human
+        self.assertEqual((requirement.copy.locale, requirement.purpose, requirement.purpose_locale), ("en", None, None))
+        self.assertEqual(asked, [])
 
     def test_stop_or_a_changed_context_during_the_purpose_call_ends_the_turn(self) -> None:
         stopped: list[bool] = []
@@ -537,6 +559,22 @@ class SharedChatTurnEngineTest(unittest.TestCase):
                 ("org.shimpz.assistant.id", assistant_id),
                 ("org.shimpz.source.digest", "sha256:" + ("d" * 64)),
             ),
+            machine_contract={
+                "version": 1,
+                "actions": [
+                    {
+                        "id": "list-zones",
+                        "input_schema": dict(declared_action.input_schema),
+                        "output_schema": dict(declared_action.output_schema),
+                        "integrations": [],
+                        "stored_inputs": [],
+                        "input_files": [],
+                        "human_requests": [],
+                        "effect": "read_only",
+                    }
+                ],
+                "messages": [],
+            },
         )
         local_active = ActiveAssistant(local_spec, assistant_container.id)
         request = SimpleNamespace(

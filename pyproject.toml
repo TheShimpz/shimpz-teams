@@ -11,6 +11,10 @@ dependencies = [
     # RE2 matches an Action schema `pattern` in time linear in the subject and releases the GIL while it runs.
     "google-re2==1.1.20251105",
     "jsonschema==4.25.1",
+    # Attachment preparation parses untrusted images and PDFs only inside the networkless helper container; the
+    # controller never imports them (ADR-0093).
+    "pillow==12.3.0",
+    "pypdf==6.19.0",
 ]
 
 [tool.uv]

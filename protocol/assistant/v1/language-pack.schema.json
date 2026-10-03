@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.shimpz.com/assistant/v1/language-pack.schema.json",
+  "title": "Shimpz Assistant language pack v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "catalog", "policy", "locales"],
+  "properties": {
+    "format": {
+      "const": "assistant-language-pack-v1"
+    },
+    "catalog": {
+      "$ref": "#/$defs/digest"
+    },
+    "policy": {
+      "$ref": "#/$defs/digest"
+    },
+    "locales": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ar", "de", "es", "fr", "ja", "pt", "zh"],
+      "properties": {
+        "ar": { "$ref": "#/$defs/translations" },
+        "de": { "$ref": "#/$defs/translations" },
+        "es": { "$ref": "#/$defs/translations" },
+        "fr": { "$ref": "#/$defs/translations" },
+        "ja": { "$ref": "#/$defs/translations" },
+        "pt": { "$ref": "#/$defs/translations" },
+        "zh": { "$ref": "#/$defs/translations" }
+      }
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "translations": {
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": {
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500,
+        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff]+$"
+      }
+    }
+  }
+}

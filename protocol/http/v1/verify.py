@@ -198,8 +198,14 @@ if not applied or any(
 action_label_text = vectors.get("action_label_text", {})
 for name, admit in (
     ("chat_locale", payload.canonical_locale),
+    ("chat_request_identity", payload.canonical_request_identity),
     ("help_url", payload.canonical_help_url),
+    ("file_disclosure", payload.canonical_file_disclosure),
+    ("restricted_actions", payload.canonical_restricted_actions),
     ("purpose", payload.canonical_purpose),
+    ("pack_digest", payload.canonical_pack_digest),
+    ("snapshot_summary", payload.canonical_snapshot_summary),
+    ("routine_challenge_open", routine.canonical_challenge_open),
     ("turn_usage", payload.canonical_turn_usage),
 ):
     cases = vectors.get(name, {})
@@ -209,6 +215,15 @@ for name, admit in (
         fail(f"Team HTTP {name} positive vector differs")
     if any(admit(value) is not None for value in cases["invalid"]):
         fail(f"Team HTTP {name} negative vector differs")
+rendered_copy = vectors.get("rendered_copy", {})
+if not rendered_copy.get("valid") or not rendered_copy.get("invalid"):
+    fail("Team HTTP rendered copy vectors are missing")
+if any(
+    payload.canonical_rendered(case["rendered"], case["request"]) != case["rendered"] for case in rendered_copy["valid"]
+):
+    fail("Team HTTP rendered copy positive vector differs")
+if any(payload.canonical_rendered(case["rendered"], case["request"]) is not None for case in rendered_copy["invalid"]):
+    fail("Team HTTP rendered copy negative vector differs")
 if any(payload.canonical_action_label(value) != value for value in action_label_text.get("labels", [])):
     fail("Team HTTP Action-label label positive vector differs")
 if any(payload.canonical_action_label(value) is not None for value in action_label_text.get("invalid_labels", [])):
@@ -231,23 +246,18 @@ if any(routine.canonical_timezone(value) != value for value in timezones["valid"
 if any(routine.canonical_timezone(value) is not None for value in timezones["invalid"]):
     fail("an invalid routine timezone vector was admitted")
 
-changes = vectors.get("routine_change", {})
-if not changes.get("valid") or not changes.get("invalid"):
-    fail("routine change vectors are missing")
-if any(routine.canonical_routine_change(value) != value for value in changes["valid"]):
-    fail("a valid routine change vector was not admitted exactly")
-if any(routine.canonical_routine_change(value) is not None for value in changes["invalid"]):
-    fail("an invalid routine change vector was admitted")
-
 views = vectors.get("routine_views", {})
 admit_view = {
-    "proposal": routine.canonical_proposal,
-    "preview": routine.canonical_preview,
     "routine": routine.canonical_routine_view,
     "run": routine.canonical_run_view,
     "notice_batch": routine.canonical_notice_batch,
     "claim": routine.canonical_claim,
     "claim_request": routine.canonical_claim_request,
+    "incident": routine.canonical_incident_view,
+    "card": routine.canonical_card,
+    "card_answer_request": routine.canonical_card_answer_request,
+    "card_answer": routine.canonical_card_answer,
+    "segment_request": routine.canonical_segment_request,
 }
 if set(views) != set(admit_view) or any(
     not views[kind].get("valid") or not views[kind].get("invalid") for kind in views
@@ -258,5 +268,13 @@ for kind, admit in admit_view.items():
         fail(f"a valid routine {kind} vector was not admitted exactly")
     if any(admit(value) is not None for value in views[kind]["invalid"]):
         fail(f"an invalid routine {kind} vector was admitted")
+
+diagnostics = vectors.get("routine_diagnostics", {})
+if not diagnostics.get("valid") or not diagnostics.get("invalid"):
+    fail("routine diagnostics vectors are missing")
+if any(routine.canonical_diagnostics(value) != value for value in diagnostics["valid"]):
+    fail("a valid routine diagnostics vector was not admitted exactly")
+if any(routine.canonical_diagnostics(value) is not None for value in diagnostics["invalid"]):
+    fail("an invalid routine diagnostics vector was admitted")
 
 print("Team HTTP protocol integrity and golden vectors are valid")

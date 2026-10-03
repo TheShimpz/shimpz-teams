@@ -28,6 +28,9 @@ HELP_URL_PATTERN = (
 MAX_HELP_URL_CHARS = 2_048
 # The Brain's task-bound sentence for why an Action pauses for a person (ADR-0090).
 MAX_PURPOSE_CHARS = 280
+# The rendered copy bounds of a human request's catalog references (Assistant Spec v1, ADR-0091).
+RENDERED_FIELD_CHARS = {"title": 80, "description": 500, "label": 80, "placeholder": 120}
+RENDERED_OPTION_CHARS = {"label": 80, "description": 160}
 
 TEAM_ID_RE = re.compile(TEAM_ID_PATTERN)
 ASSISTANT_ID_RE = re.compile(ASSISTANT_ID_PATTERN)
@@ -70,8 +73,18 @@ SKILL_KEY_PREFIX = "procedure-"
 SKILL_KEY_RE = re.compile(r"procedure-[0-9a-f]{12}\Z")
 SKILL_INPUT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]{0,63}\Z")
 CHAT_BODY_FIELDS = frozenset({"message", "files", "assistant_ids", "conversation", "locale"})
+# A Local chat body adds what direct Routine creation binds (ADR-0092): the request identity Admin issues once per sent
+# message and keeps across a transport retry or a resend, and the user's IANA timezone, or null.
+LOCAL_CHAT_BODY_FIELDS = CHAT_BODY_FIELDS | {"request", "timezone"}
+REQUEST_IDENTITY_FIELDS = frozenset({"issued_at", "nonce"})
+# How long a request identity may mutate a Routine after Admin issued it, and how far ahead of Team's clock it may be.
+REQUEST_IDENTITY_SECONDS = 900
+REQUEST_IDENTITY_SKEW_SECONDS = 60
+REQUEST_NONCE_RE = re.compile(r"[0-9a-f]{32}\Z")
 # The closed Admin interface languages a chat turn may name; a turn without one carries null (ADR-0090).
 CHAT_LOCALES = frozenset({"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
+SNAPSHOT_SUMMARY_FIELDS = frozenset({"locale", "summary"})
+MAX_SNAPSHOT_SUMMARY_CHARS = 160
 # What one completed chat turn consumed: its wall-clock duration and the model tokens it was told it used.
 MAX_TURN_DURATION_MS = 86_400_000
 MAX_TURN_USAGE_MODELS = 16
@@ -139,6 +152,32 @@ def canonical_locale(value: object) -> str | None:
     return value if isinstance(value, str) and value in CHAT_LOCALES else None
 
 
+def request_identity_fresh(issued_at: int, now: int) -> bool:
+    """Whether an identity issued at ``issued_at`` may still change a Routine at ``now``.
+
+    The window is exclusive at its end: an identity issued at ``t`` is fresh through ``t + 899`` and expired from
+    ``t + 900``, the same second its receipt stops being live, and it may be at most 60 s ahead of the clock judging it.
+    Admin and Team judge a resend with this one predicate.
+    """
+    return now - REQUEST_IDENTITY_SECONDS < issued_at <= now + REQUEST_IDENTITY_SKEW_SECONDS
+
+
+def canonical_request_identity(value: object) -> dict[str, object] | None:
+    """Return one exact chat request identity, or None: a whole-second issue instant and a 32-hex nonce.
+
+    The identity names one sent message; Team binds it to the principal, the Team incarnation, and the message, and a
+    Routine change it carries commits at most once while it is fresh (ADR-0092).
+    """
+    if not isinstance(value, dict) or set(value) != REQUEST_IDENTITY_FIELDS:
+        return None
+    issued_at, nonce = value["issued_at"], value["nonce"]
+    if type(issued_at) is not int or not 0 < issued_at < 2**40:
+        return None
+    if not isinstance(nonce, str) or REQUEST_NONCE_RE.fullmatch(nonce) is None:
+        return None
+    return {"issued_at": issued_at, "nonce": nonce}
+
+
 def canonical_help_url(value: object) -> str | None:
     """Return one exact Stored Input key page, or None."""
     if not isinstance(value, str) or len(value) > MAX_HELP_URL_CHARS or HELP_URL_RE.fullmatch(value) is None:
@@ -167,6 +206,78 @@ def canonical_purpose(value: object) -> str | None:
         or "- " in value
         or "://" in value
         or "www." in value.casefold()
+    ):
+        return None
+    return value
+
+
+def canonical_pack_digest(value: object) -> str | None:
+    """Return one `sha256:` language-pack digest (ADR-0091), or None."""
+    return value if isinstance(value, str) and SOURCE_DIGEST_RE.fullmatch(value) else None
+
+
+def canonical_rendered(value: object, request: object) -> dict[str, object] | None:
+    """Return the rendered copy of exactly the canonical request's copy fields, or None (ADR-0091).
+
+    The request keeps its catalog references, option values, and kind; this block carries only display text in the
+    challenge's interface language, in the request's field and option order, within each field's bound.
+    """
+    if not isinstance(value, dict) or not isinstance(request, dict):
+        return None
+    fields = [field for field in RENDERED_FIELD_CHARS if field in request]
+    expected = {*fields, *(("options",) if "options" in request else ())}
+    if set(value) != expected or not all(
+        _rendered(value[field], request[field], RENDERED_FIELD_CHARS[field], nullable=field == "placeholder")
+        for field in fields
+    ):
+        return None
+    if "options" in request and not _rendered_options(value["options"], request["options"]):
+        return None
+    return value
+
+
+def _rendered_options(values: object, options: object) -> bool:
+    return (
+        isinstance(values, list)
+        and isinstance(options, list)
+        and len(values) == len(options)
+        and all(
+            isinstance(item, dict)
+            and isinstance(option, dict)
+            and set(item) == {"label", "description"}
+            and _rendered(item["label"], option.get("label"), RENDERED_OPTION_CHARS["label"], nullable=False)
+            and _rendered(
+                item["description"], option.get("description"), RENDERED_OPTION_CHARS["description"], nullable=True
+            )
+            for item, option in zip(values, options, strict=True)
+        )
+    )
+
+
+def _rendered(text: object, reference: object, maximum: int, *, nullable: bool) -> bool:
+    """A nullable field renders to null exactly when its reference is null; anything else is bounded public text."""
+    if nullable and reference is None:
+        return text is None
+    return (
+        isinstance(text, str)
+        and text == text.strip()
+        and 0 < len(text) <= maximum
+        and text.isprintable()
+        and unicodedata.is_normalized("NFC", text)
+    )
+
+
+def canonical_snapshot_summary(value: object) -> dict[str, object] | None:
+    """Return one Local snapshot's summary in one interface language (ADR-0091), or None.
+
+    The summary is the snapshot catalog's English summary for `en` and its translation from the snapshot's own pack
+    otherwise: bounded public text, never request copy. The caller compares `locale` with the one it asked for.
+    """
+    if (
+        not isinstance(value, dict)
+        or set(value) != SNAPSHOT_SUMMARY_FIELDS
+        or canonical_locale(value["locale"]) is None
+        or not _rendered(value["summary"], value["summary"], MAX_SNAPSHOT_SUMMARY_CHARS, nullable=False)
     ):
         return None
     return value
@@ -201,6 +312,47 @@ def _turn_usage_model(value: object) -> tuple[str, str] | None:
     ):
         return None
     return provider, model
+
+
+# The Actions a turn withheld because readable attachment content was in it (ADR-0093): listed first by identity,
+# at most this many, within this many canonical JSON bytes, with the turn's total beside them.
+MAX_RESTRICTED_ACTIONS = 16
+MAX_RESTRICTED_ACTION_TOTAL = 2_048
+MAX_RESTRICTED_ACTIONS_BYTES = 2_048
+
+
+def canonical_restricted_actions(value: object) -> dict[str, object] | None:
+    """Return the exact Actions a completed turn withheld for its attachment content, or None.
+
+    ``actions`` holds 1 to 16 distinct ``{assistant, action}`` identities in identity order, within the byte bound;
+    ``total`` counts every withheld Action, at least as many as are listed. It names capabilities only and grants
+    nothing.
+    """
+    if not isinstance(value, dict) or set(value) != {"actions", "total"}:
+        return None
+    actions, total = value["actions"], value["total"]
+    if (
+        not isinstance(actions, list)
+        or not 1 <= len(actions) <= MAX_RESTRICTED_ACTIONS
+        or type(total) is not int
+        or not len(actions) <= total <= MAX_RESTRICTED_ACTION_TOTAL
+    ):
+        return None
+    identities = []
+    for item in actions:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"assistant", "action"}
+            or canonical_assistant_id(item["assistant"]) is None
+            or canonical_action_id(item["action"]) is None
+        ):
+            return None
+        identities.append((item["assistant"], item["action"]))
+    if identities != sorted(set(identities)):
+        return None
+    projected = {"actions": [{"assistant": a, "action": b} for a, b in identities], "total": total}
+    encoded = json.dumps(projected, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    return projected if len(encoded) <= MAX_RESTRICTED_ACTIONS_BYTES else None
 
 
 def canonical_turn_usage(value: object) -> dict[str, object] | None:
@@ -539,6 +691,34 @@ def project_storage_usage(value: object) -> dict[str, int] | None:
     if not (within_quota or over_quota):
         return None
     return {"used_bytes": used, "limit_bytes": limit, "remaining_bytes": remaining}
+
+
+# The largest original an Action may receive (Assistant Spec v1, ADR-0093).
+MAX_ACTION_FILE_BYTES = 8 * 1024 * 1024
+FILE_DISCLOSURE_KEYS = frozenset({"id", "name", "media_type", "size", "sha256"})
+
+
+def canonical_file_disclosure(value: object) -> dict[str, object] | None:
+    """Return the one file an authorization challenge discloses, or None (ADR-0093).
+
+    Its opaque id, literal filename, Team-determined media type, size, and original SHA-256 name exactly the selected
+    file whose original bytes, with any metadata embedded in them, the approved replay delivers to the Action.
+    """
+    if not isinstance(value, dict) or set(value) != FILE_DISCLOSURE_KEYS:
+        return None
+    size = _integer(value["size"], minimum=1)
+    if (
+        canonical_file_id(value["id"]) is None
+        or canonical_filename(value["name"]) is None
+        or not isinstance(value["media_type"], str)
+        or canonical_media_type(value["media_type"]) != value["media_type"]
+        or size is None
+        or size > MAX_ACTION_FILE_BYTES
+        or not isinstance(value["sha256"], str)
+        or SHA256_RE.fullmatch(value["sha256"]) is None
+    ):
+        return None
+    return {key: value[key] for key in ("id", "name", "media_type", "size", "sha256")}
 
 
 def project_file_metadata(value: object, *, include_usage: bool) -> dict[str, object] | None:

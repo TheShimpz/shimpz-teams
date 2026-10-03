@@ -14,40 +14,31 @@ from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
 from local.errors import ApiProblemError as ApiProblem
+from local.routine import lineage as routine_lineage
+from local.routine import question as routine_question
 from local.validation import validate_chat_assistant_ids, validate_team_id
 from protocol.http.v1 import payload as http_payload
+from routine import schedule as routine_schedule
+from routine.request import Request as RoutineRequest
 
 MAX_CHAT_MESSAGE_CHARS = 16_000
 
 
-def _pending_chat_continuation(self, team_id: str) -> dict[str, object] | None:
+def _pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
+    """The Team's pending challenge; a human one is returned in the chat's interface language when it names one.
+
+    Either way the human challenge is validated against the binding the turn left before it is returned.
+    """
     self._expire_human_challenges()
     existing_human = self.human_challenges.current(team_id)
     if existing_human is not None:
+        # A chat without an interface language keeps the challenge's language but still validates its binding.
+        existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
         return self._human_response(existing_human)
     existing_integration = self.integration_challenges.current(team_id)
     if existing_integration is not None:
         return self._integration_response(existing_integration)
     return None
-
-
-def save_knowledge(self, team_id: str, memory: tuple[dict[str, str], ...], skill: dict[str, object] | None) -> None:
-    """Save a turn's knowledge in one write; the caller holds the Stop guard, and a failed save fails the turn.
-
-    The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
-    nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
-    """
-    if not memory and skill is None:
-        return
-    detail = f"attempt:memory={len(memory)},skill={int(skill is not None)}"
-    local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
-    try:
-        self.inference_store.apply_knowledge(team_id, list(memory), skill)
-    except inference_config.InferenceConfigError as exc:
-        local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
-        ) from exc
 
 
 def _segment_response(
@@ -69,37 +60,61 @@ def _segment_response(
             identity=segment.identity,
             transcripts=chat_orchestrator.retain_suspension_transcripts(response.transcripts, suspension),
             requests_used=response.requests_used,
+            locale=segment.locale,
             usage=None if response.usage is None else response.usage.joined(),
         )
 
+    def save_knowledge(terminal: chat_orchestrator.ChatOutcome) -> None:
+        # Saved only as the reply commits, under the Stop guard, in one write; a failed save fails the turn.
+        if response.file_ids:
+            # A turn that consumed selected files learns nothing: neither a memory the Brain proposed nor the Action
+            # path it took becomes lasting knowledge (ADR-0093).
+            return
+        skill = chat_knowledge.learned_skill(terminal.actions)
+        if not terminal.memory and skill is None:
+            return
+        # The attempt is audited first ("ok" means accepted for saving, not saved): when the audit cannot be written,
+        # nothing is touched and the turn fails. A failed save adds an error event when the journal allows it.
+        detail = f"attempt:memory={len(terminal.memory)},skill={int(skill is not None)}"
+        local_audit.record_request("chat-memory", result="ok", team_id=team_id, detail=detail)
+        try:
+            self.inference_store.apply_knowledge(team_id, list(terminal.memory), skill)
+        except inference_config.InferenceConfigError as exc:
+            local_audit.record_request("chat-memory", result="error", team_id=team_id, detail="save-failed")
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE, "Team memory could not be saved", code="memory-store-failed"
+            ) from exc
+
+    def commit(terminal: chat_orchestrator.ChatOutcome) -> bool:
+        if terminal.routine is None or terminal.clarification is not None:
+            # A Routine question changes nothing until a bound answer selects one of its options.
+            return self._commit_chat_terminal(team_id, token, lambda: save_knowledge(terminal))
+        # A compiled Routine change commits with the reply, in one write under the lifecycle lock and the Stop guard;
+        # when Stop wins, nothing is created (ADR-0092).
+        with self._lock(team_id):
+            write = self._routine_change(response, terminal.routine)
+            return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal)))
+
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
-        # A proposed Routine is only an offer: a Local Supervisor must confirm it before anything is scheduled. It is
-        # bound before the reply commits, and withdrawn when Stop wins the commit.
-        proposal = self._routine_proposal(response, terminal.routine)
-        try:
-            committed = self._commit_chat_terminal(
-                team_id,
-                token,
-                lambda: save_knowledge(self, team_id, terminal.memory, chat_knowledge.learned_skill(terminal.actions)),
-            )
-        except BaseException:
-            self._withdraw_routine_proposal(team_id, proposal)
-            raise
-        if not committed:
-            self._withdraw_routine_proposal(team_id, proposal)
+        question = None
+        if terminal.routine is not None and terminal.clarification is not None:
+            # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
+            question = self._routine_question(response, terminal.routine, terminal.clarification)
+        if not commit(terminal):
             raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
+        if question is not None:
+            self.routine_lineage.record(team_id, question)
         body: dict[str, object] = {
             "team_id": team_id,
             "team_name": segment.team_name,
             "reply": terminal.reply,
             "clarification": terminal.clarification,
-            "routine_proposal": proposal,
         }
         usage = None if response.usage is None else response.usage.joined().wire()
         if usage is not None:
             body["usage"] = usage
-        return body
+        return chat_turn_engine.with_restricted_actions(body, terminal)
 
     try:
         return chat_turn_engine.dispatch(
@@ -124,6 +139,17 @@ def _segment_response(
         raise ApiProblem(HTTPStatus.INTERNAL_SERVER_ERROR, str(exc), code="internal-error") from exc
 
 
+def _timezone(value: object) -> str | None:
+    """The browser's IANA zone, which must load, or None when it named none."""
+    if value is None:
+        return None
+    try:
+        routine_schedule.zone(value)
+    except routine_schedule.ScheduleError as exc:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "timezone is invalid", code="invalid-timezone") from exc
+    return value
+
+
 def chat(
     self,
     team_id: str,
@@ -133,12 +159,16 @@ def chat(
     progress: chat_progress.Reporter | None = None,
 ) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    if not isinstance(body, dict) or set(body) != http_payload.CHAT_BODY_FIELDS:
+    if not isinstance(body, dict) or set(body) != http_payload.LOCAL_CHAT_BODY_FIELDS:
         raise ApiProblem(
             HTTPStatus.UNPROCESSABLE_ENTITY,
-            "Team chat requires only message, files, assistant_ids, conversation, and locale",
+            "Team chat requires only message, files, assistant_ids, conversation, locale, request, and timezone",
             code="invalid-body",
         )
+    identity = http_payload.canonical_request_identity(body["request"])
+    if identity is None:
+        raise ApiProblem(HTTPStatus.UNPROCESSABLE_ENTITY, "request identity is invalid", code="invalid-request")
+    timezone = _timezone(body["timezone"])
     locale = body["locale"]
     if locale is not None and http_payload.canonical_locale(locale) is None:
         raise ApiProblem(
@@ -163,15 +193,25 @@ def chat(
             "message must be non-empty and within its size limit",
             code="invalid-message",
         )
-    pending = self._pending_chat_continuation(team_id)
+    pending = self._pending_chat_continuation(team_id, locale)
     if pending is not None:
         return pending
     with self._exclusive_chat_turn(team_id) as token:
-        pending = self._pending_chat_continuation(team_id)
+        pending = self._pending_chat_continuation(team_id, locale)
         if pending is not None:
             return pending
         # The turn is admitted: its duration runs from here to its terminal, across every resume.
         usage = brain_usage.TurnUsage.start()
+        principal = local_audit.human_principal()
+        bound = None if principal is None or file_ids else self.routine_lineage.bound(team_id, principal, message)
+        # A message that answers a clarification may change a Routine only through the question it is bound to.
+        routine_request = (
+            None
+            if principal is None or (bound is None and routine_lineage.composed(message))
+            else RoutineRequest(principal, message, identity["issued_at"], identity["nonce"], timezone, locale)
+        )
+        if bound is not None:
+            return routine_question.answer(self, team_id, token, routine_request, bound)
         segment = self._run_chat_segment(
             _ChatSegmentRequest(
                 team_id=team_id,
@@ -184,10 +224,20 @@ def chat(
                 conversation=conversation,
                 locale=locale,
                 progress=progress or chat_progress.Reporter(),
+                routine_request=routine_request,
             )
         )
         return self._segment_response(
-            _ResponseRequest(team_id, token, segment, assistant_ids, tuple(file_ids), provider, usage=usage)
+            _ResponseRequest(
+                team_id,
+                token,
+                segment,
+                assistant_ids,
+                tuple(file_ids),
+                provider,
+                usage=usage,
+                routine_request=routine_request,
+            )
         )
 
 
@@ -269,6 +319,7 @@ def resume_chat_integrations(
                 expected_identity=pending.identity,
                 transcripts=pending.transcripts,
                 requests_used=pending.requests_used,
+                locale=pending.locale,
                 progress=progress or chat_progress.Reporter(),
             )
         )
@@ -282,6 +333,6 @@ def resume_chat_integrations(
                 provider,
                 pending.transcripts,
                 pending.requests_used,
-                pending.usage,
+                usage=pending.usage,
             )
         )

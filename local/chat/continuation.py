@@ -8,6 +8,7 @@ import re
 from dataclasses import asdict, dataclass
 
 from action import challenges as action_challenges
+from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
 from assistant import action_schema
@@ -20,9 +21,10 @@ from integrations import challenges as integration_challenges
 from local.chat import continuation_store as local_chat_continuation_store
 from local.errors import ApiProblemError
 from local.validation import validate_team_name
+from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
@@ -48,6 +50,8 @@ class PendingLocalChat:
     identity: tuple[object, ...]
     transcripts: tuple[action_human.ActionTranscript, ...] = ()
     requests_used: int = 0
+    # The interface language the turn's start pinned (ADR-0091).
+    locale: str | None = None
     # What a paused chat turn consumed so far (ADR-0082); a Routine run carries none.
     usage: brain_usage.TurnUsage | None = None
 
@@ -162,6 +166,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
             "seen_interrupts": list(pending.continuation.seen_interrupts),
             "invoked": [{**asdict(item), "inputs": list(item.inputs)} for item in pending.continuation.invoked],
             "round_index": pending.continuation.round_index,
+            "file_actions": pending.continuation.file_actions,
         },
         "assistant_ids": list(pending.assistant_ids),
         "file_ids": list(pending.file_ids),
@@ -169,6 +174,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "identity": identity,
         "transcripts": _transcripts_payload(pending.transcripts),
         "requests_used": _requests_used(pending.requests_used),
+        "locale": pending.locale,
         "usage": _usage_payload(pending.usage),
     }
 
@@ -276,9 +282,18 @@ def _requirements_payload(kind: str, requirements: tuple[object, ...]) -> list[d
                 "action_summary": requirement.action_summary,
                 "interrupt_id": requirement.interrupt_id,
                 "request": _json_value(requirement.request.payload()),
+                "messages": _json_value(requirement.request.messages()),
                 "assistant_version": requirement.assistant_version,
+                "copy": {
+                    "locale": requirement.copy.locale,
+                    "catalog_digest": requirement.copy.catalog_digest,
+                    "pack_digest": requirement.copy.pack_digest,
+                    "rendered": _json_value(requirement.copy.rendered),
+                },
                 "help_url": requirement.help_url,
                 "purpose": requirement.purpose,
+                "purpose_locale": requirement.purpose_locale,
+                "file": None if requirement.file is None else _json_value(dict(requirement.file)),
             }
         ]
     raise ContinuationCodecError("continuation requirements are malformed")
@@ -383,7 +398,7 @@ def _action_request(value: object) -> brain_runtime_client.ActionRequest:
 def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
     raw = _mapping(
         value,
-        {"turn", "seen_interrupts", "invoked", "round_index"},
+        {"turn", "seen_interrupts", "invoked", "round_index", "file_actions"},
         "Brain continuation",
     )
     turn_value = _mapping(raw["turn"], {"status", "reply", "actions"}, "Brain turn")
@@ -446,7 +461,10 @@ def _continuation(value: object) -> chat_orchestrator.ChatContinuation:
     round_index = raw["round_index"]
     if type(round_index) is not int or not 0 <= round_index < chat_orchestrator.MAX_ACTION_ROUNDS:
         raise ContinuationCodecError("continuation round is malformed")
-    return chat_orchestrator.ChatContinuation(turn, seen, tuple(invoked), round_index)
+    file_actions = raw["file_actions"]
+    if type(file_actions) is not int or not 0 <= file_actions <= action_files.MAX_FILE_ACTIONS_PER_TURN:
+        raise ContinuationCodecError("continuation file Actions are malformed")
+    return chat_orchestrator.ChatContinuation(turn, seen, tuple(invoked), round_index, file_actions)
 
 
 def _identity(value: object) -> tuple[object, ...]:
@@ -483,7 +501,7 @@ def _identity(value: object) -> tuple[object, ...]:
         raise ContinuationCodecError("continuation Assistant identity is malformed")
     files: list[dict[str, object]] = []
     for item in _sequence(raw["files"], MAX_IDENTITY_FILES, "continuation files"):
-        entry = _mapping(item, {"id", "name", "media_type", "size"}, "continuation file")
+        entry = _mapping(item, {"id", "name", "media_type", "size", "sha256"}, "continuation file")
         if (
             not isinstance(entry["id"], str)
             or http_payload.FILE_ID_RE.fullmatch(entry["id"]) is None
@@ -492,6 +510,8 @@ def _identity(value: object) -> tuple[object, ...]:
             or not 1 <= len(entry["media_type"]) <= 127
             or type(entry["size"]) is not int
             or not 0 <= entry["size"] <= 2**53 - 1
+            or not isinstance(entry["sha256"], str)
+            or http_payload.SHA256_RE.fullmatch(entry["sha256"]) is None
         ):
             raise ContinuationCodecError("continuation file is malformed")
         files.append(dict(entry))
@@ -518,6 +538,7 @@ def _pending(value: object) -> PendingLocalChat:
             "identity",
             "transcripts",
             "requests_used",
+            "locale",
             "usage",
         },
         "pending continuation",
@@ -542,6 +563,9 @@ def _pending(value: object) -> PendingLocalChat:
         raise ContinuationCodecError("pending provider binding is malformed")
     transcripts = _transcripts(raw["transcripts"])
     requests_used = _requests_used(raw["requests_used"])
+    locale = raw["locale"]
+    if locale is not None and http_payload.canonical_locale(locale) is None:
+        raise ContinuationCodecError("pending locale is malformed")
     if sum(len(item.responses) for item in transcripts) > requests_used:
         raise ContinuationCodecError("human request budget is malformed")
     return PendingLocalChat(
@@ -552,6 +576,7 @@ def _pending(value: object) -> PendingLocalChat:
         identity=identity,
         transcripts=transcripts,
         requests_used=requests_used,
+        locale=locale,
         usage=_usage(raw["usage"]),
     )
 
@@ -638,31 +663,31 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
             "action_summary",
             "interrupt_id",
             "request",
+            "messages",
             "assistant_version",
+            "copy",
             "help_url",
             "purpose",
+            "purpose_locale",
+            "file",
         },
         "human requirement",
     )
-    request_value = raw["request"]
-    if not isinstance(request_value, dict) or not isinstance(request_value.get("kind"), str):
-        raise ContinuationCodecError("human requirement request is malformed")
-    # The record is Team-authenticated and its Stored Input was admitted against the Action declaration at pause;
-    # sealing a submitted value re-checks that declaration, so restore admits exactly the recorded identifier.
-    stored_input = request_value.get("stored_input")
-    try:
-        request = action_human.validate_request(
-            request_value,
-            (request_value["kind"],),
-            (stored_input,) if isinstance(stored_input, str) else (),
-        )
-    except action_human.HumanRequestError as exc:
-        raise ContinuationCodecError("human requirement request is malformed") from exc
-    help_url, purpose = raw["help_url"], raw["purpose"]
+    request = _human_request(raw["request"], raw["messages"])
+    copy = _request_copy(raw["copy"], request)
+    help_url, purpose, purpose_locale = raw["help_url"], raw["purpose"], raw["purpose_locale"]
     help_url_valid = help_url is None or (
         request.stored_input is not None and http_payload.canonical_help_url(help_url) is not None
     )
-    if not help_url_valid or (purpose is not None and http_payload.canonical_purpose(purpose) is None):
+    purpose_valid = (purpose is None and purpose_locale is None) or (
+        http_payload.canonical_purpose(purpose) is not None
+        and http_payload.canonical_locale(purpose_locale) is not None
+    )
+    file = raw["file"]
+    file_valid = file is None or (
+        request.kind in action_human.AUTHORIZATION_KINDS and http_payload.canonical_file_disclosure(file) == file
+    )
+    if not help_url_valid or not purpose_valid or not file_valid:
         raise ContinuationCodecError("human requirement presentation is malformed")
     return action_challenges.HumanRequirement(
         _component_id(raw["assistant_id"], "human Assistant"),
@@ -672,9 +697,52 @@ def _human_requirement(value: object) -> action_challenges.HumanRequirement:
         _interrupt_id(raw["interrupt_id"]),
         request,
         str(_text(raw["assistant_version"], 40, "human Assistant version")),
+        copy,
         help_url=help_url,
         purpose=purpose,
+        purpose_locale=purpose_locale,
+        file=file,
     )
+
+
+def _human_request(value: object, messages: object) -> action_human.HumanRequest:
+    """Re-admit the paused request against exactly the catalog entries it references (ADR-0091).
+
+    Each entry's id is the hash of its template, so the record names its English copy; the binding's full catalog
+    and pack digests are compared again before any resume or relocalization.
+    """
+    if not isinstance(value, dict) or not isinstance(value.get("kind"), str) or not isinstance(messages, list):
+        raise ContinuationCodecError("human requirement request is malformed")
+    if any(catalog_validator.message_error(message) is not None for message in messages):
+        raise ContinuationCodecError("human requirement catalog is malformed")
+    catalog = {message["id"]: message for message in messages}
+    # The record is Team-authenticated and its Stored Input was admitted against the Action declaration at pause;
+    # sealing a submitted value re-checks that declaration, so restore admits exactly the recorded identifier.
+    stored_input = value.get("stored_input")
+    try:
+        request = action_human.validate_request(
+            value,
+            (value["kind"],),
+            (stored_input,) if isinstance(stored_input, str) else (),
+            catalog=catalog,
+        )
+    except action_human.HumanRequestError as exc:
+        raise ContinuationCodecError("human requirement request is malformed") from exc
+    if request.messages() != messages:
+        raise ContinuationCodecError("human requirement catalog is malformed")
+    return request
+
+
+def _request_copy(value: object, request: action_human.HumanRequest) -> action_challenges.RequestCopy:
+    raw = _mapping(value, {"locale", "catalog_digest", "pack_digest", "rendered"}, "human request copy")
+    if (
+        http_payload.canonical_locale(raw["locale"]) is None
+        or http_payload.canonical_pack_digest(raw["catalog_digest"]) is None
+        or http_payload.canonical_pack_digest(raw["pack_digest"]) is None
+        or http_payload.canonical_rendered(raw["rendered"], request.payload()) is None
+    ):
+        raise ContinuationCodecError("human request copy is malformed")
+    return action_challenges.RequestCopy(raw["locale"], raw["catalog_digest"], raw["pack_digest"], raw["rendered"])
 
 
 def decode(

@@ -17,6 +17,7 @@ lifecycle = harness.hosted_lifecycle
 resources = harness.hosted_resources
 state = harness.runtime_state
 
+FILE_ID = "0123456789abcdef0123456789abcdef"
 TEAM_ID = "team_1"
 OWNER = "account_1"
 RUNTIME_ID = "a" * 64
@@ -40,12 +41,13 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(resources, "_require_current_authorization"),
             mock.patch.object(state, "_storage", return_value=storage),
+            mock.patch.object(lifecycle.hosted_chat_lifecycle, "forget_file"),
         ):
             self.assertEqual(
                 lifecycle._put_inbox_file(TEAM_ID, "file", b"x", "text/plain", lease)["file"]["id"], "file"
             )
             self.assertEqual(lifecycle._list_team_files(TEAM_ID, lease)["files"], [])
-            self.assertTrue(lifecycle._delete_team_file(TEAM_ID, "file", lease)["deleted"])
+            self.assertTrue(lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease)["deleted"])
 
         operations = (
             (
@@ -71,12 +73,12 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
             (
                 "delete",
                 lifecycle.team_storage.StorageNotFoundError("missing"),
-                lambda: lifecycle._delete_team_file(TEAM_ID, "f", lease),
+                lambda: lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease),
             ),
             (
                 "delete",
                 lifecycle.team_storage.StorageError("storage"),
-                lambda: lifecycle._delete_team_file(TEAM_ID, "f", lease),
+                lambda: lifecycle._delete_team_file(TEAM_ID, FILE_ID, lease),
             ),
         )
         for method, error, invoke in operations:
@@ -85,9 +87,17 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
             with (
                 mock.patch.object(resources, "_require_current_authorization"),
                 mock.patch.object(state, "_storage", return_value=failed),
+                mock.patch.object(lifecycle.hosted_chat_lifecycle, "forget_file"),
                 self.assertRaises(state.ApiError),
             ):
                 invoke()
+        with (
+            mock.patch.object(resources, "_require_current_authorization"),
+            mock.patch.object(state, "_storage", return_value=mock.Mock()),
+            self.assertRaises(state.ApiError) as invalid,
+        ):
+            lifecycle._delete_team_file(TEAM_ID, "f", lease)
+        self.assertEqual(invalid.exception.status, 400)
 
     def test_volume_and_runtime_ownership_are_exact_and_retry_safe(self) -> None:
         volume = mock.Mock(attrs={})
@@ -309,6 +319,7 @@ class HostedTeamTeardownEdgeTests(unittest.TestCase):
         with mock.patch.multiple(
             lifecycle,
             _stop_teardown_runtime=lambda _runtime: True,
+            _teardown_preparation_helpers=lambda _team: True,
             _teardown_assistants=lambda _team: True,
             _teardown_storage=lambda _team: True,
             _teardown_inference=lambda _team: True,

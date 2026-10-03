@@ -52,6 +52,7 @@ def _attestation(resolution: dict[str, object]) -> list[dict[str, str]]:
                     "source_digest": resolution["source_digest"],
                     "manifest_digest": resolution["manifest_digest"],
                     "machine_contract_digest": resolution["machine_contract_digest"],
+                    "pack_digest": resolution["pack_digest"],
                 },
             },
             "runDetails": {"builder": {"id": SIGNER_IDENTITY}},
@@ -225,6 +226,8 @@ class ArtifactTrustTests(unittest.TestCase):
         cases = (
             ("identity", ("trust", "signer_identity"), "https://attacker.example/workflow"),
             ("source", ("source_digest",), "sha256:" + "9" * 64),
+            # The signed provenance binds the language pack beside the manifest and contract (ADR-0091).
+            ("language-pack", ("pack_digest",), "sha256:" + "9" * 64),
             (
                 "signature-reference",
                 ("trust", "signature_reference"),

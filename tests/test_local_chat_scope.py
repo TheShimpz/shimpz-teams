@@ -15,7 +15,10 @@ TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 from local_controller_harness import LocalContractCase
 
+from action import dispatch as action_dispatch
+from action import execution as action_execution
 from action import human as action_human
+from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from local import app as local_app
 from local import labels as local_labels
@@ -73,8 +76,12 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen_container_id,
-                    action_human.ActionTranscript(""),
-                    local_app.action_execution.RpcPrivateInputs({}, {}),
+                    local_app.action_execution.ActionInvocationEvidence(
+                        local_app.action_execution.RpcPrivateInputs({}, {}),
+                        action_human.ActionTranscript(""),
+                        "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                    ),
                 )
                 try:
                     self.assertTrue(started.wait(timeout=1))
@@ -119,9 +126,12 @@ class LocalChatScopeTests(LocalContractCase):
         network.reload.assert_not_called()
 
     def test_chat_reuses_one_selected_file_connection_across_revalidation(self) -> None:
+        contexts = []
+
         class Runtime:
             @staticmethod
-            def start(_context, _message, *, conversation=()):
+            def start(context, _message, *, conversation=()):
+                contexts.append(context)
                 return brain_runtime_client.RuntimeTurn(status="completed", reply="Done.", actions=())
 
         file_id = "a" * 32
@@ -137,21 +147,38 @@ class LocalChatScopeTests(LocalContractCase):
 
         def metadata(_team_id, _file_ids, current_connection=None):
             metadata_connections.append(current_connection)
-            return [{"id": file_id, "name": "brief.txt", "media_type": "text/plain", "size": 5}]
+            return [{"id": file_id, "name": "brief.txt", "media_type": "text/plain", "size": 5, "sha256": "e" * 64}]
 
         with tempfile.TemporaryDirectory() as directory:
             controller = self._chat_controller(directory, Runtime())
-            controller.storage = SimpleNamespace(metadata=metadata, metadata_connection=metadata_connection)
+            controller.storage = SimpleNamespace(
+                metadata=metadata,
+                metadata_connection=metadata_connection,
+                get=lambda _team_id, _file_id: ({"sha256": "e" * 64, "size": 5}, b"brief"),
+            )
             controller.chat_turn_service.storage = controller.storage
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Summarize", "files": [file_id], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Summarize",
+                    "files": [file_id],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
 
         self.assertEqual(response["reply"], "Done.")
+        # The selected text file reaches the Brain as request-local content of this message (ADR-0093).
+        self.assertEqual(
+            [item["content"] for item in contexts[0].attachments],
+            [{"type": "text", "text": "brief", "pdf": False}],
+        )
         self.assertEqual(opened, 1)
         self.assertGreaterEqual(len(metadata_connections), 2)
         self.assertTrue(all(current is connection for current in metadata_connections))
@@ -187,6 +214,8 @@ class LocalChatScopeTests(LocalContractCase):
                     "files": [],
                     "assistant_ids": ["account-helper", "shimpz-cloudflare"],
                     "conversation": [],
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
                     "locale": None,
                 },
                 "openai",
@@ -221,7 +250,15 @@ class LocalChatScopeTests(LocalContractCase):
             controller.team_names.save("team_1", "a" * 64, "Growth")
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -246,7 +283,15 @@ class LocalChatScopeTests(LocalContractCase):
 
             response = controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": [],
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -268,7 +313,15 @@ class LocalChatScopeTests(LocalContractCase):
             window = [{"role": "user", "text": "List my DNS zones", "truncated": False}]
             controller.chat_turn_service.chat(
                 "team_1",
-                {"message": "Hello", "files": [], "assistant_ids": [], "conversation": window, "locale": None},
+                {
+                    "message": "Hello",
+                    "files": [],
+                    "assistant_ids": [],
+                    "conversation": window,
+                    "locale": None,
+                    "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                    "timezone": None,
+                },
                 "openai",
                 "sk-test-0123456789",
             )
@@ -284,6 +337,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": [],
                         "conversation": [{"role": [], "text": "x", "truncated": False}],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -294,7 +349,15 @@ class LocalChatScopeTests(LocalContractCase):
                 with self.subTest(locale=locale), self.assertRaises(local_app.ApiProblem) as refused:
                     controller.chat_turn_service.chat(
                         "team_1",
-                        {"message": "Hello", "files": [], "assistant_ids": [], "conversation": [], "locale": locale},
+                        {
+                            "message": "Hello",
+                            "files": [],
+                            "assistant_ids": [],
+                            "conversation": [],
+                            "locale": locale,
+                            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                            "timezone": None,
+                        },
                         "openai",
                         "sk-test-0123456789",
                     )
@@ -322,6 +385,8 @@ class LocalChatScopeTests(LocalContractCase):
                             "files": [],
                             "assistant_ids": assistant_ids,
                             "conversation": [],
+                            "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                            "timezone": None,
                             "locale": None,
                         },
                         "openai",
@@ -337,6 +402,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["account-helper"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -372,6 +439,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["shimpz-cloudflare"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
@@ -411,14 +480,72 @@ class LocalChatScopeTests(LocalContractCase):
                         input=LOOKUP_INPUT,
                     ),
                     frozen.id,
-                    action_human.ActionTranscript(""),
-                    local_app.action_execution.RpcPrivateInputs({}, {}),
+                    local_app.action_execution.ActionInvocationEvidence(
+                        local_app.action_execution.RpcPrivateInputs({}, {}),
+                        action_human.ActionTranscript(""),
+                        "a" * 64,
+                        "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                    ),
                 )
 
         self.assertEqual(lookups, [frozen.id, replacement.id])
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(controller.chat_turn_service._active_action_containers, {})
+
+    def test_a_stopped_turn_keeps_only_a_pre_dispatch_refusal_chained(self) -> None:
+        request = brain_runtime_client.ActionRequest(
+            interrupt_id="interrupt-1", assistant_id="shimpz-cloudflare", action="list-zones", input=LOOKUP_INPUT
+        )
+        evidence = local_app.action_execution.ActionInvocationEvidence(
+            local_app.action_execution.RpcPrivateInputs({}, {}),
+            action_human.ActionTranscript(""),
+            "a" * 64,
+            "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+        )
+
+        def refused(*_args):
+            try:
+                raise action_execution.RpcExchangeError(
+                    "timeout", "deadline-expired-before-dispatch"
+                ) from action_dispatch.DispatchRefusedError("the turn was stopped before its Docker call could run")
+            except action_execution.RpcExchangeError as exc:
+                raise local_app.ApiProblem(HTTPStatus.GATEWAY_TIMEOUT, "timed out", code="assistant-timeout") from exc
+
+        def ran(*_args):
+            raise local_app.ApiProblem(
+                HTTPStatus.GATEWAY_TIMEOUT, "timed out", code="assistant-timeout"
+            ) from action_execution.RpcExchangeError("timeout")
+
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._chat_controller(directory, object())
+            service = controller.chat_turn_service
+            frozen = controller.assistant_lifecycle._assistant_container("team_1", "shimpz-cloudflare").id
+            service._active_chat_tokens["team_1"] = "turn-token"
+            service._cancelled_chat_tokens.add("turn-token")
+            controller.assistant_lifecycle._rpc = lambda *_args: self.fail("a stopped turn dispatched its Action")
+            # Stopped before the RPC: nothing was dispatched, and the stop says so.
+            with self.assertRaises(chat_orchestrator.ChatStoppedError) as before:
+                service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
+            self.assertTrue(action_dispatch.never_dispatched(before.exception))
+            service._cancelled_chat_tokens.clear()
+            outcomes = []
+            for rpc in (refused, ran):
+
+                def stopping_rpc(*args, rpc=rpc):
+                    service._cancelled_chat_tokens.add("turn-token")
+                    return rpc(*args)
+
+                controller.assistant_lifecycle._rpc = stopping_rpc
+                with (
+                    mock.patch.object(local_app.local_audit, "record_request", return_value="trace"),
+                    self.assertRaises(chat_orchestrator.ChatStoppedError) as stopped,
+                ):
+                    service._invoke_chat_action("team_1", "turn-token", request, frozen, evidence)
+                service._cancelled_chat_tokens.clear()
+                outcomes.append(action_dispatch.never_dispatched(stopped.exception))
+        # A refusal before dispatch is kept; an RPC that may have run never reads as never dispatched.
+        self.assertEqual(outcomes, [True, False])
 
     def test_chat_never_exposes_or_executes_an_unselected_assistant(self) -> None:
         class Runtime:
@@ -463,6 +590,8 @@ class LocalChatScopeTests(LocalContractCase):
                         "files": [],
                         "assistant_ids": ["shimpz-cloudflare"],
                         "conversation": [],
+                        "request": {"issued_at": 1_700_000_000, "nonce": "0" * 32},
+                        "timezone": None,
                         "locale": None,
                     },
                     "openai",
