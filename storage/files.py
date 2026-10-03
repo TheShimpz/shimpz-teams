@@ -3,6 +3,11 @@
 The Brain and Assistant containers never mount this directory.  Files are opaque
 blobs reached only through named controller operations, so uploaded bytes cannot
 be executed or traversed as paths by tenant workloads.
+
+A file is kept while the Team's current chat turn references it: from the moment a turn selects it until a later turn
+completes without it or the Team's conversation state is purged.  An unreferenced file is collected once it has been
+idle for the grace period, so a file removed from a message by mistake can be uploaded again within it and reuses the
+stored copy without charging the quota twice (ADR-0093, amended 2026-10-03).
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ import shutil
 import sqlite3
 import stat
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +27,9 @@ from pathlib import Path
 from protocol.http.v1 import payload as http_payload
 
 DEFAULT_LIMIT_BYTES = 100 * 1024 * 1024
+# How long an unreferenced file stays after its upload, an identical upload, or the turn that last referenced it.
+UNREFERENCED_GRACE_SECONDS = 24 * 60 * 60
+SCHEMA_VERSION = 1
 DATABASE_HEADROOM_BYTES = 8 * 1024 * 1024
 MAX_FILES = 256
 MAX_FILENAME_BYTES = 255
@@ -113,11 +121,13 @@ class TeamStorage:
         *,
         limit_bytes: int = DEFAULT_LIMIT_BYTES,
         quota_for: Callable[[str], int] | None = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self._validate_limit(limit_bytes)
         self.root = root
         self._fixed_limit_bytes = limit_bytes
         self._quota_for = quota_for
+        self._clock = clock
         self._ensure_root()
 
     @staticmethod
@@ -199,19 +209,7 @@ class TeamStorage:
             connection.execute("PRAGMA journal_mode=DELETE")
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute("PRAGMA secure_delete=ON")
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS files (
-                    id TEXT PRIMARY KEY CHECK(length(id) = 32),
-                    name TEXT NOT NULL,
-                    media_type TEXT NOT NULL,
-                    size INTEGER NOT NULL CHECK(size > 0),
-                    sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
-                    created_at INTEGER NOT NULL,
-                    content BLOB NOT NULL
-                ) STRICT
-                """
-            )
+            self._schema(connection)
             page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
             logical_page_limit = (limit_bytes + DATABASE_HEADROOM_BYTES + page_size - 1) // page_size
             current_page_count = int(connection.execute("PRAGMA page_count").fetchone()[0])
@@ -231,34 +229,59 @@ class TeamStorage:
             return connection
 
     @staticmethod
-    def _usage(connection: sqlite3.Connection) -> tuple[int, int]:
-        count, used = connection.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
-        return int(count), int(used)
-
-    def put(self, team_id: str, name: object, content: bytes, media_type: object = None) -> dict[str, object]:
-        team_id = _team_id(team_id)
-        limit_bytes = self._limit(team_id)
-        safe_name = _filename(name)
-        safe_media_type = _media_type(media_type)
-        if not isinstance(content, bytes) or not content:
-            raise StorageInputError("file must contain bytes")
-        if len(content) > limit_bytes:
-            raise StorageQuotaError("Team storage quota exceeded")
-        file_id = secrets.token_hex(16)
-        digest = hashlib.sha256(content).hexdigest()
+    def _schema(connection: sqlite3.Connection) -> None:
+        """Create the current schema in an empty database; any other shape is refused, never upgraded."""
+        if int(connection.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION:
+            return
+        connection.execute("BEGIN IMMEDIATE")
         try:
-            with closing(self._connect(team_id, create=True, limit_bytes=limit_bytes)) as connection:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            tables = connection.execute("SELECT count(*) FROM sqlite_master").fetchone()[0]
+            if version == 0 and tables == 0:
+                connection.execute(
+                    """
+                    CREATE TABLE files (
+                        id TEXT PRIMARY KEY CHECK(length(id) = 32),
+                        name TEXT NOT NULL,
+                        media_type TEXT NOT NULL,
+                        size INTEGER NOT NULL CHECK(size > 0),
+                        sha256 TEXT NOT NULL CHECK(length(sha256) = 64),
+                        created_at INTEGER NOT NULL,
+                        referenced INTEGER NOT NULL CHECK(referenced IN (0, 1)),
+                        idle_since INTEGER NOT NULL,
+                        content BLOB NOT NULL,
+                        UNIQUE(sha256, name, media_type)
+                    ) STRICT
+                    """
+                )
+                connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            elif version != SCHEMA_VERSION:
+                raise StorageError("Team storage schema is not current")
+            connection.execute("COMMIT")
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+
+    def _now(self) -> int:
+        return int(self._clock())
+
+    @staticmethod
+    def _sweep(connection: sqlite3.Connection, now: int) -> int:
+        """Remove every unreferenced file idle for the whole grace period, inside the caller's transaction."""
+        cursor = connection.execute(
+            "DELETE FROM files WHERE referenced=0 AND idle_since<=?",
+            (now - UNREFERENCED_GRACE_SECONDS,),
+        )
+        return cursor.rowcount
+
+    @contextmanager
+    def _transaction(self, team_id: str, *, create: bool, limit_bytes: int) -> Iterator[sqlite3.Connection]:
+        """One immediate write transaction on the Team's database, with SQLite failures mapped to storage errors."""
+        try:
+            with closing(self._connect(team_id, create=create, limit_bytes=limit_bytes)) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 try:
-                    count, used = self._usage(connection)
-                    if count >= MAX_FILES:
-                        raise StorageQuotaError("Team file count limit reached")
-                    if used + len(content) > limit_bytes:
-                        raise StorageQuotaError("Team storage quota exceeded")
-                    connection.execute(
-                        "INSERT INTO files(id,name,media_type,size,sha256,created_at,content) VALUES(?,?,?,?,?,?,?)",
-                        (file_id, safe_name, safe_media_type, len(content), digest, int(time.time()), content),
-                    )
+                    yield connection
                     connection.execute("COMMIT")
                 except BaseException:
                     connection.execute("ROLLBACK")
@@ -267,7 +290,47 @@ class TeamStorage:
             if "full" in str(exc).lower():
                 raise StorageQuotaError("Team storage quota exceeded") from exc
             raise StorageError("Team storage transaction failed") from exc
-        used += len(content)
+
+    @staticmethod
+    def _usage(connection: sqlite3.Connection) -> tuple[int, int]:
+        count, used = connection.execute("SELECT count(*), coalesce(sum(size), 0) FROM files").fetchone()
+        return int(count), int(used)
+
+    def put(self, team_id: str, name: object, content: bytes, media_type: object = None) -> dict[str, object]:
+        """Store one file, or reuse the identical one the Team still holds without charging its quota again."""
+        team_id = _team_id(team_id)
+        limit_bytes = self._limit(team_id)
+        safe_name = _filename(name)
+        safe_media_type = _media_type(media_type)
+        if not isinstance(content, bytes) or not content:
+            raise StorageInputError("file must contain bytes")
+        if len(content) > limit_bytes:
+            raise StorageQuotaError("Team storage quota exceeded")
+        digest = hashlib.sha256(content).hexdigest()
+        now = self._now()
+        with self._transaction(team_id, create=True, limit_bytes=limit_bytes) as connection:
+            self._sweep(connection, now)
+            existing = connection.execute(
+                "SELECT id FROM files WHERE sha256=? AND name=? AND media_type=?",
+                (digest, safe_name, safe_media_type),
+            ).fetchone()
+            if existing is not None:
+                file_id = existing[0]
+                # An identical upload restarts the grace period of a file no turn references.
+                connection.execute("UPDATE files SET idle_since=max(idle_since, ?) WHERE id=?", (now, file_id))
+            else:
+                file_id = secrets.token_hex(16)
+                count, used = self._usage(connection)
+                if count >= MAX_FILES:
+                    raise StorageQuotaError("Team file count limit reached")
+                if used + len(content) > limit_bytes:
+                    raise StorageQuotaError("Team storage quota exceeded")
+                connection.execute(
+                    "INSERT INTO files(id,name,media_type,size,sha256,created_at,referenced,idle_since,content) "
+                    "VALUES(?,?,?,?,?,?,0,?,?)",
+                    (file_id, safe_name, safe_media_type, len(content), digest, now, now, content),
+                )
+            _count, used = self._usage(connection)
         return {
             "id": file_id,
             "name": safe_name,
@@ -283,7 +346,8 @@ class TeamStorage:
         team_id = _team_id(team_id)
         limit_bytes = self._limit(team_id)
         try:
-            with closing(self._connect(team_id, create=False, limit_bytes=limit_bytes)) as connection:
+            with self._transaction(team_id, create=False, limit_bytes=limit_bytes) as connection:
+                self._sweep(connection, self._now())
                 rows = connection.execute(
                     "SELECT id,name,media_type,size,sha256,created_at FROM files ORDER BY created_at,id"
                 ).fetchall()
@@ -307,6 +371,62 @@ class TeamStorage:
             "limit_bytes": limit_bytes,
             "remaining_bytes": max(0, limit_bytes - used),
         }
+
+    def sweep(self, team_id: str) -> int:
+        """Collect the Team's unreferenced files past their grace period; repeating it removes nothing more."""
+        team_id = _team_id(team_id)
+        try:
+            with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+                return self._sweep(connection, self._now())
+        except StorageNotFoundError:
+            return 0
+
+    def reference(self, team_id: str, file_ids: Sequence[object]) -> None:
+        """Mark the files a new turn selected as referenced before its Brain start can read them.
+
+        The Team's conversation may still reference the previous turn's files until this turn completes, so the marks
+        add to those already held. A file already collected fails the turn as not found.
+        """
+        safe_ids = self._metadata_ids(list(file_ids))
+        if not safe_ids:
+            return
+        team_id = _team_id(team_id)
+        with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+            for file_id in safe_ids:
+                if connection.execute("UPDATE files SET referenced=1 WHERE id=?", (file_id,)).rowcount != 1:
+                    raise StorageNotFoundError("file not found")
+
+    def settle(self, team_id: str, file_ids: Sequence[object]) -> None:
+        """A completed turn, or a purged conversation with no files, leaves exactly these files referenced.
+
+        Every other file is released and starts its grace period now; files idle past it are collected.
+        """
+        safe_ids = frozenset(self._metadata_ids(list(file_ids)))
+        team_id = _team_id(team_id)
+        now = self._now()
+        try:
+            with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+                held = {row[0] for row in connection.execute("SELECT id FROM files WHERE referenced=1")}
+                connection.executemany(
+                    "UPDATE files SET referenced=0, idle_since=? WHERE id=?",
+                    [(now, file_id) for file_id in sorted(held - safe_ids)],
+                )
+                connection.executemany(
+                    "UPDATE files SET referenced=1 WHERE id=?",
+                    [(file_id,) for file_id in sorted(safe_ids - held)],
+                )
+                self._sweep(connection, now)
+        except StorageNotFoundError:
+            return
+
+    def referenced(self, team_id: str) -> frozenset[str]:
+        """The files the Team's conversation may still reference."""
+        team_id = _team_id(team_id)
+        try:
+            with closing(self._connect(team_id, create=False)) as connection:
+                return frozenset(row[0] for row in connection.execute("SELECT id FROM files WHERE referenced=1"))
+        except StorageNotFoundError:
+            return frozenset()
 
     def get(self, team_id: str, file_id: object) -> tuple[dict[str, object], bytes]:
         team_id = _team_id(team_id)
@@ -402,15 +522,9 @@ class TeamStorage:
         limit_bytes = self._limit(team_id)
         safe_id = _file_id(file_id)
         try:
-            with closing(self._connect(team_id, create=False, limit_bytes=limit_bytes)) as connection:
-                connection.execute("BEGIN IMMEDIATE")
-                try:
-                    cursor = connection.execute("DELETE FROM files WHERE id=?", (safe_id,))
-                    _count, used = self._usage(connection)
-                    connection.execute("COMMIT")
-                except BaseException:
-                    connection.execute("ROLLBACK")
-                    raise
+            with self._transaction(team_id, create=False, limit_bytes=limit_bytes) as connection:
+                cursor = connection.execute("DELETE FROM files WHERE id=?", (safe_id,))
+                _count, used = self._usage(connection)
         except StorageNotFoundError:
             cursor = None
             used = 0

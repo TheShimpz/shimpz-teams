@@ -138,6 +138,7 @@ class LocalChatScopeTests(LocalContractCase):
         connection = object()
         opened = 0
         metadata_connections = []
+        references = []
 
         @contextlib.contextmanager
         def metadata_connection(_team_id, _file_ids):
@@ -154,6 +155,8 @@ class LocalChatScopeTests(LocalContractCase):
             controller.storage = SimpleNamespace(
                 metadata=metadata,
                 metadata_connection=metadata_connection,
+                reference=lambda team_id, file_ids: references.append(("reference", team_id, list(file_ids))),
+                settle=lambda team_id, file_ids: references.append(("settle", team_id, list(file_ids))),
                 get=lambda _team_id, _file_id: ({"sha256": "e" * 64, "size": 5}, b"brief"),
             )
             controller.chat_turn_service.storage = controller.storage
@@ -180,6 +183,8 @@ class LocalChatScopeTests(LocalContractCase):
             [{"type": "text", "text": "brief", "pdf": False}],
         )
         self.assertEqual(opened, 1)
+        # The turn references its file before the Brain start and leaves only it referenced once it completes.
+        self.assertEqual(references, [("reference", "team_1", [file_id]), ("settle", "team_1", [file_id])])
         self.assertGreaterEqual(len(metadata_connections), 2)
         self.assertTrue(all(current is connection for current in metadata_connections))
 

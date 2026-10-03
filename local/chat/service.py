@@ -82,9 +82,6 @@ class ChatTurnService:
         # A person who found the Team's slot held by a Routine: chat goes first at the next boundary. Infinite while
         # that Routine still holds the slot; its bounded grace starts only when the segment frees it.
         self._chat_demand: dict[str, float] = {}
-        # The selected files each Team's Brain thread may still reference; absent means unknown, as after a restart,
-        # so a file's deletion then purges that thread (ADR-0093).
-        self._brain_files: dict[str, frozenset[str] | None] = {}
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:

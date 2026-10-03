@@ -102,6 +102,7 @@ def _local_controller(local_active, config, events: list[str], fail):
     controller.storage = SimpleNamespace(
         metadata=lambda _team_id, _files, _connection=None: [],
         metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
+        settle=lambda _team_id, _files: None,
     )
     controller.inference_store = SimpleNamespace(load=lambda _team_id: config, load_knowledge=lambda _team_id: ([], []))
     controller.routine_store = SimpleNamespace(load=lambda _team_id: routine_record.TeamRoutines())

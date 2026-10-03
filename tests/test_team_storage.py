@@ -174,7 +174,7 @@ class TeamStorageTests(unittest.TestCase):
             page_size = int(connection.execute("PRAGMA page_size").fetchone()[0])
             expected = (64 + team_storage.DATABASE_HEADROOM_BYTES + page_size - 1) // page_size
             self.assertEqual(int(connection.execute("PRAGMA max_page_count").fetchone()[0]), expected)
-            self.assertEqual(int(connection.execute("PRAGMA user_version").fetchone()[0]), 0)
+            self.assertEqual(int(connection.execute("PRAGMA user_version").fetchone()[0]), team_storage.SCHEMA_VERSION)
             connection.execute("UPDATE files SET content=? WHERE id=?", (b"evil", stored["id"]))
 
         with self.assertRaises(team_storage.StorageError):
@@ -259,7 +259,9 @@ class TeamStorageTests(unittest.TestCase):
 
         def execute(statement: str) -> mock.Mock:
             result = mock.Mock()
-            if statement == "PRAGMA page_size":
+            if statement == "PRAGMA user_version":
+                result.fetchone.return_value = (team_storage.SCHEMA_VERSION,)
+            elif statement == "PRAGMA page_size":
                 result.fetchone.return_value = (4096,)
             elif statement == "PRAGMA page_count":
                 result.fetchone.return_value = (0,)
@@ -319,6 +321,160 @@ class TeamStorageTests(unittest.TestCase):
         with mock.patch.object(storage, "destroy", return_value=False) as destroy:
             self.assertEqual(storage.destroy_all(), 0)
         destroy.assert_called_once_with("alpha")
+
+
+class TeamStorageRetentionTests(unittest.TestCase):
+    """Unreferenced files are collected after their grace; references, identical uploads, and Teams are respected."""
+
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.root = Path(self.temporary_directory.name) / "teams"
+        self.now = 1_000_000.0
+        self.storage = team_storage.TeamStorage(self.root, limit_bytes=10, clock=lambda: self.now)
+
+    def _ids(self, team_id: str = "alpha") -> list[str]:
+        return [item["id"] for item in self.storage.list(team_id)["files"]]
+
+    def test_an_unreferenced_upload_is_collected_exactly_when_its_grace_ends(self) -> None:
+        stored = self.storage.put("alpha", "draft.txt", b"draft", "text/plain")
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
+        self.assertEqual(self._ids(), [stored["id"]])
+        self.now += 1
+        self.assertEqual(self._ids(), [])
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            self.storage.get("alpha", stored["id"])
+
+    def test_the_sweep_is_idempotent_and_scoped_to_its_team(self) -> None:
+        alpha = self.storage.put("alpha", "a.txt", b"alpha", "text/plain")
+        beta = self.storage.put("beta", "b.txt", b"beta", "text/plain")
+        self.storage.reference("beta", [beta["id"]])
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS
+        self.assertEqual(self.storage.sweep("alpha"), 1)
+        self.assertEqual(self.storage.sweep("alpha"), 0)
+        self.assertEqual(self.storage.sweep("absent"), 0)
+        self.assertEqual(self.storage.sweep("beta"), 0)
+        self.assertEqual(self._ids("beta"), [beta["id"]])
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            self.storage.get("alpha", alpha["id"])
+        # A reference names only the Team's own files.
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            self.storage.reference("alpha", [beta["id"]])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset())
+
+    def test_a_referenced_file_stays_until_a_later_turn_releases_it_and_then_its_grace(self) -> None:
+        sent = self.storage.put("alpha", "sent.txt", b"sent", "text/plain")
+        self.storage.reference("alpha", [sent["id"]])
+        self.storage.settle("alpha", [sent["id"]])
+        self.now += 10 * team_storage.UNREFERENCED_GRACE_SECONDS
+        self.assertEqual(self._ids(), [sent["id"]])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset({sent["id"]}))
+        # A later turn without the file releases it; its grace starts at that release, not at its upload.
+        self.storage.settle("alpha", [])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset())
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
+        self.assertEqual(self._ids(), [sent["id"]])
+        self.now += 1
+        self.storage.settle("alpha", [])
+        self.assertEqual(self._ids(), [])
+
+    def test_a_new_turn_adds_to_the_previous_references_until_it_completes(self) -> None:
+        first = self.storage.put("alpha", "first.txt", b"1", "text/plain")
+        second = self.storage.put("alpha", "second.txt", b"2", "text/plain")
+        self.storage.reference("alpha", [first["id"]])
+        self.storage.settle("alpha", [first["id"]])
+        self.storage.reference("alpha", [second["id"]])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset({first["id"], second["id"]}))
+        self.storage.settle("alpha", [second["id"]])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset({second["id"]}))
+        self.storage.reference("alpha", [])
+        self.storage.settle("absent", [])
+        self.assertEqual(self.storage.referenced("absent"), frozenset())
+
+    def test_a_collected_file_cannot_be_referenced_by_a_turn(self) -> None:
+        stored = self.storage.put("alpha", "late.txt", b"late", "text/plain")
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS
+        self.storage.sweep("alpha")
+        with self.assertRaises(team_storage.StorageNotFoundError):
+            self.storage.reference("alpha", [stored["id"]])
+
+    def test_an_identical_upload_reuses_the_stored_file_without_charging_quota(self) -> None:
+        stored = self.storage.put("alpha", "same.txt", b"123456", "text/plain")
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
+        again = self.storage.put("alpha", "same.txt", b"123456", "text/plain")
+        self.assertEqual(again["id"], stored["id"])
+        self.assertEqual((again["used_bytes"], again["remaining_bytes"]), (6, 4))
+        # The identical upload restarts the grace period.
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
+        self.assertEqual(self._ids(), [stored["id"]])
+        # A different name or type is a different file, charged on its own.
+        with self.assertRaises(team_storage.StorageQuotaError):
+            self.storage.put("alpha", "other.txt", b"123456", "text/plain")
+        self.assertEqual(self.storage.put("beta", "same.txt", b"123456", "text/plain")["used_bytes"], 6)
+
+    def test_reuse_keeps_a_referenced_file_referenced_and_a_full_quota_still_admits_it(self) -> None:
+        stored = self.storage.put("alpha", "full.bin", b"1234567890")
+        self.storage.reference("alpha", [stored["id"]])
+        self.assertEqual(self.storage.put("alpha", "full.bin", b"1234567890")["id"], stored["id"])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset({stored["id"]}))
+
+    def test_quota_freed_by_collection_admits_the_next_upload(self) -> None:
+        self.storage.put("alpha", "old.bin", b"1234567890")
+        with self.assertRaises(team_storage.StorageQuotaError):
+            self.storage.put("alpha", "new.bin", b"x")
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS
+        fresh = self.storage.put("alpha", "new.bin", b"x")
+        self.assertEqual((fresh["used_bytes"], self._ids()), (1, [fresh["id"]]))
+
+    def test_a_database_of_another_schema_is_refused_and_never_upgraded(self) -> None:
+        directory = self.root / "alpha"
+        directory.mkdir(mode=0o700)
+        path = directory / "files.sqlite3"
+        with closing(sqlite3.connect(path)) as connection:
+            connection.execute("CREATE TABLE files (id TEXT PRIMARY KEY)")
+            connection.commit()
+        path.chmod(0o600)
+        with self.assertRaisesRegex(team_storage.StorageError, "schema is not current"):
+            self.storage.list("alpha")
+        with closing(sqlite3.connect(path)) as connection:
+            self.assertEqual(int(connection.execute("PRAGMA user_version").fetchone()[0]), 0)
+            connection.execute("PRAGMA user_version=99")
+            connection.commit()
+        with self.assertRaisesRegex(team_storage.StorageError, "schema is not current"):
+            self.storage.put("alpha", "x.bin", b"x")
+
+    def test_a_schema_another_connection_created_meanwhile_is_accepted(self) -> None:
+        self.storage.put("alpha", "x.bin", b"x")
+        path = self.root / "alpha" / "files.sqlite3"
+        with closing(sqlite3.connect(path, isolation_level=None)) as connection:
+            versions = iter([(0,), (team_storage.SCHEMA_VERSION,)])
+            raced = mock.Mock(wraps=connection)
+
+            def execute(statement: str, *args: object) -> object:
+                if statement == "PRAGMA user_version":
+                    return mock.Mock(fetchone=mock.Mock(return_value=next(versions)))
+                return connection.execute(statement, *args)
+
+            raced.execute.side_effect = execute
+            team_storage.TeamStorage._schema(raced)
+            self.assertFalse(connection.in_transaction)
+
+    def test_reference_bookkeeping_failures_map_sqlite_errors(self) -> None:
+        self.storage.put("alpha", "x.bin", b"x")
+        connection = mock.Mock()
+        connection.execute.side_effect = sqlite3.DatabaseError("malformed database")
+        for operation in (
+            lambda: self.storage.settle("alpha", []),
+            lambda: self.storage.reference("alpha", ["0" * 32]),
+            lambda: self.storage.sweep("alpha"),
+            lambda: self.storage.delete("alpha", "0" * 32),
+        ):
+            with (
+                self.subTest(operation=operation),
+                mock.patch.object(self.storage, "_connect", return_value=connection),
+                self.assertRaisesRegex(team_storage.StorageError, "transaction failed"),
+            ):
+                operation()
 
 
 if __name__ == "__main__":

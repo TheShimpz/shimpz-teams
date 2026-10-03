@@ -155,9 +155,6 @@ _cancelled_chat_tokens: set[str] = set()
 _brain_aborts: dict[str, request_abort.RequestAbort] = {}
 # Teams being destroyed: no new chat turn may register until destruction ends.
 _draining_chats: set[str] = set()
-# The selected files each Team's Brain thread may still reference; absent means unknown, as after a restart, so a
-# file's deletion then purges that thread (ADR-0093).
-_brain_files: dict[str, frozenset[str]] = {}
 # Docker inventory and slow provisioning run outside this lock. The generation detects snapshot churn.
 _capacity_lock = threading.Lock()
 _capacity_reservations: dict[str, object] = {}

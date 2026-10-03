@@ -44,11 +44,17 @@ def _challenges(*file_ids: str) -> mock.Mock:
     return store
 
 
-def _service(pending: tuple[str, ...] = (), known: frozenset[str] | None = None) -> types.SimpleNamespace:
+def _storage(referenced: frozenset[str] = frozenset()) -> mock.Mock:
+    """The Team's file references as storage records them; only what forget_file reads and writes."""
+    return mock.Mock(referenced=mock.Mock(return_value=referenced))
+
+
+def _service(pending: tuple[str, ...] = (), referenced: frozenset[str] = frozenset()) -> types.SimpleNamespace:
     service = types.SimpleNamespace(
         space_id="local-space",
         _active_chat_guard=threading.Lock(),
-        _brain_files={} if known is None else {"team_1": known},
+        storage=_storage(referenced),
+        _raise_storage_problem=local_app.LocalController._raise_storage_problem,
         _routine_holders={},
         human_challenges=_challenges(*pending),
         integration_challenges=_challenges(),
@@ -74,22 +80,23 @@ class LocalDeletionTests(unittest.TestCase):
         service.action_state.end_settled.assert_called_once_with(NETWORK.id)
         service.action_state.purge.assert_not_called()
         service.brain_runtime.delete_thread.assert_called_once()
-        self.assertEqual(service._brain_files["team_1"], frozenset())
+        # The purged thread references nothing more, so every file it referenced starts its grace period.
+        service.storage.settle.assert_called_once_with("team_1", ())
 
-    def test_an_unrelated_file_leaves_a_known_thread_and_its_paused_turn_alone(self) -> None:
+    def test_an_unrelated_file_leaves_a_referencing_thread_and_its_paused_turn_alone(self) -> None:
         service = _service((OTHER_ID,), frozenset({OTHER_ID}))
         local_attachments.forget_file(service, "team_1", FILE_ID, NETWORK)
         service.human_challenges.cancel_team.assert_not_called()
         service.brain_runtime.delete_thread.assert_not_called()
+        service.storage.settle.assert_not_called()
 
-    def test_an_unknown_brain_thread_is_purged_and_a_paused_turn_with_it(self) -> None:
-        service = _service((OTHER_ID,))
+    def test_a_referenced_file_purges_the_thread_and_any_paused_turn_with_it(self) -> None:
+        service = _service((OTHER_ID,), frozenset({FILE_ID}))
         local_attachments.forget_file(service, "team_1", FILE_ID, NETWORK)
         service.human_challenges.cancel_team.assert_called_once_with("team_1")
         service.brain_runtime.delete_thread.assert_called_once()
         unreadable = _service()
         unreadable.chat_continuations.current.return_value = object()
-        unreadable._brain_files["team_1"] = frozenset()
         local_attachments.forget_file(unreadable, "team_1", FILE_ID, NETWORK)
         unreadable._delete_chat_continuation.assert_called_once_with("team_1")
 
@@ -102,22 +109,44 @@ class LocalDeletionTests(unittest.TestCase):
         service.brain_runtime.delete_thread.assert_not_called()
 
     def test_a_brain_failure_refuses_the_deletion(self) -> None:
-        service = _service(known=frozenset({FILE_ID}))
+        service = _service(referenced=frozenset({FILE_ID}))
         service.brain_runtime.delete_thread.side_effect = brain_runtime_client.BrainRuntimeError("down")
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_attachments.forget_file(service, "team_1", FILE_ID, NETWORK)
         self.assertEqual(caught.exception.code, "brain-runtime-failed")
-        self.assertEqual(service._brain_files["team_1"], frozenset({FILE_ID}))
+        service.storage.settle.assert_not_called()
 
-    def test_turn_records_grow_until_a_turn_completes_and_unknown_stays_unknown(self) -> None:
+    def test_turn_references_are_recorded_in_storage_and_survive_a_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "teams"
+            service = _service()
+            service.storage = team_storage.TeamStorage(root)
+            first = service.storage.put("team_1", "a.txt", b"a", "text/plain")["id"]
+            second = service.storage.put("team_1", "b.txt", b"b", "text/plain")["id"]
+            local_attachments.turn_completed(service, "team_1", [second])
+            local_attachments.turn_started(service, "team_1", [first])
+            # A restarted controller reads the same references: nothing is unknown after a restart.
+            restarted = team_storage.TeamStorage(root)
+            self.assertEqual(restarted.referenced("team_1"), frozenset({first, second}))
+            local_attachments.turn_completed(service, "team_1", [])
+            self.assertEqual(restarted.referenced("team_1"), frozenset())
+
+    def test_a_turn_naming_a_collected_file_fails_before_its_brain_start(self) -> None:
         service = _service()
-        local_attachments.turn_started(service, "team_1", [FILE_ID])
-        self.assertNotIn("team_1", service._brain_files)
-        local_attachments.turn_completed(service, "team_1", [OTHER_ID])
-        local_attachments.turn_started(service, "team_1", [FILE_ID])
-        self.assertEqual(service._brain_files["team_1"], frozenset({FILE_ID, OTHER_ID}))
+        service.storage.reference.side_effect = team_storage.StorageNotFoundError("file not found")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_attachments.turn_started(service, "team_1", [FILE_ID])
+        self.assertEqual(caught.exception.code, "file-not-found")
+        service.storage.reference.side_effect = team_storage.StorageError("unsafe")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_attachments.turn_started(service, "team_1", [FILE_ID])
+        self.assertEqual(caught.exception.code, "storage-safety-failed")
+
+    def test_a_failed_release_keeps_the_completed_turn_and_every_reference(self) -> None:
+        service = _service()
+        service.storage.settle.side_effect = team_storage.StorageError("unavailable")
         local_attachments.turn_completed(service, "team_1", [])
-        self.assertEqual(service._brain_files["team_1"], frozenset())
+        service.storage.settle.assert_called_once_with("team_1", [])
 
     def test_a_turn_holding_the_slot_refuses_the_deletion_until_it_ends(self) -> None:
         service = _service()
@@ -168,8 +197,10 @@ class LocalDeletionTests(unittest.TestCase):
 class HostedDeletionTests(unittest.TestCase):
     def setUp(self) -> None:
         state._human_challenges.cancel_team("team_1")
-        state._brain_files.clear()
-        self.addCleanup(state._brain_files.clear)
+        self.storage = _storage()
+        patcher = mock.patch.object(state, "_storage", side_effect=lambda: self.storage)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_a_repeated_deletion_is_absent_after_the_same_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -203,8 +234,8 @@ class HostedDeletionTests(unittest.TestCase):
         finally:
             lock.release()
 
-    def test_a_referenced_pause_is_cancelled_and_the_known_thread_purged(self) -> None:
-        state._brain_files["team_1"] = frozenset({FILE_ID})
+    def test_a_referenced_pause_is_cancelled_and_the_referencing_thread_purged(self) -> None:
+        self.storage.referenced.return_value = frozenset({FILE_ID})
         journal = mock.Mock()
         pending = types.SimpleNamespace(payload=types.SimpleNamespace(file_ids=(FILE_ID,)))
         with (
@@ -218,17 +249,31 @@ class HostedDeletionTests(unittest.TestCase):
         journal.end_settled.assert_called_once_with("c" * 64)
         journal.purge.assert_not_called()
         delete_thread.assert_called_once()
-        self.assertEqual(state._brain_files["team_1"], frozenset())
+        self.storage.settle.assert_called_once_with("team_1", ())
 
-    def test_an_unrelated_file_is_deleted_without_touching_a_known_thread(self) -> None:
-        state._brain_files["team_1"] = frozenset({OTHER_ID})
+    def test_an_unrelated_file_is_deleted_without_touching_a_referencing_thread(self) -> None:
+        self.storage.referenced.return_value = frozenset({OTHER_ID})
         with mock.patch.object(state._brain_runtime, "delete_thread") as delete_thread:
             hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
         delete_thread.assert_not_called()
         hosted_chat_lifecycle.turn_started("team_1", [FILE_ID])
-        self.assertEqual(state._brain_files["team_1"], frozenset({FILE_ID, OTHER_ID}))
+        self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
         hosted_chat_lifecycle.turn_completed("team_1", [])
-        self.assertEqual(state._brain_files["team_1"], frozenset())
+        self.storage.settle.assert_called_once_with("team_1", [])
+
+    def test_turn_reference_failures_fail_the_turn_and_a_failed_release_keeps_it(self) -> None:
+        hosted_storage = hosted_chat_lifecycle.team_storage
+        for error, status in (
+            (hosted_storage.StorageNotFoundError("file not found"), 404),
+            (hosted_storage.StorageError("unsafe"), 503),
+        ):
+            with self.subTest(status=status):
+                self.storage.reference.side_effect = error
+                with self.assertRaises(state.ApiError) as caught:
+                    hosted_chat_lifecycle.turn_started("team_1", [FILE_ID])
+                self.assertEqual(caught.exception.status, status)
+        self.storage.settle.side_effect = hosted_storage.StorageError("unavailable")
+        hosted_chat_lifecycle.turn_completed("team_1", [FILE_ID])
 
     def test_unavailable_action_state_refuses_the_deletion(self) -> None:
         journal = mock.Mock()
@@ -245,17 +290,18 @@ class HostedDeletionTests(unittest.TestCase):
     def test_only_a_completed_segment_resets_what_the_brain_may_reference(self) -> None:
         segment = harness.hosted_chat_segment
         request = types.SimpleNamespace(team_id="team_1", file_ids=[FILE_ID], continuation=None)
-        state._brain_files["team_1"] = frozenset()
         paused = types.SimpleNamespace(outcome=object())
         with mock.patch.object(segment, "_run_metadata_segment", return_value=paused):
             self.assertIs(segment._run_hosted_chat_segment(request), paused)
-            self.assertEqual(state._brain_files["team_1"], frozenset({FILE_ID}))
+            self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
             # A resumed segment adds nothing: its turn's files were recorded when that turn started.
             resumed = types.SimpleNamespace(team_id="team_1", file_ids=[OTHER_ID], continuation=object())
             segment._run_hosted_chat_segment(resumed)
-        self.assertEqual(state._brain_files["team_1"], frozenset({FILE_ID}))
+        self.storage.reference.assert_called_once_with("team_1", [FILE_ID])
+        self.storage.settle.assert_not_called()
 
     def test_a_brain_failure_refuses_the_deletion(self) -> None:
+        self.storage.referenced.return_value = frozenset({FILE_ID})
         with (
             mock.patch.object(
                 state._brain_runtime,

@@ -518,6 +518,7 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
             controller.team_names = SimpleNamespace(load=lambda _team_id, _network_id: None)
             controller.storage = SimpleNamespace(
                 metadata_connection=lambda _team_id, _files: contextlib.nullcontext(None),
+                settle=lambda _team_id, _files: None,
             )
             controller.assistant_integrations = integration_store.OAuthIntegrationStore(
                 Path(directory) / "state" / "integrations.json",

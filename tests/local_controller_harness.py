@@ -86,6 +86,7 @@ class LocalContractCase(unittest.TestCase):
         controller.storage = SimpleNamespace(
             metadata=lambda _team_id, _files, _connection=None: [],
             metadata_connection=lambda _team_id, _files: nullcontext(None),
+            settle=lambda _team_id, _files: None,
         )
         controller.routine_store = local_routine_store.RoutineStore(
             Path(directory) / "routines" / "state", Path(directory) / "routines" / "key" / "aes256.key"

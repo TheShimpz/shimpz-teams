@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from http import HTTPStatus
@@ -76,21 +77,29 @@ def turn_attachments(
 
 
 def turn_started(self, team_id: str, file_ids: Sequence[str]) -> None:
-    """Record that a new turn may reference these files, before its Brain start can.
+    """Record that a new turn references these files, before its Brain start can (ADR-0093).
 
     Until that turn completes, the Brain thread may still hold the previous attached exchange too, so the files add
-    to what is already recorded; an unknown record stays unknown.
+    to those already referenced; a referenced file is never collected.
     """
-    with self._active_chat_guard:
-        known = self._brain_files.get(team_id)
-        if known is not None:
-            self._brain_files[team_id] = known | frozenset(file_ids)
+    if not file_ids:
+        return
+    try:
+        self.storage.reference(team_id, file_ids)
+    except team_storage.StorageNotFoundError as exc:
+        raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
+    except team_storage.StorageError as exc:
+        self._raise_storage_problem(exc)
 
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:
-    """A completed turn leaves its Brain thread referencing only this turn's files (ADR-0093)."""
-    with self._active_chat_guard:
-        self._brain_files[team_id] = frozenset(file_ids)
+    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
+
+    The reply is already committed, so a release that fails keeps every file referenced, which never collects one
+    early, and the next completed turn releases them.
+    """
+    with contextlib.suppress(team_storage.StorageError):
+        self.storage.settle(team_id, file_ids)
 
 
 @contextmanager
@@ -124,12 +133,10 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
 
     Held under the Team's execution slot: a paused turn that selected the file, or any paused turn when the Brain
     thread must be purged, is cancelled with its challenges and continuation, keeping uncertain Action evidence; the
-    Brain thread is deleted when it may reference the file or nothing is known about it.
+    Brain thread is deleted when it may reference the file, which releases every file it referenced.
     """
     pending = _pending_files(self, team_id)
-    with self._active_chat_guard:
-        known = self._brain_files.get(team_id)
-    purge = known is None or file_id in known
+    purge = file_id in self.storage.referenced(team_id)
     referenced = pending is not None and ("*" in pending or file_id in pending)
     if not purge and not referenced:
         return
@@ -154,5 +161,4 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
             "Team conversation state could not be deleted",
             code="brain-runtime-failed",
         ) from exc
-    with self._active_chat_guard:
-        self._brain_files[team_id] = frozenset()
+    self.storage.settle(team_id, ())

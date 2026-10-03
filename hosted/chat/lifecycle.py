@@ -1,11 +1,13 @@
 """Hosted chat cleanup when an authorized Team lifecycle changes or one of its files is deleted."""
 
+import contextlib
 from http import HTTPStatus
 
 from action import journal as action_journal
 from hosted import state as runtime_state
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
+from storage import files as team_storage
 
 
 def cancel_replayable_human(team_id: str, generation: str) -> bool:
@@ -23,17 +25,24 @@ def cancel_replayable_human(team_id: str, generation: str) -> bool:
 
 
 def turn_started(team_id: str, file_ids: object) -> None:
-    """Record that a new turn may reference these files, before its Brain start can (ADR-0093)."""
-    with runtime_state._active_chat_guard:
-        known = runtime_state._brain_files.get(team_id)
-        if known is not None:
-            runtime_state._brain_files[team_id] = known | frozenset(file_ids)
+    """Record that a new turn references these files, before its Brain start can (ADR-0093)."""
+    if not file_ids:
+        return
+    try:
+        runtime_state._storage().reference(team_id, file_ids)
+    except team_storage.StorageNotFoundError as exc:
+        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "selected file not found") from exc
+    except team_storage.StorageError as exc:
+        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team storage failed its safety checks") from exc
 
 
 def turn_completed(team_id: str, file_ids: object) -> None:
-    """A completed turn leaves its Brain thread referencing only this turn's files."""
-    with runtime_state._active_chat_guard:
-        runtime_state._brain_files[team_id] = frozenset(file_ids)
+    """A completed turn leaves its Brain thread referencing only this turn's files; the others start their grace.
+
+    A release that fails keeps every file referenced, which never collects one early; the next turn releases them.
+    """
+    with contextlib.suppress(team_storage.StorageError):
+        runtime_state._storage().settle(team_id, file_ids)
 
 
 def _pending_files(team_id: str) -> tuple[str, ...] | None:
@@ -53,9 +62,8 @@ def forget_file(team_id: str, file_id: str, container_id: str) -> None:
     deleted when it may reference the file or nothing is known about it.
     """
     pending = _pending_files(team_id)
-    with runtime_state._active_chat_guard:
-        known = runtime_state._brain_files.get(team_id)
-    purge = known is None or file_id in known
+    storage = runtime_state._storage()
+    purge = file_id in storage.referenced(team_id)
     referenced = pending is not None and ("*" in pending or file_id in pending)
     if not purge and not referenced:
         return
@@ -76,5 +84,4 @@ def forget_file(team_id: str, file_id: str, container_id: str) -> None:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE, "Team conversation state could not be deleted"
         ) from exc
-    with runtime_state._active_chat_guard:
-        runtime_state._brain_files[team_id] = frozenset()
+    storage.settle(team_id, ())

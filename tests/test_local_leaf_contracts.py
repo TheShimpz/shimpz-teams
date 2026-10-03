@@ -57,7 +57,9 @@ class LocalLeafContractTests(unittest.TestCase):
             "container-id",
         )
         controller = types.SimpleNamespace(
-            storage=types.SimpleNamespace(metadata_connection=lambda *_args: nullcontext(None)),
+            storage=types.SimpleNamespace(
+                metadata_connection=lambda *_args: nullcontext(None), settle=lambda *_args: None
+            ),
             _chat_setup=lambda *_args: (
                 "Team",
                 "a" * 12,
