@@ -286,6 +286,14 @@ class ContinuationTests(StoreCase):
         self.assertEqual(self.store.continuations("team_1"), ())
         self.assertEqual(self.store.continuations("team_9"), ())
 
+    def test_an_empty_oversized_or_non_bytes_source_is_refused_and_nothing_is_written(self):
+        for payload in (b"", "text", b"x" * (routine_store.MAX_SOURCE_BYTES + 1)):
+            with self.subTest(size=len(payload)), self.assertRaisesRegex(routine_store.RoutineStoreError, "invalid"):
+                self.store.put_source("team_1", "a" * 32, payload)
+        self.assertIsNone(self.store.source("team_1", "a" * 32))
+        self.store.put_source("team_1", "a" * 32, b"x" * routine_store.MAX_SOURCE_BYTES)
+        self.assertEqual(self.store.source("team_1", "a" * 32), b"x" * routine_store.MAX_SOURCE_BYTES)
+
 
 class DeletionTests(StoreCase):
     def test_a_team_and_the_whole_space_are_removed_without_residue(self):

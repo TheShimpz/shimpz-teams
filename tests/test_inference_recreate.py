@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from inference import client as brain_runtime_client
 from inference import recreate
@@ -74,6 +75,30 @@ class RecreateCompileTests(unittest.TestCase):
         ):
             with self.subTest(answer=answer), self.assertRaises(brain_runtime_client.BrainRuntimeError):
                 recreate.compile_routine(Client(answer), CREDENTIALS, "x", (ASSISTANT,))
+
+
+class RuntimeClientCompileTests(unittest.TestCase):
+    def client(self, answer: object):
+        client = brain_runtime_client.BrainRuntimeClient.__new__(brain_runtime_client.BrainRuntimeClient)
+        client._post = mock.Mock(return_value=answer)
+        return client
+
+    def test_the_compile_posts_to_its_route_and_is_metered_before_it_is_admitted(self) -> None:
+        usage = dict.fromkeys(brain_runtime_client.brain_usage.FIELDS, 0)
+        client = self.client({**_answer(), "usage": usage})
+        with mock.patch.object(brain_runtime_client.brain_usage, "record") as metered:
+            compiled = recreate.compile_routine(client, CREDENTIALS, "x", (ASSISTANT,))
+        self.assertEqual(compiled.routine, CHANGE)
+        self.assertEqual(client._post.call_args.args[0], "/v1/routine-compile")
+        metered.assert_called_once_with("routine-compile", "openai", "gpt-6.1-sol", mock.ANY)
+        for answer in (_answer(), {**_answer(), "usage": {"input_tokens": "x"}}):
+            with (
+                self.subTest(answer=answer),
+                mock.patch.object(brain_runtime_client.brain_usage, "record") as unmetered,
+                self.assertRaises(brain_runtime_client.BrainRuntimeError),
+            ):
+                recreate.compile_routine(self.client(answer), CREDENTIALS, "x", (ASSISTANT,))
+            unmetered.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -480,6 +480,42 @@ class DirectCreationTests(LocalContractCase):
             {"message": before["message"], "receipt": before["receipt"], "revision": 1, "selected": "50"},
         )
 
+    def test_an_answered_update_question_changes_the_routine_and_keeps_its_creation_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, runtime, answer = self.asked(directory)
+            self.chat(service, _body(answer + "50", nonce="d" * 32))
+            (created,) = service.routine_store.load("team_1").routines
+            other = "Change how many zones each page lists"
+            question = "How many zones per page now, 25 or 50?"
+            clarification = {
+                "question": question,
+                "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
+                "default_index": 0,
+            }
+            update = _change(op="update", routine_id=created.routine_id, expected_revision=1, request=other)
+            update["steps"][0]["input"] = {"page": {"kind": "kept"}}
+            field = {"kind": "input", "step": "zones", "member": "per_page"}
+            proposed = {**update, "question": {"field": field, "values": [25, 50], "reply": "Pronto."}}
+            reply = http_payload.render_clarification(clarification)
+
+            def ask(context, _message, *, conversation=()):
+                runtime.contexts.append(context)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=proposed
+                )
+
+            runtime.start = ask
+            self.assertEqual(self.chat(service, _body(other, nonce="e" * 32))["clarification"], clarification)
+            self.assertEqual(service.routine_store.load("team_1").routines, (created,))
+            self.chat(service, _body(f"{other}\n\nPergunta: {question}\nResposta: 25", nonce="f" * 32))
+            (updated,) = service.routine_store.load("team_1").routines
+            source = routine_source.load(service, "team_1", created.routine_id)
+        self.assertEqual(updated.revision, 2)
+        self.assertEqual(updated.plan["steps"][0]["input"]["per_page"], {"kind": "literal", "value": 25})
+        # An update never replaces what created the Routine: Recriar still starts from the first message.
+        self.assertEqual(source.message, "Every Monday at 9:00, list my zones, page 1")
+        self.assertEqual(source.selected, (("input", "zones", "per_page"), {"kind": "literal", "value": 50}))
+
     def test_a_free_text_or_unbound_answer_never_changes_a_routine(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, runtime, answer = self.asked(directory)
