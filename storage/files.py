@@ -382,20 +382,43 @@ class TeamStorage:
         except StorageNotFoundError:
             return 0
 
-    def reference(self, team_id: str, file_ids: Sequence[object]) -> None:
+    def reference(self, team_id: str, file_ids: Sequence[object]) -> tuple[str, ...]:
         """Mark the files a new turn selected as referenced before its Brain start can read them.
 
         The Team's conversation may still reference the previous turn's files until this turn completes, so the marks
-        add to those already held. A file already collected fails the turn as not found.
+        add to those already held. A file already collected fails the turn as not found. Returns the files this call
+        newly marked, which a turn that fails releases again.
         """
+        safe_ids = self._metadata_ids(list(file_ids))
+        if not safe_ids:
+            return ()
+        team_id = _team_id(team_id)
+        added: list[str] = []
+        with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+            for file_id in safe_ids:
+                row = connection.execute("SELECT referenced FROM files WHERE id=?", (file_id,)).fetchone()
+                if row is None:
+                    raise StorageNotFoundError("file not found")
+                if row[0] == 0:
+                    connection.execute("UPDATE files SET referenced=1 WHERE id=?", (file_id,))
+                    added.append(file_id)
+        return tuple(added)
+
+    def release(self, team_id: str, file_ids: Sequence[object]) -> None:
+        """Release the files a failed turn newly referenced; each starts its grace period now."""
         safe_ids = self._metadata_ids(list(file_ids))
         if not safe_ids:
             return
         team_id = _team_id(team_id)
-        with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
-            for file_id in safe_ids:
-                if connection.execute("UPDATE files SET referenced=1 WHERE id=?", (file_id,)).rowcount != 1:
-                    raise StorageNotFoundError("file not found")
+        now = self._now()
+        try:
+            with self._transaction(team_id, create=False, limit_bytes=self._limit(team_id)) as connection:
+                connection.executemany(
+                    "UPDATE files SET referenced=0, idle_since=? WHERE id=? AND referenced=1",
+                    [(now, file_id) for file_id in safe_ids],
+                )
+        except StorageNotFoundError:
+            return
 
     def settle(self, team_id: str, file_ids: Sequence[object]) -> None:
         """A completed turn, or a purged conversation with no files, leaves exactly these files referenced.

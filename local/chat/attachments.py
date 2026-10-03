@@ -76,20 +76,31 @@ def turn_attachments(
     return chat_attachments.wire(prepared)
 
 
-def turn_started(self, team_id: str, file_ids: Sequence[str]) -> None:
+def turn_started(self, team_id: str, file_ids: Sequence[str]) -> tuple[str, ...]:
     """Record that a new turn references these files, before its Brain start can (ADR-0093).
 
     Until that turn completes, the Brain thread may still hold the previous attached exchange too, so the files add
-    to those already referenced; a referenced file is never collected.
+    to those already referenced; a referenced file is never collected. Returns the files this turn newly referenced.
     """
     if not file_ids:
-        return
+        return ()
     try:
-        self.storage.reference(team_id, file_ids)
+        return self.storage.reference(team_id, file_ids)
     except team_storage.StorageNotFoundError as exc:
         raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
     except team_storage.StorageError as exc:
         self._raise_storage_problem(exc)
+
+
+def turn_failed(self, team_id: str, added: Sequence[str]) -> None:
+    """A turn that ended without an outcome leaves no continuation to read its files: release what it added.
+
+    The files earlier turns referenced stay referenced. A release that fails keeps them referenced, which never
+    collects one early; the next completed turn releases them.
+    """
+    if added:
+        with contextlib.suppress(team_storage.StorageError):
+            self.storage.release(team_id, added)
 
 
 def turn_completed(self, team_id: str, file_ids: Sequence[str]) -> None:

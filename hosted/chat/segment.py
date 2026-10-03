@@ -347,10 +347,16 @@ def _admitted_delivery(
 
 
 def _run_hosted_chat_segment(request: HostedChatSegmentRequest) -> chat_turn_engine.SegmentResult:
+    added: tuple[str, ...] = ()
     if request.continuation is None:
         # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.
-        hosted_chat_lifecycle.turn_started(request.team_id, request.file_ids or ())
-    result = _run_metadata_segment(request)
+        added = hosted_chat_lifecycle.turn_started(request.team_id, request.file_ids or ())
+    try:
+        result = _run_metadata_segment(request)
+    except Exception:
+        # A failed turn leaves no continuation, so nothing can read the files only it referenced.
+        hosted_chat_lifecycle.turn_failed(request.team_id, added)
+        raise
     if isinstance(result.outcome, chat_orchestrator.ChatOutcome):
         hosted_chat_lifecycle.turn_completed(request.team_id, request.file_ids or ())
     return result

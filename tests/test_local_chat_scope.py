@@ -155,7 +155,7 @@ class LocalChatScopeTests(LocalContractCase):
             controller.storage = SimpleNamespace(
                 metadata=metadata,
                 metadata_connection=metadata_connection,
-                reference=lambda team_id, file_ids: references.append(("reference", team_id, list(file_ids))),
+                reference=lambda team_id, file_ids: references.append(("reference", team_id, list(file_ids))) or (),
                 settle=lambda team_id, file_ids: references.append(("settle", team_id, list(file_ids))),
                 get=lambda _team_id, _file_id: ({"sha256": "e" * 64, "size": 5}, b"brief"),
             )

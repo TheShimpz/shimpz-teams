@@ -401,6 +401,22 @@ class TeamStorageRetentionTests(unittest.TestCase):
         self.storage.settle("absent", [])
         self.assertEqual(self.storage.referenced("absent"), frozenset())
 
+    def test_reference_reports_what_it_added_and_release_returns_only_that(self) -> None:
+        held = self.storage.put("alpha", "held.txt", b"1", "text/plain")["id"]
+        fresh = self.storage.put("alpha", "fresh.txt", b"2", "text/plain")["id"]
+        self.assertEqual(self.storage.reference("alpha", [held]), (held,))
+        self.assertEqual(self.storage.reference("alpha", [held, fresh]), (fresh,))
+        self.now += 100
+        self.storage.release("alpha", [fresh])
+        self.storage.release("alpha", [])
+        self.storage.release("absent", [fresh])
+        self.assertEqual(self.storage.referenced("alpha"), frozenset({held}))
+        # The released file's grace starts at its release.
+        self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
+        self.assertEqual(sorted(self._ids()), sorted([held, fresh]))
+        self.now += 1
+        self.assertEqual(self._ids(), [held])
+
     def test_a_collected_file_cannot_be_referenced_by_a_turn(self) -> None:
         stored = self.storage.put("alpha", "late.txt", b"late", "text/plain")
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS
@@ -477,6 +493,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
             lambda: self.storage.settle("alpha", []),
             lambda: self.storage.reference("alpha", ["0" * 32]),
             lambda: self.storage.sweep("alpha"),
+            lambda: self.storage.release("alpha", ["0" * 32]),
             lambda: self.storage.delete("alpha", "0" * 32),
         ):
             with (

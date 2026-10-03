@@ -24,16 +24,23 @@ def cancel_replayable_human(team_id: str, generation: str) -> bool:
     return True
 
 
-def turn_started(team_id: str, file_ids: object) -> None:
-    """Record that a new turn references these files, before its Brain start can (ADR-0093)."""
+def turn_started(team_id: str, file_ids: object) -> tuple[str, ...]:
+    """Record that a new turn references these files, before its Brain start can (ADR-0093); return those it added."""
     if not file_ids:
-        return
+        return ()
     try:
-        runtime_state._storage().reference(team_id, file_ids)
+        return runtime_state._storage().reference(team_id, file_ids)
     except team_storage.StorageNotFoundError as exc:
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "selected file not found") from exc
     except team_storage.StorageError as exc:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team storage failed its safety checks") from exc
+
+
+def turn_failed(team_id: str, added: tuple[str, ...]) -> None:
+    """A turn that ended without an outcome releases the files only it referenced; earlier references stay."""
+    if added:
+        with contextlib.suppress(team_storage.StorageError):
+            runtime_state._storage().release(team_id, added)
 
 
 def turn_completed(team_id: str, file_ids: object) -> None:

@@ -170,6 +170,7 @@ class ChatTurnService:
     _pending_chat_continuation = local_chat_api._pending_chat_continuation
     _turn_started = local_chat_attachments.turn_started
     _turn_completed = local_chat_attachments.turn_completed
+    _turn_failed = local_chat_attachments.turn_failed
     _file_deletion_slot = local_chat_attachments.deletion_slot
     _forget_file = local_chat_attachments.forget_file
     _segment_response = local_chat_api._segment_response

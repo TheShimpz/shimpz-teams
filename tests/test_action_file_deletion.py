@@ -131,6 +131,34 @@ class LocalDeletionTests(unittest.TestCase):
             local_attachments.turn_completed(service, "team_1", [])
             self.assertEqual(restarted.referenced("team_1"), frozenset())
 
+    def test_a_failed_turn_releases_only_the_files_it_newly_referenced(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            clock = [1_000_000.0]
+            storage = team_storage.TeamStorage(Path(directory) / "teams", clock=lambda: clock[0])
+            earlier = storage.put("team_1", "earlier.txt", b"earlier", "text/plain")["id"]
+            failing = storage.put("team_1", "failing.txt", b"failing", "text/plain")["id"]
+            storage.reference("team_1", [earlier])
+            service = _service()
+            service.storage = storage
+            service._turn_started = lambda team_id, file_ids: local_attachments.turn_started(service, team_id, file_ids)
+            service._turn_failed = lambda team_id, added: local_attachments.turn_failed(service, team_id, added)
+            service._turn_completed = mock.Mock()
+            service._run_chat_segment_with_metadata = mock.Mock(side_effect=RuntimeError("helper unavailable"))
+            request = types.SimpleNamespace(
+                team_id="team_1", file_ids=[earlier, failing], routine=None, continuation=None
+            )
+            with self.assertRaisesRegex(RuntimeError, "helper unavailable"):
+                local_segment._run_chat_segment(service, request)
+            # The earlier turn's file stays referenced; the failed turn's own file starts its grace and is collected.
+            self.assertEqual(storage.referenced("team_1"), frozenset({earlier}))
+            service._turn_completed.assert_not_called()
+            clock[0] += team_storage.UNREFERENCED_GRACE_SECONDS
+            self.assertEqual([item["id"] for item in storage.list("team_1")["files"]], [earlier])
+            # Nothing newly referenced, or a release that fails, changes nothing.
+            local_attachments.turn_failed(service, "team_1", ())
+            service.storage = mock.Mock(release=mock.Mock(side_effect=team_storage.StorageError("unavailable")))
+            local_attachments.turn_failed(service, "team_1", (earlier,))
+
     def test_a_turn_naming_a_collected_file_fails_before_its_brain_start(self) -> None:
         service = _service()
         service.storage.reference.side_effect = team_storage.StorageNotFoundError("file not found")
@@ -286,6 +314,21 @@ class HostedDeletionTests(unittest.TestCase):
         ):
             hosted_chat_lifecycle.forget_file("team_1", FILE_ID, "c" * 64)
         self.assertEqual(caught.exception.status, 503)
+
+    def test_a_failed_turn_releases_only_what_it_added(self) -> None:
+        segment = harness.hosted_chat_segment
+        self.storage.reference.return_value = (FILE_ID,)
+        request = types.SimpleNamespace(team_id="team_1", file_ids=[FILE_ID, OTHER_ID], continuation=None)
+        with (
+            mock.patch.object(segment, "_run_metadata_segment", side_effect=RuntimeError("down")),
+            self.assertRaisesRegex(RuntimeError, "down"),
+        ):
+            segment._run_hosted_chat_segment(request)
+        self.storage.release.assert_called_once_with("team_1", (FILE_ID,))
+        self.storage.release.side_effect = hosted_chat_lifecycle.team_storage.StorageError("unavailable")
+        hosted_chat_lifecycle.turn_failed("team_1", (FILE_ID,))
+        hosted_chat_lifecycle.turn_failed("team_1", ())
+        self.assertEqual(self.storage.release.call_count, 2)
 
     def test_only_a_completed_segment_resets_what_the_brain_may_reference(self) -> None:
         segment = harness.hosted_chat_segment

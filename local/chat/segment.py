@@ -157,9 +157,6 @@ class _TurnScope:
 def _turn_context(self, request: SegmentRequest, scope: _TurnScope) -> brain_runtime_client.RuntimeContext:
     """What the Brain sees in this segment: Assistants, knowledge, Routines, and the message's prepared files."""
     routine = request.routine
-    if routine is None and request.continuation is None:
-        # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.
-        self._turn_started(request.team_id, request.file_ids)
     # A compiled Routine run asks no model, so it reads no knowledge; a chat reads it at every segment, and the
     # Brain keeps what a logical turn started with across resumes.
     memories, skills = ((), ()) if routine is not None else _knowledge(self, request.team_id)
@@ -216,8 +213,17 @@ def _run_chat_segment(
     self,
     request: SegmentRequest,
 ) -> chat_turn_engine.SegmentResult:
-    with self.storage.metadata_connection(request.team_id, request.file_ids) as metadata_connection:
-        result = self._run_chat_segment_with_metadata(request, metadata_connection)
+    added: tuple[str, ...] = ()
+    if request.routine is None and request.continuation is None:
+        # Recorded before the Brain start can reference them, so a deletion racing this turn purges its thread.
+        added = self._turn_started(request.team_id, request.file_ids)
+    try:
+        with self.storage.metadata_connection(request.team_id, request.file_ids) as metadata_connection:
+            result = self._run_chat_segment_with_metadata(request, metadata_connection)
+    except Exception:
+        # A failed turn leaves no continuation, so nothing can read the files only it referenced.
+        self._turn_failed(request.team_id, added)
+        raise
     if request.routine is None and isinstance(result.outcome, chat_orchestrator.ChatOutcome):
         self._turn_completed(request.team_id, request.file_ids)
     return result
