@@ -311,15 +311,15 @@ class TeamStorage:
         with self._transaction(team_id, create=True, limit_bytes=limit_bytes) as connection:
             self._sweep(connection, now)
             existing = connection.execute(
-                "SELECT id FROM files WHERE sha256=? AND name=? AND media_type=?",
+                "SELECT id,created_at FROM files WHERE sha256=? AND name=? AND media_type=?",
                 (digest, safe_name, safe_media_type),
             ).fetchone()
             if existing is not None:
-                file_id = existing[0]
+                file_id, created_at = existing
                 # An identical upload restarts the grace period of a file no turn references.
                 connection.execute("UPDATE files SET idle_since=max(idle_since, ?) WHERE id=?", (now, file_id))
             else:
-                file_id = secrets.token_hex(16)
+                file_id, created_at = secrets.token_hex(16), now
                 count, used = self._usage(connection)
                 if count >= MAX_FILES:
                     raise StorageQuotaError("Team file count limit reached")
@@ -337,6 +337,7 @@ class TeamStorage:
             "media_type": safe_media_type,
             "size": len(content),
             "sha256": digest,
+            "created_at": created_at,
             "used_bytes": used,
             "limit_bytes": limit_bytes,
             "remaining_bytes": max(0, limit_bytes - used),

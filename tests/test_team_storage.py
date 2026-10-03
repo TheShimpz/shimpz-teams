@@ -13,6 +13,7 @@ from unittest import mock
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
 
+from protocol.http.v1 import payload as http_payload
 from storage import files as team_storage
 
 
@@ -50,6 +51,15 @@ class TeamStorageTests(unittest.TestCase):
         self.assertFalse((alpha_directory / "brief.txt").exists())
         self.assertEqual(stat.S_IMODE(alpha_directory.stat().st_mode), 0o700)
         self.assertEqual(stat.S_IMODE((alpha_directory / "files.sqlite3").stat().st_mode), 0o600)
+
+    def test_an_upload_answer_is_the_exact_protocol_upload_shape(self) -> None:
+        storage = team_storage.TeamStorage(self.root, limit_bytes=128)
+        stored = storage.put("alpha", "brief.txt", b"confidential", "text/plain")
+        projected = http_payload.project_storage_response(
+            {"team_id": "alpha", "file": stored}, kind="upload", expected_team_id="alpha", include_team_id=True
+        )
+        self.assertIsNotNone(projected)
+        self.assertEqual(projected["file"]["created_at"], storage.list("alpha")["files"][0]["created_at"])
 
     def test_exact_content_quota_is_transactional(self) -> None:
         storage = team_storage.TeamStorage(self.root, limit_bytes=10)
@@ -402,7 +412,7 @@ class TeamStorageRetentionTests(unittest.TestCase):
         stored = self.storage.put("alpha", "same.txt", b"123456", "text/plain")
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
         again = self.storage.put("alpha", "same.txt", b"123456", "text/plain")
-        self.assertEqual(again["id"], stored["id"])
+        self.assertEqual((again["id"], again["created_at"]), (stored["id"], stored["created_at"]))
         self.assertEqual((again["used_bytes"], again["remaining_bytes"]), (6, 4))
         # The identical upload restarts the grace period.
         self.now += team_storage.UNREFERENCED_GRACE_SECONDS - 1
