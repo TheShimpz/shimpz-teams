@@ -613,12 +613,15 @@ def canonical_segment_request(value: object) -> dict[str, object] | None:
     """A leased run's segment request: exactly the revision and plan digest its claim named, under the signature."""
     if not isinstance(value, dict) or set(value) != {"revision", "plan_digest", "mode"}:
         return None
+    # A request body reaches only the fixed-length digest pattern, never the shared identifier patterns.
+    plan_digest = value["plan_digest"]
     valid = (
-        _revision(value["revision"]) and _identity(value["plan_digest"], PLAN_DIGEST_RE) and value["mode"] in RUN_MODES
+        _revision(value["revision"])
+        and isinstance(plan_digest, str)
+        and PLAN_DIGEST_RE.fullmatch(plan_digest) is not None
+        and value["mode"] in RUN_MODES
     )
-    return (
-        {"revision": value["revision"], "plan_digest": value["plan_digest"], "mode": value["mode"]} if valid else None
-    )
+    return {"revision": value["revision"], "plan_digest": plan_digest, "mode": value["mode"]} if valid else None
 
 
 # Per-execution diagnostics (ADR-0092 section 8): one Team-sanitized handled failure, or one safe transport condition,
