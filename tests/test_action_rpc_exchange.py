@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 import dataclasses
 import json
 import socket
@@ -265,6 +266,32 @@ class DockerCallBoundTests(unittest.TestCase):
         waiting.fail_stop.assert_not_called()
         waiting.cancelled.assert_called_once()
 
+    def test_a_call_returns_its_slot_before_its_result_is_published(self) -> None:
+        published: list[int] = []
+
+        class Inline:
+            """A pool that runs the call inline and records the free slots the moment its result is published."""
+
+            @staticmethod
+            def submit(function):
+                future = concurrent.futures.Future()
+                try:
+                    result = function()
+                except ValueError as exc:  # A failed call publishes its exception the same way.
+                    published.append(action_dispatch._DOCKER_CALL_SLOTS._value)
+                    future.set_exception(exc)
+                else:
+                    published.append(action_dispatch._DOCKER_CALL_SLOTS._value)
+                    future.set_result(result)
+                return future
+
+        with mock.patch.object(action_dispatch, "_DOCKER_CALLS", Inline):
+            self.assertEqual(action_dispatch.bounded_call(lambda: "done", time.monotonic() + 5).result(), "done")
+            failed = action_dispatch.bounded_call(mock.Mock(side_effect=ValueError("failed")), time.monotonic() + 5)
+            self.assertIsInstance(failed.exception(), ValueError)
+        self.assertEqual(published, [action_dispatch.MAX_DOCKER_CALLS] * 2)
+        self.assertEqual(action_dispatch._DOCKER_CALL_SLOTS._value, action_dispatch.MAX_DOCKER_CALLS)
+
     def test_stop_that_wins_after_the_wait_returns_the_slot(self) -> None:
         stopped = iter((False, True))
         with self.assertRaises(action_dispatch.DispatchRefusedError):
@@ -279,6 +306,16 @@ class DockerCallBoundTests(unittest.TestCase):
 
     def test_exit_inspection_is_bounded_by_the_same_deadline(self) -> None:
         clock = [100.0]
+        calls: list[concurrent.futures.Future] = []
+        dispatch = action_dispatch.bounded_call
+
+        def recorded(*args, **kwargs):
+            calls.append(dispatch(*args, **kwargs))
+            return calls[-1]
+
+        recording = mock.patch.object(action_dispatch, "bounded_call", side_effect=recorded)
+        recording.start()
+        self.addCleanup(recording.stop)
 
         def late_inspect(_exec_id):
             clock[0] = 200.0  # The exit status arrives after the deadline.
@@ -317,6 +354,10 @@ class DockerCallBoundTests(unittest.TestCase):
         self.assertEqual(stalled.exception.kind, "timeout")
         slow.fail_stop.assert_called_once_with()
         release.set()
+        # An inspection the turn stopped waiting for keeps its slot until it finishes, and publishes its result only
+        # after returning the slot: waiting for every call this test made leaves no slot held behind it.
+        concurrent.futures.wait(calls, timeout=10)
+        self.assertEqual(action_dispatch._DOCKER_CALL_SLOTS._value, action_dispatch.MAX_DOCKER_CALLS)
 
 
 if __name__ == "__main__":

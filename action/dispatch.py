@@ -75,24 +75,32 @@ def bounded_call[T](
 ) -> concurrent.futures.Future[T]:
     """Run one Docker call on the shared pool, admitted only while a slot frees within the remaining budget.
 
-    The wait is sliced so a stopped turn is refused promptly; Docker calls already running keep their slots.
+    The wait is sliced so a stopped turn is refused promptly; Docker calls already running keep their slots. A call
+    returns its slot in its own worker before its result is published, so whoever waits for the result finds the slot
+    already back. The pool's futures are never cancelled, so every admitted call runs and returns its slot.
     """
+    slots = _DOCKER_CALL_SLOTS
     while True:
         if stopped():
             raise DispatchRefusedError("the turn was stopped before its Docker call could run")
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise DispatchRefusedError("the Action deadline passed before its Docker call could run")
-        if _DOCKER_CALL_SLOTS.acquire(timeout=min(_SLOT_POLL_SECONDS, remaining)):
+        if slots.acquire(timeout=min(_SLOT_POLL_SECONDS, remaining)):
             break
     if stopped():
         # Stop may win while the wait succeeds; the slot is returned before anything runs.
-        _DOCKER_CALL_SLOTS.release()
+        slots.release()
         raise DispatchRefusedError("the turn was stopped before its Docker call could run")
+
+    def admitted() -> T:
+        try:
+            return call()
+        finally:
+            slots.release()
+
     try:
-        future = _DOCKER_CALLS.submit(call)
+        return _DOCKER_CALLS.submit(admitted)
     except BaseException:
-        _DOCKER_CALL_SLOTS.release()
+        slots.release()
         raise
-    future.add_done_callback(lambda _done: _DOCKER_CALL_SLOTS.release())
-    return future
