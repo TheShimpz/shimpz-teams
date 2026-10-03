@@ -19,6 +19,7 @@ from local import audit as local_audit
 from local.routine import card as routine_card
 from local.routine import incident as routine_incident
 from local.routine import recovery as routine_recovery
+from local.routine import recreate as routine_recreate
 from local.routine import run as routine_run
 from local.routine import source as routine_source
 from local.routine import turn as routine_turn
@@ -431,3 +432,56 @@ class CorrectionTests(CardCase):
             again = service.delete_routine("team_1", value.routine_id)
         self.assertEqual(([item.status for item in state.incidents], state.routines), (["released"], ()))
         self.assertEqual(again["deleted"], True)
+
+
+class AuditFollowUpTests(CardCase):
+    def held_with(self, directory: str, *answers: object):
+        return RecriarTests.held_with(self, directory, *answers)
+
+    def test_a_selected_value_is_compared_as_exact_json_types_included(self) -> None:
+        self.assertFalse(routine_recreate._same(1, True))
+        self.assertFalse(routine_recreate._same({"value": [1]}, {"value": [True]}))
+        self.assertFalse(routine_recreate._same(25, 25.0))
+        self.assertTrue(routine_recreate._same({"b": 1, "a": [True]}, {"a": [True], "b": 1}))
+        with tempfile.TemporaryDirectory() as directory:
+            service, brain, value, run_id = self.held_with(directory, _compiled(_change()))
+            # The person once selected a value that equals the compiled 1 only under Python's loose equality.
+            self.seal(service, value, selected=(("input", "zones", "page"), {"kind": "literal", "value": True}))
+            self.refused(service, run_id, "recreate", "routine-recreate-refused")
+        self.assertEqual(len(brain.compiled), 1)
+
+    def test_recriar_preflights_every_notice_it_adds_before_paying_for_a_compile(self) -> None:
+        room = record.MAX_UNDELIVERED_NOTICES + record.MAX_ROUTINES
+
+        def filler(count: int, routine_id: str) -> tuple[record.Notice, ...]:
+            return tuple(
+                record.Notice(f"{index:032x}", routine_id, "", "skipped", 0, {"missed": 1}, 1, "Every day at 9")
+                for index in range(1, count + 1)
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            service, brain, value, run_id = self.held_with(directory, _compiled(_change()))
+            self.seal(service, value)
+            # The held run's notice was delivered: Recriar would add it again and the changed notice, two in all.
+            service.routine_store.update(
+                "team_1", lambda state: (dataclasses.replace(state, notices=filler(room - 1, value.routine_id)), None)
+            )
+            self.refused(service, run_id, "recreate", "notices-full")
+            self.assertEqual(brain.compiled, [])
+            # Still undelivered, the held notice is only replaced: one free slot is enough.
+            held = record.Notice(
+                run_id,
+                value.routine_id,
+                run_id,
+                "held",
+                0,
+                {"assistant_id": ASSISTANT, "action": "create-record"},
+                1,
+                "Every day at 9",
+            )
+            service.routine_store.update(
+                "team_1",
+                lambda state: (dataclasses.replace(state, notices=(*filler(room - 2, value.routine_id), held)), None),
+            )
+            self.answer(service, run_id, self.card(service, run_id), "recreate")
+        self.assertEqual(len(brain.compiled), 1)
