@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import sys
+import tempfile
 import unittest
 from dataclasses import replace
 from http import HTTPStatus
@@ -200,6 +201,49 @@ class HostedAssistantRuntimeEdgeTests(unittest.TestCase):
         self.assertEqual(assistants._select_team_assistants((active,), (ASSISTANT_ID,)), (active,))
         with self.assertRaises(state.ApiError):
             assistants._select_team_assistants((active,), ("missing",))
+
+    def test_an_action_refused_at_registration_never_ran_and_leaves_no_uncertain_outcome(self) -> None:
+        execution = assistants.action_execution
+        journal_module = assistants.action_journal
+        request = SimpleNamespace(interrupt_id="interrupt-1", assistant_id=ASSISTANT_ID, action=ACTION_ID, input={})
+        container = _container()
+        binding = SimpleNamespace(container_id=container.id, spec=SimpleNamespace(image=harness.HOSTED_SPEC.image))
+
+        def execute(_request, _evidence, _operation_id):
+            return assistants._exchange_registered(
+                assistants.AssistantRpcRequest(TEAM_ID, container, ACTION_ID, {}, TURN_TOKEN), b"{}", None
+            )
+
+        for refusal in ("stopped", "busy"):
+            state._active_chat_tokens[TEAM_ID] = TURN_TOKEN
+            state._cancelled_chat_tokens.clear()
+            state._active_action_container_ids.clear()
+            if refusal == "stopped":
+                state._cancelled_chat_tokens.add(TURN_TOKEN)
+            else:
+                state._active_action_container_ids[TEAM_ID] = ("other-turn", "d" * 64)
+            with tempfile.TemporaryDirectory() as directory:
+                journal = journal_module.ActionJournal(Path(directory) / "journal.sqlite3")
+                self.addCleanup(journal.close)
+                batch = execution.ActionBatch(
+                    journal,
+                    "generation-1",
+                    "thread-1",
+                    {ASSISTANT_ID: binding},
+                    execution.ActionBatchStrategy(
+                        lambda item: (item.container_id, item.spec.image), execute, lambda _request: None
+                    ),
+                )
+                batch.prepare((request,))
+                with (
+                    mock.patch.object(execution, "rpc_exchange", side_effect=AssertionError("dispatched")),
+                    self.assertRaises(state.ApiError) as refused,
+                ):
+                    batch.invoke(request)
+                self.assertTrue(assistants.action_dispatch.never_dispatched(refused.exception), refusal)
+                # Zero RPCs ran, so nothing is left executing and the turn ends its batch.
+                self.assertIsNone(journal.uncertain_fingerprint("generation-1"), refusal)
+                self.assertTrue(batch.terminate(), refusal)
 
     def test_active_action_registration_release_cancellation_and_fail_stop(self) -> None:
         container = _container()

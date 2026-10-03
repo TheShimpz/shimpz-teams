@@ -11,6 +11,7 @@ from typing import NoReturn
 import docker
 import docker.errors
 
+from action import dispatch as action_dispatch
 from action import execution as action_execution
 from action import failure as action_failure
 from action import files as action_files
@@ -258,11 +259,16 @@ def _select_team_assistants(
 
 
 def _register_active_action(team_id: str, token: str, container) -> None:
+    # Both refusals come before any RPC, so each carries Team's own pre-dispatch refusal: the journal then settles the
+    # attempt as never run instead of uncertain.
     with runtime_state._active_chat_guard:
         if runtime_state._active_chat_tokens.get(team_id) != token or token in runtime_state._cancelled_chat_tokens:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
+            refused = action_dispatch.DispatchRefusedError("the turn was stopped before its Action could run")
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped") from refused
         if team_id in runtime_state._active_action_container_ids:
-            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team already has an active Assistant Action")
+            refused = action_dispatch.DispatchRefusedError("another Action of the Team was running")
+            message = "Team already has an active Assistant Action"
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, message) from refused
         runtime_state._active_action_container_ids[team_id] = (token, container.id)
 
 
