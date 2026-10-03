@@ -27,6 +27,7 @@ from local.routine import state as routine_state
 from local.routine import turn as routine_turn
 from routine import change as routine_change
 from routine import hold as routine_hold
+from routine import plan as routine_plan
 from routine import record
 from routine.request import Request as RoutineRequest
 
@@ -61,6 +62,11 @@ def _contracts(self, team_id: str) -> tuple[str, tuple[object, ...], tuple[objec
     return network_id, active, runtime, scope
 
 
+def _same(left: object, right: object) -> bool:
+    """Exactly the same JSON value, types included: 1 is never true, and 1 is never 1.0."""
+    return routine_plan.canonical(left) == routine_plan.canonical(right)
+
+
 def _admitted(change: routine_change.Change, request: RoutineRequest, active, scope, selected=None) -> record.Routine:
     if change.op != "create":
         raise _refused()
@@ -84,7 +90,9 @@ def _definition(
         except routine_change.ChangeError as exc:
             raise _refused() from exc
         # The value the person once selected still stands: a compile that settles that field otherwise is refused.
-        if source.selected is not None and routine_source.field_value(value, source.selected[0]) != source.selected[1]:
+        if source.selected is not None and not _same(
+            routine_source.field_value(value, source.selected[0]), source.selected[1]
+        ):
             raise _refused()
         return value
     if source.selected is None:
@@ -99,7 +107,7 @@ def _definition(
         raise _refused()
     for label, change in zip(labels, question.changes, strict=True):
         value = _admitted(change, request, active, scope, question.selected)
-        if routine_source.field_value(value, field) == wanted:
+        if _same(routine_source.field_value(value, field), wanted):
             return dataclasses.replace(value, grant={**value.grant, "selected": {"field": list(field), "label": label}})
     raise _refused()
 
@@ -133,8 +141,11 @@ def recreate(self, team_id: str, card, expected: routine_hold.Expected, context,
         raise _problem(HTTPStatus.CONFLICT, "the Routine's creation message is gone", "routine-source-unavailable")
     # The card's nonce is this request's own: a replayed answer finds its card consumed and never compiles again.
     request = RoutineRequest(principal, source.message, int(time.time()), card.nonce, current.timezone)
-    # A change the Team could not hold anyway never pays for a compile; its write checks again.
-    full = record.change_room(routine_state.load(self, team_id), int(time.time()))
+    # A change the Team could not hold anyway never pays for a compile; its write checks again. It adds the changed
+    # notice, and the held run's own notice again unless that one is still undelivered and so only replaced.
+    state = routine_state.load(self, team_id)
+    held = any(item.notice_id == card.incident_id for item in state.notices)
+    full = record.change_room(state, int(time.time()), 1 if held else 2)
     if full is not None:
         raise _problem(HTTPStatus.CONFLICT, "the Team cannot hold this Routine change", full)
     committed: list[record.Incident] = []
