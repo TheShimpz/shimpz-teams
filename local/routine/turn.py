@@ -69,13 +69,18 @@ def expired() -> ApiProblem:
 
 def contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, str], routine_plan.ActionContract]:
     """Each Action of the turn's Assistants with its complete current pin and reviewed input schema."""
-    return {
-        (active.spec.assistant_id, action_id): routine_plan.ActionContract(
-            routine_pin.action_pin(active.spec, action_id, locale), action.input_schema, action.input_files
+    admitted: dict[tuple[str, str], routine_plan.ActionContract] = {}
+    for active in assistants:
+        pins = routine_pin.action_pins(active.spec, active.spec.actions, locale)
+        admitted.update(
+            {
+                (active.spec.assistant_id, action_id): routine_plan.ActionContract(
+                    pins[action_id], action.input_schema, action.input_files
+                )
+                for action_id, action in active.spec.actions.items()
+            }
         )
-        for active in assistants
-        for action_id, action in active.spec.actions.items()
-    }
+    return admitted
 
 
 def current(self, team_id: str, change: routine_change.Change) -> record.Routine | None:

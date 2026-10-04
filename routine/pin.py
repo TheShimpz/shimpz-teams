@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
@@ -31,21 +31,28 @@ def action_pin(spec: object, action_id: str, locale: str) -> str:
     return _action_pin(spec, _actions(spec), _catalog(spec), action_id, locale)
 
 
+def action_pins(spec: object, action_ids: Iterable[str], locale: str) -> dict[str, str]:
+    """Each named Action's pin in ``locale``, byte for byte its ``action_pin``.
+
+    One Action index and one catalog digest serve every pin, so pinning all of an Assistant's Actions serializes its
+    catalog once instead of once per Action.
+    """
+    actions = _actions(spec)
+    catalog = _catalog(spec)
+    return {action_id: _action_pin(spec, actions, catalog, action_id, locale) for action_id in action_ids}
+
+
 def assistant_pin(spec: object, brain_digest: str) -> str:
     """The ``sha256:`` scope pin of one Assistant: its Brain-visible contract and every Action's complete pin.
 
     A Routine pins the Assistants it may use with it, so a changed image, output schema, effect, verifier,
-    idempotency, capability, catalog, or pack is drift exactly as a changed input schema is. The Action index and the
-    catalog digest are computed once and shared by every Action's pin, which stays byte for byte its ``action_pin``.
+    idempotency, capability, catalog, or pack is drift exactly as a changed input schema is.
     """
-    actions = _actions(spec)
-    catalog = _catalog(spec)
+    declared = sorted(action["id"] for action in spec.machine_contract["actions"])
     document = {
         "format": SCOPE_FORMAT,
         "brain": brain_digest,
-        "actions": {
-            action_id: _action_pin(spec, actions, catalog, action_id, SCOPE_LOCALE) for action_id in sorted(actions)
-        },
+        "actions": action_pins(spec, declared, SCOPE_LOCALE),
     }
     encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()

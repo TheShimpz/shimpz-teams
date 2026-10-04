@@ -13,6 +13,7 @@ from assistant import spec as assistant_registry
 from local.chat import segment as local_chat_segment
 from local.chat.types import ActiveAssistant
 from local.install.runtime import AssistantSpec
+from local.routine import turn as routine_turn
 from routine import pin as routine_pin
 from tests import catalog_fixtures
 
@@ -205,6 +206,28 @@ class RoutinePinTests(unittest.TestCase):
         }
         encoded = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("ascii")
         self.assertEqual(scope, "sha256:" + hashlib.sha256(encoded).hexdigest())
+
+    def test_a_turn_digests_each_assistant_catalog_once_for_every_action_contract(self) -> None:
+        contract = _contract()
+        spec = _spec(actions={action["id"]: assistant_registry.action_spec(action) for action in contract["actions"]})
+        digest = routine_pin.catalog_validator.catalog_digest
+        with mock.patch.object(routine_pin.catalog_validator, "catalog_digest", wraps=digest) as counted:
+            contracts = routine_turn.contracts((ActiveAssistant(spec, "container"),), "pt")
+        counted.assert_called_once_with(contract["messages"])
+        self.assertEqual(
+            {key: value.pin for key, value in contracts.items()},
+            {
+                (spec.assistant_id, action_id): routine_pin.action_pin(spec, action_id, "pt")
+                for action_id in ("create-record", "find-record", "list-zones")
+            },
+        )
+        self.assertEqual(routine_pin.action_pins(spec, (), "xx"), {})
+        for action_ids, locale, message in (
+            (("delete-record",), "pt", "not declared"),
+            (("list-zones",), "xx", "locale"),
+        ):
+            with self.subTest(locale=locale), self.assertRaisesRegex(routine_pin.PinError, message):
+                routine_pin.action_pins(spec, action_ids, locale)
 
     def test_a_routine_scope_detects_drift_its_brain_contract_cannot_see(self) -> None:
         active = ActiveAssistant(_spec(), "container")
