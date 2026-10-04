@@ -10,6 +10,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from contextlib import contextmanager
+from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -21,6 +22,8 @@ from tests import human_request_fixtures
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_chat_human = harness.hosted_chat_human
 hosted_chat_lifecycle = harness.hosted_chat_lifecycle
+hosted_lifecycle = harness.hosted_lifecycle
+hosted_resources = harness.hosted_resources
 runtime_state = harness.runtime_state
 action_challenges = hosted_chat_segment.action_challenges
 action_journal = hosted_chat_segment.action_journal
@@ -167,7 +170,7 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         self.assertEqual(self.journal.uncertain_fingerprint(GENERATION), replay.fingerprint)
 
     def test_a_lifecycle_change_ends_only_the_paused_batch(self) -> None:
-        # Changing the Team's model holds only its lifecycle lock, so a new turn may start once the gate is cancelled.
+        # The cleanup ends the paused batch by its fingerprint, so a batch another turn prepared first is never ended.
         self.race = NewTurnBeforePurge(
             self.journal, lambda: self.challenges.current("team_1") is None, cleanup="end_settled", begin=False
         )
@@ -197,6 +200,45 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
 
         # The responder owns the replay now: its settled batch is not ended under it.
         self.assertEqual(self.journal.current_batch(GENERATION), (replay.fingerprint, "open"))
+
+    def test_a_model_change_cannot_withdraw_the_challenge_an_executing_turn_publishes(self) -> None:
+        # The executing segment holds the Team chat slot from publishing its challenge until its pause commits.
+        self.challenges.cancel_team("team_1")
+        config = hosted_lifecycle.inference_config.normalize()
+        body = {"provider": config.provider, "model": config.model, "effort": config.effort}
+        lease = SimpleNamespace(container_id=GENERATION, owner="account_1")
+        refused: list[runtime_state.ApiError] = []
+        publish = self.challenges.create
+
+        def publish_then_configure(*args: object) -> action_challenges.PendingHumanChallenge:
+            challenge = publish(*args)
+            try:
+                hosted_lifecycle._configure_inference("team_1", body, lease)
+            except runtime_state.ApiError as error:
+                refused.append(error)
+            return challenge
+
+        outcome = SimpleNamespace(request=self.requirement.request, continuation=self.pending.continuation)
+        chat_lock = runtime_state._chat_lock_for("team_1")
+        self.assertTrue(chat_lock.acquire(blocking=False))
+        try:
+            with (
+                mock.patch.object(self.challenges, "create", side_effect=publish_then_configure),
+                mock.patch.object(hosted_resources, "_require_current_authorization"),
+                mock.patch.object(runtime_state._inference_store, "save") as save,
+            ):
+                paused = hosted_chat_segment._pause_hosted_human(
+                    "team_1", "turn-token", outcome, (self.requirement,), self.pending
+                )
+        finally:
+            chat_lock.release()
+
+        published = self.challenges.current("team_1")
+        self.assertIsNotNone(published, "the paused turn returned a challenge that no longer exists")
+        self.assertEqual(paused["challenge_id"], published.id)
+        self.assertEqual(self.journal.current_batch(GENERATION), (self.paused_batch.fingerprint, "open"))
+        self.assertEqual([error.status for error in refused], [HTTPStatus.CONFLICT])
+        save.assert_not_called()
 
 
 if __name__ == "__main__":

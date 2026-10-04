@@ -597,6 +597,8 @@ def _inference_status(team_id: str, lease: hosted_resources._AuthorizationLease)
     return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
 
 
+# An executing segment may be publishing a human challenge that only its own pause commit may settle.
+@runtime_state._serialize_against_team_chat
 def _configure_inference(team_id: str, body: object, lease: hosted_resources._AuthorizationLease) -> dict:
     if not isinstance(body, dict) or set(body) != {"provider", "model", "effort"}:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "inference requires provider, model, and effort")

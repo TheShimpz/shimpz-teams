@@ -14,7 +14,7 @@ from storage import files as team_storage
 def cancel_replayable_human(team_id: str, generation: str) -> bool:
     """Cancel a pending human gate and end only its own paused batch when settled; uncertain work stays.
 
-    A caller may hold only the lifecycle lock, so a new turn can start once the gate is gone: its batch stays.
+    Ending is bound to the paused batch's fingerprint, so a batch that another turn prepared is never ended.
     """
     challenge = runtime_state._human_challenges.withdraw_team(team_id)
     if challenge is None:
