@@ -9,7 +9,6 @@ from action import challenges as action_challenges
 from action import human as action_human
 from core.http import strict as strict_http
 from hosted import state as runtime_state
-from hosted.chat import human as hosted_chat_human
 from protocol.http.v1 import payload as team_http_contract
 
 
@@ -38,7 +37,7 @@ def action_assurance(
             body.get("challenge_id"),
         )
     except KeyError, action_challenges.HumanChallengeNotFoundError:
-        hosted_chat_human._expire_challenges()
+        # Extraction precedes Account authorization, so it never cleans up state; authorized operations do.
         return None, None
     kind = challenge.requirement.request.kind
     if kind not in action_human.AUTH_KINDS:

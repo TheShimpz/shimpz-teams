@@ -314,9 +314,11 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
         return types.SimpleNamespace(id="a" * 32, requirement=requirement)
 
     def test_missing_non_auth_and_invalid_auth_challenges(self) -> None:
+        # Extraction runs before Account authorization, so a missing challenge drains and purges nothing.
         with (
             mock.patch.object(admission.runtime_state._human_challenges, "get", side_effect=KeyError),
-            mock.patch.object(admission.hosted_chat_human, "_expire_challenges") as expire,
+            mock.patch.object(admission.runtime_state._human_challenges, "drain_expired") as drain,
+            mock.patch.object(admission.runtime_state, "_action_execution_journal") as journal,
         ):
             self.assertEqual(
                 admission.action_assurance(
@@ -326,7 +328,8 @@ class HostedAdmissionCoverageTests(unittest.TestCase):
                 ),
                 (None, None),
             )
-        expire.assert_called_once_with()
+        drain.assert_not_called()
+        journal.assert_not_called()
 
         with mock.patch.object(
             admission.runtime_state._human_challenges,
