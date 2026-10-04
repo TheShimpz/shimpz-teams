@@ -14,9 +14,10 @@ import hosted_assistant_fixture as harness
 from test_brain_runtime_client import context
 from test_local_chat_brain_abort import _SilentBrain, _submit
 
-from inference import client as brain_runtime_client
-
 api = harness.hosted_chat_api
+# The client of the loaded Hosted app, whose Brain request reads the abort that app's turn registers. A separately
+# imported copy, which a run of these tests alone gets, would never see that abort and stay blocked in the turn.
+brain_runtime_client = harness.hosted_chat_segment.brain_runtime_client
 state = harness.runtime_state
 lifecycle = harness.hosted_lifecycle
 
@@ -53,6 +54,14 @@ class HostedStopAbortTests(unittest.TestCase):
                 self.client.start(context("sk-test-0123456789abcdef"), "Hello", conversation=())
 
         future = _submit(turn)
+
+        def release() -> None:
+            # Whatever the test's outcome, its turn ends and frees the Team chat slot before the next test runs.
+            for abort in tuple(state._brain_aborts.values()):
+                abort.abort()
+            future.exception(5)
+
+        self.addCleanup(release)
         self.assertTrue(self.brain.received.wait(5))
         return future
 
