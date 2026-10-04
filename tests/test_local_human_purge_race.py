@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 TEAM = Path(__file__).resolve().parents[1]
@@ -58,6 +59,23 @@ class NewTurnBeforePurge:
             return attribute(*args)
 
         return purge
+
+
+class ObservedLock:
+    """A Team lock that reports when the observed thread starts waiting for it."""
+
+    def __init__(self) -> None:
+        self.lock = threading.RLock()
+        self.observed: threading.Thread | None = None
+        self.waiting = threading.Event()
+
+    def __enter__(self) -> bool:
+        if threading.current_thread() is self.observed:
+            self.waiting.set()
+        return self.lock.__enter__()
+
+    def __exit__(self, *args: object) -> None:
+        self.lock.__exit__(*args)
 
 
 class LocalHumanPurgeRaceTests(LocalContractCase):
@@ -168,6 +186,54 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
             self.assertTrue(stopped["accepted"])
             self.assertIsNone(service.integration_challenges.current("team_1"))
             self.assertIsNone(controller.chat_continuations.current("team_1"))
+
+    def test_stop_during_a_relocalization_leaves_no_cancelled_continuation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _paused, _paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            locks = tuple(ObservedLock() for _ in controller._locks)
+            controller._locks = locks
+            reissue = service.human_challenges.reissue
+            outcome: list[object] = []
+            finished = threading.Event()
+
+            def stop() -> None:
+                # A failing Stop leaves no outcome, which the test thread reports below.
+                try:
+                    outcome.append(service.stop_chat("team_1"))
+                finally:
+                    finished.set()
+
+            stopper = threading.Thread(target=stop, daemon=True)
+            self.addCleanup(stopper.join, 10)
+
+            def reissued(*args: object) -> object:
+                fresh = reissue(*args)
+                # Stop arrives after the fresh challenge exists and before its continuation is persisted.
+                for lock in locks:
+                    lock.observed = stopper
+                stopper.start()
+                for _ in range(1000):
+                    if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
+                        break
+                    finished.wait(0.01)
+                else:
+                    raise AssertionError("Stop neither finished nor waited for the Team lock")
+                return fresh
+
+            service.human_challenges.reissue = reissued
+            opened = service.open_chat_human("team_1", {"locale": "pt"})
+            stopper.join(10)
+
+            self.assertFalse(stopper.is_alive())
+            self.assertEqual(opened["status"], "human-required")
+            self.assertEqual(len(outcome), 1, "Stop failed in its thread")
+            [stopped] = outcome
+            self.assertTrue(stopped["accepted"])
+            self.assertIsNone(service.human_challenges.current("team_1"))
+            self.assertIsNone(
+                controller.chat_continuations.current("team_1"), "a cancelled continuation stayed durable"
+            )
 
     def test_denial_keeps_a_newer_turns_batch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

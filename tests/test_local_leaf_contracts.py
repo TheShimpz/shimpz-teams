@@ -5,7 +5,7 @@ import types
 import unittest
 from contextlib import nullcontext
 from pathlib import Path
-from threading import RLock
+from threading import Lock, RLock
 from unittest import mock
 
 from docker.errors import DockerException, NotFound
@@ -159,16 +159,23 @@ class LocalLeafContractTests(unittest.TestCase):
     def test_stop_chat_cancels_the_withdrawn_human_batch_and_matching_action(self) -> None:
         container = object()
         withdrawn = types.SimpleNamespace(payload=object())
+        team_lock = Lock()
+        held: list[tuple[str, bool]] = []
+
+        def observed(step: str, value: object = None):
+            return lambda *_args: held.append((step, team_lock.locked())) or value
+
         lifecycle = types.SimpleNamespace(
             _network=lambda _team_id: types.SimpleNamespace(id="network-id"),
             _fail_stop_action=mock.Mock(),
         )
         controller = types.SimpleNamespace(
             assistant_lifecycle=lifecycle,
-            integration_challenges=types.SimpleNamespace(withdraw_team=lambda _team_id: None),
-            human_challenges=types.SimpleNamespace(withdraw_team=lambda _team_id: withdrawn),
-            oauth_pkce=types.SimpleNamespace(cancel_team=mock.Mock()),
+            integration_challenges=types.SimpleNamespace(withdraw_team=observed("integration")),
+            human_challenges=types.SimpleNamespace(withdraw_team=observed("human", withdrawn)),
+            oauth_pkce=types.SimpleNamespace(cancel_team=observed("pkce")),
             _delete_withdrawn_continuation=mock.Mock(return_value=True),
+            _lock=lambda _team_id: team_lock,
             _purge_human_pending=mock.Mock(),
             _active_chat_guard=RLock(),
             _active_chat_tokens={"team_1": "token"},
@@ -185,6 +192,9 @@ class LocalLeafContractTests(unittest.TestCase):
         controller._purge_human_pending.assert_called_once_with(withdrawn.payload)
         # Only the withdrawn challenge's continuation is deleted.
         controller._delete_withdrawn_continuation.assert_called_once_with("team_1", withdrawn)
+        # Both withdrawals hold the Team lock, which is released before any cleanup.
+        self.assertEqual(held, [("integration", True), ("human", True), ("pkce", False)])
+        self.assertFalse(team_lock.locked())
         lifecycle._fail_stop_action.assert_called_once_with(container)
 
         controller.human_challenges.withdraw_team = lambda _team_id: None

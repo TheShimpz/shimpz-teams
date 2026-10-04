@@ -5,9 +5,12 @@ from local.validation import validate_team_id
 
 def stop_chat(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    self.assistant_lifecycle._network(team_id)
-    integration = self.integration_challenges.withdraw_team(team_id)
-    human = self.human_challenges.withdraw_team(team_id)
+    # Under the Team lock, so a relocalization's reissue and persist never straddle the withdrawal. Only leaf locks are
+    # taken inside, and the lock is released before cleanup and the interruption of the running turn.
+    with self._lock(team_id):
+        self.assistant_lifecycle._network(team_id)
+        integration = self.integration_challenges.withdraw_team(team_id)
+        human = self.human_challenges.withdraw_team(team_id)
     self.oauth_pkce.cancel_team(team_id)
     # Only the continuations Stop withdrew, each deleted: a turn paused since keeps its own.
     deleted = [self._delete_withdrawn_continuation(team_id, item) for item in (integration, human) if item is not None]

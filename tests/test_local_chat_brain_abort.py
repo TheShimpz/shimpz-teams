@@ -64,10 +64,12 @@ class LocalStopAbortTests(unittest.TestCase):
         self.client = brain_runtime_client.BrainRuntimeClient(
             base_url=f"http://127.0.0.1:{self.brain.port}", token_file=token_file
         )
+        team_lock = threading.RLock()
         self.service = local_app.ChatTurnService(
             local_app.ChatTurnDependencies(
                 integration_challenges=SimpleNamespace(withdraw_team=lambda _team_id: None),
                 oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
+                lock_for=lambda _team_id: team_lock,
             )
         )
         self.service._delete_chat_continuation = lambda _team_id: False

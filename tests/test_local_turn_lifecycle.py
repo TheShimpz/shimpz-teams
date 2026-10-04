@@ -600,10 +600,12 @@ class LocalTurnLifecycleTests(LocalContractCase):
         stop_started = threading.Event()
         release_stop = threading.Event()
         result: list[dict[str, object]] = []
+        team_lock = threading.RLock()
         service = local_app.ChatTurnService(
             local_app.ChatTurnDependencies(
                 integration_challenges=SimpleNamespace(withdraw_team=lambda _team_id: None),
                 oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
+                lock_for=lambda _team_id: team_lock,
             )
         )
         service._delete_chat_continuation = lambda _team_id: False
