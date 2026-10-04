@@ -721,7 +721,7 @@ def _uninstall_assistant(
                 "Assistant metadata is unavailable",
             ) from exc
         hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
-        runtime_state._integration_challenges.cancel_team(team_id)
+        hosted_chat_lifecycle.cancel_paused_integration(team_id)
         cleanup = _teardown_assistant(team_id, assistant_id)
         if not cleanup.complete:
             raise runtime_state.ApiError(

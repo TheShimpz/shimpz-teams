@@ -411,7 +411,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
 
         stopped = SimpleNamespace(id="container", status="stopped", reload=mock.Mock())
         with (
-            mock.patch.object(state._integration_challenges, "cancel_team", return_value=False),
+            mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration", return_value=False),
             mock.patch.object(api.hosted_chat_human, "cancel_pending", return_value=False),
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=stopped),
@@ -421,7 +421,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
 
         running = SimpleNamespace(id="container", status="running", reload=mock.Mock())
         with (
-            mock.patch.object(state._integration_challenges, "cancel_team", return_value=False),
+            mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration", return_value=False),
             mock.patch.object(api.hosted_chat_human, "cancel_pending", return_value=False),
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=running),
@@ -432,7 +432,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             api._stop_chat("team_1", self.lease())
 
         with (
-            mock.patch.object(state._integration_challenges, "cancel_team", return_value=False),
+            mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration", return_value=False),
             mock.patch.object(api.hosted_chat_human, "cancel_pending", return_value=False),
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=running),
@@ -445,7 +445,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         self.assertIn("token", state._cancelled_chat_tokens)
 
         with (
-            mock.patch.object(state._integration_challenges, "cancel_team", return_value=False),
+            mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration", return_value=False),
             mock.patch.object(api.hosted_chat_human, "cancel_pending", return_value=False),
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=running),

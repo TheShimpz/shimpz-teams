@@ -17,6 +17,7 @@ from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
 from hosted.chat import human as hosted_chat_human
+from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 from inference import abort as request_abort
@@ -170,8 +171,11 @@ def _start_oauth_integration(
     session_binding: object,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
-    # Destruction cancels this Team's OAuth state under the same lock, so none is created for a generation it ended.
-    with runtime_state._lock_for(team_id):
+    # Destruction cancels this Team's OAuth state under the same lock, so none is created for a generation it ended. A
+    # turn publishes its Integration challenge before its pause commits, holding the Team chat slot throughout, so a
+    # start is refused while the slot is held: it never issues OAuth state from a challenge whose failed commit then
+    # withdraws it. The slot is only tried under the Team lock, never awaited, as destruction awaits it under that lock.
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
             challenge = runtime_state._integration_challenges.get(team_id, challenge_id)
@@ -509,7 +513,7 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
         # Team runtime that cannot be inspected or is not running, is still reported, but only after the cancelled turn
         # is interrupted: it must never keep an Action running.
         try:
-            integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
+            integration_cancelled = hosted_chat_lifecycle.cancel_paused_integration(team_id)
             human_cancelled = hosted_chat_human.cancel_pending(team_id)
         finally:
             action_stopped = _interrupt_turn(team_id, token, brain_abort)

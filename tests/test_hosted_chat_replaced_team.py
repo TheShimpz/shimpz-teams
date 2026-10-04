@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
 import sys
 import unittest
@@ -91,7 +92,8 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.humans = action_challenges.HumanChallengeStore(retain_expired=True)
         self.integrations = integration_challenges.IntegrationChallengeStore()
         self.humans.create(TEAM_ID, _human_requirement(), _pending_chat())
-        self.integrations.create(TEAM_ID, (object(),), _pending_chat())
+        # An Integration pause comes before its Action batch, so its continuation holds none.
+        self.integrations.create(TEAM_ID, (object(),), dataclasses.replace(_pending_chat(), paused_batch=None))
         self.journal = mock.Mock()
         self.projection = mock.Mock(return_value={"status": "integration-required", "purpose": "replacement"})
         for patcher in (

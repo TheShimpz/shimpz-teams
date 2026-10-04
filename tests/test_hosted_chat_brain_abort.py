@@ -37,7 +37,7 @@ class HostedStopAbortTests(unittest.TestCase):
         for patcher in (
             mock.patch.object(api.hosted_resources, "_require_current_authorization", return_value=self.container),
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),
-            mock.patch.object(state._integration_challenges, "cancel_team", return_value=False),
+            mock.patch.object(api.hosted_chat_lifecycle, "cancel_paused_integration", return_value=False),
             mock.patch.object(api.hosted_chat_human, "cancel_pending", return_value=False),
             mock.patch.dict(state._active_chat_tokens, {}, clear=True),
             mock.patch.dict(state._active_chat_container_ids, {}, clear=True),
