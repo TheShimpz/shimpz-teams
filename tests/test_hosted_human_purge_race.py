@@ -122,7 +122,7 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
     def test_expiry_keeps_a_newer_turns_batch(self) -> None:
         self.challenges._clock = lambda: self.challenge.expires_at
 
-        hosted_chat_human._expire_challenges()
+        hosted_chat_human._expire_challenges("team_1")
 
         self._assert_newer_turn_kept()
 

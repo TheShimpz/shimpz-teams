@@ -35,7 +35,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             mock.patch.object(state._human_challenges, "drain_expired", return_value=(invalid,)),
             self.assertRaises(AssertionError),
         ):
-            human._expire_challenges()
+            human._expire_challenges("team_1")
 
         pending = self.pending()
         expired = SimpleNamespace(payload=pending)
@@ -43,14 +43,16 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             mock.patch.object(state._human_challenges, "drain_expired", return_value=(expired,)),
             mock.patch.object(segment, "_purge_hosted_human_pending") as purge,
         ):
-            human._expire_challenges()
+            human._expire_challenges("team_1")
         purge.assert_called_once_with(pending)
 
         with (
-            mock.patch.object(human, "_expire_challenges"),
+            mock.patch.object(human, "_expire_challenges") as expire,
             mock.patch.object(state._human_challenges, "current", return_value=None),
         ):
             self.assertEqual(human.pending_chat_human("team_1")["status"], "none")
+        # Reading one Team's challenge never purges another Team's expired continuation.
+        expire.assert_called_once_with("team_1")
 
         for body in (None, {"decision": "unknown"}, {"challenge_id": "id", "decision": "deny", "value": True}):
             with self.subTest(body=body), self.assertRaises(state.ApiError):
@@ -68,7 +70,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
             self.assertRaises(state.ApiError),
         ):
             human._pending_challenge("team_1", "id")
-        expire.assert_called_once_with()
+        expire.assert_called_once_with("team_1")
 
         challenge = SimpleNamespace(payload=object())
         with (

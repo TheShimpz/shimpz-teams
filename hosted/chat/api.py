@@ -481,6 +481,14 @@ def _stop_active_action(team_id: str, token: str | None) -> bool:
     return True
 
 
+def _interrupt_turn(team_id: str, token: str | None, brain_abort: object | None) -> bool:
+    """Abort the cancelled turn's Brain request and fail-stop its executing Action; report whether one was stopped."""
+    # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
+    if brain_abort is not None:
+        brain_abort.abort()
+    return _stop_active_action(team_id, token)
+
+
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     """Cancel one Controller-owned turn and fail-stop an Action already executing."""
     with runtime_state._lock_for(team_id):
@@ -494,18 +502,19 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
             if token is not None:
                 runtime_state._cancelled_chat_tokens.add(token)
             brain_abort = runtime_state._brain_aborts.get(token) if token is not None else None
-        # Only after the lease proves this exact generation may its pending continuations end.
-        integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
-        human_cancelled = hosted_chat_human.cancel_pending(team_id)
+        # Only after the lease proves this exact generation may its pending continuations end. A failed cleanup, or a
+        # Team runtime that cannot be inspected or is not running, is still reported, but only after the cancelled turn
+        # is interrupted: it must never keep an Action running.
+        try:
+            integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
+            human_cancelled = hosted_chat_human.cancel_pending(team_id)
+        finally:
+            action_stopped = _interrupt_turn(team_id, token, brain_abort)
         container.reload()
         if container.status != "running":
             raise runtime_state.ApiError(
                 HTTPStatus.CONFLICT, f"team {team_id!r} is not running (status={container.status})"
             )
-        # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
-        if brain_abort is not None:
-            brain_abort.abort()
-        action_stopped = _stop_active_action(team_id, token)
     accepted = token is not None or integration_cancelled or human_cancelled
     return {
         "team_id": team_id,

@@ -14,8 +14,8 @@ from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 
 
-def _expire_challenges(team_id: str | None = None) -> None:
-    """Purge what expired continuations, every Team's or only one Team's, left in the Action journal."""
+def _expire_challenges(team_id: str) -> None:
+    """Purge what one Team's expired continuations left in the Action journal; another Team's are never touched."""
     for challenge in runtime_state._human_challenges.drain_expired(team_id):
         if not isinstance(challenge.payload, hosted_assistants._PendingHostedChat):
             raise AssertionError("invalid expired hosted human continuation")
@@ -24,7 +24,7 @@ def _expire_challenges(team_id: str | None = None) -> None:
 
 def pending_chat_human(team_id: str) -> dict[str, object]:
     """Return public metadata for one current Hosted Team human challenge."""
-    _expire_challenges()
+    _expire_challenges(team_id)
     challenge = runtime_state._human_challenges.current(team_id)
     return (
         hosted_chat_segment._hosted_human_challenge_payload(challenge)
@@ -54,7 +54,7 @@ def _pending_challenge(team_id: str, challenge_id: object) -> action_challenges.
     try:
         challenge = runtime_state._human_challenges.get(team_id, challenge_id)
     except action_challenges.HumanChallengeNotFoundError as exc:
-        _expire_challenges()
+        _expire_challenges(team_id)
         raise runtime_state.ApiError(
             HTTPStatus.CONFLICT,
             "Action human request expired; retry the message",
@@ -182,7 +182,7 @@ def resume_chat_human(
 
 def cancel_pending(team_id: str) -> bool:
     """Cancel and purge one current Hosted human continuation."""
-    _expire_challenges()
+    _expire_challenges(team_id)
     challenge = runtime_state._human_challenges.withdraw_team(team_id)
     if challenge is None:
         return False

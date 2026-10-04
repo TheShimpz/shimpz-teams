@@ -22,26 +22,35 @@ def stop_chat(self, team_id: str) -> dict[str, object]:
         integration = self.integration_challenges.withdraw_team(team_id)
         human = self.human_challenges.withdraw_team(team_id)
         self.oauth_pkce.cancel_team(team_id)
+    # A failed cleanup is still reported, but only after the cancelled turn is interrupted: it must never keep an
+    # Action running.
+    try:
+        continuation_cancelled = _end_withdrawn(self, team_id, integration, human)
+    finally:
+        _interrupt_turn(self, brain_abort, active_action)
+    accepted = token is not None or integration is not None or human is not None or continuation_cancelled
+    return {
+        "team_id": team_id,
+        "requested": accepted,
+        "accepted": accepted,
+        "confirmed": active_action is not None,
+        "forced_restart": False,
+    }
+
+
+def _end_withdrawn(self, team_id: str, integration: object | None, human: object | None) -> bool:
+    """End what Stop withdrew; report whether a continuation was deleted."""
     # Only the continuations Stop withdrew, each deleted: a turn paused since keeps its own.
     deleted = [self._delete_withdrawn_continuation(team_id, item) for item in (integration, human) if item is not None]
-    continuation_cancelled = True in deleted
-    integration_cancelled = integration is not None
-    human_cancelled = human is not None
-    if human_cancelled:
+    if human is not None:
         # Only the paused turn's own batch: a turn started since keeps its batch (ADR-0038).
         self._purge_human_pending(human.payload)
-    action_stopped = False
+    return True in deleted
+
+
+def _interrupt_turn(self, brain_abort: object | None, active_action: object | None) -> None:
     # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
     if brain_abort is not None:
         brain_abort.abort()
     if active_action is not None:
         self.assistant_lifecycle._fail_stop_action(active_action)
-        action_stopped = True
-    accepted = token is not None or integration_cancelled or human_cancelled or continuation_cancelled
-    return {
-        "team_id": team_id,
-        "requested": accepted,
-        "accepted": accepted,
-        "confirmed": action_stopped,
-        "forced_restart": False,
-    }
