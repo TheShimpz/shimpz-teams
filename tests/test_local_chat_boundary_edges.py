@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import threading
 import types
 import unittest
@@ -103,10 +104,13 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         pending = _pending()
         challenge = _challenge(pending)
         events: list[str] = []
+        live: list[object] = [challenge]
         subject = types.SimpleNamespace(
-            human_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: events.append("cancel")),
-            _delete_chat_continuation=lambda *_args: events.append("delete"),
-            _purge_human_pending=lambda _pending: events.append("purge"),
+            human_challenges=types.SimpleNamespace(
+                current=lambda _team_id: live[0], withdraw_team=lambda _team_id: events.append("withdraw")
+            ),
+            _delete_withdrawn_continuation=lambda _team_id, item: events.append(("delete", item.id)),
+            _purge_human_pending=lambda item: events.append(("purge", item is pending)),
         )
         with self.assertRaises(AssertionError):
             local_chat_human._validate_pending_context(subject, "team_1", "openai", object())
@@ -114,15 +118,25 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_human._validate_pending_context(subject, "team_1", "anthropic", challenge)
         self.assertEqual(caught.exception.code, "team-context-changed")
-        self.assertEqual(events, ["cancel", "delete", "purge"])
+        self.assertEqual(events, ["withdraw", ("delete", "challenge"), ("purge", True)])
 
+        # A challenge no longer live, or reissued with the same batch, has another owner: nothing is touched.
+        for stale in (None, dataclasses.replace(challenge, id="reissued")):
+            events.clear()
+            live[0] = stale
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                local_chat_human._validate_pending_context(subject, "team_1", "anthropic", challenge)
+            self.assertEqual(caught.exception.code, "team-context-changed")
+            self.assertEqual(events, [])
+
+        live[0] = challenge
         events.clear()
         subject._chat_setup = lambda *_args: ("different",)
         subject._chat_identity = lambda *_args: ("different",)
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_human._validate_pending_context(subject, "team_1", "openai", challenge)
         self.assertEqual(caught.exception.code, "team-context-changed")
-        self.assertEqual(events, ["cancel", "delete", "purge"])
+        self.assertEqual(events, ["withdraw", ("delete", "challenge"), ("purge", True)])
 
     def test_invalid_submitted_human_response_is_not_claimed(self) -> None:
         pending = _pending()
@@ -159,6 +173,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         relocalized = mock.Mock(side_effect=lambda challenge, _locale: challenge)
         subject = types.SimpleNamespace(
             _expire_human_challenges=mock.Mock(),
+            _lock=lambda _team_id: nullcontext(),
             human_challenges=types.SimpleNamespace(current=lambda _team_id: human),
             integration_challenges=types.SimpleNamespace(current=lambda _team_id: integration),
             _relocalized_human=relocalized,

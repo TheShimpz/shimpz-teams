@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+from typing import NoReturn
 
 from action import challenges as action_challenges
 from action import human as action_human
@@ -135,25 +136,37 @@ def _validate_pending_context(
         raise AssertionError("invalid local human continuation")
     pending = challenge.payload
     if pending.provider != provider:
-        self.human_challenges.cancel_team(team_id)
-        self._delete_chat_continuation(team_id)
-        self._purge_human_pending(pending)
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
-    current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
+        _end_drifted_turn(self, team_id, challenge)
+    try:
+        current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
+    except ApiProblem as exc:
+        # The configured provider differs from the one the turn paused with, which is proven drift; any other setup
+        # failure may be transient, so the paused turn stays answerable.
+        if exc.code != "inference-provider-mismatch":
+            raise
+        _end_drifted_turn(self, team_id, challenge)
     if self._chat_identity(*current) != pending.identity or not copy_binding_current(challenge.requirement, current[2]):
-        self.human_challenges.cancel_team(team_id)
-        self._delete_chat_continuation(team_id)
-        self._purge_human_pending(pending)
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Team capabilities changed; retry",
-            code="team-context-changed",
-        )
+        _end_drifted_turn(self, team_id, challenge)
     return pending, current[2]
+
+
+def _end_drifted_turn(self, team_id: str, challenge: action_challenges.PendingHumanChallenge) -> NoReturn:
+    """End exactly the paused turn whose context drifted: its live challenge, its continuation, and its batch.
+
+    The caller holds the Team lock, so the live challenge cannot change between the check and the withdrawal.
+    """
+    live = self.human_challenges.current(team_id)
+    # A challenge that is no longer live has another owner: Stop or expiry ended it, a claimed answer is replaying its
+    # batch, or an opening reissued it with the same batch. Nothing of it is touched here.
+    if live is not None and live.id == challenge.id:
+        self.human_challenges.withdraw_team(team_id)
+        self._delete_withdrawn_continuation(team_id, challenge)
+        self._purge_human_pending(challenge.payload)
+    raise ApiProblem(
+        HTTPStatus.CONFLICT,
+        "Team capabilities changed; retry",
+        code="team-context-changed",
+    )
 
 
 def copy_binding_current(requirement: action_challenges.HumanRequirement, assistants: tuple[object, ...]) -> bool:

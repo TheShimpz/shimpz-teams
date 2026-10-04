@@ -30,10 +30,13 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
     Either way the human challenge is validated against the binding the turn left before it is returned.
     """
     self._expire_human_challenges()
-    existing_human = self.human_challenges.current(team_id)
+    # The live challenge is read and validated under one Team lock, so an opening cannot reissue it in between.
+    with self._lock(team_id):
+        existing_human = self.human_challenges.current(team_id)
+        if existing_human is not None:
+            # A chat without an interface language keeps the challenge's language but still validates its binding.
+            existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
     if existing_human is not None:
-        # A chat without an interface language keeps the challenge's language but still validates its binding.
-        existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
         return self._human_response(existing_human)
     existing_integration = self.integration_challenges.current(team_id)
     if existing_integration is not None:

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import threading
 from pathlib import Path
+from unittest import mock
 
 TEAM = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TEAM))
@@ -19,6 +20,7 @@ from local_controller_harness import LocalContractCase
 
 from action import human as action_human
 from inference import client as brain_runtime_client
+from inference import config as inference_config
 from local import app as local_app
 from tests import human_request_fixtures
 
@@ -265,6 +267,115 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
 
             self.assertEqual(raised.exception.code, "team-context-changed")
             self._assert_newer_turn_kept(race, paused_batch)
+
+    @staticmethod
+    def _change_provider(controller: local_app.LocalController) -> None:
+        # A permitted model change while the turn is paused; the turn still names the provider it paused with.
+        controller.inference_store.save("team_1", inference_config.normalize("anthropic", "claude-sonnet-5-5"))
+
+    def test_reopening_after_a_provider_change_ends_the_paused_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _paused, paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            self._change_provider(controller)
+            race = self._race(controller)
+
+            with self.assertRaises(local_app.ApiProblem) as raised:
+                service.open_chat_human("team_1", {"locale": "pt"})
+
+            self.assertEqual(raised.exception.code, "team-context-changed")
+            self.assertIsNone(service.human_challenges.current("team_1"))
+            self.assertIsNone(controller.chat_continuations.current("team_1"))
+            self._assert_newer_turn_kept(race, paused_batch)
+            reopened = service.open_chat_human("team_1", {"locale": "pt"})
+            self.assertEqual(reopened, {"team_id": "team_1", "status": "none"})
+
+    def test_a_fresh_message_after_a_provider_change_ends_the_paused_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, paused, paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            self._change_provider(controller)
+
+            with self.assertRaises(local_app.ApiProblem) as raised:
+                service.chat("team_1", dict(CHAT_BODY), "anthropic", "sk-ant-test-0123456789")
+
+            self.assertEqual(raised.exception.code, "team-context-changed")
+            self.assertIsNone(service.human_challenges.current("team_1"))
+            self.assertIsNone(controller.chat_continuations.current("team_1"))
+            self.assertIsNone(controller.action_state.current_batch(GENERATION))
+            # The next message runs a new turn with the configured provider.
+            fresh = service.chat("team_1", dict(CHAT_BODY), "anthropic", "sk-ant-test-0123456789")
+            self.assertEqual(fresh["status"], "human-required")
+            self.assertNotEqual(fresh["challenge_id"], paused["challenge_id"])
+            self.assertNotEqual(controller.action_state.current_batch(GENERATION)[0], paused_batch)
+
+    def test_a_fresh_message_validates_the_challenge_it_read_while_still_live(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _paused, _paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            locks = tuple(ObservedLock() for _ in controller._locks)
+            controller._locks = locks
+            read = service.human_challenges.current
+            opened: list[object] = []
+            finished = threading.Event()
+
+            def open_another_language() -> None:
+                try:
+                    opened.append(service.open_chat_human("team_1", {"locale": "pt"}))
+                finally:
+                    finished.set()
+
+            opener = threading.Thread(target=open_another_language, daemon=True)
+            self.addCleanup(opener.join, 10)
+
+            def current(team_id: str) -> object:
+                challenge = read(team_id)
+                if not opener.is_alive() and not finished.is_set():
+                    # Another tab opens the request in another language after this message read it, and the model
+                    # provider then changes; the reissued challenge shares the paused batch.
+                    for lock in locks:
+                        lock.observed = opener
+                    opener.start()
+                    for _ in range(1000):
+                        if finished.is_set() or any(lock.waiting.is_set() for lock in locks):
+                            break
+                        finished.wait(0.01)
+                    else:
+                        raise AssertionError("the opening neither finished nor waited for the Team lock")
+                    self._change_provider(controller)
+                return challenge
+
+            service.human_challenges.current = current
+            with self.assertRaises(local_app.ApiProblem) as raised:
+                service.chat("team_1", dict(CHAT_BODY), "anthropic", "sk-ant-test-0123456789")
+            opener.join(10)
+
+            self.assertFalse(opener.is_alive())
+            self.assertEqual(raised.exception.code, "team-context-changed")
+            self.assertEqual(opened, [{"team_id": "team_1", "status": "none"}])
+            # The whole paused turn ended together: no live challenge is left without its batch.
+            self.assertIsNone(read("team_1"))
+            self.assertIsNone(controller.chat_continuations.current("team_1"))
+            self.assertIsNone(controller.action_state.current_batch(GENERATION))
+
+    def test_an_unreadable_provider_keeps_the_paused_turn(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, paused, paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            unreadable = local_app.inference_config.InferenceConfigError("inference state is unreadable")
+
+            with (
+                mock.patch.object(controller.inference_store, "load", side_effect=unreadable),
+                self.assertRaises(local_app.ApiProblem) as raised,
+            ):
+                service.open_chat_human("team_1", {"locale": "pt"})
+
+            self.assertEqual(raised.exception.code, "inference-not-configured")
+            self.assertEqual(service.human_challenges.current("team_1").id, paused["challenge_id"])
+            self.assertEqual(controller.chat_continuations.current("team_1").challenge_id, paused["challenge_id"])
+            self.assertEqual(controller.action_state.current_batch(GENERATION), (paused_batch, "open"))
+            reopened = service.open_chat_human("team_1", {"locale": "pt"})
+            self.assertEqual(reopened["status"], "human-required")
 
     def test_expiry_in_a_running_controller_keeps_a_newer_turns_batch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
