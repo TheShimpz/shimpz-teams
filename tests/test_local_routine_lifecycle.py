@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import errno
 import stat
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import routine_fixture
 
@@ -140,6 +142,23 @@ class RoutineLifecycleTests(unittest.TestCase):
         self.assertEqual(list(diagnostics.root.iterdir()), [])
         self.assertFalse(self.subject.routine_store.key_path.exists())
         self.assertFalse(diagnostics.key_path.exists())
+
+    def test_a_reset_fails_closed_when_a_routine_volume_is_not_writable(self):
+        # An unmounted volume leaves the image's read-only directory, where even an absent key cannot be unlinked.
+        unwritable = OSError(errno.EROFS, "Read-only file system")
+        original = Path.unlink
+        for owner in ("routine_store", "routine_diagnostics"):
+            key_path = getattr(self.subject, owner).key_path
+
+            def unlink(path, *args, key_path=key_path, **kwargs):
+                if path == key_path:
+                    raise unwritable
+                return original(path, *args, **kwargs)
+
+            with self.subTest(owner=owner), mock.patch.object(Path, "unlink", unlink):
+                with self.assertRaises(ApiProblemError) as caught:
+                    routine_lifecycle.delete_all_routines(self.subject)
+                self.assertEqual((caught.exception.status, caught.exception.code), (503, "routine-state-unavailable"))
 
     def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.

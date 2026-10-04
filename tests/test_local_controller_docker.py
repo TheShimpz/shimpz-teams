@@ -263,19 +263,8 @@ class DockerFlowTests(
         )
 
     def _start_controller(self, flow: DockerFlow) -> None:
-        self._run("volume", "create", flow.token_volume)
-        self._run("volume", "create", flow.runtime_token_volume)
-        self._run("volume", "create", flow.audit_volume)
-        self._run("volume", "create", flow.storage_volume)
-        self._run("volume", "create", flow.inference_volume)
-        self._run("volume", "create", flow.action_journal_volume)
-        self._run("volume", "create", flow.publication_volume)
-        self._run("volume", "create", flow.continuation_state_volume)
-        self._run("volume", "create", flow.continuation_key_volume)
-        self._run("volume", "create", flow.supervisor_key_volume)
-        self._run("volume", "create", flow.account_egress_capability_volume)
-        self._run("volume", "create", flow.egress_policy_volume)
-        self._run("volume", "create", flow.egress_audit_volume)
+        for volume in flow.volumes():
+            self._run("volume", "create", volume)
         self._run("network", "create", flow.outbound_network)
         self._run(
             "buildx",
@@ -429,6 +418,20 @@ class DockerFlowTests(
             f"{flow.continuation_state_volume}:/var/lib/shimpz-local/chat-continuations/state",
             "--volume",
             f"{flow.continuation_key_volume}:/var/lib/shimpz-local/chat-continuations/key",
+            "--volume",
+            f"{flow.cosign_volume}:/var/lib/shimpz-local/cosign",
+            "--volume",
+            f"{flow.integration_state_volume}:/var/lib/shimpz-local/assistant-integrations/state",
+            "--volume",
+            f"{flow.integration_key_volume}:/var/lib/shimpz-local/assistant-integrations/key",
+            "--volume",
+            f"{flow.stored_input_state_volume}:/var/lib/shimpz-local/assistant-stored-inputs/state",
+            "--volume",
+            f"{flow.stored_input_key_volume}:/var/lib/shimpz-local/assistant-stored-inputs/key",
+            "--volume",
+            f"{flow.routine_state_volume}:/var/lib/shimpz-local/routines/state",
+            "--volume",
+            f"{flow.routine_key_volume}:/var/lib/shimpz-local/routines/key",
             "--volume",
             f"{flow.supervisor_key_volume}:/run/shimpz-local-supervisor:ro",
             "--volume",
@@ -853,24 +856,7 @@ class DockerFlowTests(
         self._remove("rm", "--force", "--volumes", flow.registry)
         self._remove("network", "rm", flow.foreign_network)
         self._remove("network", "rm", flow.outbound_network)
-        self._remove(
-            "volume",
-            "rm",
-            "--force",
-            flow.token_volume,
-            flow.runtime_token_volume,
-            flow.audit_volume,
-            flow.storage_volume,
-            flow.inference_volume,
-            flow.action_journal_volume,
-            flow.publication_volume,
-            flow.continuation_state_volume,
-            flow.continuation_key_volume,
-            flow.supervisor_key_volume,
-            flow.account_egress_capability_volume,
-            flow.egress_policy_volume,
-            flow.egress_audit_volume,
-        )
+        self._remove("volume", "rm", "--force", *flow.volumes())
         if flow.trusted_ref:
             self._remove("image", "rm", flow.trusted_ref)
         self._remove("image", "rm", flow.fixture_tag, flow.controller_tag, flow.egress_proxy_tag)

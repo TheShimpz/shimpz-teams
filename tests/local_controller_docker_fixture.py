@@ -78,6 +78,13 @@ class DockerFlow:
     publication_volume: str
     continuation_state_volume: str
     continuation_key_volume: str
+    cosign_volume: str
+    integration_state_volume: str
+    integration_key_volume: str
+    stored_input_state_volume: str
+    stored_input_key_volume: str
+    routine_state_volume: str
+    routine_key_volume: str
     supervisor_key_volume: str
     account_egress_capability_volume: str
     egress_policy_volume: str
@@ -100,6 +107,10 @@ class DockerFlow:
     assistant_name: str = ""
     original_assistant_id: str = ""
     source_digest: str = ""
+
+    def volumes(self) -> tuple[str, ...]:
+        """Every named volume this flow creates, so creation and cleanup cannot drift apart."""
+        return tuple(getattr(self, name) for name in self.__slots__ if name.endswith("_volume"))
 
 
 def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
@@ -139,6 +150,13 @@ def new_flow(run: Callable[..., CompletedProcess[str]]) -> DockerFlow:
         publication_volume=f"shimpz-local-publication-{unique}",
         continuation_state_volume=f"shimpz-local-continuation-state-{unique}",
         continuation_key_volume=f"shimpz-local-continuation-key-{unique}",
+        cosign_volume=f"shimpz-local-cosign-{unique}",
+        integration_state_volume=f"shimpz-local-integration-state-{unique}",
+        integration_key_volume=f"shimpz-local-integration-key-{unique}",
+        stored_input_state_volume=f"shimpz-local-stored-input-state-{unique}",
+        stored_input_key_volume=f"shimpz-local-stored-input-key-{unique}",
+        routine_state_volume=f"shimpz-local-routine-state-{unique}",
+        routine_key_volume=f"shimpz-local-routine-key-{unique}",
         supervisor_key_volume=f"shimpz-local-supervisor-key-{unique}",
         account_egress_capability_volume=f"shimpz-account-egress-capability-{unique}",
         egress_policy_volume=f"shimpz-local-egress-policy-{unique}",
