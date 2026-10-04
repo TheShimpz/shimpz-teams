@@ -92,8 +92,8 @@ class LocalContractCase(unittest.TestCase):
             Path(directory) / "routines" / "state", Path(directory) / "routines" / "key" / "aes256.key"
         )
         controller.routine_diagnostics = local_routine_diagnostics.DiagnosticStore(
-            Path(directory) / "routines" / "diagnostics",
-            Path(directory) / "routines" / "diagnostics-key" / "aes256.key",
+            Path(directory) / "routines" / "state" / "diagnostics",
+            Path(directory) / "routines" / "key" / "diagnostics.key",
         )
         controller.inference_store = inference_config.InferenceConfigStore(Path(directory) / "inference")
         controller.inference_store.save(

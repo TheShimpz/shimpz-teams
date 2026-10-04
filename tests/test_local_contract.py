@@ -26,6 +26,8 @@ from local.assistant import lifecycle as assistant_lifecycle
 from local.chat import continuation_store as local_chat_continuation_store
 from local.chat import service as local_chat_service
 from local.http import server as local_http
+from local.routine import diagnostics as local_routine_diagnostics
+from local.routine import store as local_routine_store
 from local.validation import validate_model_credential_headers
 
 LOOKUP_INPUT = {"page": 1, "per_page": 25}
@@ -58,6 +60,13 @@ class LocalContractTests(LocalContractCase):
             local_app.LOCAL_CHAT_CONTINUATIONS_KEY_PATH,
             local_chat_continuation_store.KEY_PATH,
         )
+
+    def test_routine_diagnostics_stay_inside_the_mounted_routine_volumes(self) -> None:
+        # The Local graph mounts exactly these two Routine volumes; Team's root filesystem is read-only.
+        self.assertEqual(local_routine_store.ROOT, Path("/var/lib/shimpz-local/routines/state"))
+        self.assertEqual(local_routine_store.KEY_PATH.parent, Path("/var/lib/shimpz-local/routines/key"))
+        self.assertEqual(local_routine_diagnostics.ROOT, local_routine_store.ROOT / "diagnostics")
+        self.assertEqual(local_routine_diagnostics.KEY_PATH, local_routine_store.KEY_PATH.with_name("diagnostics.key"))
 
     def test_cloudflare_assistant_contract_is_read_only_closed_and_bounded(self) -> None:
         registry = self._registry(CURRENT_ASSISTANT_IMAGE)

@@ -1,13 +1,15 @@
 """Encrypted per-execution diagnostics of a Local Team's Routine runs (ADR-0092 section 8).
 
 Each attempt's Team-sanitized failure diagnostic, or its safe transport condition, is one AES-256-GCM file in its own
-Team-owned blob family, apart from plaintext Routine state, continuations, and their keyring. The AAD binds the Team
-and its incarnation (its network id), the Routine, run, logical operation, attempt, and recording instant, so a body is
-readable only by the same incarnation of the same Team as exactly that attempt. Each body names its incarnation under
-that authentication, so another incarnation's authentic body is left out while any corrupted body fails the read. A
-body is at most 16 KiB, expires after seven days, and a Team keeps at most 10 MiB, the oldest giving way first: bodies
-are diagnostics, never the compact safety evidence an incident keeps. A body never holds a password or any other value
-Team injected.
+Team-owned blob family, apart from plaintext Routine state, continuations, and their keyring. The family lives in its
+own ``diagnostics`` directory of the Routine state volume and its keyring is ``diagnostics.key`` beside the Routine
+keyring: neither name is a Routine Team directory or the Routine keyring, so each store ignores the other. The AAD
+binds the Team and its incarnation (its network id), the Routine, run, logical operation, attempt, and recording
+instant, so a body is readable only by the same incarnation of the same Team as exactly that attempt. Each body names
+its incarnation under that authentication, so another incarnation's authentic body is left out while any corrupted
+body fails the read. A body is at most 16 KiB, expires after seven days, and a Team keeps at most 10 MiB, the oldest
+giving way first: bodies are diagnostics, never the compact safety evidence an incident keeps. A body never holds a
+password or any other value Team injected.
 """
 
 from __future__ import annotations
@@ -36,8 +38,8 @@ from local.validation import validate_team_id
 from protocol.http.v1 import routine as http_routine
 from storage import private_state
 
-ROOT = Path("/var/lib/shimpz-local/routines/diagnostics")
-KEY_PATH = Path("/var/lib/shimpz-local/routines/diagnostics-key/aes256.key")
+ROOT = Path("/var/lib/shimpz-local/routines/state/diagnostics")
+KEY_PATH = Path("/var/lib/shimpz-local/routines/key/diagnostics.key")
 RETENTION_SECONDS = 7 * 86_400
 MAX_FILE_BYTES = 16 * 1024
 MAX_PLAINTEXT_BYTES = 12 * 1024
@@ -152,6 +154,8 @@ class DiagnosticStore:
                 sort_keys=True,
                 separators=(",", ":"),
             ).encode("ascii")
+            # The family's own directory is as private as each Team's, not left to the process umask.
+            _PRIVATE.require_private_directory(self.root, "Routine diagnostic")
             directory = self._team_dir(team)
             self._make_room(directory, diagnostic, len(envelope))
             _PRIVATE.atomic_write(directory / name, envelope, "Routine diagnostic")

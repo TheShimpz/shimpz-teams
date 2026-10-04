@@ -220,6 +220,14 @@ class DiagnosticStoreTests(unittest.TestCase):
         self.assertEqual([path.name for path in self.store.root.iterdir()], ["unrelated"])
         diagnostics.DiagnosticStore(self.root / "absent", self.root / "absent-key" / "k").delete_all()
 
+    def test_the_family_directory_is_private_and_fails_closed_when_it_is_not(self) -> None:
+        self.store.record("team_1", INCARNATION, _diagnostic(), ())
+        self.assertEqual(stat.S_IMODE(self.store.root.stat().st_mode), 0o700)
+        self.store.root.chmod(0o755)
+        with self.assertRaisesRegex(diagnostics.DiagnosticStoreError, "ownership contract"):
+            self.store.record("team_1", INCARNATION, _diagnostic(attempt=2), ())
+        self.assertEqual(len(self.files()), 1)
+
     def test_storage_failures_fail_closed(self) -> None:
         self.store.record("team_1", INCARNATION, _diagnostic(), ())
         [sealed] = self.files()

@@ -181,12 +181,12 @@ class PrivateStateEdgeCoverageTests(unittest.TestCase):
         path = mock.Mock()
         path.mkdir.side_effect = OSError("denied")
         with self.assertRaisesRegex(RuntimeError, "directory is unavailable"):
-            self.state._require_private_parent(path, "state")
+            self.state.require_private_directory(path, "state")
 
         unsafe = self.root / "unsafe-parent"
         unsafe.mkdir(mode=0o755)
         with self.assertRaisesRegex(RuntimeError, "ownership contract"):
-            self.state._require_private_parent(unsafe, "state")
+            self.state.require_private_directory(unsafe, "state")
         with self.assertRaisesRegex(RuntimeError, "malformed"):
             self.state._teams({"teams": []})
 

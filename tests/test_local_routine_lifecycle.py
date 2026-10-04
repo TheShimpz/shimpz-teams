@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -67,12 +68,16 @@ class RoutineLifecycleTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
+        # The Routine state and key volumes, as the Local graph mounts them.
+        for volume in ("state", "key"):
+            (root / volume).mkdir(mode=0o700)
         self.events: list[object] = []
         self.subject = SimpleNamespace(
             space_id="local-space",
             routine_store=routine_store.RoutineStore(root / "state", root / "key" / "aes256.key"),
+            # The Local layout: the diagnostic family shares the Routine state and key volumes in its own directories.
             routine_diagnostics=routine_diagnostics.DiagnosticStore(
-                root / "diagnostics", root / "diagnostics-key" / "k"
+                root / "state" / "diagnostics", root / "key" / "diagnostics.key"
             ),
             action_state=SimpleNamespace(purge=lambda generation: self.events.append(("purge", generation))),
             routine_human_challenges=action_challenges.HumanChallengeStore(),
@@ -94,6 +99,47 @@ class RoutineLifecycleTests(unittest.TestCase):
         )
         # An absent Team is already clean.
         routine_lifecycle.delete_team_routines(self.subject, "team_1")
+
+    def record_diagnostic(self, team_id: str, run_id: str) -> None:
+        self.subject.routine_diagnostics.record(
+            team_id,
+            NETWORK,
+            routine_diagnostics.Diagnostic(
+                routine_id="a" * 32,
+                run_id=run_id,
+                operation_id="6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6",
+                attempt=1,
+                assistant_id="dns",
+                action="replace-dns-record",
+                recorded_at=NINE,
+                condition="timeout",
+            ),
+            (),
+        )
+
+    def test_diagnostics_share_the_routine_volumes_and_leave_with_their_team(self):
+        state, run_id = two_runs()
+        for team in ("team_1", "team_2"):
+            put(self.subject.routine_store, team, state)
+            self.record_diagnostic(team, run_id)
+        self.subject.routine_store.put_continuation("team_2", run_id, b"continuation")
+        diagnostics = self.subject.routine_diagnostics
+        self.assertEqual(stat.S_IMODE(diagnostics.root.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE(diagnostics.key_path.stat().st_mode), 0o600)
+        # Neither store mistakes the other's entries for its own.
+        self.assertEqual(set(self.subject.routine_store.teams()), {"team_1", "team_2"})
+        self.assertTrue(self.subject.routine_store.key_path.exists())
+        self.assertEqual(len(diagnostics.read("team_2", NETWORK, run_id, NINE)), 1)
+        routine_lifecycle.delete_team_routines(self.subject, "team_1")
+        self.assertFalse(diagnostics._team_dir("team_1").exists())
+        self.assertEqual(self.subject.routine_store.teams(), ("team_2",))
+        self.assertEqual(len(diagnostics.read("team_2", NETWORK, run_id, NINE)), 1)
+        self.assertEqual(self.subject.routine_store.continuation("team_2", run_id), b"continuation")
+        routine_lifecycle.delete_all_routines(self.subject)
+        self.assertEqual(self.subject.routine_store.teams(), ())
+        self.assertEqual(list(diagnostics.root.iterdir()), [])
+        self.assertFalse(self.subject.routine_store.key_path.exists())
+        self.assertFalse(diagnostics.key_path.exists())
 
     def test_queued_discards_are_cleaned_before_state_and_kept_when_cleanup_fails(self):
         # An ended run leaves the runs list and queues what it held; an interrupted drain leaves that queue behind.

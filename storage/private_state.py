@@ -164,7 +164,7 @@ class PrivateState:
         ).payload
 
     def atomic_write(self, path: Path, payload: bytes, label: str) -> None:
-        self._require_private_parent(path.parent, label)
+        self.require_private_directory(path.parent, label)
         try:
             replace_durably(path, payload)
         except OSError as exc:
@@ -259,7 +259,8 @@ class PrivateState:
     def delete_team(self, state: dict[str, object], team_id: str) -> bool:
         return self._teams(state).pop(team_id, None) is not None
 
-    def _require_private_parent(self, path: Path, label: str) -> None:
+    def require_private_directory(self, path: Path, label: str) -> None:
+        """Create ``path`` when absent and require it to be a mode-0700 directory this process owns."""
         try:
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
             metadata = path.stat(follow_symlinks=False)

@@ -44,9 +44,11 @@ failure. It does not remove shared images, the controller container, or unlabele
   read-only. Conversation checkpoints stay in the Brain runtime state volume.
 - Persistent controller state: audit, Team storage, inference selection and learned memory, Action
   journal, Integration state/key, chat continuations, Routine state/key (ADR-0086), and egress policies each use
-  dedicated paths or volumes. Integration tokens and continuations, including frozen Routine runs', are encrypted at
+  dedicated paths or volumes. Encrypted Routine diagnostics (ADR-0092) keep their bodies in the Routine state
+  volume's own `diagnostics/` directory and their keyring as `diagnostics.key` in the Routine key volume, apart from
+  Routine state and its keyring. Integration tokens and continuations, including frozen Routine runs', are encrypted at
   rest and never enter metadata-only audit JSONL. Destroy and Space reset delete every Routine run's
-  Action journal generation before its Routine state, and prove `routines` absent.
+  Action journal generation before its Routine state and diagnostics, and prove `routines` absent.
 - Model credentials: Admin supplies `X-Shimpz-Model-Provider` and `X-Shimpz-Model-Api-Key` only on chat
   and challenge-resume requests. Strict HTTP parsing rejects duplicate/missing credentials. The key is
   used for that operation and is never persisted, echoed, or forwarded to Assistant containers.
