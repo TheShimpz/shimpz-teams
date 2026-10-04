@@ -8,6 +8,7 @@ it denied.
 from __future__ import annotations
 
 import base64
+import contextlib
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -176,10 +177,15 @@ def current_routine_challenge(self, team_id: str) -> action_challenges.PendingHu
 
 
 def cancel_routine_challenge(self, team_id: str, run_id: str) -> None:
-    """Drop the Team's routine challenge when it belongs to this run; the run itself is ended by the caller."""
+    """Drop the Team's routine challenge when it belongs to this run; the run itself is ended by the caller.
+
+    The observed challenge is consumed by its exact id: one replaced or expired since is already gone, and its
+    replacement belongs to another run.
+    """
     challenge = self.routine_human_challenges.current(team_id)
     if challenge is not None and challenge.payload[0] == run_id:
-        self.routine_human_challenges.cancel_team(team_id)
+        with contextlib.suppress(action_challenges.HumanChallengeNotFoundError):
+            self.routine_human_challenges.claim(team_id, challenge.id)
 
 
 def _body(body: object) -> tuple[object, str, object | None]:

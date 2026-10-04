@@ -19,6 +19,7 @@ from test_local_routine_service import (
     approval,
 )
 
+from action import challenges as action_challenges
 from action import human as action_human
 from local import app as local_app
 from local.routine import compiled as routine_compiled
@@ -359,3 +360,22 @@ class ChallengeEndingRaceTests(FrozenCase):
                 self.assertIsNone(service.current_routine_challenge("team_1"))
                 self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
                 self.assertEqual(self.state(service).runs, ())
+
+    def test_cancelling_a_run_challenge_never_cancels_its_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, claim = self.frozen(directory)
+            service.open_routine_challenge("team_1", claim["run_id"], "en")
+            store = service.routine_human_challenges
+            current = store.current
+            replacements: list[action_challenges.PendingHumanChallenge] = []
+
+            def replaced(team_id):
+                observed = current(team_id)
+                # Another run's opening replaces the observed challenge before the cancellation reaches the store.
+                store.cancel_team(team_id)
+                replacements.append(store.create(team_id, observed.requirement, ("other", observed.payload[1])))
+                return observed
+
+            with mock.patch.object(store, "current", side_effect=replaced):
+                routine_human.cancel_routine_challenge(service, "team_1", claim["run_id"])
+            self.assertEqual(store.current("team_1"), replacements[0])
