@@ -11,6 +11,8 @@ sys.path.insert(0, str(TEAM))
 from local_controller_harness import CURRENT_ASSISTANT_IMAGE, LocalContractCase, TestAssistantRegistry
 
 from action import challenges as action_challenges
+from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
 from local import app as local_app
 from local import labels as local_labels
 from local.routine import card as routine_card
@@ -42,6 +44,8 @@ class LocalSpaceResetTests(LocalContractCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         controller._locks = (threading.RLock(),)
         controller._names_lock = threading.RLock()
         controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))
@@ -109,6 +113,8 @@ class LocalSpaceResetTests(LocalContractCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(clear=lambda: 0)
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         controller._locks = (threading.RLock(),)
         controller._names_lock = threading.RLock()
         controller.team_names = SimpleNamespace(delete_all=lambda: events.append("delete-names"))

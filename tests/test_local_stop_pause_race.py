@@ -51,7 +51,7 @@ class Runtime:
 class PausingTurn:
     """A chat turn in its own thread that waits just before it publishes its challenge in ``store``."""
 
-    def __init__(self, service, store) -> None:
+    def __init__(self, service, store, released=lambda: False) -> None:
         self.service = service
         self.reached = threading.Event()
         self.release = threading.Event()
@@ -60,9 +60,10 @@ class PausingTurn:
 
         def publish(*args: object) -> object:
             self.reached.set()
-            if not self.release.wait(5):
-                raise AssertionError("the turn was never released")
-            return create(*args)
+            for _ in range(500):
+                if self.release.wait(0.01) or released():
+                    return create(*args)
+            raise AssertionError("the turn was never released")
 
         store.create = publish
         self.thread = threading.Thread(target=self._run, daemon=True)

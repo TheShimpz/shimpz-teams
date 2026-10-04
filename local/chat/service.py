@@ -37,6 +37,9 @@ from local.routine import recovery as local_routine_recovery
 from local.routine import run as local_routine_run
 from local.routine import turn as local_routine_turn
 
+# How long a Space reset waits for every running turn to stop after it cancelled them.
+DRAIN_SECONDS = 30
+
 
 class ChatTurnService:
     """Own local chat turns, continuations, challenges, and private state."""
@@ -84,6 +87,8 @@ class ChatTurnService:
         # A person who found the Team's slot held by a Routine: chat goes first at the next boundary. Infinite while
         # that Routine still holds the slot; its bounded grace starts only when the segment frees it.
         self._chat_demand: dict[str, float] = {}
+        # Closed while a Space reset runs: no turn registers until the reset ended every paused one.
+        self._chat_closed = False
 
     def _chat_lock(self, team_id: str) -> threading.Lock:
         with self._active_chat_guard:
@@ -125,6 +130,50 @@ class ChatTurnService:
             self.assistant_lifecycle._fail_stop_action(active_action)
 
     @contextmanager
+    def _drained_chat(self):
+        """Close turn registration Space-wide, stop every running turn, and hold their execution slots meanwhile.
+
+        Closing and the snapshot of running turns happen under one guard, so a turn that won its slot but has not
+        registered yet is refused at registration and never starts work this drain would miss (ADR-0079).
+        """
+        with self._active_chat_guard:
+            self._chat_closed = True
+            running = tuple(self._active_chat_tokens)
+            locks = tuple(self._chat_locks[team_id] for team_id in running)
+        held: list[threading.Lock] = []
+        try:
+            for team_id in running:
+                self._cancel_chat_for_destroy(team_id)
+            deadline = time.monotonic() + DRAIN_SECONDS
+            for lock in locks:
+                if not lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+                    raise ApiProblem(HTTPStatus.CONFLICT, "active Team chat did not stop in time", code="chat-active")
+                held.append(lock)
+            yield
+        finally:
+            for lock in reversed(held):
+                lock.release()
+            with self._active_chat_guard:
+                self._chat_closed = False
+
+    def _end_paused_turns(self, team_id: str | None = None) -> None:
+        """End one Team's paused turns, or every Team's, with their challenges, continuations, and PKCE state.
+
+        The caller holds the Team lock and drained the execution slot, so neither a turn nor a relocalization recreates
+        any of them. Each paused Action batch goes with its Team's generation.
+        """
+        if team_id is None:
+            self._clear_chat_continuations()
+            self.human_challenges.cancel_all()
+            self.integration_challenges.cancel_all()
+            self.oauth_pkce.cancel_all()
+            return
+        self.human_challenges.cancel_team(team_id)
+        self._delete_chat_continuation(team_id)
+        self.integration_challenges.cancel_team(team_id)
+        self.oauth_pkce.cancel_team(team_id)
+
+    @contextmanager
     def _exclusive_chat_turn(self, team_id: str, routine_id: str | None = None):
         """Hold the Team's one execution slot: a chat turn, or with ``routine_id`` a Routine run's segment."""
         lock = self._chat_lock(team_id)
@@ -145,12 +194,17 @@ class ChatTurnService:
         # Registered before any Brain request of the turn, so Stop can always reach the one in flight (ADR-0079).
         brain_abort = request_abort.RequestAbort()
         with self._active_chat_guard:
-            self._active_chat_tokens[team_id] = token
-            self._brain_aborts[token] = brain_abort
-            if routine_id is not None:
-                self._routine_holders[team_id] = routine_id
-            else:
-                self._chat_demand.pop(team_id, None)
+            closed = self._chat_closed
+            if not closed:
+                self._active_chat_tokens[team_id] = token
+                self._brain_aborts[token] = brain_abort
+                if routine_id is not None:
+                    self._routine_holders[team_id] = routine_id
+                else:
+                    self._chat_demand.pop(team_id, None)
+        if closed:
+            lock.release()
+            raise ApiProblem(HTTPStatus.CONFLICT, "the Space is being reset", code="space-resetting")
         try:
             with request_abort.abortable(brain_abort):
                 yield token

@@ -226,9 +226,6 @@ def destroy_team(self, team_id: str, expected_name: str) -> dict[str, object]:
 
 
 def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
-    self.chat_turn_service.human_challenges.cancel_team(team_id)
-    self.chat_turn_service._delete_chat_continuation(team_id)
-    residue_absent = {"chat_continuations"}
     self.chat_turn_service._cancel_chat_for_destroy(team_id)
 
     chat_lock = self.chat_turn_service._chat_lock(team_id)
@@ -240,6 +237,9 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
         )
     try:
         with self._lock(team_id):
+            # Only with the turn drained and relocalization excluded do its pauses end, so none is recreated.
+            self.chat_turn_service._end_paused_turns(team_id)
+            residue_absent = {"chat_continuations"}
             network = self.assistant_lifecycle._network(team_id, required=False)
             containers = self._team_assistant_containers(team_id)
             self._validate_destroy_containers(containers, team_id, network)
@@ -398,12 +398,14 @@ def _remove_space_resources(
 
 def reset_space(self) -> dict[str, object]:
     """Remove every exactly owned workload/network without accepting resource ids."""
-    self.chat_turn_service._clear_chat_continuations()
-    self.chat_turn_service.human_challenges.cancel_all()
     with ExitStack() as locks:
         locks.enter_context(self._names_lock)
+        # Every running turn stops and drains first, and none registers until the reset ends.
+        locks.enter_context(self.chat_turn_service._drained_chat())
         for lock in self._locks:
             locks.enter_context(lock)
+        # Only with turns and every Team-locked writer excluded do the paused turns end, so none is recreated.
+        self.chat_turn_service._end_paused_turns()
         try:
             containers, networks = self._reset_inventory()
             owned_assistants = self._reset_assistant_identities(containers, networks)

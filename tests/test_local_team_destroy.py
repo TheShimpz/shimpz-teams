@@ -12,6 +12,8 @@ from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 
 from action import challenges as action_challenges
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
+from integrations import pkce as integration_pkce
 from local import app as local_app
 from local.chat.types import PendingLocalChat
 from local.routine import card as routine_card
@@ -30,6 +32,8 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         controller.assistant_integrations = SimpleNamespace(
             delete_team=lambda team_id: events.append(("integrations-delete", team_id))
         )
@@ -184,6 +188,8 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         lock = threading.Lock()
         network = SimpleNamespace(
             id="a" * 64,
@@ -249,6 +255,8 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller = object.__new__(local_app.LocalController)
         controller.space_id = "local-space"
         controller.chat_continuations = SimpleNamespace(delete=lambda *_args: False)
+        controller.integration_challenges = integration_challenges.IntegrationChallengeStore()
+        controller.oauth_pkce = integration_pkce.OAuthPKCEChallengeStore()
         lock = threading.Lock()
         network = SimpleNamespace(
             id="a" * 64,
