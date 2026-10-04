@@ -642,7 +642,9 @@ def _lifecycle(team_id: str, op: str, lease: hosted_resources._AuthorizationLeas
         # Stop is always available as remediation. Start/restart require both an exact per-container
         # runtime and a currently registered daemon runtime; Docker may never fall back to runc.
         container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=op != "stop")
+        # A runtime change ends every paused turn, human or Integration, with what it holds.
         hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
+        hosted_chat_lifecycle.cancel_paused_integration(team_id)
         if op in {"start", "restart"}:
             hosted_resources._require_team_runtime()
         container.reload()

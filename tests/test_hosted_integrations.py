@@ -710,6 +710,22 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         self.assertIsInstance(refused, runtime_state.ApiError)
         self.assertEqual(pkce.cancel_team(TEAM_ID), 0)
 
+    def test_a_runtime_change_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
+        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
+        for op in ("stop", "start", "restart"):
+            challenges, pkce, _paused = self._paused_with_oauth()
+            runtime = types.SimpleNamespace(id=ANCHOR_ID, status="running", reload=lambda: None)
+            with (
+                self.subTest(op=op),
+                mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce),
+                mock.patch.object(hosted_resources, "_require_current_authorization", return_value=runtime),
+                mock.patch.object(hosted_resources, "_require_team_runtime"),
+                mock.patch.object(hosted_resources, "_fail_stop_team"),
+                mock.patch.object(hosted_resources, "_start_team_with_isolation"),
+            ):
+                self.assertEqual(hosted_lifecycle._lifecycle(TEAM_ID, op, lease)["status"], "ok")
+                self._assert_ended(challenges, pkce)
+
     def test_ending_a_paused_integration_turn_rejects_an_invalid_continuation(self) -> None:
         challenges = integration_challenges.IntegrationChallengeStore()
         requirement = integration_challenges.IntegrationRequirement(
