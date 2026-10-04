@@ -170,32 +170,34 @@ def _start_oauth_integration(
     session_binding: object,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
-    hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
-    try:
-        challenge = runtime_state._integration_challenges.get(team_id, challenge_id)
-    except integration_challenges.IntegrationChallengeNotFoundError as exc:
-        raise runtime_state.ApiError(
-            HTTPStatus.CONFLICT,
-            "Assistant integration request expired; retry the message",
-        ) from exc
-    pending = challenge.payload
-    if not isinstance(pending, hosted_assistants._PendingHostedChat) or pending.owner != lease.owner:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
-    try:
-        authorization_url = runtime_state._oauth_integrations.authorization_url(
-            challenge,
-            session_binding,
-            assistant_id=assistant_id,
-            integration_id=integration_id,
-            resource_binding=(lease.owner, lease.container_id),
-        )
-    except integration_service.OAuthIntegrationUnavailableError as exc:
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integrations are already configured") from exc
-    except integration_service.OAuthIntegrationServiceError as exc:
-        raise runtime_state.ApiError(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant integration could not be started",
-        ) from exc
+    # Destruction cancels this Team's OAuth state under the same lock, so none is created for a generation it ended.
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        try:
+            challenge = runtime_state._integration_challenges.get(team_id, challenge_id)
+        except integration_challenges.IntegrationChallengeNotFoundError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.CONFLICT,
+                "Assistant integration request expired; retry the message",
+            ) from exc
+        pending = challenge.payload
+        if not isinstance(pending, hosted_assistants._PendingHostedChat) or pending.owner != lease.owner:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
+        try:
+            authorization_url = runtime_state._oauth_integrations.authorization_url(
+                challenge,
+                session_binding,
+                assistant_id=assistant_id,
+                integration_id=integration_id,
+                resource_binding=(lease.owner, lease.container_id),
+            )
+        except integration_service.OAuthIntegrationUnavailableError as exc:
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integrations are already configured") from exc
+        except integration_service.OAuthIntegrationServiceError as exc:
+            raise runtime_state.ApiError(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant integration could not be started",
+            ) from exc
     return {"authorization_url": authorization_url}
 
 

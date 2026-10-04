@@ -129,6 +129,24 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertIsNone(self.integrations.current(TEAM_ID))
         self.journal.purge.assert_called_once_with(REPLACEMENT_CONTAINER)
 
+    def test_oauth_start_creates_its_state_only_under_the_lifecycle_lock(self) -> None:
+        challenge = self.integrations.current(TEAM_ID)
+        with mock.patch.object(
+            runtime_state._oauth_integrations,
+            "authorization_url",
+            side_effect=lambda *args, **kwargs: "https://oauth" if self._lifecycle_locked() else "unlocked",
+        ):
+            started = hosted_chat_api._start_oauth_integration(
+                TEAM_ID, challenge.id, "assistant-1", "cloudflare", "binding", _current_lease()
+            )
+            with self.assertRaises(runtime_state.ApiError) as caught:
+                hosted_chat_api._start_oauth_integration(
+                    TEAM_ID, challenge.id, "assistant-1", "cloudflare", "binding", _stale_lease()
+                )
+
+        self.assertEqual(started, {"authorization_url": "https://oauth"})
+        self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
+
     def _handler(self) -> hosted_controller.Handler:
         handler = object.__new__(hosted_controller.Handler)
         handler.wfile = io.BytesIO()
