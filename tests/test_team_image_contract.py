@@ -366,6 +366,8 @@ class StaticTeamImageContractTests(unittest.TestCase):
         )
         self.assertIn("/var/lib/shimpz-local/chat-continuations/state", runtime)
         self.assertIn("/var/lib/shimpz-local/chat-continuations/key", runtime)
+        # A managed-disk Space populates each fresh volume from its image directory, owner and mode included.
+        self.assertIn("/var/lib/shimpz-local/routines/state /var/lib/shimpz-local/routines/key", runtime)
         self.assertIn("groupadd --gid 10021 shimpzsupervisor-key", runtime)
         self.assertIn("chmod 2770 /run/shimpz-local-supervisor", runtime)
         self.assertNotIn("uv-install.sh", dockerfile)
