@@ -442,6 +442,16 @@ def _delete_chat_continuation(
         self._raise_chat_continuation_problem(exc)
 
 
+def _delete_withdrawn_continuation(self, team_id: str, challenge: object) -> bool:
+    """Delete the continuation of one withdrawn challenge; another challenge's continuation belongs to a newer turn."""
+    try:
+        return self.chat_continuations.delete(team_id, challenge.id)
+    except local_chat_continuation_store.ContinuationNotFoundError:
+        return False
+    except local_chat_continuation_store.ContinuationStoreError as exc:
+        self._raise_chat_continuation_problem(exc)
+
+
 def _clear_chat_continuations(self) -> int:
     try:
         return self.chat_continuations.clear()

@@ -165,10 +165,10 @@ class LocalLeafContractTests(unittest.TestCase):
         )
         controller = types.SimpleNamespace(
             assistant_lifecycle=lifecycle,
-            integration_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: False),
+            integration_challenges=types.SimpleNamespace(withdraw_team=lambda _team_id: None),
             human_challenges=types.SimpleNamespace(withdraw_team=lambda _team_id: withdrawn),
             oauth_pkce=types.SimpleNamespace(cancel_team=mock.Mock()),
-            _delete_chat_continuation=lambda _team_id: False,
+            _delete_withdrawn_continuation=mock.Mock(return_value=True),
             _purge_human_pending=mock.Mock(),
             _active_chat_guard=RLock(),
             _active_chat_tokens={"team_1": "token"},
@@ -183,6 +183,8 @@ class LocalLeafContractTests(unittest.TestCase):
         brain_abort.abort.assert_called_once_with()
         # Only the withdrawn turn's own batch is purged, from its own pending state.
         controller._purge_human_pending.assert_called_once_with(withdrawn.payload)
+        # Only the withdrawn challenge's continuation is deleted.
+        controller._delete_withdrawn_continuation.assert_called_once_with("team_1", withdrawn)
         lifecycle._fail_stop_action.assert_called_once_with(container)
 
         controller.human_challenges.withdraw_team = lambda _team_id: None

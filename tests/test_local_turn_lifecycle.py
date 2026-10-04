@@ -602,7 +602,7 @@ class LocalTurnLifecycleTests(LocalContractCase):
         result: list[dict[str, object]] = []
         service = local_app.ChatTurnService(
             local_app.ChatTurnDependencies(
-                integration_challenges=SimpleNamespace(cancel_team=lambda _team_id: False),
+                integration_challenges=SimpleNamespace(withdraw_team=lambda _team_id: None),
                 oauth_pkce=SimpleNamespace(cancel_team=lambda _team_id: None),
             )
         )

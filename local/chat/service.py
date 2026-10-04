@@ -276,6 +276,7 @@ class ChatTurnService:
     _persist_chat_continuation = local_chat_state._persist_chat_continuation
     _restore_chat_continuation = local_chat_state._restore_chat_continuation
     _purge_expired_human_continuation = local_chat_state._purge_expired_human_continuation
+    _delete_withdrawn_continuation = local_chat_state._delete_withdrawn_continuation
     _restore_all_chat_continuations = local_chat_state._restore_all_chat_continuations
     _delete_chat_continuation = local_chat_state._delete_chat_continuation
     _clear_chat_continuations = local_chat_state._clear_chat_continuations

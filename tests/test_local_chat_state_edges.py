@@ -366,6 +366,25 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         ):
             local_chat_state._restore_chat_continuation(subject, _stored())
 
+    def test_withdrawn_continuation_deletion_is_exact_and_fails_closed(self) -> None:
+        challenge = types.SimpleNamespace(id="c" * 32)
+        delete = mock.Mock(return_value=True)
+        subject = types.SimpleNamespace(
+            chat_continuations=types.SimpleNamespace(delete=delete),
+            _raise_chat_continuation_problem=local_chat_state._raise_chat_continuation_problem,
+        )
+        self.assertTrue(local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge))
+        delete.assert_called_once_with("team_1", "c" * 32)
+
+        # A continuation of another challenge belongs to a newer turn and stays.
+        delete.side_effect = continuation_store.ContinuationNotFoundError("another challenge")
+        self.assertFalse(local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge))
+
+        delete.side_effect = continuation_store.ContinuationStoreError("unavailable")
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_state._delete_withdrawn_continuation(subject, "team_1", challenge)
+        self.assertEqual(caught.exception.code, "chat-state-unavailable")
+
     def test_expired_human_purge_and_collection_adapters_fail_closed(self) -> None:
         subject = types.SimpleNamespace(_purge_human_pending=mock.Mock())
         self.assertIsNone(

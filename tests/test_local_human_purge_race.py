@@ -72,12 +72,16 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
         return human_request_fixtures.admit(human_request_fixtures.fingerprinted(descriptor), ("approval",))
 
     def _paused(self, directory: str) -> tuple[local_app.LocalController, dict[str, object], str]:
-        request = brain_runtime_client.ActionRequest("action-1", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT)
-
         class Runtime:
             purpose = staticmethod(lambda *_args: None)
+            turns = 0
 
             def start(self, _context, _message, *, conversation=()):
+                # Each turn's Brain names its own Action interrupt.
+                self.turns += 1
+                request = brain_runtime_client.ActionRequest(
+                    f"action-{self.turns}", "shimpz-cloudflare", "list-zones", LOOKUP_INPUT
+                )
                 return brain_runtime_client.RuntimeTurn("action-required", "", (request,))
 
             def resume(self, _context, _results):
@@ -121,6 +125,49 @@ class LocalHumanPurgeRaceTests(LocalContractCase):
 
             self.assertTrue(stopped["accepted"])
             self._assert_newer_turn_kept(race, paused_batch)
+
+    def test_stop_keeps_the_continuation_of_a_turn_paused_since(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, paused, _paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            newer: list[dict[str, object]] = []
+            cancel_pkce = service.oauth_pkce.cancel_team
+
+            def new_turn_pauses(team_id: str) -> int:
+                # Stop already withdrew the paused challenge; a new turn starts and pauses before Stop's next step.
+                if not newer:
+                    self.assertIsNone(service.human_challenges.current("team_1"))
+                    newer.append(service.chat("team_1", dict(CHAT_BODY), "openai", "sk-test-0123456789"))
+                return cancel_pkce(team_id)
+
+            service.oauth_pkce.cancel_team = new_turn_pauses
+
+            stopped = service.stop_chat("team_1")
+
+            self.assertTrue(stopped["accepted"])
+            [resumed] = newer
+            self.assertEqual(resumed["status"], "human-required")
+            self.assertNotEqual(resumed["challenge_id"], paused["challenge_id"])
+            self.assertEqual(service.human_challenges.current("team_1").id, resumed["challenge_id"])
+            stored = controller.chat_continuations.current("team_1")
+            self.assertIsNotNone(stored, "Stop deleted the newer turn's continuation")
+            self.assertEqual(stored.challenge_id, resumed["challenge_id"])
+
+    def test_stop_deletes_the_withdrawn_integration_continuation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller, _paused, _paused_batch = self._paused(directory)
+            service = controller.chat_turn_service
+            service.stop_chat("team_1")
+            controller.assistant_integrations.delete_assistant("team_1", "shimpz-cloudflare")
+            paused = service.chat("team_1", dict(CHAT_BODY), "openai", "sk-test-0123456789")
+            self.assertEqual(paused["status"], "integrations-required")
+            self.assertEqual(controller.chat_continuations.current("team_1").challenge_id, paused["challenge_id"])
+
+            stopped = service.stop_chat("team_1")
+
+            self.assertTrue(stopped["accepted"])
+            self.assertIsNone(service.integration_challenges.current("team_1"))
+            self.assertIsNone(controller.chat_continuations.current("team_1"))
 
     def test_denial_keeps_a_newer_turns_batch(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

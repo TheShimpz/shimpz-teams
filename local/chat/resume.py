@@ -6,10 +6,13 @@ from local.validation import validate_team_id
 def stop_chat(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     self.assistant_lifecycle._network(team_id)
-    integration_cancelled = self.integration_challenges.cancel_team(team_id)
+    integration = self.integration_challenges.withdraw_team(team_id)
     human = self.human_challenges.withdraw_team(team_id)
     self.oauth_pkce.cancel_team(team_id)
-    continuation_cancelled = self._delete_chat_continuation(team_id)
+    # Only the continuations Stop withdrew, each deleted: a turn paused since keeps its own.
+    deleted = [self._delete_withdrawn_continuation(team_id, item) for item in (integration, human) if item is not None]
+    continuation_cancelled = True in deleted
+    integration_cancelled = integration is not None
     human_cancelled = human is not None
     if human_cancelled:
         # Only the paused turn's own batch: a turn started since keeps its batch (ADR-0038).
