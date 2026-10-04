@@ -103,7 +103,7 @@ def _bounded_steps(size: int = routine.MAX_STEPS_BYTES) -> list[dict[str, object
 class RoutineListBoundTests(unittest.TestCase):
     """A Team's whole Routine list fits its allowance with every field at its producer bound (ADR-0086)."""
 
-    def test_the_projection_is_refused_one_byte_past_its_bound_or_unencodable(self) -> None:
+    def test_the_projection_is_refused_one_byte_past_its_bound_or_with_a_lone_surrogate(self) -> None:
         steps = _bounded_steps()
         self.assertEqual(routine.encoded_bytes(steps), routine.MAX_STEPS_BYTES)
         self.assertEqual(routine.canonical_steps(steps), steps)
@@ -115,6 +115,8 @@ class RoutineListBoundTests(unittest.TestCase):
         lone = [{"id": "s", "assistant": "a", "action": "b", "inputs": [], "stored_inputs": []}]
         lone[0]["inputs"].append({"member": "m\ud800", "source": "literal", "value": "1"})
         self.assertIsNone(routine.canonical_steps(lone))
+        # A literal's preview escapes a lone surrogate, so every projection Team makes stays encodable.
+        self.assertEqual(routine.literal_preview("a\ud800"), '"a\\ud800"')
 
     def test_a_created_notice_of_the_largest_projection_fits_one_batch_alone(self) -> None:
         notice = {

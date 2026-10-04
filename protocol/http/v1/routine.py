@@ -195,7 +195,8 @@ MAX_STEPS_BYTES = 96 * 1024
 CLOCK_FORMATS = frozenset({"date", "time", "datetime", "epoch_seconds"})
 STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
-_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+# A lone surrogate is unsafe too: it has no UTF-8 encoding, so it is escaped in a preview and refused elsewhere.
+_PLAN_UNSAFE_RE = re.compile(r"[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ud800-\udfff\ufeff]")
 _INPUT_FIELDS = {
     "literal": frozenset({"member", "source", "value"}),
     "run_clock": frozenset({"member", "source", "value"}),
@@ -263,11 +264,7 @@ def canonical_steps(value: object) -> list[dict[str, object]] | None:
         if not _step(step, earlier):
             return None
         earlier = (*earlier, step["id"])
-    try:
-        fits = encoded_bytes(value) <= MAX_STEPS_BYTES
-    except UnicodeEncodeError:
-        return None
-    return copy.deepcopy(value) if fits else None
+    return copy.deepcopy(value) if encoded_bytes(value) <= MAX_STEPS_BYTES else None
 
 
 def _defined(detail: dict[str, object]) -> bool:
