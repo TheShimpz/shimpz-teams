@@ -106,6 +106,8 @@ class BoundedServer(ThreadingHTTPServer):
 class Handler(BaseHTTPRequestHandler):
     server: BoundedServer
     protocol_version = "HTTP/1.1"
+    # The resolved route's response allowance; anything sent before a route resolves keeps the API cap.
+    _response_limit = MAX_API_RESPONSE_BYTES
 
     def log_message(self, *_args) -> None:
         return
@@ -119,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send(self, status: HTTPStatus, payload: dict[str, object]) -> None:
         encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True, ensure_ascii=False).encode("utf-8")
-        if len(encoded) > MAX_API_RESPONSE_BYTES:
+        if len(encoded) > self._response_limit:
             status = HTTPStatus.INTERNAL_SERVER_ERROR
             encoded = b'{"error":"response exceeded its limit"}'
         self.send_response(status)
@@ -802,6 +804,7 @@ class Handler(BaseHTTPRequestHandler):
     ) -> tuple[HTTPStatus, dict[str, object], str, str | None, str | None] | None:
         parts, route = self._resolved_route()
         request_audit.operation = route.operation
+        self._response_limit = local_http_routine.RESPONSE_LIMITS.get(route.operation, MAX_API_RESPONSE_BYTES)
         decision = decision_binding(self._decision_key(route.operation))
         if route.operation in _MACHINE_ONLY_OPERATIONS:
             self._capture_body(route.operation)

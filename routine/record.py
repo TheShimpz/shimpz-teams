@@ -268,6 +268,8 @@ def _admitted(value: Routine, revision: int = 1) -> Routine:
         or type(value.anchor) is not int
         or value.next_run_at != next_after(dataclasses.replace(value, schedule=canonical), value.anchor)
         or not routine_grant.valid(value.grant, value.plan, revision)
+        # What a Supervisor inspects stays within its protocol bounds, so every view and notice of it is deliverable.
+        or http_routine.canonical_steps(routine_grant.steps(value.plan, value.grant)) is None
     ):
         raise RoutineStateError("routine-invalid")
     return Routine(

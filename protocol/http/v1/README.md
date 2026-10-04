@@ -137,8 +137,11 @@ schedule, and its zone. The projection (`routine.canonical_steps`) is 1 to 8 ord
 action, inputs, stored_inputs}`: each input, sorted by member, is a `literal` whose `value` is `routine.literal_preview`
 of its JSON (at most 120 characters, every control or invisible character escaped), a `run_clock` whose `value` is its
 format, or a `step_output` naming an earlier step and an RFC 6901 pointer; `stored_inputs` names the Stored Inputs the
-step's Action uses by id only, never a value. The Routine view a Supervisor lists (`routine.canonical_routine_view`)
-carries the same name and projection. Team also keeps, never on the wire, the evidence of the request that granted each
+step's Action uses by id only, never a value. The projection encodes to at most `routine.MAX_STEPS_BYTES` (96 KiB);
+Team refuses a plan whose projection is larger, never truncating it. The Routine view a Supervisor lists
+(`routine.canonical_routine_view`) carries the same name and projection. `GET /v1/teams/:team_id/routines` answers the
+Team's whole list, every Routine, live run, and unresolved incident, within `routine.MAX_ROUTINE_LIST_BYTES`; it is the
+only Team answer above the Local API's 128 KiB response cap. Team also keeps, never on the wire, the evidence of the request that granted each
 revision: its receipt, revision, plan digest, a commitment to the message, the quote's span, each input's validated
 provenance, and any answer a bound Routine question selected.
 

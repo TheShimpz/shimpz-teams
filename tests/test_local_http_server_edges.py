@@ -109,8 +109,8 @@ class HandlerPrimitiveEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         self.assertIn(b"denied", handler.wfile.getvalue())
 
         head = self.handler("HEAD")
-        with mock.patch.object(server, "MAX_API_RESPONSE_BYTES", 1):
-            head._send(HTTPStatus.OK, {"large": "value"})
+        head._response_limit = 1
+        head._send(HTTPStatus.OK, {"large": "value"})
         head.send_response.assert_called_once_with(HTTPStatus.INTERNAL_SERVER_ERROR)
         self.assertEqual(head.wfile.getvalue(), b"")
 

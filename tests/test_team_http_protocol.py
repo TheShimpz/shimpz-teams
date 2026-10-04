@@ -68,5 +68,122 @@ class RoutineDiagnosticsContractTests(unittest.TestCase):
         self.assertFalse(routine._diagnostic_text(7))
 
 
+WIDE = "\U0001d538"  # One printable character that encodes to four UTF-8 bytes.
+# The producer bounds a Local Team holds its identifiers to: an installed Assistant's id and a reviewed Action's id.
+ASSISTANT = "a" * 40
+ACTION = "b" * 80
+
+
+def _filler(index: int, size: int) -> dict[str, object]:
+    """One ASCII literal input that adds exactly ``size`` (49 to 292) bytes to a projection, its comma included."""
+    member = min(routine.MAX_MEMBER_CHARS, size - 45)
+    return {"member": f"z{index:03d}" + "m" * (member - 4), "source": "literal", "value": "v" * (size - 44 - member)}
+
+
+def _bounded_steps(size: int = routine.MAX_STEPS_BYTES) -> list[dict[str, object]]:
+    """A projection of exactly ``size`` encoded bytes, its inputs at their character bounds in four-byte text."""
+    stored = sorted(f"s{index:02d}" + "s" * 37 for index in range(routine.MAX_STEP_STORED_INPUTS))
+    steps = [
+        {"id": f"s{index}", "assistant": ASSISTANT, "action": ACTION, "inputs": [], "stored_inputs": stored}
+        for index in range(routine.MAX_ROUTINE_STEPS)
+    ]
+    for index in range(routine.MAX_STEP_INPUTS * len(steps)):
+        member = f"m{index:03d}" + WIDE * (routine.MAX_MEMBER_CHARS - 4)
+        item = {"member": member, "source": "literal", "value": WIDE * routine.MAX_PREVIEW_CHARS}
+        if routine.encoded_bytes(steps) + routine.encoded_bytes(item) + 1 > size - 49:
+            break
+        steps[index % len(steps)]["inputs"].append(item)
+    room = size - routine.encoded_bytes(steps)
+    count = -(-room // 292)
+    sizes = [room // count + (1 if index < room % count else 0) for index in range(count)]
+    steps[-1]["inputs"].extend(_filler(index, item) for index, item in enumerate(sizes))
+    return steps
+
+
+class RoutineListBoundTests(unittest.TestCase):
+    """A Team's whole Routine list fits its allowance with every field at its producer bound (ADR-0086)."""
+
+    def test_the_projection_is_refused_one_byte_past_its_bound_or_unencodable(self) -> None:
+        steps = _bounded_steps()
+        self.assertEqual(routine.encoded_bytes(steps), routine.MAX_STEPS_BYTES)
+        self.assertEqual(routine.canonical_steps(steps), steps)
+        # One ASCII character becomes a two-byte one: the same characters, one byte more.
+        filler = steps[-1]["inputs"][-1]
+        filler["value"] = "\u00e9" + filler["value"][1:]
+        self.assertEqual(routine.encoded_bytes(steps), routine.MAX_STEPS_BYTES + 1)
+        self.assertIsNone(routine.canonical_steps(steps))
+        lone = [{"id": "s", "assistant": "a", "action": "b", "inputs": [], "stored_inputs": []}]
+        lone[0]["inputs"].append({"member": "m\ud800", "source": "literal", "value": "1"})
+        self.assertIsNone(routine.canonical_steps(lone))
+
+    def test_a_created_notice_of_the_largest_projection_fits_one_batch_alone(self) -> None:
+        notice = {
+            "team_id": "t" * 40,
+            "notice_id": "0" * 32,
+            "version": 1,
+            "routine_id": "1" * 32,
+            "quote": WIDE * routine.MAX_ROUTINE_QUOTE_CHARS,
+            "run_id": None,
+            "outcome": "created",
+            "created_at": "2026-10-05T09:00:00Z",
+            "detail": {
+                "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
+                "steps": _bounded_steps(),
+                "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
+                "timezone": "/".join(["Z" * 32] * 3),
+            },
+        }
+        batch = {"notices": [notice], "more": False}
+        self.assertEqual(routine.canonical_notice_batch(batch), batch)
+
+    def test_a_list_at_every_bound_fits_its_allowance(self) -> None:
+        quote = WIDE * routine.MAX_ROUTINE_QUOTE_CHARS
+        view = {
+            "routine_id": "0" * 32,
+            "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
+            "quote": quote,
+            "steps": _bounded_steps(),
+            "schedule": {
+                "kind": "continuous",
+                "gap": routine.MAX_CONTINUOUS_GAP_SECONDS,
+                "cap": routine.MAX_DAILY_RUNS,
+            },
+            "timezone": "/".join(["Z" * 32] * 3),
+            "assistant_ids": sorted(f"a{index:02d}" + "a" * 37 for index in range(routine.MAX_NOTICE_ASSISTANTS)),
+            "next_run_at": "2026-10-05T09:00:00Z",
+            "needs_reconfirm": False,
+            "deleting": False,
+            "paused": False,
+        }
+        run = {
+            "run_id": "1" * 32,
+            "routine_id": "0" * 32,
+            "status": "frozen",
+            "scheduled_at": "2026-10-05T09:00:00Z",
+            "request_kind": "integrations",
+            "assistant_id": ASSISTANT,
+            "action": ACTION,
+        }
+        incident = {
+            "incident_id": "2" * 32,
+            "routine_id": "0" * 32,
+            "quote": quote,
+            "created_at": "2026-10-05T09:00:00Z",
+            "assistant_id": ASSISTANT,
+            "action": ACTION,
+        }
+        listed = {
+            "team_id": "t" * 40,
+            "routines": [view] * routine.MAX_ROUTINES,
+            "runs": [run] * routine.MAX_ROUTINES,
+            "incidents": [incident] * routine.MAX_UNRESOLVED_INCIDENTS,
+            "trace_id": "f" * 32,
+        }
+        self.assertEqual(routine.canonical_routine_view(view), view)
+        self.assertEqual(routine.canonical_run_view(run), run)
+        self.assertEqual(routine.canonical_incident_view(incident), incident)
+        self.assertLessEqual(routine.encoded_bytes(listed), routine.MAX_ROUTINE_LIST_BYTES)
+
+
 if __name__ == "__main__":
     unittest.main()

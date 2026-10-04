@@ -36,6 +36,7 @@ from protocol.http.v1 import progress as progress_contract
 from protocol.http.v1 import routine as http_routine
 from protocol.http.v1 import supervisor as contract
 from routine import grant as routine_grant
+from routine import plan as routine_plan
 from routine import record
 from tests import human_request_fixtures
 
@@ -538,3 +539,34 @@ class ProtocolViewTests(RoutineHttpCase):
                 self.assertEqual(http_routine.canonical_routine_view(item), item)
             (run,) = listed["runs"]
             self.assertEqual((http_routine.canonical_run_view(run), run["status"]), (run, "frozen"))
+
+
+class RoutineListBoundTests(RoutineHttpCase):
+    def test_a_team_at_its_routine_limit_lists_every_plan_admitted_at_its_bound(self) -> None:
+        """Eight Routines whose plans fill their admission bound list whole, past every other route's response cap."""
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.serve(directory, Runtime())
+            inputs = {f"m{index:03d}": "ordinary public value " * 5 for index in range(http_routine.MAX_STEP_INPUTS)}
+            plan = self.plan(service, *((f"s{index}", "list-zones", inputs) for index in range(6)))
+            self.assertLessEqual(len(routine_plan.canonical(plan)), routine_plan.MAX_PLAN_BYTES)
+            for _index in range(http_routine.MAX_ROUTINES):
+                self.routine(service, plan=plan)
+            with mock.patch.object(local_authority, "verify", return_value=self.session):
+                status, _type, raw = self.request("GET", "/v1/teams/team_1/routines")
+            self.assertEqual(status, 200)
+            # Larger than Admin's 256 KiB cap for every other Team response, within the list's own allowance.
+            self.assertGreater(len(raw), 256 * 1024)
+            self.assertLessEqual(len(raw), http_routine.MAX_ROUTINE_LIST_BYTES)
+            listed = json.loads(raw)
+            self.assertEqual(len(listed["routines"]), http_routine.MAX_ROUTINES)
+            for item in listed["routines"]:
+                self.assertEqual(http_routine.canonical_routine_view(item), item)
+            # Every other Routine route keeps the API cap: the same body there is refused whole.
+            large = {"team_id": "team_1", "padding": "x" * server.MAX_API_RESPONSE_BYTES}
+            diagnostics = f"/v1/teams/team_1/routines/runs/{'0' * 32}/diagnostics"
+            with (
+                mock.patch.object(local_authority, "verify", return_value=self.session),
+                mock.patch.object(service, "routine_run_diagnostics", return_value=large),
+            ):
+                status, _type, raw = self.request("GET", diagnostics)
+            self.assertEqual((status, raw), (500, b'{"error":"response exceeded its limit"}'))

@@ -12,7 +12,9 @@ import routine_fixture
 
 from protocol.http.v1 import payload as http_payload
 from protocol.http.v1 import routine as http_routine
+from routine import grant as routine_grant
 from routine import hold as routine_hold
+from routine import plan as routine_plan
 from routine import record
 
 UTC = datetime.UTC
@@ -204,6 +206,25 @@ class AddTests(unittest.TestCase):
         for candidate in bad:
             with self.subTest(candidate=candidate), self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
                 record.add_routine(record.TeamRoutines(), candidate)
+
+    def test_a_plan_whose_projection_outgrows_its_protocol_bound_is_refused(self):
+        """A plan within its 64 KiB whose literal previews escape again past the projection's bytes is never held."""
+        members = [
+            f"{chr(97 + index // 26)}{chr(97 + index % 26)}" * 8 for index in range(http_routine.MAX_STEP_INPUTS)
+        ]
+        inputs = {member: {"kind": "literal", "value": "\x7f" * 20} for member in members}
+        steps = [
+            {"id": f"s{index}", "assistant": "dns", "action": "check", "pin": routine_fixture.PIN, "input": inputs}
+            for index in range(http_routine.MAX_ROUTINE_STEPS)
+        ]
+        plan = {"version": 1, "timezone": "UTC", "steps": steps}
+        self.assertLessEqual(len(routine_plan.canonical(plan)), routine_plan.MAX_PLAN_BYTES)
+        large = routine_fixture.granted(dataclasses.replace(routine(), plan=plan))
+        self.assertGreater(
+            http_routine.encoded_bytes(routine_grant.steps(plan, large.grant)), http_routine.MAX_STEPS_BYTES
+        )
+        with self.assertRaisesRegex(record.RoutineStateError, "routine-invalid"):
+            record.add_routine(record.TeamRoutines(), large)
 
     def test_a_team_holds_at_most_eight_routines_whose_caps_fit_its_daily_ceiling(self):
         state = added(*(routine(f"{index:032x}") for index in range(record.MAX_ROUTINES)))

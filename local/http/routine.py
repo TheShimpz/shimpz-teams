@@ -27,6 +27,8 @@ MACHINE_OPERATIONS = frozenset({"routine-claim", "routine-notices", "routine-not
 RUN_OPERATION = "routine-run"
 STREAMED_OPERATIONS = frozenset({"routine-human-submit", "routine-integration-submit"})
 MODEL_BOUND_OPERATIONS = frozenset({RUN_OPERATION, *STREAMED_OPERATIONS})
+# The Team's whole Routine list is the one response with its own protocol allowance; every other keeps the API cap.
+RESPONSE_LIMITS = {"routine-list": http_routine.MAX_ROUTINE_LIST_BYTES}
 BODY_LIMITS = {
     "routine-claim": MAX_BODY_BYTES,
     "routine-notice-ack": 64 * 1024,

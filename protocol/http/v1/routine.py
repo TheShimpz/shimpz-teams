@@ -189,6 +189,9 @@ MAX_STEP_INPUTS = 64
 MAX_STEP_STORED_INPUTS = 8
 MAX_MEMBER_CHARS = 128
 MAX_POINTER_CHARS = 256
+# The projection's encoded size at most. A plan admitted within 64 KiB projects to about its own size; a literal's
+# preview escapes again, so Team refuses a plan whose projection outgrows this bound, never truncates it.
+MAX_STEPS_BYTES = 96 * 1024
 CLOCK_FORMATS = frozenset({"date", "time", "datetime", "epoch_seconds"})
 STEP_ID_RE = re.compile(r"[a-z][a-z0-9_-]{0,31}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
@@ -260,7 +263,11 @@ def canonical_steps(value: object) -> list[dict[str, object]] | None:
         if not _step(step, earlier):
             return None
         earlier = (*earlier, step["id"])
-    return copy.deepcopy(value)
+    try:
+        fits = encoded_bytes(value) <= MAX_STEPS_BYTES
+    except UnicodeEncodeError:
+        return None
+    return copy.deepcopy(value) if fits else None
 
 
 def _defined(detail: dict[str, object]) -> bool:
@@ -338,7 +345,7 @@ def canonical_notice_detail(outcome: object, detail: object) -> dict[str, object
 # Views a Local Team returns to Admin for Routines. Admin admits each only in exactly this closed form.
 MAX_NOTICE_BATCH = 1024
 # The encoded notice list of one batch, under the Local API's 128 KiB response cap with room for its envelope. The
-# largest notice, a created or changed Routine's projection of a plan admitted within 64 KiB, fits alone.
+# largest notice, a created or changed Routine's projection of at most MAX_STEPS_BYTES, fits alone.
 MAX_NOTICE_BATCH_BYTES = 112 * 1024
 RUN_STATUSES = frozenset({"leased", "frozen", "held"})
 # The model providers a Local Team can use; a claim names its Team's, so Admin sends that provider's key.
@@ -441,6 +448,13 @@ def canonical_incident_view(value: object) -> dict[str, object] | None:
 
 # The unresolved incidents a Team holds at most, which its Routine list carries (ADR-0092).
 MAX_UNRESOLVED_INCIDENTS = 32
+# A Team's whole Routine list, encoded: the one response above the Local API's 128 KiB cap. Beside its projection, a
+# Routine view holds at most 8 KiB (a name, a quote, a schedule, a timezone, and its Assistants), a run view 1 KiB, an
+# incident view 4 KiB (a quote), and the envelope 4 KiB. These margins hold for the identifiers a Local Team produces:
+# an installed Assistant's id of at most 40 characters and a reviewed Action's of at most 80.
+MAX_ROUTINE_LIST_BYTES = (
+    MAX_ROUTINES * (MAX_STEPS_BYTES + 8 * 1024 + 1024) + MAX_UNRESOLVED_INCIDENTS * 4 * 1024 + 4 * 1024
+)
 # A held run's recovery card (ADR-0092 section 7, amended 2026-10-02): exactly Rodar, Recriar, and Excluir, in this
 # order, none recommended. Team answers only Rodar and Recriar; Excluir is the Routine's own confirmed deletion.
 CARD_CHOICES = ("run", "recreate", "delete")
