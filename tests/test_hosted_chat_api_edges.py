@@ -74,7 +74,10 @@ class HostedChatApiEdgeTests(unittest.TestCase):
 
     def test_chat_and_pending_paths_avoid_duplicate_execution(self) -> None:
         pending = {"status": "human-required"}
-        with mock.patch.object(api, "_pending_hosted_chat", return_value=pending):
+        with (
+            mock.patch.object(api, "_pending_hosted_chat", return_value=pending),
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
+        ):
             self.assertIs(api._chat("team_1", "hello", (), (), self.lease()), pending)
 
         @contextmanager
@@ -84,6 +87,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(api, "_pending_hosted_chat", side_effect=(None, pending)),
             mock.patch.object(api, "_exclusive_chat_turn", exclusive),
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
         ):
             self.assertIs(api._chat("team_1", "hello", (), (), self.lease()), pending)
 
@@ -93,6 +97,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         with (
             mock.patch.object(api, "_pending_hosted_chat", return_value=None),
             mock.patch.object(api, "_exclusive_chat_turn", exclusive),
+            mock.patch.object(api.hosted_resources, "_require_current_authorization"),
             mock.patch.object(state, "_action_execution_journal", return_value=journal),
             self.assertRaises(state.ApiError),
         ):

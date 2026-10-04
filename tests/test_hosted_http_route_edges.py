@@ -326,6 +326,12 @@ class HostedHttpSimpleRouteEdgeTests(unittest.TestCase):
 
 
 class HostedHttpChatRouteEdgeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Revalidating the lease itself is proven against a replaced Team in test_hosted_chat_replaced_team.
+        patcher = mock.patch.object(hosted_resources, "_require_current_authorization")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_chat_rejects_an_open_or_incomplete_body(self) -> None:
         handler = _handler()
         handler._read_body = mock.Mock(return_value={"message": "hello"})

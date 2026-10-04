@@ -588,6 +588,7 @@ class HostedChatLifecycleTests(unittest.TestCase):
             with (
                 mock.patch.object(journal, "delivered", wraps=journal.delivered) as delivered,
                 mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", side_effect=exclusive_turn),
+                mock.patch.object(hosted_chat_api.hosted_resources, "_require_current_authorization"),
                 environment,
             ):
                 with self.assertRaises(runtime_state.ApiError) as failed:

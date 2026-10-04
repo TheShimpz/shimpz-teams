@@ -711,7 +711,9 @@ class Handler(BaseHTTPRequestHandler):
         assistant_ids = hosted_assistants._chat_assistant_ids(body["assistant_ids"])
         if stream:
             runtime_state._enforce_rate("stream", request.principal)
-            pending = hosted_chat_api._pending_hosted_chat(request.team_id)
+            pending = hosted_chat_api._authorized_pending(
+                request.team_id, request.lease, hosted_chat_api._pending_hosted_chat
+            )
             if pending is not None:
                 self._send_json(
                     HTTPStatus.PRECONDITION_REQUIRED,
@@ -752,13 +754,10 @@ class Handler(BaseHTTPRequestHandler):
         submit: bool,
     ) -> None:
         if not submit:
-            pending = runtime_state._integration_challenges.current(request.team_id)
             self._send_json(
                 HTTPStatus.OK,
-                (
-                    hosted_chat_segment._hosted_integration_challenge_payload(pending)
-                    if pending is not None
-                    else {"team_id": request.team_id, "status": "none"}
+                hosted_chat_api._authorized_pending(
+                    request.team_id, request.lease, hosted_chat_api._pending_integration
                 ),
                 no_store=True,
             )
@@ -788,7 +787,9 @@ class Handler(BaseHTTPRequestHandler):
         if not submit:
             self._send_json(
                 HTTPStatus.OK,
-                hosted_chat_human.pending_chat_human(request.team_id),
+                hosted_chat_api._authorized_pending(
+                    request.team_id, request.lease, hosted_chat_human.pending_chat_human
+                ),
                 no_store=True,
             )
             return

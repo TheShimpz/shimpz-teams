@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import secrets
+from collections.abc import Callable
 from http import HTTPStatus
 
 import docker.errors
@@ -75,7 +76,7 @@ def _chat(
     locale: str | None = None,
 ) -> dict:
     """Run one bounded Team turn across the explicit Controller-brokered Assistant scope."""
-    pending = _pending_hosted_chat(team_id)
+    pending = _authorized_pending(team_id, lease, _pending_hosted_chat)
     if pending is not None:
         return pending
     # The slot comes first. A losing concurrent request must not run even the local credential probe,
@@ -117,6 +118,17 @@ def _admit_fresh_turn(team_id: str, container: object) -> dict[str, object] | No
     return None
 
 
+def _authorized_pending[T](team_id: str, lease: hosted_resources._AuthorizationLease, read: Callable[[str], T]) -> T:
+    """Read pending gate state only for the exact Team generation the lease authorized.
+
+    A Team destroyed and recreated under the same id, even by another Account, may hold its own pending gate; the
+    lifecycle lock keeps the revalidated generation current while it is read.
+    """
+    with runtime_state._lock_for(team_id):
+        hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+        return read(team_id)
+
+
 def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
     human = hosted_chat_human.pending_chat_human(team_id)
     if human["status"] != "none":
@@ -125,6 +137,13 @@ def _pending_hosted_chat(team_id: str) -> dict[str, object] | None:
     if integration is not None:
         return hosted_chat_segment._hosted_integration_challenge_payload(integration)
     return None
+
+
+def _pending_integration(team_id: str) -> dict[str, object]:
+    pending = runtime_state._integration_challenges.current(team_id)
+    if pending is None:
+        return {"team_id": team_id, "status": "none"}
+    return hosted_chat_segment._hosted_integration_challenge_payload(pending)
 
 
 def _current_integration_declaration(team_id: str, assistant_id: str, integration_id: str) -> object:

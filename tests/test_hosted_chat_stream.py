@@ -73,6 +73,7 @@ class HostedChatStreamTests(unittest.TestCase):
                 runtime_state, "_integration_challenges", integration_challenges.IntegrationChallengeStore()
             ),
             mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", _exclusive_turn),
+            mock.patch.object(hosted_chat_api.hosted_resources, "_require_current_authorization"),
             mock.patch.object(hosted_chat_segment, "_chat_in_turn", side_effect=self._turn),
         ):
             patcher.start()
