@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import ipaddress
 import math
@@ -9,7 +10,7 @@ import os
 import threading
 import time
 import weakref
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from http import HTTPStatus
 from pathlib import Path
 
@@ -314,18 +315,25 @@ def _chat_lock_for(team_id: str) -> threading.Lock:
         return lock
 
 
+@contextlib.contextmanager
+def _idle_team_chat(team_id: str) -> Iterator[None]:
+    """Hold the Team chat slot for one lifecycle mutation, refused before its first side effect while a turn owns it."""
+    lock = _chat_lock_for(team_id)
+    if not lock.acquire(blocking=False):
+        raise ApiError(HTTPStatus.CONFLICT, "Team lifecycle cannot change during an active chat turn")
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 def _serialize_against_team_chat(operation: Callable[..., dict]) -> Callable[..., dict]:
     """Reject lifecycle mutation before its first side effect while a Team turn owns the slot."""
 
     @functools.wraps(operation)
     def guarded(team_id: str, *args, **kwargs) -> dict:
-        lock = _chat_lock_for(team_id)
-        if not lock.acquire(blocking=False):
-            raise ApiError(HTTPStatus.CONFLICT, "Team lifecycle cannot change during an active chat turn")
-        try:
+        with _idle_team_chat(team_id):
             return operation(team_id, *args, **kwargs)
-        finally:
-            lock.release()
 
     return guarded
 

@@ -404,7 +404,9 @@ def _create(team_id: str, body: dict, owner: str) -> dict:
             existing_name = hosted_resources._team_name_from_anchor(existing)
             if "team_name" in body and team_name != existing_name:
                 raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team name differs from the persisted identity")
-            runtime_state._inference_store.save(team_id, inference)
+            # Repeating creation changes an existing Team's inference exactly as its dedicated endpoint does.
+            with runtime_state._idle_team_chat(team_id):
+                _replace_inference(team_id, existing.id, inference)
             return {
                 "team_id": team_id,
                 "team_name": existing_name,
@@ -610,14 +612,17 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
     with runtime_state._lock_for(team_id):
         hosted_resources._require_current_authorization(team_id, lease)
-        hosted_chat_lifecycle.cancel_replayable_human(team_id, lease.container_id)
-        try:
-            runtime_state._inference_store.save(team_id, config)
-        except inference_config.InferenceConfigError as exc:
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Team model provider could not be saved"
-            ) from exc
+        _replace_inference(team_id, lease.container_id, config)
     return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
+
+
+def _replace_inference(team_id: str, generation: str, config: inference_config.InferenceConfig) -> None:
+    """Save a Team's inference while it holds the Team lock and chat slot, ending its paused human turn first."""
+    hosted_chat_lifecycle.cancel_replayable_human(team_id, generation)
+    try:
+        runtime_state._inference_store.save(team_id, config)
+    except inference_config.InferenceConfigError as exc:
+        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team model provider could not be saved") from exc
 
 
 def _logs(team_id: str, lines: int, lease: hosted_resources._AuthorizationLease) -> dict:

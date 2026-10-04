@@ -240,6 +240,64 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         self.assertEqual([error.status for error in refused], [HTTPStatus.CONFLICT])
         save.assert_not_called()
 
+    def _repeat_create(self) -> dict:
+        existing = SimpleNamespace(id=GENERATION, labels={"team.owner": "account_1"}, status="running")
+        with (
+            mock.patch.object(hosted_resources, "_cleanup_record", return_value=None),
+            mock.patch.object(hosted_resources, "_get_container", return_value=existing),
+            mock.patch.object(hosted_resources, "_require_team_runtime"),
+            mock.patch.object(hosted_resources, "_require_team_isolation"),
+            mock.patch.object(hosted_resources, "_team_name_from_anchor", return_value="Marketing"),
+        ):
+            return hosted_lifecycle._create("team_1", {}, "account_1")
+
+    def test_a_repeated_create_cannot_withdraw_the_challenge_an_executing_turn_publishes(self) -> None:
+        # Repeating creation of an existing Team rewrites its inference, so it waits for the Team chat slot too.
+        self.challenges.cancel_team("team_1")
+        refused: list[runtime_state.ApiError] = []
+        publish = self.challenges.create
+
+        def publish_then_create(*args: object) -> action_challenges.PendingHumanChallenge:
+            challenge = publish(*args)
+            try:
+                self._repeat_create()
+            except runtime_state.ApiError as error:
+                refused.append(error)
+            return challenge
+
+        outcome = SimpleNamespace(request=self.requirement.request, continuation=self.pending.continuation)
+        chat_lock = runtime_state._chat_lock_for("team_1")
+        self.assertTrue(chat_lock.acquire(blocking=False))
+        try:
+            with (
+                mock.patch.object(self.challenges, "create", side_effect=publish_then_create),
+                mock.patch.object(hosted_resources, "_require_current_authorization"),
+                mock.patch.object(runtime_state._inference_store, "save") as save,
+            ):
+                paused = hosted_chat_segment._pause_hosted_human(
+                    "team_1", "turn-token", outcome, (self.requirement,), self.pending
+                )
+        finally:
+            chat_lock.release()
+
+        published = self.challenges.current("team_1")
+        self.assertIsNotNone(published, "the paused turn returned a challenge that no longer exists")
+        self.assertEqual(paused["challenge_id"], published.id)
+        self.assertEqual(self.journal.current_batch(GENERATION), (self.paused_batch.fingerprint, "open"))
+        self.assertEqual([error.status for error in refused], [HTTPStatus.CONFLICT])
+        save.assert_not_called()
+
+    def test_a_repeated_create_ends_the_settled_paused_batch_before_its_inference_changes(self) -> None:
+        def save(_team_id: str, _config: object) -> None:
+            self.assertIsNone(self.challenges.current("team_1"))
+            self.assertEqual(self.journal.current_batch(GENERATION), (self.paused_batch.fingerprint, "ended"))
+
+        with mock.patch.object(runtime_state._inference_store, "save", side_effect=save) as saved:
+            self.assertFalse(self._repeat_create()["created"])
+
+        saved.assert_called_once()
+        self.assertIsNone(self.race.fresh)
+
 
 if __name__ == "__main__":
     unittest.main()
