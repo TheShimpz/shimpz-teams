@@ -20,6 +20,7 @@ from tests import human_request_fixtures
 
 hosted_chat_segment = harness.hosted_chat_segment
 hosted_chat_human = harness.hosted_chat_human
+hosted_chat_lifecycle = harness.hosted_chat_lifecycle
 runtime_state = harness.runtime_state
 action_challenges = hosted_chat_segment.action_challenges
 action_journal = hosted_chat_segment.action_journal
@@ -28,29 +29,38 @@ GENERATION = "container-1"
 
 
 class NewTurnBeforePurge:
-    """The real journal, where a new turn starts and begins its Action just before the first purge reaches it."""
+    """The real journal, where a new turn starts and prepares its batch just before the first cleanup reaches it.
 
-    def __init__(self, journal: action_journal.ActionJournal, removed) -> None:
+    The cleanup is the first purge, or with ``cleanup="end_settled"`` the first ending of settled state. The new turn
+    begins its Action unless ``begin`` is False, which leaves its batch prepared and settled.
+    """
+
+    def __init__(
+        self, journal: action_journal.ActionJournal, removed, *, cleanup: str = "purge", begin: bool = True
+    ) -> None:
         self.journal = journal
         self.removed = removed
+        self.cleanup = cleanup
+        self.begin = begin
         self.fresh: action_journal.Batch | None = None
 
     def __getattr__(self, name: str) -> object:
         attribute = getattr(self.journal, name)
-        if not name.startswith("purge"):
+        if not name.startswith(self.cleanup):
             return attribute
 
-        def purge(*args: object) -> object:
+        def clean(*args: object) -> object:
             if self.fresh is None:
                 if not self.removed():
-                    raise AssertionError("the paused turn was purged before its removal")
+                    raise AssertionError("the paused turn was cleaned before its removal")
                 operation = action_journal.Operation("action-2", "b" * 64)
                 self.journal.end_settled(GENERATION)
-                self.fresh = self.journal.prepare_batch(GENERATION, "next-thread", (operation,))
-                self.journal.begin(self.fresh, operation)
+                self.fresh = self.journal.prepare_batch(GENERATION, "thread", (operation,))
+                if self.begin:
+                    self.journal.begin(self.fresh, operation)
             return attribute(*args)
 
-        return purge
+        return clean
 
 
 class HostedHumanPurgeRaceTests(unittest.TestCase):
@@ -155,6 +165,38 @@ class HostedHumanPurgeRaceTests(unittest.TestCase):
         self.assertEqual(replay.fingerprint, self.paused_batch.fingerprint)
         self.assertEqual(self.journal.current_batch(GENERATION), (replay.fingerprint, "open"))
         self.assertEqual(self.journal.uncertain_fingerprint(GENERATION), replay.fingerprint)
+
+    def test_a_lifecycle_change_ends_only_the_paused_batch(self) -> None:
+        # Changing the Team's model holds only its lifecycle lock, so a new turn may start once the gate is cancelled.
+        self.race = NewTurnBeforePurge(
+            self.journal, lambda: self.challenges.current("team_1") is None, cleanup="end_settled", begin=False
+        )
+
+        self.assertTrue(hosted_chat_lifecycle.cancel_replayable_human("team_1", GENERATION))
+
+        fresh = self.race.fresh
+        self.assertIsNotNone(fresh, "the cancellation never reached the journal")
+        self.assertEqual(self.journal.current_batch(GENERATION), (fresh.fingerprint, "open"))
+        self.assertFalse(hosted_chat_lifecycle.cancel_replayable_human("team_1", GENERATION))
+
+    def test_a_lifecycle_change_ends_the_settled_paused_batch(self) -> None:
+        self.assertTrue(hosted_chat_lifecycle.cancel_replayable_human("team_1", GENERATION))
+
+        self.assertIsNone(self.challenges.current("team_1"))
+        self.assertEqual(self.journal.current_batch(GENERATION), (self.paused_batch.fingerprint, "ended"))
+        self.assertIsNone(self.race.fresh)
+
+    def test_a_lifecycle_change_after_a_claimed_resume_keeps_the_replaying_batch(self) -> None:
+        self.challenges.claim("team_1", self.challenge.id)
+        operation = action_journal.Operation("action-1", "c" * 64)
+        replay = self.journal.prepare_batch(GENERATION, "thread", (operation,))
+        self.journal.begin(replay, operation)
+        self.journal.complete(replay, operation, {"done": True})
+
+        self.assertFalse(hosted_chat_lifecycle.cancel_replayable_human("team_1", GENERATION))
+
+        # The responder owns the replay now: its settled batch is not ended under it.
+        self.assertEqual(self.journal.current_batch(GENERATION), (replay.fingerprint, "open"))
 
 
 if __name__ == "__main__":

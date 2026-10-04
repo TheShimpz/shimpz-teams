@@ -212,9 +212,9 @@ class HostedHumanRequestTests(unittest.TestCase):
         self.assertEqual(response_request.requests_used, 1)
         self.assertEqual(result, {"reply": "done"})
 
-    def test_lifecycle_change_cancels_challenge_and_purges_replayable_state(self) -> None:
+    def test_lifecycle_change_cancels_challenge_and_ends_its_paused_batch(self) -> None:
         request = self._request("approval")
-        pending = self._pending(SimpleNamespace())
+        pending = replace(self._pending(SimpleNamespace()), paused_batch="f" * 64)
         requirement = action_challenges.HumanRequirement(
             "shimpz-cloudflare",
             "Shimpz Cloudflare",
@@ -237,7 +237,8 @@ class HostedHumanRequestTests(unittest.TestCase):
 
         self.assertTrue(cancelled)
         self.assertIsNone(challenges.current("team_1"))
-        journal.end_settled.assert_called_once_with("container-1")
+        journal.end_settled_batch.assert_called_once_with("container-1", "f" * 64)
+        journal.end_settled.assert_not_called()
 
 
 if __name__ == "__main__":

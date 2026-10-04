@@ -159,6 +159,8 @@ def forget_file(self, team_id: str, file_id: str, network: object) -> None:
         self.oauth_pkce.cancel_team(team_id)
         self._delete_chat_continuation(team_id)
         try:
+            # The caller holds the Team's one execution slot throughout, so no turn can own a batch of this generation
+            # but the paused one (or settled residue a restart left); ending the generation's settled state is exact.
             self.action_state.end_settled(network.id)
         except action_journal.ActionJournalError as exc:
             raise ApiProblem(

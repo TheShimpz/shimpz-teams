@@ -5,17 +5,25 @@ from http import HTTPStatus
 
 from action import journal as action_journal
 from hosted import state as runtime_state
+from hosted.assistant import runtime as hosted_assistants
 from hosted.team import resources as hosted_resources
 from inference import client as brain_runtime_client
 from storage import files as team_storage
 
 
 def cancel_replayable_human(team_id: str, generation: str) -> bool:
-    """Cancel a pending human gate and end only settled Action state; uncertain work stays."""
-    if not runtime_state._human_challenges.cancel_team(team_id):
+    """Cancel a pending human gate and end only its own paused batch when settled; uncertain work stays.
+
+    A caller may hold only the lifecycle lock, so a new turn can start once the gate is gone: its batch stays.
+    """
+    challenge = runtime_state._human_challenges.withdraw_team(team_id)
+    if challenge is None:
         return False
+    pending = challenge.payload
+    if not isinstance(pending, hosted_assistants._PendingHostedChat) or not isinstance(pending.paused_batch, str):
+        raise AssertionError("invalid hosted human continuation")
     try:
-        runtime_state._action_execution_journal().end_settled(generation)
+        runtime_state._action_execution_journal().end_settled_batch(generation, pending.paused_batch)
     except action_journal.ActionJournalError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -79,6 +87,8 @@ def forget_file(team_id: str, file_id: str, container_id: str) -> None:
         runtime_state._integration_pkce.cancel_team(team_id)
         runtime_state._human_challenges.cancel_team(team_id)
         try:
+            # The caller holds the Team's one execution slot throughout, so no turn can own a batch of this generation
+            # but the paused one (or settled residue a restart left); ending the generation's settled state is exact.
             runtime_state._action_execution_journal().end_settled(container_id)
         except action_journal.ActionJournalError as exc:
             raise runtime_state.ApiError(

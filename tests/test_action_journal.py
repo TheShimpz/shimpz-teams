@@ -355,6 +355,39 @@ class ActionJournalTests(unittest.TestCase):
             journal.begin(journal.prepare_batch("generation-2", "thread-2", [self.first]), self.first).execute
         )
 
+    def test_exact_settled_end_ends_only_its_own_open_settled_batch(self) -> None:
+        journal = self.journal(max_generations=2)
+        paused = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
+        journal.begin(paused, self.first)
+        journal.complete(paused, self.first, {"done": True})
+
+        self.assertTrue(journal.end_settled_batch("generation-1", paused.fingerprint))
+        self.assertEqual(journal.current_batch("generation-1"), (paused.fingerprint, "ended"))
+        # Its completed receipt is kept for an exact replay only.
+        replay = journal.prepare_batch("generation-1", "thread-1", [self.first, self.second])
+        self.assertEqual(journal.begin(replay, self.first).result, {"done": True})
+        self.assertTrue(journal.end_settled_batch("generation-1", paused.fingerprint))
+        # Already ended, absent, or replaced by a newer batch: nothing to end, and the newer batch stays open.
+        self.assertFalse(journal.end_settled_batch("generation-1", paused.fingerprint))
+        self.assertFalse(journal.end_settled_batch("generation-2", paused.fingerprint))
+        third = operation("interrupt-3", "validated-input-3")
+        newer = journal.prepare_batch("generation-1", "thread-1", [third])
+        self.assertFalse(journal.end_settled_batch("generation-1", paused.fingerprint))
+        self.assertEqual(journal.current_batch("generation-1"), (newer.fingerprint, "open"))
+
+        # A batch whose operation may have acted keeps its evidence.
+        journal.begin(newer, third)
+        self.assertFalse(journal.end_settled_batch("generation-1", newer.fingerprint))
+        self.assertEqual(journal.uncertain_fingerprint("generation-1"), newer.fingerprint)
+
+    def test_exact_settled_end_keeps_an_archived_marker(self) -> None:
+        journal = self.journal()
+        held = journal.prepare_batch("held", "thread-1", [self.first], archivable=True)
+        journal.archive("held", held.fingerprint)
+
+        self.assertFalse(journal.end_settled_batch("held", held.fingerprint))
+        self.assertEqual(journal.current_batch("held"), (held.fingerprint, "archived"))
+
     def test_exact_batch_purge_refuses_an_invalid_identity(self) -> None:
         journal = self.journal()
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
@@ -369,6 +402,11 @@ class ActionJournalTests(unittest.TestCase):
                 self.assertRaises(action_journal.ActionJournalConflictError),
             ):
                 journal.purge_batch(generation, fingerprint)
+            with (
+                self.subTest(generation=generation, fingerprint=fingerprint, end=True),
+                self.assertRaises(action_journal.ActionJournalConflictError),
+            ):
+                journal.end_settled_batch(generation, fingerprint)
         self.assertEqual(journal.current_batch("generation-1"), (batch.fingerprint, "open"))
 
     def test_terminal_abandonment_removes_only_the_exact_uncertain_batch(self) -> None:
@@ -794,6 +832,12 @@ class ActionJournalTests(unittest.TestCase):
             "SELECT o.state FROM batches",
             lambda: journal.end_settled("generation"),
             "settled",
+        )
+        self.assert_sql_failure(
+            journal,
+            "SELECT o.state FROM batches",
+            lambda: journal.end_settled_batch("generation", "a" * 64),
+            "paused Action batch could not be ended",
         )
         batch = journal.prepare_batch("generation", "thread", (self.first,))
         self.assert_sql_failure(

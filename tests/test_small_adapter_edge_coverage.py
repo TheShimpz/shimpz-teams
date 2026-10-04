@@ -294,16 +294,45 @@ class TokenAndProcessCoverageTests(unittest.TestCase):
             runpy.run_path(str(Path(__file__).resolve().parents[1] / "hosted" / "app.py"), run_name="__main__")
         main.assert_called_once_with()
 
-    def test_hosted_chat_cleanup_maps_journal_failure(self) -> None:
+    def test_hosted_chat_cleanup_maps_journal_failure_and_refuses_an_unbound_pause(self) -> None:
         journal = mock.Mock()
-        journal.end_settled.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("offline")
+        journal.end_settled_batch.side_effect = hosted_chat_lifecycle.action_journal.ActionJournalError("offline")
+        pending = hosted_chat_lifecycle.hosted_assistants._PendingHostedChat(
+            object(), (), (), "account_1", ("generation",), paused_batch="f" * 64
+        )
+        humans = hosted_chat_lifecycle.runtime_state._human_challenges
         with (
-            mock.patch.object(hosted_chat_lifecycle.runtime_state._human_challenges, "cancel_team", return_value=True),
+            mock.patch.object(humans, "withdraw_team", return_value=types.SimpleNamespace(payload=pending)),
             mock.patch.object(hosted_chat_lifecycle.runtime_state, "_action_execution_journal", return_value=journal),
             self.assertRaises(hosted_chat_lifecycle.runtime_state.ApiError) as raised,
         ):
             hosted_chat_lifecycle.cancel_replayable_human("team_1", "generation")
         self.assertEqual(raised.exception.status, 503)
+        journal.end_settled_batch.assert_called_once_with("generation", "f" * 64)
+
+        # A pause without its batch never falls back to ending the whole generation.
+        journal.reset_mock()
+        for payload in (object(), types.SimpleNamespace(paused_batch="f" * 64)):
+            with (
+                self.subTest(payload=payload),
+                mock.patch.object(humans, "withdraw_team", return_value=types.SimpleNamespace(payload=payload)),
+                mock.patch.object(
+                    hosted_chat_lifecycle.runtime_state, "_action_execution_journal", return_value=journal
+                ),
+                self.assertRaises(AssertionError),
+            ):
+                hosted_chat_lifecycle.cancel_replayable_human("team_1", "generation")
+        unbound = hosted_chat_lifecycle.hosted_assistants._PendingHostedChat(
+            object(), (), (), "account_1", ("generation",)
+        )
+        with (
+            mock.patch.object(humans, "withdraw_team", return_value=types.SimpleNamespace(payload=unbound)),
+            mock.patch.object(hosted_chat_lifecycle.runtime_state, "_action_execution_journal", return_value=journal),
+            self.assertRaises(AssertionError),
+        ):
+            hosted_chat_lifecycle.cancel_replayable_human("team_1", "generation")
+        journal.end_settled.assert_not_called()
+        journal.end_settled_batch.assert_not_called()
 
 
 class HostedAdmissionCoverageTests(unittest.TestCase):
