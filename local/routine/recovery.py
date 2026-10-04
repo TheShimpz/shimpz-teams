@@ -447,25 +447,33 @@ def _diagnostics(self, team_id: str, assessment: Assessment) -> list[dict[str, o
     ]
 
 
-def _decide(self, team_id: str, incident_id: str, api_key: str, locale: str | None) -> str:
+def _decide(self, team_id: str, incident_id: str, credential: tuple[str, str], locale: str | None) -> str:
     """Ask the Brain once whether to retry, ask, or pause; its call and output are paid for before it is made.
 
-    Recovery evidence that cannot be read is ``evidence``: the Routine pauses and the model is never asked.
+    ``credential`` is the provider the run's key belongs to and that key. Recovery evidence that cannot be read is
+    ``evidence``: the Routine pauses and the model is never asked. A Team whose model provider is no longer the key's
+    has no decision either: the key is never sent to another provider, and nothing is charged.
     """
+    provider, api_key = credential
     assessment = assess(self, team_id, incident_id)
     diagnostics = _diagnostics(self, team_id, assessment)
     if diagnostics is None:
         return "evidence"
+    try:
+        config = self.inference_store.load(team_id)
+    except inference_config.InferenceConfigError:
+        return "unavailable"
+    if config.provider != provider:
+        local_audit.record_request(
+            "routine-recovery", result="denied", team_id=team_id, detail="inference-provider-mismatch"
+        )
+        return "unavailable"
     try:
         spent = routine_cursor.spend(assessment.cursor, "model_calls", 1)
         spent = routine_cursor.spend(spent, "output_tokens", MAX_OUTPUT_TOKENS)
     except routine_cursor.CursorError:
         return "exhausted"
     _seal(self, team_id, spent)
-    try:
-        config = self.inference_store.load(team_id)
-    except inference_config.InferenceConfigError:
-        return "unavailable"
     routine = assessment.opened.recovery
     settled = assessment.action.effect == "read_only" or assessment.state == "no_effect"
     proof = "no_effect" if settled else "not_occurred"
@@ -614,7 +622,7 @@ def _episode(self, run: routine_run._Run, api_key: str, reservation: _Reservatio
     # Nothing is dispatched once the reservation has run out, not even the verifier.
     verdict = "exhausted" if expired() else verify(self, team_id, incident_id, run.token)
     if verdict == "absent" and not expired() and not self._chat_cancelled(run.token):
-        verdict = _decide(self, team_id, incident_id, api_key, None)
+        verdict = _decide(self, team_id, incident_id, (run.provider, api_key), None)
     if _stopped(self, run.token, reservation):
         # A person's Stop is no failure and outranks anything later: an aborted Brain call is not unavailable, a
         # deadline passing afterwards is not exhaustion, nothing is published, and the incident stays for the card.

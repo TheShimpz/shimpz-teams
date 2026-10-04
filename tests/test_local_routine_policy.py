@@ -148,7 +148,7 @@ class PolicyHoldTests(AutomaticCase):
             cursor = routine_incident.open_recovery(service, "team_1", run_id).cursor
             with service._exclusive_chat_turn("team_1", value.routine_id) as token:
                 manual = routine_recovery.verify(service, "team_1", run_id, token)
-            run = mock.Mock(team_id="team_1", run_id=run_id, token=run_id)
+            run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=run_id)
             episode = routine_recovery.automatic(service, run, "k")
             state = self.state(service)
         # The secret echo's policy class was lost with the failed write; the read-only step is still never admitted

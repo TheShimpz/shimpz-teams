@@ -263,7 +263,7 @@ class StopPrecedenceTests(AutomaticCase):
             with service._exclusive_chat_turn("team_1") as token:
                 with service._active_chat_guard:
                     service._cancelled_chat_tokens.add(token)
-                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
                 outcome = routine_recovery.automatic(service, run, "k")
             state = self.state(service)
             cursor = routine_recovery.routine_incident.open_recovery(service, "team_1", run_id).cursor
@@ -306,7 +306,7 @@ class StopPrecedenceTests(AutomaticCase):
                 mock.patch.object(routine_recovery.threading, "Timer", Captured),
                 mock.patch.object(routine_recovery, "_clock", side_effect=lambda: next(ticks, 999.0)),
             ):
-                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
                 outcome = routine_recovery.automatic(service, run, "k")
             state = self.state(service)
         self.assertEqual(outcome, "held")
@@ -332,7 +332,7 @@ class StopPrecedenceTests(AutomaticCase):
             ):
                 service, _brain, value, run_id = self.held(directory, assistant)
                 with service._exclusive_chat_turn("team_1") as token:
-                    run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                    run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
                     outcome = routine_recovery.automatic(service, run, "k")
                 state = self.state(service)
                 self.assertEqual(outcome, "held")
@@ -383,7 +383,7 @@ class StopPrecedenceTests(AutomaticCase):
                     mock.patch.object(routine_recovery, "verify", return_value="policy"),
                 ):
                     box.append(token)
-                    run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                    run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
                     outcome = routine_recovery.automatic(service, run, "k")
                 state = self.state(service)
                 self.assertEqual(outcome, "held")
@@ -423,7 +423,7 @@ class StopPrecedenceTests(AutomaticCase):
                 mock.patch.object(routine_recovery.routine_incident, "pause", side_effect=pausing),
             ):
                 box.append(token)
-                run = mock.Mock(team_id="team_1", run_id=run_id, token=token)
+                run = mock.Mock(team_id="team_1", run_id=run_id, provider="openai", token=token)
                 routine_recovery.automatic(service, run, "k")
             for thread in threads:
                 thread.join(5)
