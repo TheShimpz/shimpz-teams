@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections import OrderedDict
+from concurrent.futures import Future
 
 from local.install import snapshots
 
@@ -21,7 +22,11 @@ def _size(value: snapshots.SnapshotPreview) -> int:
 
 
 class LocalSnapshotPreviewCache:
-    """Reuse one immutable image's validated preview while revalidating the exact staged image."""
+    """Reuse one immutable image's validated preview while revalidating the exact staged image.
+
+    Concurrent misses for one image join a single extraction that holds one bounded slot, so concurrent icon and
+    summary requests extract an image's preview once and share its outcome.
+    """
 
     def __init__(self, client, platform: str) -> None:
         self._client = client
@@ -30,6 +35,7 @@ class LocalSnapshotPreviewCache:
         self._previews: OrderedDict[str, snapshots.SnapshotPreview] = OrderedDict()
         self._cached_bytes = 0
         self._miss_slots = threading.BoundedSemaphore(MAX_CONCURRENT_MISSES)
+        self._extractions: dict[str, Future[snapshots.SnapshotPreview]] = {}
 
     def icon(self, image_id: str) -> bytes:
         return self._preview(image_id).icon
@@ -39,29 +45,46 @@ class LocalSnapshotPreviewCache:
         return self._preview(image_id).summaries[locale]
 
     def _preview(self, image_id: str) -> snapshots.SnapshotPreview:
-        cached = self._cached(image_id)
-        if cached is not None:
-            try:
-                snapshots.require_candidate(self._client, image_id, platform=self._platform)
-            except snapshots.LocalSnapshotAbsentError:
-                self._discard(image_id)
-                raise
-            return cached
-        if not self._miss_slots.acquire(blocking=False):
-            raise PreviewBusyError("Local Assistant preview capacity is busy")
+        with self._lock:
+            cached = self._previews.get(image_id)
+            if cached is not None:
+                self._previews.move_to_end(image_id)
+                extraction, owned = None, False
+            else:
+                extraction = self._extractions.get(image_id)
+                owned = extraction is None
+                if owned:
+                    if not self._miss_slots.acquire(blocking=False):
+                        raise PreviewBusyError("Local Assistant preview capacity is busy")
+                    extraction = self._extractions[image_id] = Future()
+        if extraction is None:
+            return self._revalidated(image_id, cached)
+        if not owned:
+            return extraction.result()
+        return self._extract(image_id, extraction)
+
+    def _revalidated(self, image_id: str, cached: snapshots.SnapshotPreview) -> snapshots.SnapshotPreview:
+        try:
+            snapshots.require_candidate(self._client, image_id, platform=self._platform)
+        except snapshots.LocalSnapshotAbsentError:
+            self._discard(image_id)
+            raise
+        return cached
+
+    def _extract(self, image_id: str, extraction: Future[snapshots.SnapshotPreview]) -> snapshots.SnapshotPreview:
+        """Extract in this caller's slot, and hand the outcome to every request that joined this extraction."""
         try:
             value = snapshots.preview(self._client, image_id, platform=self._platform)
             self._remember(image_id, value)
-            return value
+        except BaseException as exc:
+            extraction.set_exception(exc)
+            raise
         finally:
+            with self._lock:
+                del self._extractions[image_id]
             self._miss_slots.release()
-
-    def _cached(self, image_id: str) -> snapshots.SnapshotPreview | None:
-        with self._lock:
-            value = self._previews.get(image_id)
-            if value is not None:
-                self._previews.move_to_end(image_id)
-            return value
+        extraction.set_result(value)
+        return value
 
     def _remember(self, image_id: str, value: snapshots.SnapshotPreview) -> None:
         with self._lock:

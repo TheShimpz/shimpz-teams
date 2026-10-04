@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import threading
 import unittest
+from concurrent.futures import Future
 from unittest import mock
 
 from docker.errors import DockerException
@@ -133,6 +135,63 @@ class LocalSnapshotPreviewCacheTests(unittest.TestCase):
             self.cache.icon(IMAGE_ID)
 
         acquire.assert_called_once_with(blocking=False)
+
+    def _join_one_extraction(self, outcome) -> tuple[list, mock.Mock]:
+        """Request the icon, then the summary while the icon's extraction runs; return both outcomes."""
+        started, joined = threading.Event(), threading.Event()
+
+        class JoiningFuture(Future):
+            def result(self, timeout=None):
+                joined.set()
+                return super().result(timeout)
+
+        def extract(*_args, **_kwargs):
+            started.set()
+            # Wait until the summary request joins; a duplicate extraction would instead time out and be counted.
+            joined.wait(5)
+            if isinstance(outcome, BaseException):
+                raise outcome
+            return outcome
+
+        outcomes: list = [None, None]
+
+        def request(index, load) -> None:
+            try:
+                outcomes[index] = load()
+            except snapshots.LocalSnapshotError as exc:
+                outcomes[index] = exc
+
+        with (
+            mock.patch.object(preview, "Future", JoiningFuture, create=True),
+            mock.patch.object(preview.snapshots, "preview", side_effect=extract) as load,
+            mock.patch.object(preview.snapshots, "require_candidate"),
+        ):
+            icon = threading.Thread(target=request, args=(0, lambda: self.cache.icon(IMAGE_ID)))
+            icon.start()
+            self.assertTrue(started.wait(5))
+            summary = threading.Thread(target=request, args=(1, lambda: self.cache.summary(IMAGE_ID, "pt")))
+            summary.start()
+            for thread in (icon, summary):
+                thread.join(5)
+        return outcomes, load
+
+    def test_concurrent_icon_and_summary_requests_share_one_extraction(self) -> None:
+        outcomes, load = self._join_one_extraction(_preview())
+
+        self.assertEqual(outcomes, [ICON, "Resumo."])
+        load.assert_called_once_with(self.client, IMAGE_ID, platform="linux/amd64")
+        self.assertEqual(self.cache._extractions, {})
+        # The shared extraction held one slot and returned it: every slot is free again.
+        slots = [self.cache._miss_slots.acquire(blocking=False) for _ in range(preview.MAX_CONCURRENT_MISSES + 1)]
+        self.assertEqual(slots, [True] * preview.MAX_CONCURRENT_MISSES + [False])
+
+    def test_a_failed_shared_extraction_fails_every_joined_request_and_caches_nothing(self) -> None:
+        failure = snapshots.LocalSnapshotError("invalid")
+        outcomes, load = self._join_one_extraction(failure)
+
+        self.assertEqual(outcomes, [failure, failure])
+        load.assert_called_once_with(self.client, IMAGE_ID, platform="linux/amd64")
+        self.assertEqual((self.cache._previews, self.cache._extractions), ({}, {}))
 
     def test_exact_presence_distinguishes_absence_from_daemon_failure(self) -> None:
         image_not_found = snapshots.ImageNotFound("missing")
