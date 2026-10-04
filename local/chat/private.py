@@ -373,12 +373,12 @@ def disconnect_assistant_integration(
     assistant_id: object,
     integration_id: object,
 ) -> dict[str, object]:
+    team_id = validate_team_id(team_id)
+    # The same Team lifecycle lock as a completion: a disconnect never lands between its declaration check and its
+    # seal, so it either removes the grant that completion sealed or finishes before the completion begins.
     try:
-        disconnected = self.oauth_service.disconnect(
-            team_id,
-            assistant_id,
-            integration_id,
-        )
+        with self._lock(team_id):
+            disconnected = self.oauth_service.disconnect(team_id, assistant_id, integration_id)
     except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
+import threading
 import types
 import unittest
 from contextlib import nullcontext
@@ -521,7 +523,9 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             {"challenge": challenge},
         )
 
-        subject = types.SimpleNamespace(oauth_service=types.SimpleNamespace(disconnect=lambda *_args: True))
+        subject = types.SimpleNamespace(
+            oauth_service=types.SimpleNamespace(disconnect=lambda *_args: True), _lock=lambda _team_id: nullcontext()
+        )
         self.assertEqual(
             local_chat_private.disconnect_assistant_integration(
                 subject,
@@ -531,6 +535,70 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             ),
             {"disconnected": True},
         )
+
+    def test_disconnect_waits_for_an_oauth_completion_and_removes_its_seal(self) -> None:
+        """A disconnect reaching the Team between a completion's declaration check and its seal waits for the seal."""
+        grants = {"earlier"}
+        observed: list[set[str]] = []
+        paused = threading.Event()
+        results: list[dict[str, object]] = []
+
+        def disconnect() -> None:
+            try:
+                results.append(
+                    local_chat_private.disconnect_assistant_integration(subject, "team_1", "assistant", "integration")
+                )
+            finally:
+                paused.set()
+
+        thread = threading.Thread(target=disconnect)
+        lifecycle = threading.RLock()
+
+        @contextlib.contextmanager
+        def lock(_team_id):
+            if threading.current_thread() is thread:
+                paused.set()
+            with lifecycle:
+                yield
+
+        def declared(*_args):
+            # The disconnect either finishes now or waits on the Team lock the completion holds.
+            thread.start()
+            self.assertTrue(paused.wait(10))
+
+        def complete(_state, _claim, _session_binding, declaration):
+            declaration("team_1", "assistant", "integration")
+            grants.add("sealed")
+            return types.SimpleNamespace(team_id="team_1", assistant_id="assistant", integration_id="integration")
+
+        def revoke_then_delete(*_args):
+            observed.append(set(grants))
+            grants.clear()
+            return True
+
+        subject = types.SimpleNamespace(
+            oauth_service=types.SimpleNamespace(complete=complete, disconnect=revoke_then_delete),
+            oauth_pkce=types.SimpleNamespace(
+                inspect_callback=lambda **_binding: types.SimpleNamespace(team_id="team_1")
+            ),
+            _lock=lock,
+            _current_integration_declaration=declared,
+        )
+        completed = local_chat_private.complete_cloudflare_oauth_callback(
+            subject, state="state", claim="claim", session_binding="session"
+        )
+        thread.join(10)
+        self.assertTrue(completed["connected"])
+        self.assertEqual(results, [{"disconnected": True}])
+        self.assertEqual((observed, grants), ([{"earlier", "sealed"}], set()))
+
+    def test_disconnect_refuses_an_invalid_team_before_the_team_lock(self) -> None:
+        subject = types.SimpleNamespace(oauth_service=mock.Mock(), _lock=mock.Mock())
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_private.disconnect_assistant_integration(subject, "Team 1", "assistant", "integration")
+        self.assertEqual(caught.exception.code, "invalid-team-id")
+        subject._lock.assert_not_called()
+        subject.oauth_service.disconnect.assert_not_called()
 
     def test_stored_input_inventory_and_exact_clear_are_status_only(self) -> None:
         spec = types.SimpleNamespace(
