@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import contextlib
-import functools
 import ipaddress
 import math
 import os
 import threading
 import time
 import weakref
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from http import HTTPStatus
 from pathlib import Path
 
@@ -316,26 +315,22 @@ def _chat_lock_for(team_id: str) -> threading.Lock:
 
 
 @contextlib.contextmanager
-def _idle_team_chat(team_id: str) -> Iterator[None]:
-    """Hold the Team chat slot for one lifecycle mutation, refused before its first side effect while a turn owns it."""
+def _idle_team_chat(
+    team_id: str, refusal: str = "Team lifecycle cannot change during an active chat turn"
+) -> Iterator[None]:
+    """Hold the Team chat slot for one mutation, refused before its first side effect while a turn owns it.
+
+    The one lock order is the Team lock, then the slot. A mutation enters this only while it holds the Team lock and
+    never waits for the slot, while a turn holds the slot and never takes the Team lock; destruction alone awaits the
+    slot under the Team lock, so it waits only for a turn it is aborting, never for a mutation.
+    """
     lock = _chat_lock_for(team_id)
     if not lock.acquire(blocking=False):
-        raise ApiError(HTTPStatus.CONFLICT, "Team lifecycle cannot change during an active chat turn")
+        raise ApiError(HTTPStatus.CONFLICT, refusal)
     try:
         yield
     finally:
         lock.release()
-
-
-def _serialize_against_team_chat(operation: Callable[..., dict]) -> Callable[..., dict]:
-    """Reject lifecycle mutation before its first side effect while a Team turn owns the slot."""
-
-    @functools.wraps(operation)
-    def guarded(team_id: str, *args, **kwargs) -> dict:
-        with _idle_team_chat(team_id):
-            return operation(team_id, *args, **kwargs)
-
-    return guarded
 
 
 def _clear_team_id_runtime_state(team_id: str) -> None:

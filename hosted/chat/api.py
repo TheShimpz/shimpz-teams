@@ -313,14 +313,13 @@ def _complete_integration_callback(
     return response, owner
 
 
-@runtime_state._serialize_against_team_chat
 def _disconnect_oauth_integration(
     team_id: str,
     assistant_id: str,
     integration_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         _current_integration_declaration(team_id, assistant_id, integration_id)
         hosted_chat_human.cancel_pending(team_id)
@@ -334,14 +333,13 @@ def _disconnect_oauth_integration(
     return {"disconnected": disconnected}
 
 
-@runtime_state._serialize_against_team_chat
 def _clear_assistant_stored_input(
     team_id: str,
     assistant_id: str,
     stored_input_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         try:
             current_id, spec = assistant_lifecycle._resolve_team_assistant(team_id, assistant_id)

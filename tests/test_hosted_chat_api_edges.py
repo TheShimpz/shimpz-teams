@@ -247,7 +247,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
             ),
             self.assertRaises(state.ApiError),
         ):
-            api._disconnect_oauth_integration.__wrapped__("team_1", "assistant", "cloudflare", self.lease())
+            api._disconnect_oauth_integration("team_1", "assistant", "cloudflare", self.lease())
 
         @contextmanager
         def exclusive(*_args):
@@ -321,7 +321,7 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         self.assertIs(resume.call_args.args[-1], api._exclusive_chat_turn)
 
     def test_clear_stored_input_requires_current_declaration_and_store(self) -> None:
-        call = api._clear_assistant_stored_input.__wrapped__
+        call = api._clear_assistant_stored_input
         lease = self.lease()
         with (
             mock.patch.object(state, "_lock_for", return_value=nullcontext()),

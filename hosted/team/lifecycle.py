@@ -95,33 +95,29 @@ def _delete_team_file(team_id: str, file_id: object, lease: hosted_resources._Au
 
     The Team's execution slot is held throughout, so no turn delivers or reads the file while it is deleted.
     """
-    slot = runtime_state._chat_lock_for(team_id)
-    if not slot.acquire(blocking=False):
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team files cannot be deleted during an active chat turn")
-    try:
+    with (
+        runtime_state._lock_for(team_id),
+        runtime_state._idle_team_chat(team_id, "Team files cannot be deleted during an active chat turn"),
+    ):
         return _delete_unused_team_file(team_id, file_id, lease)
-    finally:
-        slot.release()
 
 
 def _delete_unused_team_file(team_id: str, file_id: object, lease: hosted_resources._AuthorizationLease) -> dict:
-    with runtime_state._lock_for(team_id):
-        container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
-        try:
-            storage = runtime_state._storage()
-            # A file already gone still has its references cleaned up; a malformed id is refused.
-            hosted_chat_lifecycle.forget_file(team_id, team_storage.scoped_file_id(file_id), container.id)
-            # Deletion is idempotent: a file already gone is reported as absent.
-            result = storage.delete(team_id, file_id)
-        except team_storage.StorageInputError as exc:
-            raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
-        except team_storage.StorageNotFoundError as exc:
-            raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "file not found") from exc
-        except team_storage.StorageError as exc:
-            raise runtime_state.ApiError(
-                HTTPStatus.SERVICE_UNAVAILABLE, "Team storage failed its safety checks"
-            ) from exc
-        return {"team_id": team_id, **result}
+    """The deletion itself, under the Team lock and the Team chat slot its caller holds."""
+    container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
+    try:
+        storage = runtime_state._storage()
+        # A file already gone still has its references cleaned up; a malformed id is refused.
+        hosted_chat_lifecycle.forget_file(team_id, team_storage.scoped_file_id(file_id), container.id)
+        # Deletion is idempotent: a file already gone is reported as absent.
+        result = storage.delete(team_id, file_id)
+    except team_storage.StorageInputError as exc:
+        raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
+    except team_storage.StorageNotFoundError as exc:
+        raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "file not found") from exc
+    except team_storage.StorageError as exc:
+        raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team storage failed its safety checks") from exc
+    return {"team_id": team_id, **result}
 
 
 # ── operations ───────────────────────────────────────────────────────────────
@@ -600,7 +596,6 @@ def _inference_status(team_id: str, lease: hosted_resources._AuthorizationLease)
 
 
 # An executing segment may be publishing a human challenge that only its own pause commit may settle.
-@runtime_state._serialize_against_team_chat
 def _configure_inference(team_id: str, body: object, lease: hosted_resources._AuthorizationLease) -> dict:
     if not isinstance(body, dict) or set(body) != {"provider", "model", "effort"}:
         raise runtime_state.ApiError(HTTPStatus.UNPROCESSABLE_ENTITY, "inference requires provider, model, and effort")
@@ -610,7 +605,7 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
         config = inference_config.normalize(body["provider"], body["model"], body["effort"])
     except inference_config.InferenceConfigError as exc:
         raise runtime_state.ApiError(HTTPStatus.BAD_REQUEST, str(exc)) from exc
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         hosted_resources._require_current_authorization(team_id, lease)
         _replace_inference(team_id, lease.container_id, config)
     return {"team_id": team_id, "provider": config.provider, "model": config.model, "effort": config.effort}
@@ -636,9 +631,8 @@ def _logs(team_id: str, lines: int, lease: hosted_resources._AuthorizationLease)
         return {"team_id": team_id, "logs": container.logs(tail=lines).decode("utf-8", "replace")}
 
 
-@runtime_state._serialize_against_team_chat
 def _lifecycle(team_id: str, op: str, lease: hosted_resources._AuthorizationLease) -> dict:
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         # Stop is always available as remediation. Start/restart require both an exact per-container
         # runtime and a currently registered daemon runtime; Docker may never fall back to runc.
         container = hosted_resources._require_current_authorization(team_id, lease, require_isolation=op != "stop")

@@ -422,7 +422,6 @@ def _retain_admitted_assistant_stored_inputs(
         ) from exc
 
 
-@runtime_state._serialize_against_team_chat
 def _install_assistant(
     team_id: str,
     binding: dynamic_assistants.DynamicAssistantBinding,
@@ -438,7 +437,7 @@ def _install_assistant(
             f"team {team_id!r} not found",
         )
     assistant_id = binding.assistant_id
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         try:
             previous = runtime_state._dynamic_assistants.get(team_id, assistant_id)
             retained = runtime_state._dynamic_assistants.put(
@@ -701,14 +700,13 @@ def _provision_assistant_transaction(
     return committed_status
 
 
-@runtime_state._serialize_against_team_chat
 def _uninstall_assistant(
     team_id: str,
     assistant_id: str,
     lease: hosted_resources._AuthorizationLease,
 ) -> dict[str, object]:
     """Confirm the Assistant is absent from the Team; an Assistant already absent is success, not an error."""
-    with runtime_state._lock_for(team_id):
+    with runtime_state._lock_for(team_id), runtime_state._idle_team_chat(team_id):
         hosted_resources._require_current_authorization(
             team_id,
             lease,

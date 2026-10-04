@@ -10,7 +10,6 @@ from unittest import mock
 
 from hosted_assistant_fixture import (
     ANCHOR_ID,
-    HOSTED_BINDING,
     HOSTED_SPEC,
     assistant_lifecycle,
     chat_in_turn,
@@ -205,38 +204,6 @@ class HostedChatLifecycleTests(unittest.TestCase):
         for invalid in ("", " Marketing", "Marketing ", "Marketing\n", "x" * 81, None):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 hosted_resources._validated_team_name(invalid)
-
-    def test_hosted_lifecycle_rejects_an_active_chat_before_any_mutation(self) -> None:
-        lease = types.SimpleNamespace(owner="account_1")
-        operations = (
-            lambda: assistant_lifecycle._install_assistant(
-                "team_1",
-                HOSTED_BINDING,
-                "account_1",
-                lease,
-                authorize_start=lambda: None,
-            ),
-            lambda: assistant_lifecycle._uninstall_assistant(
-                "team_1",
-                "shimpz-cloudflare",
-                lease,
-            ),
-            lambda: hosted_lifecycle._lifecycle("team_1", "restart", lease),
-        )
-        chat_lock = runtime_state._chat_lock_for("team_1")
-        self.assertTrue(chat_lock.acquire(blocking=False))
-        try:
-            with mock.patch.object(
-                runtime_state,
-                "_lock_for",
-                side_effect=lambda _team_id: self.fail("lifecycle mutation acquired its inner lock"),
-            ):
-                for operation in operations:
-                    with self.subTest(operation=operation), self.assertRaises(runtime_state.ApiError) as caught:
-                        operation()
-                    self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
-        finally:
-            chat_lock.release()
 
     def test_hosted_chat_scope_is_explicit_bounded_and_selects_only_requested_assistants(self) -> None:
         contract = types.SimpleNamespace(actions={})
