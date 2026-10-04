@@ -754,8 +754,13 @@ def spend(state: TeamRoutines, run_id: str, lease: Lease, now: int, seconds: int
 def freeze(
     state: TeamRoutines, run_id: str, lease: Lease, now: int, request_kind: str, assistant_id: str, action: str
 ) -> TeamRoutines:
-    """Park a run for a human; it keeps no lease, and the same Routine never fires while it is frozen."""
+    """Park a run for a human; it keeps no lease, and the same Routine never fires while it is frozen.
+
+    A Routine being deleted never freezes a run: its deletion ends only the frozen runs it saw.
+    """
     value = _live(state, run_id, lease, now)
+    if routine(state, value.routine_id).deleting:
+        raise RoutineStateError("routine-deleting")
     if (
         request_kind not in {"human", "integrations"}
         or http_routine.ASSISTANT_ID_RE.fullmatch(assistant_id) is None

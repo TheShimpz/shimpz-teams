@@ -379,3 +379,81 @@ class ChallengeEndingRaceTests(FrozenCase):
             with mock.patch.object(store, "current", side_effect=replaced):
                 routine_human.cancel_routine_challenge(service, "team_1", claim["run_id"])
             self.assertEqual(store.current("team_1"), replacements[0])
+
+
+class FreezeRaceTests(RoutineServiceCase):
+    """A run reaching its pause as a Stop or a deletion reaches it is never left frozen behind either."""
+
+    def paused(self, directory: str):
+        controller, service = self.service(directory, Runtime(acting()))
+
+        def invoke(*_args):
+            raise action_human.HumanRequestSuspensionError(approval())
+
+        controller.assistant_lifecycle.invoke = invoke
+        self.routine(service)
+        return service, service.claim_routine_run()
+
+    def committing(self, service, during, after):
+        """Run ``during`` inside the freeze's terminal commit, before what it commits, and ``after`` once it returns."""
+        commit = service._commit_chat_terminal
+
+        def committed(team_id, token, before_commit=lambda: None):
+            def before() -> None:
+                during()
+                before_commit()
+
+            done = commit(team_id, token, before)
+            after()
+            return done
+
+        return mock.patch.object(service, "_commit_chat_terminal", committed)
+
+    def test_a_stop_reaching_a_run_as_it_freezes_ends_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, claim = self.paused(directory)
+            stops: list[dict[str, object]] = []
+            with self.committing(
+                service, lambda: None, lambda: stops.append(service.stop_routine("team_1", claim["run_id"]))
+            ):
+                self.run_claim(service, claim)
+            self.assertTrue(stops[0]["stopped"])
+            self.assertEqual(self.state(service).runs, ())
+            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+            self.assertEqual(service.routine_store.continuations("team_1"), ())
+
+    def test_a_routine_deleted_as_its_run_freezes_ends_the_run_and_is_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, claim = self.paused(directory)
+
+            def deleting() -> None:
+                service.routine_store.update("team_1", lambda state: record.begin_delete(state, claim["routine_id"]))
+
+            with self.committing(service, deleting, lambda: None):
+                self.assertEqual(self.run_claim(service, claim)["status"], "stopped")
+            self.assertEqual((self.state(service).runs, self.state(service).routines), ((), ()))
+            self.assertEqual(service.routine_store.continuations("team_1"), ())
+
+    def test_a_run_freezing_while_stop_halts_it_is_ended_by_that_stop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service, claim = self.paused(directory)
+            commit, halt = service._commit_chat_terminal, routine_run.halt_routine_run
+            committed: list[bool] = []
+            stops: list[dict[str, object]] = []
+
+            def stopping(team_id, token, before_commit=lambda: None):
+                # Stop reads the run leased; the freeze commits just before Stop's cancellation reaches the segment.
+                def halt_after_freeze(*args):
+                    committed.append(commit(team_id, token, before_commit))
+                    return halt(*args)
+
+                with mock.patch.object(routine_run, "halt_routine_run", side_effect=halt_after_freeze):
+                    stops.append(service.stop_routine("team_1", claim["run_id"]))
+                return committed[0]
+
+            with mock.patch.object(service, "_commit_chat_terminal", stopping):
+                self.run_claim(service, claim)
+            self.assertEqual((committed, stops[0]["stopped"]), ([True], True))
+            self.assertEqual(self.state(service).runs, ())
+            self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+            self.assertEqual(service.routine_store.continuations("team_1"), ())

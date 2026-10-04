@@ -297,17 +297,25 @@ def _freeze(self, run: _Run, pending: PendingLocalChat, segment) -> str:
     ).encode("ascii")
     routine_state.call(lambda: self.routine_store.put_continuation(team_id, run_id, blob))
     # From here, the run's end queues its continuation's removal with everything else it held.
-    if not self._commit_chat_terminal(team_id, run.token):
-        return _end(self, team_id, run_id, "stopped", {"actions": []})
     now = int(time.time())
 
     def freeze(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
             return record.freeze(state, run_id, run.lease, now, kind, assistant_id, action), "frozen"
-        except record.RoutineStateError:
+        except record.RoutineStateError as exc:
+            if str(exc) == "routine-deleting":
+                # The deletion stops every run it saw leased; one reaching its pause meanwhile ends stopped.
+                return record.end(state, run_id, now, "stopped", {"actions": []}), "stopped"
             return record.end(state, run_id, now, "failed", {"code": "freeze-unavailable", "actions": []}), "failed"
 
-    return routine_state.update(self, team_id, freeze)
+    outcome: list[str] = []
+    # The freeze is written under the guard a Stop cancels under: a Stop either wins first and the run ends stopped,
+    # or finds the run already frozen once its cancellation returns, and ends it as a frozen run.
+    if not self._commit_chat_terminal(
+        team_id, run.token, lambda: outcome.append(routine_state.update(self, team_id, freeze))
+    ):
+        return _end(self, team_id, run_id, "stopped", {"actions": []})
+    return outcome[0]
 
 
 def _live_run(self, team_id: str, run_id: str, lease: record.Lease) -> tuple[record.Run, record.Routine]:
