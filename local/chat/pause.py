@@ -23,13 +23,20 @@ def _commit_suspension(
     challenge_store: object,
     challenge_id: str,
 ) -> None:
+
+    def rollback() -> None:
+        self._delete_chat_continuation(team_id, challenge_id)
+        if challenge_store is self.human_challenges:
+            # A Stop that came first found no challenge to end this turn with, so its own batch goes here (ADR-0038).
+            self._purge_human_pending(payload)
+
     chat_turn_engine.commit_suspension(
         outcome.continuation,
         payload.continuation,
         lambda: self._commit_chat_terminal(team_id, token),
         lambda: challenge_store.cancel_team(team_id),
         lambda: ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped"),
-        lambda: self._delete_chat_continuation(team_id, challenge_id),
+        rollback,
     )
 
 

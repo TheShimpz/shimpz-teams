@@ -377,6 +377,7 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
         for challenges, oauth_service, expected_code in cases:
             with self.subTest(expected_code=expected_code):
                 subject = types.SimpleNamespace(
+                    _lock=lambda _team_id: nullcontext(),
                     integration_challenges=challenges,
                     oauth_service=oauth_service,
                 )

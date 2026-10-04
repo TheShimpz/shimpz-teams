@@ -485,6 +485,15 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
     """Cancel one Controller-owned turn and fail-stop an Action already executing."""
     with runtime_state._lock_for(team_id):
         container = hosted_resources._require_current_authorization(team_id, lease)
+        # The token is cancelled before any challenge is withdrawn: a pause commits only while its token is current, so
+        # it either committed already and its challenge is withdrawn below, or its commit fails and rolls it back.
+        with runtime_state._active_chat_guard:
+            token = runtime_state._active_chat_tokens.get(team_id)
+            if token is not None and runtime_state._active_chat_container_ids.get(team_id) != container.id:
+                raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
+            if token is not None:
+                runtime_state._cancelled_chat_tokens.add(token)
+            brain_abort = runtime_state._brain_aborts.get(token) if token is not None else None
         # Only after the lease proves this exact generation may its pending continuations end.
         integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
         human_cancelled = hosted_chat_human.cancel_pending(team_id)
@@ -493,13 +502,6 @@ def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dic
             raise runtime_state.ApiError(
                 HTTPStatus.CONFLICT, f"team {team_id!r} is not running (status={container.status})"
             )
-        with runtime_state._active_chat_guard:
-            token = runtime_state._active_chat_tokens.get(team_id)
-            if token is not None and runtime_state._active_chat_container_ids.get(team_id) != container.id:
-                raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, f"team {team_id!r} not found")
-            if token is not None:
-                runtime_state._cancelled_chat_tokens.add(token)
-            brain_abort = runtime_state._brain_aborts.get(token) if token is not None else None
         # The token is already cancelled, so the aborted Brain request resolves as a stopped turn, never a failure.
         if brain_abort is not None:
             brain_abort.abort()

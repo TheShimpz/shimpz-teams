@@ -248,15 +248,18 @@ def start_assistant_integration_authorization(
     session_binding: object,
     callback_mode: object,
 ) -> dict[str, object]:
+    team = validate_team_id(team_id)
     try:
-        challenge = self.integration_challenges.get(team_id, challenge_id)
-        authorization_url = self.oauth_service.authorization_url(
-            challenge,
-            session_binding,
-            assistant_id=assistant_id,
-            integration_id=integration_id,
-            callback_mode=callback_mode,
-        )
+        # Under the Team lock, as Stop, destruction, and reset withdraw it: no PKCE state outlives its challenge.
+        with self._lock(team):
+            challenge = self.integration_challenges.get(team, challenge_id)
+            authorization_url = self.oauth_service.authorization_url(
+                challenge,
+                session_binding,
+                assistant_id=assistant_id,
+                integration_id=integration_id,
+                callback_mode=callback_mode,
+            )
     except integration_challenges.IntegrationChallengeError as exc:
         raise ApiProblem(
             HTTPStatus.CONFLICT,

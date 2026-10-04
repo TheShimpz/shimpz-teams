@@ -160,10 +160,14 @@ class LocalLeafContractTests(unittest.TestCase):
         container = object()
         withdrawn = types.SimpleNamespace(payload=object())
         team_lock = Lock()
-        held: list[tuple[str, bool]] = []
+        held: list[tuple[str, bool, bool]] = []
 
         def observed(step: str, value: object = None):
-            return lambda *_args: held.append((step, team_lock.locked())) or value
+            def record(*_args: object) -> object:
+                held.append((step, team_lock.locked(), "token" in controller._cancelled_chat_tokens))
+                return value
+
+            return record
 
         lifecycle = types.SimpleNamespace(
             _network=lambda _team_id: types.SimpleNamespace(id="network-id"),
@@ -192,8 +196,9 @@ class LocalLeafContractTests(unittest.TestCase):
         controller._purge_human_pending.assert_called_once_with(withdrawn.payload)
         # Only the withdrawn challenge's continuation is deleted.
         controller._delete_withdrawn_continuation.assert_called_once_with("team_1", withdrawn)
-        # Both withdrawals hold the Team lock, which is released before any cleanup.
-        self.assertEqual(held, [("integration", True), ("human", True), ("pkce", False)])
+        # The token is cancelled first; both withdrawals and the PKCE cancellation hold the Team lock, which is
+        # released before any cleanup.
+        self.assertEqual(held, [("integration", True, True), ("human", True, True), ("pkce", True, True)])
         self.assertFalse(team_lock.locked())
         lifecycle._fail_stop_action.assert_called_once_with(container)
 
