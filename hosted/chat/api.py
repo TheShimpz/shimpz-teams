@@ -481,10 +481,11 @@ def _stop_active_action(team_id: str, token: str | None) -> bool:
 
 def _stop_chat(team_id: str, lease: hosted_resources._AuthorizationLease) -> dict:
     """Cancel one Controller-owned turn and fail-stop an Action already executing."""
-    integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
-    human_cancelled = hosted_chat_human.cancel_pending(team_id)
     with runtime_state._lock_for(team_id):
         container = hosted_resources._require_current_authorization(team_id, lease)
+        # Only after the lease proves this exact generation may its pending continuations end.
+        integration_cancelled = runtime_state._integration_challenges.cancel_team(team_id)
+        human_cancelled = hosted_chat_human.cancel_pending(team_id)
         container.reload()
         if container.status != "running":
             raise runtime_state.ApiError(

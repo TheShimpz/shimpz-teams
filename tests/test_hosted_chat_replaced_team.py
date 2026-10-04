@@ -114,6 +114,21 @@ class ReplacedHostedTeamTests(unittest.TestCase):
     def _lifecycle_locked(_team_id: str = TEAM_ID) -> bool:
         return runtime_state._lock_for(TEAM_ID).locked()
 
+    def test_a_valid_stop_of_a_stopped_runtime_still_ends_its_gates_and_reports_the_conflict(self) -> None:
+        stopped = _replacement()
+        stopped.status = "exited"
+        with (
+            mock.patch.object(hosted_resources, "_get_container", return_value=stopped),
+            mock.patch.object(hosted_resources, "_require_team_isolation"),
+            self.assertRaises(runtime_state.ApiError) as caught,
+        ):
+            hosted_chat_api._stop_chat(TEAM_ID, _current_lease())
+
+        self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
+        self.assertIsNone(self.humans.current(TEAM_ID))
+        self.assertIsNone(self.integrations.current(TEAM_ID))
+        self.journal.purge.assert_called_once_with(REPLACEMENT_CONTAINER)
+
     def _handler(self) -> hosted_controller.Handler:
         handler = object.__new__(hosted_controller.Handler)
         handler.wfile = io.BytesIO()
@@ -152,7 +167,14 @@ class ReplacedHostedTeamTests(unittest.TestCase):
             handler._stream_chat.assert_not_called()
             self._assert_replacement_untouched()
 
-    def test_the_authorized_generation_still_reads_its_own_gates(self) -> None:
+    def test_stop_with_an_old_lease_cancels_and_purges_nothing_of_the_replacement(self) -> None:
+        with self.assertRaises(runtime_state.ApiError) as caught:
+            hosted_chat_api._stop_chat(TEAM_ID, _stale_lease())
+
+        self.assertEqual(caught.exception.status, HTTPStatus.NOT_FOUND)
+        self._assert_replacement_untouched()
+
+    def test_the_authorized_generation_still_reads_and_stops_its_own_gates(self) -> None:
         lease = _current_lease()
         handler = self._handler()
         request = hosted_controller._AuthorizedRequest(
@@ -163,6 +185,13 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertEqual(handler._send_json.call_args.args[1]["purpose"], "replacement")
         # Destruction holds the lifecycle lock, so it cannot end the generation between revalidation and the read.
         self.assertTrue(hosted_chat_api._authorized_pending(TEAM_ID, lease, self._lifecycle_locked))
+        with mock.patch.object(hosted_resources, "_require_team_isolation"):
+            result = hosted_chat_api._stop_chat(TEAM_ID, lease)
+
+        self.assertTrue(result["accepted"])
+        self.assertIsNone(self.humans.current(TEAM_ID))
+        self.assertIsNone(self.integrations.current(TEAM_ID))
+        self.journal.purge.assert_called_once_with(REPLACEMENT_CONTAINER)
 
 
 if __name__ == "__main__":
