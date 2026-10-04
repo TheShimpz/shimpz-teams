@@ -194,10 +194,14 @@ class ChallengeStore[PendingT]:
             return challenge
 
     def cancel_team(self, team_id: object) -> bool:
+        return self.withdraw_team(team_id) is not None
+
+    def withdraw_team(self, team_id: object) -> PendingT | None:
+        """Cancel the Team's live challenge and return it, so its owner ends exactly the state it held."""
         team = self._team_id(team_id)
         with self._lock:
             identifier = self._by_team.pop(team, None)
-            return self._pending.pop(identifier, None) is not None if identifier is not None else False
+            return self._pending.pop(identifier, None) if identifier is not None else None
 
     def cancel_all(self) -> int:
         with self._lock:

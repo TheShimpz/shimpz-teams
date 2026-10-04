@@ -75,6 +75,23 @@ class AssistantIntegrationChallengeTests(unittest.TestCase):
         self.assertFalse(store.cancel_team("team_2"))
         self.assertEqual(store.cancel_all(), 0)
 
+    def test_withdrawal_returns_exactly_the_cancelled_challenge_once(self) -> None:
+        store = integration_challenges.IntegrationChallengeStore()
+        payload = object()
+        challenge = store.create("team_1", (requirement(),), payload)
+        other = store.create("team_2", (requirement(),), object())
+
+        withdrawn = store.withdraw_team("team_1")
+
+        self.assertIs(withdrawn, challenge)
+        self.assertIs(withdrawn.payload, payload)
+        self.assertIsNone(store.withdraw_team("team_1"))
+        with self.assertRaises(integration_challenges.IntegrationChallengeNotFoundError):
+            store.claim("team_1", challenge.id)
+        # A claimed challenge already belongs to its responder, so a later withdrawal finds nothing to end.
+        self.assertIs(store.claim("team_2", other.id), other)
+        self.assertIsNone(store.withdraw_team("team_2"))
+
     def test_empty_requirements_and_invalid_limits_are_rejected(self) -> None:
         with self.assertRaises(integration_challenges.IntegrationChallengeError):
             integration_challenges.IntegrationChallengeStore().create("team_1", (), object())
