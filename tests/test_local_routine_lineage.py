@@ -89,6 +89,22 @@ class LineageTests(unittest.TestCase):
         book.clear()
         self.assertIsNone(book.bound("team_1", PRINCIPAL, _answer("#general")))
 
+    def test_recording_or_looking_up_any_team_releases_every_expired_question(self) -> None:
+        clock = Clock()
+        book = routine_lineage.LineageBook(clock)
+        for index in range(100):
+            book.record(f"idle_{index}", _question())
+        clock.now += routine_lineage.LINEAGE_SECONDS - 1
+        book.record("recent", _question())
+        clock.now += 1
+        # Another Team's lookup releases every idle Team's expired options, never one still pending.
+        self.assertIsNone(book.bound("active", PRINCIPAL, _answer("#general")))
+        self.assertEqual(set(book._questions), {"recent"})
+        clock.now += routine_lineage.LINEAGE_SECONDS
+        book.record("active", _question())
+        self.assertEqual(set(book._questions), {"active"})
+        self.assertIsNotNone(book.bound("active", PRINCIPAL, _answer("#general")))
+
     def test_a_composed_answer_is_recognized_whether_or_not_it_binds(self) -> None:
         self.assertTrue(routine_lineage.composed(_answer("#general")))
         self.assertTrue(routine_lineage.composed(_answer("anything I typed")))

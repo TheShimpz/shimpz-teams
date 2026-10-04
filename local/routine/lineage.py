@@ -97,17 +97,17 @@ class LineageBook:
 
     def record(self, team_id: str, question: Question) -> None:
         """Keep the question a turn of this Team just asked; it replaces any earlier one."""
-        kept = dataclasses.replace(question, expires_at=self._now() + LINEAGE_SECONDS)
+        now = self._now()
+        kept = dataclasses.replace(question, expires_at=now + LINEAGE_SECONDS)
         with self._lock:
+            self._expire(now)
             self._questions[team_id] = kept
 
     def bound(self, team_id: str, principal: str, message: str) -> Answer | None:
         """The Team's pending question this message answers for the same principal, or None; nothing is consumed."""
         with self._lock:
+            self._expire(self._now())
             question = self._questions.get(team_id)
-            if question is not None and question.expires_at <= self._now():
-                del self._questions[team_id]
-                question = None
         if question is None or question.principal != principal:
             return None
         index = _selected(question, message)
@@ -126,3 +126,8 @@ class LineageBook:
     def clear(self) -> None:
         with self._lock:
             self._questions.clear()
+
+    def _expire(self, now: float) -> None:
+        """Release every Team's expired question, so an idle Team keeps no Routine options; the lock is held."""
+        for team_id in [team_id for team_id, question in self._questions.items() if question.expires_at <= now]:
+            del self._questions[team_id]
