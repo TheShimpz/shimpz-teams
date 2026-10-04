@@ -115,16 +115,12 @@ class FixedBrokerTransport:
                 headers={"Proxy-Authorization": f"Basic {proxy_authorization}"},
             )
         try:
-            connection.request("POST", parsed.path, body=body, headers=dict(headers))
-            response = connection.getresponse()
-            payload = response.read(MAX_RESPONSE_BYTES + 1)
+            status, content_type, payload = integration_http.exchange(
+                connection, parsed.path, headers, body, limit=MAX_RESPONSE_BYTES
+            )
             if len(payload) > MAX_RESPONSE_BYTES:
                 raise OAuthBrokerClientError("OAuth broker response is invalid")
-            return BrokerHTTPResponse(
-                response.status,
-                response.getheader("Content-Type", ""),
-                payload,
-            )
+            return BrokerHTTPResponse(status, content_type, payload)
         except OAuthBrokerClientError:
             raise
         except (OSError, http.client.HTTPException) as exc:

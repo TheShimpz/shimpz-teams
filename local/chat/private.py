@@ -12,6 +12,7 @@ from action import stored_input as action_stored_input
 from inference import client as brain_runtime_client
 from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
+from integrations import pkce as integration_pkce
 from integrations import service as integration_service
 from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
@@ -316,12 +317,24 @@ def complete_cloudflare_oauth_callback(
     session_binding: object,
 ) -> dict[str, object]:
     try:
-        completed = self.oauth_service.complete(
-            state,
-            claim,
-            session_binding,
-            self._current_integration_declaration,
-        )
+        team_id = self.oauth_pkce.inspect_callback(state=state, session_binding=session_binding).team_id
+    except integration_pkce.OAuthChallengeError as exc:
+        raise ApiProblem(
+            HTTPStatus.BAD_GATEWAY,
+            "Assistant integration authorization could not be completed",
+            code="assistant-integration-oauth-unavailable",
+        ) from exc
+
+    def declaration(team: str, assistant_id: str, integration_id: str) -> object:
+        if team != team_id:
+            raise integration_service.OAuthIntegrationDeclarationError("OAuth Team authority changed")
+        return self._current_integration_declaration(team, assistant_id, integration_id)
+
+    # The Team's lifecycle lock spans the declaration check, the bounded broker exchange, and the seal: an uninstall or
+    # destruction deleting these credentials either finishes first, so the declaration fails, or deletes the new seal.
+    try:
+        with self._lock(team_id):
+            completed = self.oauth_service.complete(state, claim, session_binding, declaration)
     except integration_service.OAuthIntegrationServiceError as exc:
         raise ApiProblem(
             HTTPStatus.BAD_GATEWAY,

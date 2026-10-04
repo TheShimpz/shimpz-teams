@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import http.client
 import re
+import socket
+import threading
 from base64 import b64encode
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlencode, urlsplit
@@ -22,6 +25,8 @@ from integrations import providers as integration_providers
 MAX_RESPONSE_BYTES = 32 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 10
+# One whole exchange ends by this deadline even when each socket operation stays within its own timeout.
+TOTAL_TIMEOUT_SECONDS = 30
 HOSTED_REDIRECT_URI = "https://shimpz.com/api/oauth/cloudflare/callback"
 CLIENT_ID_RE = re.compile(r"[A-Za-z0-9._~-]{8,256}\Z")
 _PKCE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
@@ -59,6 +64,87 @@ class OAuthTransport(Protocol):
     ) -> OAuthHTTPResponse: ...
 
 
+class ExchangeDeadline:
+    """End one OAuth exchange at its total deadline, whatever phase it is in.
+
+    The per-operation timeout alone lets a peer that trickles bytes hold the caller, and the Team lifecycle lock an
+    OAuth completion holds, far longer. Every socket the connection creates is tracked through a duplicate, which keeps
+    naming the same connection after TLS takes over the original, so the deadline shuts down a CONNECT tunnel, a TLS
+    handshake, and the response reads alike. Name resolution and the TCP connect itself come before that socket exists
+    and stay bounded only by the resolver and the per-operation timeout.
+    """
+
+    def __init__(self, connection: http.client.HTTPConnection, seconds: float) -> None:
+        self._guard = threading.Lock()
+        self._expired = False
+        self._sockets: list[socket.socket] = []
+        create = connection._create_connection
+
+        def tracked(*args: object, **kwargs: object) -> socket.socket:
+            created = create(*args, **kwargs)
+            self._track(created.dup())
+            return created
+
+        connection._create_connection = tracked
+        self._timer = threading.Timer(seconds, self._expire)
+        self._timer.daemon = True
+
+    def __enter__(self) -> ExchangeDeadline:
+        self._timer.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._timer.cancel()
+        with self._guard:
+            sockets, self._sockets = self._sockets, []
+        for duplicate in sockets:
+            duplicate.close()
+
+    @property
+    def expired(self) -> bool:
+        with self._guard:
+            return self._expired
+
+    def _track(self, duplicate: socket.socket) -> None:
+        with self._guard:
+            self._sockets.append(duplicate)
+            if self._expired:
+                _shutdown(duplicate)
+
+    def _expire(self) -> None:
+        with self._guard:
+            self._expired = True
+            for duplicate in self._sockets:
+                _shutdown(duplicate)
+
+
+def _shutdown(duplicate: socket.socket) -> None:
+    with suppress(OSError):
+        duplicate.shutdown(socket.SHUT_RDWR)
+
+
+def exchange(
+    connection: http.client.HTTPConnection,
+    path: str,
+    headers: Mapping[str, str],
+    body: bytes,
+    *,
+    method: str = "POST",
+    limit: int = MAX_RESPONSE_BYTES,
+) -> tuple[int, str, bytes]:
+    """Send one request and read at most ``limit + 1`` response bytes before the total deadline.
+
+    A response the deadline cut short is refused as a timeout, never returned truncated.
+    """
+    with ExchangeDeadline(connection, TOTAL_TIMEOUT_SECONDS) as deadline:
+        connection.request(method, path, body=body, headers=dict(headers))
+        response = connection.getresponse()
+        payload = response.read(limit + 1)
+        if deadline.expired:
+            raise TimeoutError("OAuth exchange exceeded its total deadline")
+    return response.status, response.getheader("Content-Type", ""), payload
+
+
 class FixedHTTPSTransport:
     """Send one bounded HTTPS request without proxy or redirect behavior."""
 
@@ -83,16 +169,10 @@ class FixedHTTPSTransport:
             raise OAuthHTTPError("OAuth provider endpoint is invalid")
         connection = http.client.HTTPSConnection(parsed.hostname, timeout=HTTP_TIMEOUT_SECONDS)
         try:
-            connection.request(method, parsed.path, body=body, headers=dict(headers))
-            response = connection.getresponse()
-            payload = response.read(MAX_RESPONSE_BYTES + 1)
+            status, content_type, payload = exchange(connection, parsed.path, headers, body, method=method)
             if len(payload) > MAX_RESPONSE_BYTES:
                 raise OAuthHTTPError("OAuth provider response is invalid")
-            return OAuthHTTPResponse(
-                status=response.status,
-                content_type=response.getheader("Content-Type", ""),
-                body=payload,
-            )
+            return OAuthHTTPResponse(status=status, content_type=content_type, body=payload)
         except OAuthHTTPError:
             raise
         except (OSError, http.client.HTTPException) as exc:

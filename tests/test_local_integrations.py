@@ -70,6 +70,9 @@ class LocalOAuthArtifactCurrencyTests(LocalContractCase):
 
         controller.oauth_service = Service()
         controller.chat_turn_service.oauth_service = controller.oauth_service
+        controller.chat_turn_service.oauth_pkce = SimpleNamespace(
+            inspect_callback=lambda **_binding: SimpleNamespace(team_id="team_1")
+        )
         callback = {
             "state": "s" * 43,
             "claim": "a" * 64,
@@ -362,6 +365,8 @@ class LocalOAuthIntegrationTests(unittest.TestCase):
         controller = object.__new__(local_app.LocalController)
         controller.integration_challenges = challenges
         controller.oauth_service = Service()
+        controller._locks = (threading.RLock(),)
+        controller.oauth_pkce = SimpleNamespace(inspect_callback=lambda **_binding: SimpleNamespace(team_id="team_1"))
         controller._wire_collaborators()
         controller.chat_turn_service._current_integration_declaration = lambda *_args: None
 

@@ -492,6 +492,10 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
             with self.subTest(operation=operation.__name__):
                 subject = types.SimpleNamespace(
                     oauth_service=types.SimpleNamespace(**{method: mock.Mock(side_effect=failure)}),
+                    oauth_pkce=types.SimpleNamespace(
+                        inspect_callback=lambda **_binding: types.SimpleNamespace(team_id="team_1")
+                    ),
+                    _lock=lambda _team_id: nullcontext(),
                     _current_integration_declaration=mock.Mock(),
                 )
                 with self.assertRaises(local_app.ApiProblem) as caught:
