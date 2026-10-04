@@ -44,12 +44,18 @@ class ChallengeStore[PendingT]:
         capacity: int = MAX_PENDING_CHALLENGES,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        retain_expired: bool = False,
     ) -> None:
         if type(capacity) is not int or not 1 <= capacity <= 1024:
             raise ValueError(f"{contract.label} challenge capacity is invalid")
         if type(ttl_seconds) is not int or not 30 <= ttl_seconds <= 900:
             raise ValueError(f"{contract.label} challenge TTL is invalid")
-        if not callable(contract.pending_type) or not callable(contract.payload_validator) or not callable(clock):
+        if (
+            not callable(contract.pending_type)
+            or not callable(contract.payload_validator)
+            or not callable(clock)
+            or type(retain_expired) is not bool
+        ):
             raise ValueError(f"{contract.label} challenge configuration is invalid")
         self._contract = contract
         self._capacity = capacity
@@ -57,6 +63,9 @@ class ChallengeStore[PendingT]:
         self._clock = clock
         self._pending: dict[str, PendingT] = {}
         self._by_team: dict[str, str] = {}
+        # Expired payloads are kept only for an owning domain that drains them to clean dependent state; any other
+        # store drops them at expiry, so nothing accumulates and nothing outlives its Team.
+        self._retain_expired = retain_expired
         self._expired: list[PendingT] = []
         self._lock = threading.Lock()
 
@@ -200,6 +209,8 @@ class ChallengeStore[PendingT]:
 
     def drain_expired(self) -> tuple[PendingT, ...]:
         """Return expired payloads once so their owning domain can clean dependent state."""
+        if not self._retain_expired:
+            raise self._contract.error_class(f"{self._contract.label} challenges do not retain expired payloads")
         with self._lock:
             self._expire(self._clock())
             expired = tuple(self._expired)
@@ -216,7 +227,8 @@ class ChallengeStore[PendingT]:
         expired = [identifier for identifier, item in self._pending.items() if item.expires_at <= now]
         for identifier in expired:
             challenge = self._pending.pop(identifier)
-            self._expired.append(challenge)
+            if self._retain_expired:
+                self._expired.append(challenge)
             if self._by_team.get(challenge.team_id) == identifier:
                 self._by_team.pop(challenge.team_id, None)
 

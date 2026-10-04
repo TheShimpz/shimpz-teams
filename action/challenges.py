@@ -189,12 +189,14 @@ class HumanChallengeStore(challenge_store.ChallengeStore[PendingHumanChallenge])
         capacity: int = challenge_store.MAX_PENDING_CHALLENGES,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
         clock: Callable[[], float] = time.monotonic,
+        retain_expired: bool = False,
     ) -> None:
         super().__init__(
             _CONTRACT,
             capacity=capacity,
             ttl_seconds=ttl_seconds,
             clock=clock,
+            retain_expired=retain_expired,
         )
 
 

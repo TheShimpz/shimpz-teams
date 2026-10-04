@@ -108,6 +108,8 @@ class AssistantIntegrationChallengeTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "configuration"):
             integration_challenges.challenge_store.ChallengeStore(invalid)
+        with self.assertRaisesRegex(ValueError, "configuration"):
+            integration_challenges.challenge_store.ChallengeStore(contract, retain_expired=1)
 
         store = integration_challenges.IntegrationChallengeStore(capacity=1, ttl_seconds=30)
         with mock.patch.object(
@@ -152,11 +154,25 @@ class AssistantIntegrationChallengeTests(unittest.TestCase):
         self.assertEqual(store._by_team["team_1"], "foreign")
 
         with mock.patch.object(integration_challenges.time, "monotonic", return_value=1.0):
-            expired = store.create("team_2", (requirement(),), object())
+            store.create("team_2", (requirement(),), object())
         store._by_team["team_2"] = "foreign"
         with mock.patch.object(integration_challenges.time, "monotonic", return_value=31.0):
-            self.assertEqual(store.drain_expired(), (expired,))
+            self.assertIsNone(store.current("team_1"))
         self.assertEqual(store._by_team["team_2"], "foreign")
+
+    def test_abandoned_continuations_expire_without_retaining_their_payloads(self) -> None:
+        # No Integration consumer drains expiries, so each abandoned prompt's continuation is dropped at expiry.
+        store = integration_challenges.IntegrationChallengeStore(capacity=1, ttl_seconds=30)
+        for attempt in range(100):
+            with mock.patch.object(integration_challenges.time, "monotonic", return_value=attempt * 31.0):
+                store.create("team_1", (requirement(),), {"continuation": f"private input {attempt}"})
+        with mock.patch.object(integration_challenges.time, "monotonic", return_value=100 * 31.0):
+            self.assertIsNone(store.current("team_1"))
+
+        self.assertFalse(store.cancel_team("team_1"))
+        self.assertNotIn("private input", repr(vars(store)))
+        with self.assertRaisesRegex(integration_challenges.IntegrationChallengeError, "do not retain"):
+            store.drain_expired()
 
 
 if __name__ == "__main__":

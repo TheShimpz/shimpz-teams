@@ -68,7 +68,7 @@ class HumanChallengeTests(unittest.TestCase):
 
     def test_expired_payload_is_drained_once_for_dependent_cleanup(self) -> None:
         clock = [100.0]
-        store = challenges.HumanChallengeStore(ttl_seconds=30, clock=lambda: clock[0])
+        store = challenges.HumanChallengeStore(ttl_seconds=30, clock=lambda: clock[0], retain_expired=True)
         pending = store.create("team_1", requirement(), {"continuation": "opaque"})
         clock[0] = 130.0
 

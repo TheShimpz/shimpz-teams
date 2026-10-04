@@ -177,7 +177,7 @@ _assistant_stored_inputs = action_stored_input.StoredInputStore(
     ASSISTANT_STORED_INPUT_KEY_PATH,
 )
 _integration_challenges = integration_challenges.IntegrationChallengeStore()
-_human_challenges = action_challenges.HumanChallengeStore()
+_human_challenges = action_challenges.HumanChallengeStore(retain_expired=True)
 _dynamic_assistants = dynamic_assistants.DynamicAssistantStore(DYNAMIC_ASSISTANT_PATH)
 _assistant_icons = assistant_icons.AssistantIconStore(DYNAMIC_ASSISTANT_PATH.parent / "icons")
 _integration_pkce = integration_pkce.OAuthPKCEChallengeStore()

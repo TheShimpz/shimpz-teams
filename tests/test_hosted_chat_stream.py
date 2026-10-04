@@ -66,7 +66,9 @@ class HostedChatStreamTests(unittest.TestCase):
         self.addCleanup(self.journal.close)
         self.turns: list[object] = []
         for patcher in (
-            mock.patch.object(runtime_state, "_human_challenges", action_challenges.HumanChallengeStore()),
+            mock.patch.object(
+                runtime_state, "_human_challenges", action_challenges.HumanChallengeStore(retain_expired=True)
+            ),
             mock.patch.object(
                 runtime_state, "_integration_challenges", integration_challenges.IntegrationChallengeStore()
             ),

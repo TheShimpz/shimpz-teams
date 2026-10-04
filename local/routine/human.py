@@ -170,7 +170,6 @@ def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict
 
 
 def current_routine_challenge(self, team_id: str) -> action_challenges.PendingHumanChallenge | None:
-    self.routine_human_challenges.drain_expired()
     return self.routine_human_challenges.current(team_id)
 
 

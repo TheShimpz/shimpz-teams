@@ -52,7 +52,9 @@ class ChatTurnService:
         self.assistant_integrations = dependencies.assistant_integrations
         self.assistant_stored_inputs = dependencies.assistant_stored_inputs
         self.integration_challenges = dependencies.integration_challenges
-        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
+        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore(
+            retain_expired=True
+        )
         self.oauth_pkce = dependencies.oauth_pkce
         self.oauth_service = dependencies.oauth_service
         self.chat_continuations = dependencies.chat_continuations

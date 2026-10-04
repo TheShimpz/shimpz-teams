@@ -319,7 +319,9 @@ class LocalController:
         self.integration_challenges = (
             dependencies.integration_challenges or integration_challenges.IntegrationChallengeStore()
         )
-        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore()
+        self.human_challenges = dependencies.human_challenges or action_challenges.HumanChallengeStore(
+            retain_expired=True
+        )
         self.routine_human_challenges = action_challenges.HumanChallengeStore()
         self.routine_lineage = local_routine_lineage.LineageBook()
         # One book of open recovery cards, shared with chat, so destroying a Team or resetting the Space drops them.
