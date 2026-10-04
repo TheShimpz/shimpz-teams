@@ -367,7 +367,8 @@ def _resume_chat_integrations(
 ) -> dict[str, object]:
     with _exclusive_chat_turn(team_id, lease) as (token, container):
 
-        def inspect(pending: object) -> chat_turn_engine.IntegrationResumeContext:
+        def inspect(challenge: object) -> chat_turn_engine.IntegrationResumeContext:
+            pending = getattr(challenge, "payload", None)
             if not isinstance(pending, hosted_assistants._PendingHostedChat):
                 raise AssertionError("invalid hosted integration continuation")
             _, assistants, _files, _config, _key, _generation, current_identity = (
@@ -409,6 +410,8 @@ def _resume_chat_integrations(
                 contract_error=lambda: runtime_state.ApiError(
                     HTTPStatus.CONFLICT, "Assistant integration contract is unavailable"
                 ),
+                # The turn holds the Team's only execution slot, so no other turn can have paused since.
+                end_drifted=lambda _challenge: runtime_state._integration_challenges.cancel_team(team_id),
             )
         )
         if admission.response is not None:

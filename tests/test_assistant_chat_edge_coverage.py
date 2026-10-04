@@ -202,12 +202,13 @@ class ChatTurnEdgeCoverageTests(unittest.TestCase):
             "challenge_id": "challenge",
             "pending_valid": lambda _pending: True,
             "pending_identity": lambda _pending: ("identity",),
-            "inspect": lambda _pending: chat_turn.IntegrationResumeContext(("identity",), (), ()),
+            "inspect": lambda _challenge: chat_turn.IntegrationResumeContext(("identity",), (), ()),
             "integration_store": object(),
             "challenge_response": lambda _challenge: "response",
             "expired_error": lambda: RuntimeError("expired"),
             "context_error": lambda: RuntimeError("context"),
             "contract_error": lambda: RuntimeError("contract"),
+            "end_drifted": mock.Mock(),
         }
         values.update(overrides)
         return chat_turn.IntegrationResumeStrategy(**values)
@@ -223,14 +224,15 @@ class ChatTurnEdgeCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "context"):
             chat_turn.admit_integration_resume(self._resume_strategy(store, pending_valid=lambda _pending: False))
 
+        drifted = self._resume_strategy(
+            store,
+            inspect=lambda _challenge: chat_turn.IntegrationResumeContext(("changed",), (), ()),
+        )
         with self.assertRaisesRegex(RuntimeError, "context"):
-            chat_turn.admit_integration_resume(
-                self._resume_strategy(
-                    store,
-                    inspect=lambda _pending: chat_turn.IntegrationResumeContext(("changed",), (), ()),
-                )
-            )
-        store.cancel_team.assert_called_once_with("team_1")
+            chat_turn.admit_integration_resume(drifted)
+        # Exactly the inspected challenge's turn ends; the Controller decides what that turn holds.
+        drifted.end_drifted.assert_called_once_with(challenge)
+        store.cancel_team.assert_not_called()
 
     def test_integration_resume_handles_contract_missing_and_one_use_outcomes(self) -> None:
         challenge = SimpleNamespace(id="challenge", payload=object())

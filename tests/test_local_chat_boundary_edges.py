@@ -15,11 +15,13 @@ from action import stored_input as action_stored_input
 from chat import orchestrator as chat_orchestrator
 from chat import turn as chat_turn_engine
 from inference import client as brain_runtime_client
+from integrations import challenges as integration_challenges
 from integrations import flow as integration_flow
 from local import app as local_app
 from local.chat import api as local_chat_api
 from local.chat import execution as local_chat_execution
 from local.chat import human as local_chat_human
+from local.chat import pause as local_chat_pause
 from local.chat.types import PendingLocalChat, ResponseRequest
 
 
@@ -138,6 +140,34 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "team-context-changed")
         self.assertEqual(events, ["withdraw", ("delete", "challenge"), ("purge", True)])
 
+    def test_a_drifted_integration_turn_ends_with_its_oauth_state_before_its_continuation(self) -> None:
+        challenge = integration_challenges.PendingIntegrationChallenge("challenge", "team_1", 10, (), _pending())
+        events: list[object] = []
+        live: list[object] = [challenge]
+        subject = types.SimpleNamespace(
+            integration_challenges=types.SimpleNamespace(
+                current=lambda _team_id: live[0], withdraw_team=lambda _team_id: events.append("withdraw")
+            ),
+            oauth_pkce=types.SimpleNamespace(cancel_team=lambda _team_id: events.append("oauth")),
+            _delete_withdrawn_continuation=lambda _team_id, item: events.append(("delete", item.id)),
+        )
+        with self.assertRaises(AssertionError):
+            local_chat_pause._end_drifted_turn(subject, "team_1", object())
+
+        with self.assertRaises(local_app.ApiProblem) as caught:
+            local_chat_pause._end_drifted_turn(subject, "team_1", challenge)
+        self.assertEqual(caught.exception.code, "team-context-changed")
+        self.assertEqual(events, ["withdraw", "oauth", ("delete", "challenge")])
+
+        # A challenge no longer live, or another turn's, has another owner: nothing of it or its Team is touched.
+        for stale in (None, dataclasses.replace(challenge, id="newer")):
+            events.clear()
+            live[0] = stale
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                local_chat_pause._end_drifted_turn(subject, "team_1", challenge)
+            self.assertEqual(caught.exception.code, "team-context-changed")
+            self.assertEqual(events, [])
+
     def test_invalid_submitted_human_response_is_not_claimed(self) -> None:
         pending = _pending()
         challenge = _challenge(pending)
@@ -168,7 +198,8 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
 class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
     def test_pending_continuation_prefers_human_then_integration(self) -> None:
         human = types.SimpleNamespace(requirement=types.SimpleNamespace(copy=types.SimpleNamespace(locale="fr")))
-        integration = object()
+        pending = types.SimpleNamespace(provider="anthropic", identity=("identity",))
+        integration = types.SimpleNamespace(payload=pending)
         # Every reopening is validated against the binding, even one that keeps the challenge's own language.
         relocalized = mock.Mock(side_effect=lambda challenge, _locale: challenge)
         subject = types.SimpleNamespace(
@@ -179,6 +210,7 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
             _relocalized_human=relocalized,
             _human_response=lambda value: {"human": value},
             _integration_response=lambda value: {"integration": value},
+            _chat_identity=lambda *current: current,
         )
         self.assertEqual(
             local_chat_api._pending_chat_continuation(subject, "team_1"),
@@ -187,10 +219,15 @@ class LocalChatApiBoundaryEdgeTests(unittest.TestCase):
         self.assertEqual(local_chat_api._pending_chat_continuation(subject, "team_1", "pt"), {"human": human})
         self.assertEqual(relocalized.call_args_list, [mock.call(human, "fr"), mock.call(human, "pt")])
         subject.human_challenges.current = lambda _team_id: None
-        self.assertEqual(
-            local_chat_api._pending_chat_continuation(subject, "team_1"),
-            {"integration": integration},
-        )
+        # The Integration gate is validated against the provider and context its own turn paused with.
+        with mock.patch.object(
+            local_chat_api.local_chat_pause, "_paused_setup", return_value=(pending, ("identity",))
+        ) as setup:
+            self.assertEqual(
+                local_chat_api._pending_chat_continuation(subject, "team_1"),
+                {"integration": integration},
+            )
+        setup.assert_called_once_with(subject, "team_1", "anthropic", integration)
 
     def test_segment_dispatch_rejects_invalid_state_and_terminal_conflict(self) -> None:
         segment = types.SimpleNamespace(

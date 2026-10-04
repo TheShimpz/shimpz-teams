@@ -10,6 +10,7 @@ from chat import turn as chat_turn_engine
 from inference import config as inference_config
 from inference import usage as brain_usage
 from local import audit as local_audit
+from local.chat import pause as local_chat_pause
 from local.chat.segment import SegmentRequest as _ChatSegmentRequest
 from local.chat.types import PendingLocalChat as _PendingLocalChat
 from local.chat.types import ResponseRequest as _ResponseRequest
@@ -27,7 +28,7 @@ MAX_CHAT_MESSAGE_CHARS = 16_000
 def _pending_chat_continuation(self, team_id: str, locale: str | None = None) -> dict[str, object] | None:
     """The Team's pending challenge; a human one is returned in the chat's interface language when it names one.
 
-    Either way the human challenge is validated against the binding the turn left before it is returned.
+    Either challenge is validated against the context the turn left before it is returned; a drifted one ends its turn.
     """
     self._expire_human_challenges()
     # The live challenge is read and validated under one Team lock, so an opening cannot reissue it in between.
@@ -36,9 +37,15 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
         if existing_human is not None:
             # A chat without an interface language keeps the challenge's language but still validates its binding.
             existing_human = self._relocalized_human(existing_human, locale or existing_human.requirement.copy.locale)
+        existing_integration = None if existing_human is not None else self.integration_challenges.current(team_id)
+        if existing_integration is not None:
+            pending, current = local_chat_pause._paused_setup(
+                self, team_id, existing_integration.payload.provider, existing_integration
+            )
+            if self._chat_identity(*current) != pending.identity:
+                local_chat_pause._end_drifted_turn(self, team_id, existing_integration)
     if existing_human is not None:
         return self._human_response(existing_human)
-    existing_integration = self.integration_challenges.current(team_id)
     if existing_integration is not None:
         return self._integration_response(existing_integration)
     return None
@@ -265,10 +272,8 @@ def resume_chat_integrations(
     with self._exclusive_chat_turn(team_id) as token:
         with self._lock(team_id):
 
-            def inspect(pending: object) -> chat_turn_engine.IntegrationResumeContext:
-                if not isinstance(pending, _PendingLocalChat):
-                    raise AssertionError("invalid local integration continuation")
-                current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
+            def inspect(challenge: object) -> chat_turn_engine.IntegrationResumeContext:
+                pending, current = local_chat_pause._paused_setup(self, team_id, provider, challenge)
                 bindings = {active.spec.assistant_id: active for active in current[2]}
                 return chat_turn_engine.IntegrationResumeContext(
                     self._chat_identity(*current),
@@ -281,9 +286,7 @@ def resume_chat_integrations(
                     store=self.integration_challenges,
                     team_id=team_id,
                     challenge_id=challenge_id,
-                    pending_valid=lambda pending: (
-                        isinstance(pending, _PendingLocalChat) and pending.provider == provider
-                    ),
+                    pending_valid=lambda pending: isinstance(pending, _PendingLocalChat),
                     pending_identity=lambda pending: pending.identity,
                     inspect=inspect,
                     integration_store=self.assistant_integrations,
@@ -303,7 +306,7 @@ def resume_chat_integrations(
                         "Assistant integration contract is unavailable",
                         code="assistant-integration-contract-invalid",
                     ),
-                    cancel_extra=lambda: self.oauth_pkce.cancel_team(team_id),
+                    end_drifted=lambda challenge: local_chat_pause._end_drifted_turn(self, team_id, challenge),
                 )
             )
             if admission.response is not None:

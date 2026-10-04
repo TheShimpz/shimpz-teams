@@ -98,7 +98,7 @@ class IntegrationResumeStrategy:
     expired_error: Callable[[], BaseException]
     context_error: Callable[[], BaseException]
     contract_error: Callable[[], BaseException]
-    cancel_extra: Callable[[], None] = lambda: None
+    end_drifted: Callable[[object], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,10 +131,10 @@ def admit_integration_resume(strategy: IntegrationResumeStrategy) -> Integration
     pending = challenge.payload
     if not strategy.pending_valid(pending):
         raise strategy.context_error()
-    context = strategy.inspect(pending)
+    # The challenge itself is inspected, so a Controller can end exactly the paused turn whose context drifted.
+    context = strategy.inspect(challenge)
     if context.identity != strategy.pending_identity(pending):
-        strategy.store.cancel_team(strategy.team_id)
-        strategy.cancel_extra()
+        strategy.end_drifted(challenge)
         raise strategy.context_error()
     try:
         missing = integration_flow.requirements_for_batch(

@@ -1,6 +1,7 @@
 """Local chat suspension and challenge response operations."""
 
 from http import HTTPStatus
+from typing import NoReturn
 
 from action import challenges as action_challenges
 from action import human as action_human
@@ -171,3 +172,54 @@ def _pause_integration(
             raise
         self._commit_suspension(team_id, token, outcome, payload, self.integration_challenges, challenge.id)
     return self._integration_response(challenge)
+
+
+def _end_drifted_turn(self, team_id: str, challenge: object) -> NoReturn:
+    """End exactly the paused turn whose context drifted: its live challenge, its continuation, and what it holds.
+
+    The caller holds the Team lock, so no other turn can replace the live challenge between the check and the
+    withdrawal; expiry may still remove it, and then this ends nothing. A human
+    turn holds its Action batch. An Integration turn may hold OAuth state, which only a live challenge can start under
+    this same lock; as on Stop, the Team's OAuth state is cancelled, before the continuation is deleted, so a failed
+    deletion, which is reported, never leaves an authorization of the ended turn completable.
+    """
+    human = isinstance(challenge, action_challenges.PendingHumanChallenge)
+    if not human and not isinstance(challenge, integration_challenges.PendingIntegrationChallenge):
+        raise AssertionError("invalid local paused challenge")
+    store = self.human_challenges if human else self.integration_challenges
+    live = store.current(team_id)
+    # A challenge that is no longer live has another owner: Stop or expiry ended it, a claimed answer is replaying its
+    # turn, or an opening reissued it with the same batch. Nothing of it is touched here.
+    if live is not None and live.id == challenge.id:
+        store.withdraw_team(team_id)
+        if not human:
+            self.oauth_pkce.cancel_team(team_id)
+        self._delete_withdrawn_continuation(team_id, challenge)
+        if human:
+            self._purge_human_pending(challenge.payload)
+    raise ApiProblem(
+        HTTPStatus.CONFLICT,
+        "Team capabilities changed; retry",
+        code="team-context-changed",
+    )
+
+
+def _paused_setup(self, team_id: str, provider: str, challenge: object) -> tuple[_PendingLocalChat, tuple[object, ...]]:
+    """The paused turn's continuation and the Team's chat setup, ending the turn when its provider changed.
+
+    A provider other than the one the turn paused with is proven drift, whether it is the request's or the Team's
+    configured one; any other setup failure may be transient, so the paused turn stays answerable. The caller compares
+    the setup's identity with the turn's.
+    """
+    pending = getattr(challenge, "payload", None)
+    if not isinstance(pending, _PendingLocalChat):
+        raise AssertionError("invalid local paused continuation")
+    if pending.provider != provider:
+        _end_drifted_turn(self, team_id, challenge)
+    try:
+        current = self._chat_setup(team_id, list(pending.file_ids), provider, pending.assistant_ids)
+    except ApiProblem as exc:
+        if exc.code != "inference-provider-mismatch":
+            raise
+        _end_drifted_turn(self, team_id, challenge)
+    return pending, current

@@ -267,8 +267,12 @@ class HostedChatApiEdgeTests(unittest.TestCase):
         active = SimpleNamespace(assistant_id="assistant")
 
         def valid_inspect(strategy):
-            inspected = strategy.inspect(pending)
+            inspected = strategy.inspect(SimpleNamespace(payload=pending))
             self.assertEqual(inspected.identity, ("current",))
+            # A drifted turn ends with the Team's challenge; the held execution slot means none paused since.
+            with mock.patch.object(state._integration_challenges, "cancel_team") as cancel:
+                strategy.end_drifted(object())
+            cancel.assert_called_once_with("team_1")
             return SimpleNamespace(response={"inspected": True}, pending=None)
 
         with (
