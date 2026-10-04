@@ -1,12 +1,14 @@
 """Hosted attachment preparation helpers (ADR-0093).
 
 A Hosted helper runs under gVisor beside the Team's other hard-limited resources: its memory is reserved against the
-global and Owner budgets for its whole life, it is labeled for capacity inventory, and Team teardown removes it.
+global and Owner budgets for its whole life, it is labeled for capacity inventory, and Team teardown removes it. The
+controller's own share of each preparation is bounded separately, by a controller-wide admission.
 """
 
 from __future__ import annotations
 
 import secrets
+import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
@@ -23,6 +25,11 @@ from prepare import service as preparation
 RUNTIME_LABEL = "team.prepare.runtime"
 # Each helper's own capacity key, so a residual helper is never hidden behind a later helper's reservation.
 KEY_LABEL = "team.prepare.key"
+# Helper reservations account for helper containers, not for the controller's 1 GiB. Each preparation holds one original
+# of up to 8 MiB, its copy in the helper request frame, the helper's answer, and the message's prepared content: about
+# 20 MiB at most. Four at a time keep that under a tenth of the controller, however many the Team quotas admit.
+MAX_CONCURRENT_PREPARATIONS = 4
+_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_PREPARATIONS)
 
 
 def helper_kwargs(client: object, *, team_id: str, owner: str, key: str) -> dict[str, object]:
@@ -83,9 +90,19 @@ def prepare_attachments(
     owner: str,
     started: Callable[[object], None] = lambda _container: None,
     stopped: Callable[[object], None] = lambda _container: None,
+    interrupt: Callable[[], None] = lambda: None,
 ) -> tuple[preparation.Attachment, ...]:
-    """Prepare one message's files, holding a reserved helper only while images or PDFs need it."""
-    return preparation.prepare_attachments(files, lambda: helper(team_id, owner, started=started, stopped=stopped))
+    """Prepare one message's files, holding a reserved helper only while images or PDFs need it.
+
+    The controller-wide admission is held from before the first original is read until the helper is gone;
+    ``interrupt`` raises once the turn is stopped, so a stopped turn leaves the wait at once and reads no further file.
+    """
+    return preparation.prepare_attachments(
+        files,
+        lambda: helper(team_id, owner, started=started, stopped=stopped),
+        preparation.admission(_SLOTS, interrupt),
+        interrupt,
+    )
 
 
 def remove_helpers(team_id: str) -> bool:

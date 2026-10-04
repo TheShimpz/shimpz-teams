@@ -23,8 +23,6 @@ from prepare import service as preparation
 
 KIND = "prepare"
 _SERIAL = threading.Lock()
-# How often a turn waiting for the controller-wide admission notices that it was stopped.
-_ADMISSION_POLL_SECONDS = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,17 +94,6 @@ def helper(
         yield session
 
 
-@contextmanager
-def _admission(interrupt: Callable[[], None]) -> Iterator[None]:
-    """Wait for the controller-wide admission, leaving the wait as soon as ``interrupt`` raises."""
-    while not _SERIAL.acquire(timeout=_ADMISSION_POLL_SECONDS):
-        interrupt()
-    try:
-        yield
-    finally:
-        _SERIAL.release()
-
-
 def prepare_attachments(
     client: object,
     files: list[preparation.StoredFile],
@@ -131,7 +118,7 @@ def prepare_attachments(
             started=stop.started,
             stopped=stop.stopped,
         ),
-        _admission(stop.interrupt),
+        preparation.admission(_SERIAL, stop.interrupt),
         stop.interrupt,
     )
 

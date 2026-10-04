@@ -24,6 +24,11 @@ def turn_attachments(
     if not files:
         return ()
     storage = runtime_state._storage()
+
+    def interrupt() -> None:
+        if runtime_state._token_cancelled(token):
+            raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
+
     try:
         prepared = hosted_prepare.prepare_attachments(
             chat_attachments.stored_files(files, lambda file_id: storage.get(team_id, file_id)),
@@ -32,6 +37,7 @@ def turn_attachments(
             # Stop reaches a helper exactly as it reaches an Action workload: the chat's one active container slot.
             started=lambda container: hosted_assistants._register_active_action(team_id, token, container),
             stopped=lambda container: hosted_assistants._release_active_action(team_id, token, container.id),
+            interrupt=interrupt,
         )
     except preparation.AttachmentLimitError as exc:
         raise runtime_state.ApiError(
@@ -45,6 +51,5 @@ def turn_attachments(
         raise runtime_state.ApiError(HTTPStatus.NOT_FOUND, "selected file not found") from exc
     except team_storage.StorageError as exc:
         raise runtime_state.ApiError(HTTPStatus.SERVICE_UNAVAILABLE, "Team storage failed its safety checks") from exc
-    if runtime_state._token_cancelled(token):
-        raise runtime_state.ApiError(HTTPStatus.CONFLICT, "brain turn stopped")
+    interrupt()
     return chat_attachments.wire(prepared)

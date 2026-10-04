@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hosted_assistant_fixture as harness
 
 from prepare import limits
+from prepare import service as preparation
 
 # The harness loads the Hosted app with its Docker and state stubs; use the module that app loaded.
 hosted_prepare = harness.hosted_lifecycle.hosted_prepare
@@ -88,9 +90,70 @@ class HostedPrepareTests(unittest.TestCase):
     def test_prepare_attachments_uses_the_reserved_helper(self) -> None:
         with mock.patch.object(hosted_prepare.preparation, "prepare_attachments", return_value=()) as prepare:
             self.assertEqual(hosted_prepare.prepare_attachments([], team_id="team_1", owner="account_1"), ())
-        files, factory = prepare.call_args.args
+        files, factory, admission, interrupt = prepare.call_args.args
         self.assertEqual(files, [])
         self.assertTrue(callable(factory))
+        self.assertTrue(hasattr(admission, "__enter__"))
+        self.assertIsNone(interrupt())
+
+    def test_the_controller_admits_a_bounded_number_of_preparations_before_any_original_is_read(self) -> None:
+        bound = hosted_prepare.MAX_CONCURRENT_PREPARATIONS
+        release = threading.Event()
+        reads: list[str] = []
+        guard = threading.Lock()
+        all_bound_read = threading.Event()
+
+        def text_file(label: str) -> preparation.StoredFile:
+            def read() -> bytes:
+                with guard:
+                    reads.append(label)
+                    if len(reads) == bound:
+                        all_bound_read.set()
+                release.wait(5)
+                return b"plain text"
+
+            return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
+
+        turns = [
+            threading.Thread(
+                target=hosted_prepare.prepare_attachments,
+                args=([text_file(chr(ord("a") + index))],),
+                kwargs={"team_id": f"team_{index}", "owner": f"account_{index}"},
+            )
+            for index in range(bound + 1)
+        ]
+        for turn in turns[:bound]:
+            turn.start()
+        self.assertTrue(all_bound_read.wait(5))
+        turns[bound].start()
+        turns[bound].join(0.3)
+        # The extra turn waits for a slot without reading its original.
+        self.assertEqual(len(reads), bound)
+        release.set()
+        for turn in turns:
+            turn.join(5)
+        self.assertEqual(len(reads), bound + 1)
+
+    def test_a_turn_stopped_while_waiting_for_admission_leaves_at_once_and_reads_nothing(self) -> None:
+        class StoppedError(Exception):
+            pass
+
+        read = mock.Mock(return_value=b"plain text")
+        busy = threading.BoundedSemaphore(1)
+        busy.acquire()
+
+        def interrupt() -> None:
+            raise StoppedError
+
+        with mock.patch.object(hosted_prepare, "_SLOTS", busy), self.assertRaises(StoppedError):
+            hosted_prepare.prepare_attachments(
+                [preparation.StoredFile("a" * 32, "a.txt", 10, "0" * 64, read)],
+                team_id="team_1",
+                owner="account_1",
+                interrupt=interrupt,
+            )
+        read.assert_not_called()
+        busy.release()
 
     def test_a_clean_team_starts_its_helper_and_teardown_delegates_removal(self) -> None:
         container = SimpleNamespace(id="helper-1", start=mock.Mock(), remove=mock.Mock())

@@ -11,8 +11,9 @@ import base64
 import binascii
 import hashlib
 import json
-from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager, ExitStack
+import threading
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from dataclasses import dataclass
 
 from prepare import detect, limits
@@ -25,6 +26,8 @@ _SOURCE_LIMITS = {
     detect.IMAGE: limits.MAX_IMAGE_BYTES,
 }
 _MAX_SOURCE_BYTES = max(_SOURCE_LIMITS.values())
+# How often a turn waiting for its controller's preparation admission notices that it was stopped.
+ADMISSION_POLL_SECONDS = 0.1
 
 
 class AttachmentLimitError(ValueError):
@@ -70,6 +73,17 @@ class Attachment:
             "sha256": self.sha256,
             "content": dict(self.content),
         }
+
+
+@contextmanager
+def admission(slots: threading.Lock | threading.Semaphore, interrupt: Callable[[], None]) -> Iterator[None]:
+    """Hold one of a controller's preparation slots, leaving the wait as soon as ``interrupt`` raises."""
+    while not slots.acquire(timeout=ADMISSION_POLL_SECONDS):
+        interrupt()
+    try:
+        yield
+    finally:
+        slots.release()
 
 
 def prepare_attachments(

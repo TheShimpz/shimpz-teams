@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -68,6 +69,25 @@ class HostedTurnAttachmentTests(unittest.TestCase):
             self.assertRaises(state.ApiError),
         ):
             hosted_attachments.turn_attachments("team_1", "token", "account_1", FILES)
+
+    def test_a_stopped_turn_waiting_for_a_preparation_slot_is_refused_before_any_file_is_read(self) -> None:
+        reads: list[str] = []
+        storage = SimpleNamespace(
+            get=lambda _team_id, file_id: reads.append(file_id) or ({"sha256": "f" * 64, "size": 5}, b"notes")
+        )
+        busy = threading.BoundedSemaphore(1)
+        busy.acquire()
+        self.addCleanup(busy.release)
+        state._cancelled_chat_tokens.add("token")
+        self.addCleanup(state._cancelled_chat_tokens.discard, "token")
+        with (
+            mock.patch.object(state, "_storage", lambda: storage),
+            mock.patch.object(hosted_attachments.hosted_prepare, "_SLOTS", busy),
+            self.assertRaises(state.ApiError) as raised,
+        ):
+            hosted_attachments.turn_attachments("team_1", "token", "account_1", FILES)
+        self.assertEqual(int(raised.exception.status), 409)
+        self.assertEqual(reads, [])
 
 
 if __name__ == "__main__":
