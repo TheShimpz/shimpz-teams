@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import hashlib
+import json
 import unittest
+from unittest import mock
 
 from assistant import spec as assistant_registry
 from local.chat import segment as local_chat_segment
@@ -184,6 +187,24 @@ class RoutinePinTests(unittest.TestCase):
             routine_pin.action_pin(unverified, "create-record", "pt"),
             routine_pin.action_pin(_spec(), "create-record", "pt"),
         )
+
+    def test_the_scope_pin_digests_the_catalog_once_and_holds_every_action_pin(self) -> None:
+        brain = "sha256:" + "0" * 64
+        digest = routine_pin.catalog_validator.catalog_digest
+        with mock.patch.object(routine_pin.catalog_validator, "catalog_digest", wraps=digest) as counted:
+            scope = routine_pin.assistant_pin(_spec(), brain)
+        counted.assert_called_once_with(_spec().machine_contract["messages"])
+        # Byte for byte the scope of each Action's own complete pin in the fixed scope locale.
+        document = {
+            "format": routine_pin.SCOPE_FORMAT,
+            "brain": brain,
+            "actions": {
+                action_id: routine_pin.action_pin(_spec(), action_id, routine_pin.SCOPE_LOCALE)
+                for action_id in ("create-record", "find-record", "list-zones")
+            },
+        }
+        encoded = json.dumps(document, sort_keys=True, separators=(",", ":")).encode("ascii")
+        self.assertEqual(scope, "sha256:" + hashlib.sha256(encoded).hexdigest())
 
     def test_a_routine_scope_detects_drift_its_brain_contract_cannot_see(self) -> None:
         active = ActiveAssistant(_spec(), "container")

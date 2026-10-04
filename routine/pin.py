@@ -28,9 +28,42 @@ class PinError(ValueError):
 
 def action_pin(spec: object, action_id: str, locale: str) -> str:
     """The ``sha256:`` pin of one Action of one installed Assistant, rendered in ``locale``."""
+    return _action_pin(spec, _actions(spec), _catalog(spec), action_id, locale)
+
+
+def assistant_pin(spec: object, brain_digest: str) -> str:
+    """The ``sha256:`` scope pin of one Assistant: its Brain-visible contract and every Action's complete pin.
+
+    A Routine pins the Assistants it may use with it, so a changed image, output schema, effect, verifier,
+    idempotency, capability, catalog, or pack is drift exactly as a changed input schema is. The Action index and the
+    catalog digest are computed once and shared by every Action's pin, which stays byte for byte its ``action_pin``.
+    """
+    actions = _actions(spec)
+    catalog = _catalog(spec)
+    document = {
+        "format": SCOPE_FORMAT,
+        "brain": brain_digest,
+        "actions": {
+            action_id: _action_pin(spec, actions, catalog, action_id, SCOPE_LOCALE) for action_id in sorted(actions)
+        },
+    }
+    encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()
+
+
+def _actions(spec: object) -> Mapping[str, Mapping[str, object]]:
+    return {action["id"]: action for action in spec.machine_contract["actions"]}
+
+
+def _catalog(spec: object) -> str:
+    return catalog_validator.catalog_digest(spec.machine_contract["messages"])
+
+
+def _action_pin(
+    spec: object, actions: Mapping[str, Mapping[str, object]], catalog: str, action_id: str, locale: str
+) -> str:
     if locale not in http_payload.CHAT_LOCALES:
         raise PinError("Routine locale is invalid")
-    actions = {action["id"]: action for action in spec.machine_contract["actions"]}
     action = actions.get(action_id)
     if action is None:
         raise PinError("Routine Action is not declared")
@@ -49,28 +82,12 @@ def action_pin(spec: object, action_id: str, locale: str) -> str:
         "verifier": None if verifier is None else pinned[1],
         "integrations": {name: _integration(spec.integrations[name]) for name in integrations},
         "stored_inputs": {name: _stored_input(spec.stored_inputs[name]) for name in stored_inputs},
-        "catalog": catalog_validator.catalog_digest(spec.machine_contract["messages"]),
+        "catalog": catalog,
         "pack": spec.pack_digest,
         "locale": locale,
     }
     encoded = json.dumps(document, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def assistant_pin(spec: object, brain_digest: str) -> str:
-    """The ``sha256:`` scope pin of one Assistant: its Brain-visible contract and every Action's complete pin.
-
-    A Routine pins the Assistants it may use with it, so a changed image, output schema, effect, verifier,
-    idempotency, capability, catalog, or pack is drift exactly as a changed input schema is.
-    """
-    actions = sorted(action["id"] for action in spec.machine_contract["actions"])
-    document = {
-        "format": SCOPE_FORMAT,
-        "brain": brain_digest,
-        "actions": {action_id: action_pin(spec, action_id, SCOPE_LOCALE) for action_id in actions},
-    }
-    encoded = json.dumps(document, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(encoded.encode("ascii")).hexdigest()
 
 
 def _integration(declaration: object) -> Mapping[str, object]:
