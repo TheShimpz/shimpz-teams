@@ -4,7 +4,7 @@ import dataclasses
 import unittest
 
 from action import human as action_human
-from action import journal as action_journal
+from action import result as action_result
 from chat import orchestrator as chat_orchestrator
 from inference import client as brain_runtime_client
 from tests import human_request_fixtures
@@ -339,7 +339,7 @@ class ChatOrchestratorTests(unittest.TestCase):
 
     def test_a_batch_whose_worst_case_results_cannot_fit_one_resume_fails_before_any_invocation(self):
         invoked = []
-        capacity = brain_runtime_client.resume_capacity(context(), action_journal.MAX_RESULT_BYTES)
+        capacity = brain_runtime_client.resume_capacity(context(), action_result.MAX_RESULT_BYTES)
         self.assertEqual(capacity, 7)
         with self.assertRaisesRegex(chat_orchestrator.ChatOrchestrationError, "exceed the Brain request"):
             chat_orchestrator.run(
@@ -353,7 +353,7 @@ class ChatOrchestratorTests(unittest.TestCase):
         heavy = dataclasses.replace(
             context(), attachments=({"id": "a" * 32, "content": {"type": "opaque", "pad": "x" * 1_400_000}},)
         )
-        self.assertEqual(brain_runtime_client.resume_capacity(heavy, action_journal.MAX_RESULT_BYTES), 5)
+        self.assertEqual(brain_runtime_client.resume_capacity(heavy, action_result.MAX_RESULT_BYTES), 5)
 
     def test_undeclared_action_fails_before_invocation(self):
         invoked = []

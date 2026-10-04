@@ -24,6 +24,7 @@ from hosted_assistant_fixture import hosted_assistants, runtime_state
 from action import execution as action_execution
 from action import human as action_human
 from action import journal as action_journal
+from action import result as action_result
 from action import stored_input as action_stored_input
 from hosted import container as container_spec
 from inference import client as brain_runtime_client
@@ -296,7 +297,7 @@ class ActionRpcFrameTests(unittest.TestCase):
             action_execution.decode_rpc_response(b'{"type":"result","result":{"n":1E400}}')
         frames = (
             b'{"type":"result","result":{"items":[' + b",".join([b"0"] * 5000) + b"]}}",
-            b'{"type":"result","result":{"text":"' + b"x" * action_journal.MAX_RESULT_BYTES + b'"}}',
+            b'{"type":"result","result":{"text":"' + b"x" * action_result.MAX_RESULT_BYTES + b'"}}',
         )
         for frame in frames:
             with self.subTest(size=len(frame)), self.assertRaises(action_execution.RpcInvalidResultError):

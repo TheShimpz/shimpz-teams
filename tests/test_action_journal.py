@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 import multiprocessing
 import os
 import sqlite3
@@ -14,6 +13,7 @@ from unittest import mock
 
 from action import execution as action_execution
 from action import journal as action_journal
+from action import result as action_result
 
 
 def operation(interrupt_id: str, value: str) -> action_journal.Operation:
@@ -554,27 +554,17 @@ class ActionJournalTests(unittest.TestCase):
             action_journal._operation(object())
         with self.assertRaises(action_journal.ActionJournalConflictError):
             action_journal._operation(action_journal.Operation("interrupt", "invalid"))
-
-        for value in (
-            math.inf,
-            {1: "invalid"},
-            object(),
-        ):
-            with self.subTest(value=value), self.assertRaises(action_journal.ActionJournalConflictError):
-                action_journal._walk_json(value)
-        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "structure"):
-            action_journal._walk_json(None, budget=[0])
+        # The journal refuses a result that is not bounded canonical JSON as a conflict.
         with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "canonical"):
             action_journal._canonical_result("\ud800", 100)
-        action_journal._walk_json(1.5)
 
     def test_durable_result_admission_matches_the_rpc_frame_bound(self) -> None:
-        self.assertEqual(action_journal.MAX_RESULT_BYTES, action_execution.MAX_RPC_RESPONSE_BYTES)
-        overhead = len(action_journal._canonical_result({"text": ""}, action_journal.MAX_RESULT_BYTES))
-        fits = {"text": "x" * (action_journal.MAX_RESULT_BYTES - overhead)}
-        action_journal.require_durable_result(fits)
-        with self.assertRaisesRegex(action_journal.ActionJournalConflictError, "size"):
-            action_journal.require_durable_result({"text": fits["text"] + "x"})
+        self.assertEqual(action_result.MAX_RESULT_BYTES, action_execution.MAX_RPC_RESPONSE_BYTES)
+        overhead = len(action_result.canonical({"text": ""}, action_result.MAX_RESULT_BYTES))
+        fits = {"text": "x" * (action_result.MAX_RESULT_BYTES - overhead)}
+        action_result.require_durable(fits)
+        with self.assertRaisesRegex(action_result.ActionResultError, "size"):
+            action_result.require_durable({"text": fits["text"] + "x"})
         journal = self.journal()
         batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
         journal.begin(batch, self.first)

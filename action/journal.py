@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import re
 import sqlite3
@@ -37,6 +36,7 @@ from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from action import result as action_result
 from protocol.http.v1 import payload as http_payload
 
 SCHEMA_VERSION = 2
@@ -45,10 +45,6 @@ MAX_GENERATIONS = 1024
 # Archive markers per Local profile (ADR-0092); they never count against the active generations.
 MAX_ARCHIVED = 4096
 MAX_OPERATIONS = 64
-# Matches the Assistant RPC frame bound; the RPC boundary refuses any result this journal could not admit.
-MAX_RESULT_BYTES = 512 * 1024
-MAX_JSON_DEPTH = 32
-MAX_JSON_NODES = 4096
 # Synchronous FULL syncs the WAL at every commit; this bound keeps the WAL itself small.
 WAL_AUTOCHECKPOINT_PAGES = 32
 
@@ -167,53 +163,11 @@ def _operation(value: object) -> Operation:
     return value
 
 
-def _walk_json(value: object, *, depth: int = 0, budget: list[int] | None = None) -> None:
-    if budget is None:
-        budget = [MAX_JSON_NODES]
-    budget[0] -= 1
-    if budget[0] < 0 or depth > MAX_JSON_DEPTH:
-        raise ActionJournalConflictError("Action result exceeds the JSON structure limit")
-    if value is None or isinstance(value, (bool, str)):
-        return
-    if isinstance(value, int) and not isinstance(value, bool):
-        return
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ActionJournalConflictError("Action result contains a non-finite number")
-        return
-    if isinstance(value, list):
-        for item in value:
-            _walk_json(item, depth=depth + 1, budget=budget)
-        return
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise ActionJournalConflictError("Action result object keys must be strings")
-            _walk_json(item, depth=depth + 1, budget=budget)
-        return
-    raise ActionJournalConflictError("Action result must contain only JSON values")
-
-
 def _canonical_result(value: object, max_bytes: int) -> bytes:
-    _walk_json(value)
     try:
-        encoded = json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError, RecursionError) as exc:
-        raise ActionJournalConflictError("Action result is not canonical JSON") from exc
-    if len(encoded) > max_bytes:
-        raise ActionJournalConflictError("Action result exceeds the durable size limit")
-    return encoded
-
-
-def require_durable_result(value: object) -> None:
-    """Refuse, before any follow-up side effect, a result the journal could not persist."""
-    _canonical_result(value, MAX_RESULT_BYTES)
+        return action_result.canonical(value, max_bytes)
+    except action_result.ActionResultError as exc:
+        raise ActionJournalConflictError(str(exc)) from exc
 
 
 class ActionJournal:
@@ -225,7 +179,7 @@ class ActionJournal:
         *,
         max_generations: int = MAX_GENERATIONS,
         max_operations: int = MAX_OPERATIONS,
-        max_result_bytes: int = MAX_RESULT_BYTES,
+        max_result_bytes: int = action_result.MAX_RESULT_BYTES,
         max_archived: int = MAX_ARCHIVED,
     ) -> None:
         self.path = Path(path)

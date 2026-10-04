@@ -9,7 +9,7 @@ from typing import Any
 
 from action import files as action_files
 from action import human as action_human
-from action import journal as action_journal
+from action import result as action_result
 from chat import attachments as chat_attachments
 from chat import progress as chat_progress
 from inference import client as brain_runtime_client
@@ -188,7 +188,7 @@ def _admit_batch(
     Actions already reserved.
     """
     seen_interrupts, file_actions = admitted
-    capacity = brain_runtime_client.resume_capacity(context, action_journal.MAX_RESULT_BYTES)
+    capacity = brain_runtime_client.resume_capacity(context, action_result.MAX_RESULT_BYTES)
     selected = frozenset(str(item["id"]) for item in context.attachments)
     batch = _validate_batch(turn.actions, declared, strategy.validate_action, capacity, selected)
     if not seen_interrupts.isdisjoint(request.interrupt_id for request in batch):

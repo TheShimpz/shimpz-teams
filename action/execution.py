@@ -21,6 +21,7 @@ from action import failure as action_failure
 from action import files as action_files
 from action import human as action_human
 from action import journal as action_journal
+from action import result as action_result
 from action import stored_input as action_stored_input
 from core import strict_json
 from protocol.assistant.v1.validators import input_file as input_file_validator
@@ -477,8 +478,8 @@ def project_rpc_result(
         raise RpcInvalidResultError
     try:
         result = validate(raw_result["result"])
-        action_journal.require_durable_result(result)
-    except (ValueError, action_journal.ActionJournalConflictError) as exc:
+        action_result.require_durable(result)
+    except ValueError as exc:
         raise RpcInvalidResultError from exc
     return result
 
