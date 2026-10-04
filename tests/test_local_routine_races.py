@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import tempfile
 import threading
 import time
@@ -297,3 +299,63 @@ class StopBeforeRegistrationTests(FrozenCase):
             self.assertEqual(caught.exception.code, "human-request-expired")
             self.assertEqual(self.state(service).runs, ())
             self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+
+
+class ChallengeEndingRaceTests(FrozenCase):
+    """Opening a frozen run's challenge and ending that run serialize, and cancelling never reaches another run's."""
+
+    @contextlib.contextmanager
+    def ending_meanwhile(self, service, end):
+        """Run ``end`` in a second thread started right after an opening's continuation read, then join it.
+
+        The read returns only once that thread finished or is about to wait on the Team lifecycle lock, so the opening
+        either sees the ending done or holds the lock it waits on. Yields the ending's results.
+        """
+        paused = threading.Event()
+        results: list[object] = []
+
+        def ending() -> None:
+            try:
+                results.append(end())
+            finally:
+                paused.set()
+
+        thread = threading.Thread(target=ending)
+        lifecycle = service._lock
+
+        @contextlib.contextmanager
+        def lock(team_id):
+            if threading.current_thread() is thread:
+                paused.set()
+            with lifecycle(team_id):
+                yield
+
+        decoded = routine_human._decoded
+
+        def read(*args):
+            value = decoded(*args)
+            thread.start()
+            self.assertTrue(paused.wait(10))
+            return value
+
+        with mock.patch.object(service, "_lock", lock), mock.patch.object(routine_human, "_decoded", read):
+            yield results
+        thread.join(10)
+
+    def test_a_run_ended_while_its_challenge_opens_never_keeps_a_challenge(self) -> None:
+        endings = {
+            "stop": lambda service, claim: service.stop_routine("team_1", claim["run_id"])["stopped"],
+            "delete": lambda service, claim: service.delete_routine("team_1", claim["routine_id"])["deleted"],
+        }
+        for name, end in endings.items():
+            with self.subTest(ending=name), tempfile.TemporaryDirectory() as directory:
+                service, claim = self.frozen(directory)
+                with (
+                    self.ending_meanwhile(service, functools.partial(end, service, claim)) as results,
+                    contextlib.suppress(local_app.ApiProblem),
+                ):
+                    service.open_routine_challenge("team_1", claim["run_id"], "en")
+                self.assertEqual(results, [True])
+                self.assertIsNone(service.current_routine_challenge("team_1"))
+                self.assertEqual(self.state(service).notices[-1].outcome, "stopped")
+                self.assertEqual(self.state(service).runs, ())

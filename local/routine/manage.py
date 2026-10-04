@@ -181,8 +181,10 @@ def delete_routine(self, team_id: str, routine_id: object) -> dict[str, object]:
         if value.status == "leased":
             self._stop_routine_run(team_id, value.run_id)
         elif value.status == "frozen":
-            self._cancel_routine_challenge(team_id, value.run_id)
-            end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
+            # Serialized with an opening by the Team lifecycle lock, as Stop is: no challenge outlives the run.
+            with self._lock(team_id):
+                self._cancel_routine_challenge(team_id, value.run_id)
+                end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
         # A held run is set aside as its incident is indexed; that ending completes the deletion.
     for incident_id in held:
         # A verification, recovery episode, or Recriar still in progress is stopped; it changes nothing after this.

@@ -137,10 +137,11 @@ def stop_routine(self, team_id: str, run_id: str) -> dict[str, object]:
             "run_id": value.run_id,
             "stopped": routine_run.halt_routine_run(self, team_id, value.run_id),
         }
-    routine_human.cancel_routine_challenge(self, team_id, value.run_id)
-    # A replay may have resumed the frozen run since it was read: then it is running, and Stop reaches its segment.
-    stopped = routine_manage.end_frozen(
-        self, team_id, value.run_id, "stopped", {"actions": []}
-    ) or routine_run.halt_routine_run(self, team_id, value.run_id)
+    # Under the Team lifecycle lock an opening either published its challenge first, and it is withdrawn here, or
+    # finds the run ended. A replay may have resumed the frozen run since it was read: Stop then reaches its segment.
+    with self._lock(team_id):
+        routine_human.cancel_routine_challenge(self, team_id, value.run_id)
+        ended = routine_manage.end_frozen(self, team_id, value.run_id, "stopped", {"actions": []})
+    stopped = ended or routine_run.halt_routine_run(self, team_id, value.run_id)
     routine_manage.settle(self, team_id, value.routine_id)
     return {"team_id": team_id, "run_id": value.run_id, "stopped": stopped}

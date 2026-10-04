@@ -149,12 +149,14 @@ def open_routine_challenge(self, team_id: str, run_id: str, locale: str) -> dict
     language is always a fresh challenge; a purpose from another language is not shown (ADR-0091).
     """
     team_id = validate_team_id(team_id)
-    value, _routine = _frozen(self, team_id, run_id)
-    if value.request_kind != "human":
-        return {"team_id": team_id, "run_id": value.run_id, "status": "integrations-required"}
-    decoded = _decoded(self, team_id, value.run_id)
-    frozen = decoded.requirements[0]
+    # The run's frozen read, its challenge's publication, and a Stop or deletion ending it are serialized by the Team
+    # lifecycle lock, so a run ended meanwhile is never given a challenge and never displaces another run's.
     with self._lock(team_id):
+        value, _routine = _frozen(self, team_id, run_id)
+        if value.request_kind != "human":
+            return {"team_id": team_id, "run_id": value.run_id, "status": "integrations-required"}
+        decoded = _decoded(self, team_id, value.run_id)
+        frozen = decoded.requirements[0]
         assistants = _current_context(self, team_id, value, decoded.pending, frozen)
         active = next(item for item in assistants if item.spec.assistant_id == frozen.assistant_id)
         try:
