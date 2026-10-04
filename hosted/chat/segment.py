@@ -602,7 +602,16 @@ def _pause_hosted_connection(
         challenge = runtime_state._integration_challenges.create(team_id, requirements, pending)
     except integration_challenges.IntegrationChallengeError as exc:
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Assistant integration request is already pending") from exc
-    _commit_hosted_suspension(team_id, token, outcome, pending, runtime_state._integration_challenges)
+    # A failed commit withdraws this gate with the Team's OAuth state, as every end of an Integration gate does: state
+    # an earlier, expired gate started may still be pending.
+    _commit_hosted_suspension(
+        team_id,
+        token,
+        outcome,
+        pending,
+        runtime_state._integration_challenges,
+        lambda: runtime_state._integration_pkce.cancel_team(team_id),
+    )
     return _hosted_integration_challenge_payload(challenge)
 
 

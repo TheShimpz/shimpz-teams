@@ -324,7 +324,7 @@ def _disconnect_oauth_integration(
         hosted_resources._require_current_authorization(team_id, lease, require_isolation=False)
         _current_integration_declaration(team_id, assistant_id, integration_id)
         hosted_chat_human.cancel_pending(team_id)
-        runtime_state._integration_challenges.cancel_team(team_id)
+        hosted_chat_lifecycle.cancel_paused_integration(team_id)
         try:
             disconnected = runtime_state._oauth_integrations.disconnect(team_id, assistant_id, integration_id)
         except integration_service.OAuthIntegrationServiceError as exc:
@@ -414,8 +414,9 @@ def _resume_chat_integrations(
                 contract_error=lambda: runtime_state.ApiError(
                     HTTPStatus.CONFLICT, "Assistant integration contract is unavailable"
                 ),
-                # The turn holds the Team's only execution slot, so no other turn can have paused since.
-                end_drifted=lambda _challenge: runtime_state._integration_challenges.cancel_team(team_id),
+                # The turn holds the Team's only execution slot, so no other turn can have paused since, and no OAuth
+                # start can issue state meanwhile; the drifted turn ends with the OAuth state started for it.
+                end_drifted=lambda _challenge: hosted_chat_lifecycle.cancel_paused_integration(team_id),
             )
         )
         if admission.response is not None:

@@ -303,7 +303,7 @@ class HostedAssistantAdmissionEdgeTests(unittest.TestCase):
         for pruned in (False, True):
             with (
                 mock.patch.object(state._assistant_integrations, "retain_declared", return_value=pruned),
-                mock.patch.object(state._integration_challenges, "cancel_team") as cancel,
+                mock.patch.object(lifecycle.hosted_chat_lifecycle, "cancel_paused_integration") as cancel,
             ):
                 lifecycle._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, SPEC)
             self.assertEqual(cancel.call_count, int(pruned))

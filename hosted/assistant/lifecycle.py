@@ -400,7 +400,8 @@ def _retain_admitted_assistant_integrations(
             "Assistant integration state is unavailable",
         ) from exc
     if pruned:
-        runtime_state._integration_challenges.cancel_team(team_id)
+        # A paused turn may ask for an Integration no longer declared; it ends with the OAuth state started for it.
+        hosted_chat_lifecycle.cancel_paused_integration(team_id)
 
 
 def _retain_admitted_assistant_stored_inputs(

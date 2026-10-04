@@ -319,14 +319,7 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
     def test_admitted_contract_prunes_removed_integrations_and_cancels_paused_turn(self) -> None:
         self._connect()
-        challenge_store = integration_challenges.IntegrationChallengeStore()
-        requirement = integration_challenges.IntegrationRequirement(
-            ASSISTANT_ID,
-            "Shimpz Cloudflare",
-            ("list-zones",),
-            (("cloudflare", "cloudflare", SCOPES),),
-        )
-        challenge_store.create(TEAM_ID, (requirement,), object())
+        challenges, pkce, _paused = self._paused_with_oauth()
         without_integrations = replace(
             harness.HOSTED_SPEC,
             contract=replace(self.contract, integrations={}),
@@ -334,13 +327,77 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
 
         with (
             mock.patch.object(runtime_state, "_assistant_integrations", self.store),
-            mock.patch.object(runtime_state, "_integration_challenges", challenge_store),
+            mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce),
         ):
             assistant_lifecycle._retain_admitted_assistant_integrations(TEAM_ID, ASSISTANT_ID, without_integrations)
 
-        self.assertIsNone(challenge_store.current(TEAM_ID))
+        # The paused turn ends with the OAuth state started for an Integration no longer declared.
+        self._assert_ended(challenges, pkce)
         self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, {}), ())
         self.assertNotIn(ACCESS_TOKEN, self.store.state_path.read_text(encoding="utf-8"))
+
+    def test_a_drifted_resume_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
+        challenges, pkce, paused = self._paused_with_oauth()
+        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
+
+        @contextlib.contextmanager
+        def exclusive(*_args):
+            yield "token", types.SimpleNamespace(id=ANCHOR_ID)
+
+        # The Team context changed since the pause, so the paused turn's identity no longer matches.
+        drifted = ("Marketing", (), [], object(), "key", 1, ("changed",))
+        with (
+            mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce),
+            mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", exclusive),
+            mock.patch.object(hosted_chat_segment, "_hosted_chat_setup", return_value=drifted),
+            self.assertRaises(runtime_state.ApiError) as resumed,
+        ):
+            hosted_chat_api._resume_chat_integrations(TEAM_ID, paused.id, lease)
+
+        self.assertEqual(resumed.exception.status, HTTPStatus.CONFLICT)
+        self._assert_ended(challenges, pkce)
+
+    def test_a_failed_pause_commit_ends_the_teams_pending_oauth_state(self) -> None:
+        challenges, pkce, earlier = self._paused_with_oauth()
+        # The earlier gate expired; the OAuth state it started is still pending when the next turn pauses.
+        challenges.cancel_team(TEAM_ID)
+        continuation = earlier.payload.continuation
+        with (
+            mock.patch.multiple(
+                runtime_state,
+                _integration_challenges=challenges,
+                _integration_pkce=pkce,
+                _commit_chat_terminal=lambda _team_id, _token: False,
+            ),
+            self.assertRaises(runtime_state.ApiError),
+        ):
+            hosted_chat_segment._pause_hosted_connection(
+                TEAM_ID,
+                "token",
+                types.SimpleNamespace(continuation=continuation),
+                earlier.requirements,
+                earlier.payload,
+            )
+
+        self._assert_ended(challenges, pkce)
+
+    def test_disconnect_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
+        challenges, pkce, _paused = self._paused_with_oauth()
+        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
+        with (
+            mock.patch.multiple(
+                runtime_state,
+                _integration_challenges=challenges,
+                _integration_pkce=pkce,
+                _oauth_integrations=types.SimpleNamespace(disconnect=lambda *_args: True),
+            ),
+            mock.patch.object(hosted_resources, "_require_current_authorization"),
+            mock.patch.object(hosted_chat_api, "_current_integration_declaration"),
+        ):
+            disconnected = hosted_chat_api._disconnect_oauth_integration(TEAM_ID, ASSISTANT_ID, "cloudflare", lease)
+
+        self.assertEqual(disconnected, {"disconnected": True})
+        self._assert_ended(challenges, pkce)
 
     def test_authorize_and_callback_expose_no_oauth_private_material(self) -> None:
         challenge_store = integration_challenges.IntegrationChallengeStore()
