@@ -335,6 +335,42 @@ class ActionJournalTests(unittest.TestCase):
         with self.assertRaises(action_journal.ActionJournalConflictError):
             journal.begin(batch, self.first)
 
+    def test_exact_batch_purge_keeps_a_newer_batch_of_the_same_generation(self) -> None:
+        journal = self.journal(max_generations=1)
+        paused = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        # A new turn ends the paused batch, replaces it, and starts its own Action before the old cleanup purges.
+        self.assertTrue(journal.end_settled("generation-1"))
+        newer = journal.prepare_batch("generation-1", "thread-1", [self.second])
+        journal.begin(newer, self.second)
+
+        journal.purge_batch("generation-1", paused.fingerprint)
+
+        self.assertEqual(journal.current_batch("generation-1"), (newer.fingerprint, "open"))
+        self.assertEqual(journal.uncertain_fingerprint("generation-1"), newer.fingerprint)
+        # The exact batch goes in any state, uncertain included, and an absent one is already done.
+        journal.purge_batch("generation-1", newer.fingerprint)
+        journal.purge_batch("generation-1", newer.fingerprint)
+        self.assertIsNone(journal.current_batch("generation-1"))
+        self.assertTrue(
+            journal.begin(journal.prepare_batch("generation-2", "thread-2", [self.first]), self.first).execute
+        )
+
+    def test_exact_batch_purge_refuses_an_invalid_identity(self) -> None:
+        journal = self.journal()
+        batch = journal.prepare_batch("generation-1", "thread-1", [self.first])
+        for generation, fingerprint in (
+            ("generation-1", None),
+            ("generation-1", batch.fingerprint.upper()),
+            ("generation-1", batch.fingerprint[:-1]),
+            ("bad generation", batch.fingerprint),
+        ):
+            with (
+                self.subTest(generation=generation, fingerprint=fingerprint),
+                self.assertRaises(action_journal.ActionJournalConflictError),
+            ):
+                journal.purge_batch(generation, fingerprint)
+        self.assertEqual(journal.current_batch("generation-1"), (batch.fingerprint, "open"))
+
     def test_terminal_abandonment_removes_only_the_exact_uncertain_batch(self) -> None:
         journal = self.journal(max_generations=1)
         uncertain = journal.prepare_batch("generation-1", "thread-1", [self.first])
@@ -755,6 +791,12 @@ class ActionJournalTests(unittest.TestCase):
             journal,
             "DELETE FROM batches",
             lambda: journal.purge("generation"),
+            "purged",
+        )
+        self.assert_sql_failure(
+            journal,
+            "DELETE FROM batches",
+            lambda: journal.purge_batch("generation", "a" * 64),
             "purged",
         )
         self.assert_sql_failure(

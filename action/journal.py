@@ -894,6 +894,20 @@ class ActionJournal:
             self._connection.execute("DELETE FROM batches WHERE generation = ?", (safe_generation,))
         self._forget_generation(safe_generation)
 
+    def purge_batch(self, generation: str, fingerprint: str) -> None:
+        """Remove exactly one batch, whatever its state, as ending its paused turn does; an absent one is done.
+
+        A newer batch of the same generation belongs to a later turn and stays, its uncertain evidence included.
+        """
+        safe_generation = _safe_id(generation, "generation")
+        if not isinstance(fingerprint, str) or http_payload.SHA256_RE.fullmatch(fingerprint) is None:
+            raise ActionJournalConflictError("Action batch fingerprint is invalid")
+        with self._writing("Action batch could not be purged"):
+            self._connection.execute(
+                "DELETE FROM batches WHERE generation = ? AND fingerprint = ?", (safe_generation, fingerprint)
+            )
+        self._forget_generation(safe_generation)
+
     def current_batch(self, generation: str) -> tuple[str, str] | None:
         """The fingerprint and state (open, ended, or archived) of a generation's batch, or None when it holds none."""
         safe_generation = _safe_id(generation, "generation")
