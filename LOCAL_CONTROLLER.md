@@ -82,7 +82,7 @@ metadata-only `trace_id` added at the HTTP boundary.
 | `GET` | `/v1/teams/{team_id}/assistants` | installed Assistant version and status inventory |
 | `POST` | `/v1/teams/{team_id}/assistants` | install one trusted Assistant ID/digest |
 | `DELETE` | `/v1/teams/{team_id}/assistants/{assistant_id}` | uninstall one owned Assistant |
-| `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/actions/{action_id}` | invoke one declared Action directly |
+| `POST` | `/v1/teams/{team_id}/assistants/{assistant_id}/actions/{action_id}` | invoke one declared Action directly; an Action that asks a person refuses with `409` `action-human-request-required` |
 | `GET` | `/v1/teams/{team_id}/files` | list opaque Team file metadata and quota |
 | `POST` | `/v1/teams/{team_id}/files` | upload one bounded base64 object |
 | `DELETE` | `/v1/teams/{team_id}/files/{opaque_id}` | delete one Team-owned object |

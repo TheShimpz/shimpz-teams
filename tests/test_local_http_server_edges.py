@@ -9,6 +9,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from unittest import mock
 
+from action import human as action_human
 from core.http import strict as strict_http
 from integrations import broker as integration_broker
 from local import authority
@@ -17,6 +18,7 @@ from local.http import audit as http_audit
 from local.http import inference as http_inference
 from local.http import server
 from local.http import stream as local_http_stream
+from tests import human_request_fixtures
 
 TEST_TOKEN = "t" * 32
 # SHA-256 of the fixture model key "a" * 32, written out so the test checks the fingerprint the boundary emits
@@ -487,6 +489,34 @@ class HandlerRouteEdgeTests(LocalHttpEdgeHelpers, unittest.TestCase):
         handler._fixed_route = mock.Mock(return_value=None)
         with self.assertRaises(AssertionError):
             handler._route([], self.route("health"))
+
+    def test_direct_action_human_request_is_a_stable_audited_refusal(self) -> None:
+        controller = self.controller()
+        suspension = action_human.HumanRequestSuspensionError(human_request_fixtures.request("approval"))
+        controller.invoke = mock.Mock(side_effect=suspension)
+        handler = self.handler(controller=controller)
+        handler._body = mock.Mock(return_value={"name": "World"})
+        invoke = self.route("assistant-invoke", team_id="team_1", assistant_id="assistant", action_id="hello")
+
+        with (
+            mock.patch.object(server.local_audit, "record_request") as record,
+            self.assertRaises(ApiProblemError) as refused,
+        ):
+            handler._route([], invoke)
+
+        self.assertEqual(
+            (refused.exception.status, refused.exception.code),
+            (HTTPStatus.CONFLICT, "action-human-request-required"),
+        )
+        self.assertIs(refused.exception.__cause__, suspension)
+        controller.invoke.assert_called_once_with("team_1", "assistant", "hello", {"name": "World"})
+        record.assert_called_once_with(
+            "assistant-action",
+            result="denied",
+            team_id="team_1",
+            assistant="assistant",
+            detail="human-request-required:hello",
+        )
 
     def test_chat_capability_plan_uses_the_exact_model_bound_body(self) -> None:
         controller = self.controller()

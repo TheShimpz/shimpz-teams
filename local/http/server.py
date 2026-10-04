@@ -775,8 +775,26 @@ class Handler(BaseHTTPRequestHandler):
         if operation == "assistant-uninstall":
             return controller.assistant_lifecycle.uninstall_assistant(team_id, assistant_id)
         if operation == "assistant-invoke":
-            return controller.invoke(team_id, assistant_id, route.params["action_id"], self._body())
+            return self._invoke_directly(team_id, assistant_id, route.params["action_id"])
         raise AssertionError("canonical local route was not dispatched")
+
+    def _invoke_directly(self, team_id: str, assistant_id: str, action: str) -> dict[str, object]:
+        """Run one Action outside a turn; a human request it raises has no chat to answer it (ADR-0038)."""
+        try:
+            return self.server.controller.invoke(team_id, assistant_id, action, self._body())
+        except action_human.HumanRequestSuspensionError as exc:
+            local_audit.record_request(
+                "assistant-action",
+                result="denied",
+                team_id=team_id,
+                assistant=assistant_id,
+                detail=f"human-request-required:{action}",
+            )
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "the Action asks a person to answer, which only a Team chat can collect",
+                code="action-human-request-required",
+            ) from exc
 
     def _authorized_route(
         self,
