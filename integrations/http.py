@@ -8,9 +8,11 @@ response shapes. Redirects are deliberately not followed.
 from __future__ import annotations
 
 import http.client
+import math
 import re
 import socket
 import threading
+import time
 from base64 import b64encode
 from collections.abc import Mapping
 from contextlib import suppress
@@ -71,12 +73,15 @@ class ExchangeDeadline:
     OAuth completion holds, far longer. Every socket the connection creates is tracked through a duplicate, which keeps
     naming the same connection after TLS takes over the original, so the deadline shuts down a CONNECT tunnel, a TLS
     handshake, and the response reads alike. Name resolution and the TCP connect itself come before that socket exists
-    and stay bounded only by the resolver and the per-operation timeout.
+    and stay bounded only by the resolver and the per-operation timeout. Expiry is also read from the clock, so a timer
+    that runs late never lets an overdue response through.
     """
 
     def __init__(self, connection: http.client.HTTPConnection, seconds: float) -> None:
         self._guard = threading.Lock()
         self._expired = False
+        self._seconds = seconds
+        self._deadline = math.inf
         self._sockets: list[socket.socket] = []
         create = connection._create_connection
 
@@ -90,6 +95,7 @@ class ExchangeDeadline:
         self._timer.daemon = True
 
     def __enter__(self) -> ExchangeDeadline:
+        self._deadline = time.monotonic() + self._seconds
         self._timer.start()
         return self
 
@@ -103,12 +109,15 @@ class ExchangeDeadline:
     @property
     def expired(self) -> bool:
         with self._guard:
-            return self._expired
+            return self._overdue()
+
+    def _overdue(self) -> bool:
+        return self._expired or time.monotonic() >= self._deadline
 
     def _track(self, duplicate: socket.socket) -> None:
         with self._guard:
             self._sockets.append(duplicate)
-            if self._expired:
+            if self._overdue():
                 _shutdown(duplicate)
 
     def _expire(self) -> None:

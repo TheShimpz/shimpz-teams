@@ -147,6 +147,34 @@ class OAuthExchangeDeadlineTests(unittest.TestCase):
         self.assertEqual(deadline._sockets, [])
         self.assertEqual(connection.sock.getpeername()[1], peer.port)
 
+    def test_an_overdue_response_is_refused_even_when_the_timer_runs_late(self) -> None:
+        class LateTimer:
+            # The deadline's timer never gets to run, as under a stalled scheduler.
+            daemon = False
+
+            def __init__(self, *_args: object) -> None:
+                pass
+
+            def start(self) -> None:
+                pass
+
+            def cancel(self) -> None:
+                pass
+
+        def respond_late(connection: socket.socket, stopped: threading.Event) -> None:
+            stopped.wait(DEADLINE * 2)
+            connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\n{}")
+
+        peer = self._peer(respond_late)
+        with (
+            mock.patch.object(integration_http.threading, "Timer", LateTimer),
+            mock.patch.object(integration_http.http.client, "HTTPSConnection", side_effect=peer.connection),
+            self.assertRaisesRegex(integration_http.OAuthHTTPError, "unavailable"),
+        ):
+            integration_http.FixedHTTPSTransport().request(
+                method="POST", url="https://provider.test/token", headers={}, body=b"x"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
