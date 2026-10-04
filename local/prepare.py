@@ -11,6 +11,7 @@ import secrets
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from docker.errors import DockerException
 from docker.types import LogConfig, Ulimit
@@ -22,6 +23,24 @@ from prepare import service as preparation
 
 KIND = "prepare"
 _SERIAL = threading.Lock()
+# How often a turn waiting for the controller-wide admission notices that it was stopped.
+_ADMISSION_POLL_SECONDS = 0.1
+
+
+@dataclass(frozen=True, slots=True)
+class TurnStop:
+    """How Stop reaches one turn's preparation.
+
+    ``started`` and ``stopped`` let a running helper occupy the turn's one active container slot; ``interrupt`` raises
+    once the turn is stopped, so it leaves the wait for admission and reads no further file.
+    """
+
+    started: Callable[[object], None] = lambda _container: None
+    stopped: Callable[[object], None] = lambda _container: None
+    interrupt: Callable[[], None] = lambda: None
+
+
+_UNSTOPPED = TurnStop()
 
 
 def helper_labels(space_id: str, team_id: str) -> dict[str, str]:
@@ -77,6 +96,17 @@ def helper(
         yield session
 
 
+@contextmanager
+def _admission(interrupt: Callable[[], None]) -> Iterator[None]:
+    """Wait for the controller-wide admission, leaving the wait as soon as ``interrupt`` raises."""
+    while not _SERIAL.acquire(timeout=_ADMISSION_POLL_SECONDS):
+        interrupt()
+    try:
+        yield
+    finally:
+        _SERIAL.release()
+
+
 def prepare_attachments(
     client: object,
     files: list[preparation.StoredFile],
@@ -84,20 +114,25 @@ def prepare_attachments(
     space_id: str,
     team_id: str,
     cpuset_cpus: str | None,
-    started: Callable[[object], None] = lambda _container: None,
-    stopped: Callable[[object], None] = lambda _container: None,
+    stop: TurnStop = _UNSTOPPED,
 ) -> tuple[preparation.Attachment, ...]:
     """Prepare one message's files under the controller-wide preparation admission.
 
     Local's 256 MiB controller holds at most one preparation's originals, text, and helper at a time, from before the
-    first original is read (ADR-0093).
+    first original is read (ADR-0093). A turn stopped while it waits for that admission leaves at once.
     """
     return preparation.prepare_attachments(
         files,
         lambda: helper(
-            client, space_id=space_id, team_id=team_id, cpuset_cpus=cpuset_cpus, started=started, stopped=stopped
+            client,
+            space_id=space_id,
+            team_id=team_id,
+            cpuset_cpus=cpuset_cpus,
+            started=stop.started,
+            stopped=stop.stopped,
         ),
-        _SERIAL,
+        _admission(stop.interrupt),
+        stop.interrupt,
     )
 
 

@@ -260,6 +260,69 @@ class LocalAdapterTests(unittest.TestCase):
         second.join(5)
         self.assertEqual(order, ["a-read", "b-read"])
 
+    def test_a_turn_stopped_while_waiting_for_admission_leaves_at_once_and_reads_nothing(self) -> None:
+        client = _Client()
+        entered = threading.Event()
+        release = threading.Event()
+        stop = threading.Event()
+        order: list[str] = []
+        outcome: list[BaseException] = []
+
+        class StoppedError(Exception):
+            pass
+
+        def text_file(label: str, *, wait: bool) -> preparation.StoredFile:
+            def read() -> bytes:
+                order.append(f"{label}-read")
+                if wait:
+                    entered.set()
+                    release.wait(5)
+                return b"plain text"
+
+            return preparation.StoredFile(label * 32, "a.txt", 10, "0" * 64, read)
+
+        def interrupt() -> None:
+            if stop.is_set():
+                raise StoppedError
+
+        def stopped_turn() -> None:
+            try:
+                local_prepare.prepare_attachments(
+                    client,
+                    [text_file("b", wait=False)],
+                    space_id="s",
+                    team_id="team_2",
+                    cpuset_cpus=None,
+                    stop=local_prepare.TurnStop(interrupt=interrupt),
+                )
+            except StoppedError as exc:
+                outcome.append(exc)
+
+        slow = threading.Thread(
+            target=local_prepare.prepare_attachments,
+            args=(client, [text_file("a", wait=True)]),
+            kwargs={"space_id": "s", "team_id": "team_1", "cpuset_cpus": None},
+        )
+        waiting = threading.Thread(target=stopped_turn)
+        slow.start()
+        entered.wait(5)
+        waiting.start()
+        waiting.join(0.2)
+        self.assertTrue(waiting.is_alive())
+        stop.set()
+        waiting.join(2)
+        # Team 2 left while Team 1 still held the admission, and never read its file.
+        self.assertFalse(waiting.is_alive())
+        self.assertTrue(slow.is_alive())
+        self.assertEqual((order, len(outcome)), (["a-read"], 1))
+        release.set()
+        slow.join(5)
+        # The admission is free again for the next turn.
+        local_prepare.prepare_attachments(
+            client, [text_file("c", wait=False)], space_id="s", team_id="team_3", cpuset_cpus=None
+        )
+        self.assertEqual(order, ["a-read", "c-read"])
+
     def test_helpers_are_removed_per_team_or_for_the_whole_space(self) -> None:
         client = _Client()
         self.assertEqual(local_prepare.remove_helpers(client, "space", "team_1"), 1)

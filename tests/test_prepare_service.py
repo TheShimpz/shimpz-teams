@@ -38,6 +38,29 @@ def _file(name: str, data: bytes, file_id: str = "0" * 32) -> service.StoredFile
 
 
 class PreparationServiceTests(unittest.TestCase):
+    def test_a_turn_stopped_between_files_reads_no_further_file(self) -> None:
+        read: list[str] = []
+        stopped: list[bool] = []
+
+        class StoppedError(Exception):
+            pass
+
+        def stored(name: str) -> service.StoredFile:
+            def load() -> bytes:
+                read.append(name)
+                stopped.append(True)
+                return b"notes"
+
+            return service.StoredFile("0" * 32, name, 5, hashlib.sha256(b"notes").hexdigest(), load)
+
+        def interrupt() -> None:
+            if stopped:
+                raise StoppedError
+
+        with self.assertRaises(StoppedError):
+            service.prepare_attachments([stored("a.txt"), stored("b.txt")], _InProcessHelper(), interrupt=interrupt)
+        self.assertEqual(read, ["a.txt"])
+
     def test_text_is_read_in_the_controller_without_a_helper(self) -> None:
         helper = _InProcessHelper()
         prepared = service.prepare_attachments([_file("notes.md", "# Ação\nItem".encode())], helper)

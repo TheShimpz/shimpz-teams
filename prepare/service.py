@@ -76,11 +76,13 @@ def prepare_attachments(
     files: Sequence[StoredFile],
     helper: Callable[[], AbstractContextManager[PreparationHelper]],
     admission: AbstractContextManager[object] | None = None,
+    interrupt: Callable[[], None] = lambda: None,
 ) -> tuple[Attachment, ...]:
     """Prepare every selected file, starting the helper only when an image or PDF needs it.
 
     ``admission`` is held before the first original is read and until the helper is gone, so a profile can bound how
-    many originals and derivatives its controller holds at once. An original larger than every readable type's source
+    many originals and derivatives its controller holds at once. ``interrupt`` raises once the turn is stopped and runs
+    before every file, so a stopped turn reads nothing further. An original larger than every readable type's source
     ceiling is never read: it is opaque without allocating its bytes.
     """
     if len(files) > limits.MAX_SELECTED_FILES:
@@ -99,6 +101,7 @@ def prepare_attachments(
             return session[0]
 
         for item in files:
+            interrupt()
             if item.size > _MAX_SOURCE_BYTES:
                 prepared.append(
                     Attachment(item.id, item.name, detect.OCTET_STREAM, item.size, item.sha256, _opaque("too_large"))

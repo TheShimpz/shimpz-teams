@@ -51,10 +51,10 @@ class LocalTurnAttachmentTests(unittest.TestCase):
         helper = object()
         seen: list[object] = []
 
-        def prepare(*_args: object, started, stopped, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
-            started(helper)
+        def prepare(*_args: object, stop, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
+            stop.started(helper)
             seen.append(dict(service._active_action_containers))
-            stopped(helper)
+            stop.stopped(helper)
             return ()
 
         with mock.patch.object(local_attachments.local_prepare, "prepare_attachments", side_effect=prepare):
@@ -65,8 +65,8 @@ class LocalTurnAttachmentTests(unittest.TestCase):
     def test_a_stopped_turn_never_starts_a_helper_or_continues(self) -> None:
         service = _service(_cancelled_chat_tokens={"token"})
 
-        def prepare(*_args: object, started, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
-            started(object())
+        def prepare(*_args: object, stop, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
+            stop.started(object())
             return ()
 
         with (
@@ -79,6 +79,25 @@ class LocalTurnAttachmentTests(unittest.TestCase):
             self.assertRaises(chat_orchestrator.ChatStoppedError),
         ):
             local_attachments.turn_attachments(service, "team_1", "token", FILES)
+
+    def test_preparation_is_interrupted_once_its_turn_is_stopped(self) -> None:
+        service = _service()
+        checks: list[str] = []
+
+        def prepare(*_args: object, stop, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
+            stop.interrupt()
+            checks.append("running")
+            service._cancelled_chat_tokens.add("token")
+            stop.interrupt()
+            checks.append("unreachable")
+            return ()
+
+        with (
+            mock.patch.object(local_attachments.local_prepare, "prepare_attachments", side_effect=prepare),
+            self.assertRaises(chat_orchestrator.ChatStoppedError),
+        ):
+            local_attachments.turn_attachments(service, "team_1", "token", FILES)
+        self.assertEqual(checks, ["running"])
 
     def test_every_preparation_failure_has_an_explicit_public_outcome(self) -> None:
         cases = (
@@ -101,10 +120,10 @@ class LocalTurnAttachmentTests(unittest.TestCase):
         service = _service()
         holder = ("token", object())
 
-        def prepare(*_args: object, started, stopped, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
-            stopped(object())
+        def prepare(*_args: object, stop, **_kwargs: object) -> tuple[preparation.Attachment, ...]:
+            stop.stopped(object())
             service._active_action_containers["team_1"] = holder
-            stopped(object())
+            stop.stopped(object())
             return ()
 
         with mock.patch.object(local_attachments.local_prepare, "prepare_attachments", side_effect=prepare):

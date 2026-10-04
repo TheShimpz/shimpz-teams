@@ -46,6 +46,10 @@ def turn_attachments(
             if active is not None and active[1] is container:
                 self._active_action_containers.pop(team_id, None)
 
+    def interrupt() -> None:
+        if self._chat_cancelled(token):
+            raise chat_orchestrator.ChatStoppedError("chat turn stopped")
+
     lifecycle = self.assistant_lifecycle
     try:
         prepared = local_prepare.prepare_attachments(
@@ -54,8 +58,7 @@ def turn_attachments(
             space_id=self.space_id,
             team_id=team_id,
             cpuset_cpus=getattr(lifecycle, "cpuset_cpus", None),
-            started=started,
-            stopped=stopped,
+            stop=local_prepare.TurnStop(started=started, stopped=stopped, interrupt=interrupt),
         )
     except preparation.AttachmentLimitError as exc:
         raise ApiProblem(
@@ -71,8 +74,7 @@ def turn_attachments(
         raise ApiProblem(HTTPStatus.NOT_FOUND, "selected file not found", code="file-not-found") from exc
     except team_storage.StorageError as exc:
         self._raise_storage_problem(exc)
-    if self._chat_cancelled(token):
-        raise chat_orchestrator.ChatStoppedError("chat turn stopped")
+    interrupt()
     return chat_attachments.wire(prepared)
 
 
