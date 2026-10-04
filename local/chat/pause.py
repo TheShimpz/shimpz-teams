@@ -47,26 +47,23 @@ def _human_response(
         ) from exc
 
 
-def _purge_human_generation(self, generation: object) -> None:
-    if not isinstance(generation, str):
+def _purge_human_pending(self, pending: _PendingLocalChat) -> None:
+    """Remove exactly the Action batch the paused turn holds; a newer turn's batch in its generation stays."""
+    generation = pending.identity[1] if len(pending.identity) == 5 else None
+    if not isinstance(generation, str) or not isinstance(pending.paused_batch, str):
         raise ApiProblem(
             HTTPStatus.CONFLICT,
             "Team capabilities changed; retry",
             code="team-context-changed",
         )
     try:
-        self.action_state.purge(generation)
+        self.action_state.purge_batch(generation, pending.paused_batch)
     except action_journal.ActionJournalError as exc:
         raise ApiProblem(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "Team Action execution state is unavailable",
             code="action-state-unavailable",
         ) from exc
-
-
-def _purge_human_pending(self, pending: _PendingLocalChat) -> None:
-    generation = pending.identity[1] if len(pending.identity) == 5 else None
-    self._purge_human_generation(generation)
 
 
 def _terminal_human_failure(

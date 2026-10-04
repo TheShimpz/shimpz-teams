@@ -24,7 +24,7 @@ from local.validation import validate_team_name
 from protocol.assistant.v1.validators import message_catalog as catalog_validator
 from protocol.http.v1 import payload as http_payload
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 MAX_INVOKED_ACTIONS = 512
 MAX_IDENTITY_ASSISTANTS = 16
 MAX_IDENTITY_FILES = 8
@@ -54,6 +54,9 @@ class PendingLocalChat:
     locale: str | None = None
     # What a paused chat turn consumed so far (ADR-0082); a Routine run carries none.
     usage: brain_usage.TurnUsage | None = None
+    # The fingerprint of the Action batch a human request paused, which ending the turn removes exactly; an
+    # Integration pause holds no batch.
+    paused_batch: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +179,7 @@ def _pending_payload(pending: PendingLocalChat) -> dict[str, object]:
         "requests_used": _requests_used(pending.requests_used),
         "locale": pending.locale,
         "usage": _usage_payload(pending.usage),
+        "paused_batch": pending.paused_batch,
     }
 
 
@@ -540,6 +544,7 @@ def _pending(value: object) -> PendingLocalChat:
             "requests_used",
             "locale",
             "usage",
+            "paused_batch",
         },
         "pending continuation",
     )
@@ -578,6 +583,7 @@ def _pending(value: object) -> PendingLocalChat:
         requests_used=requests_used,
         locale=locale,
         usage=_usage(raw["usage"]),
+        paused_batch=raw["paused_batch"],
     )
 
 
@@ -745,6 +751,15 @@ def _request_copy(value: object, request: action_human.HumanRequest) -> action_c
     return action_challenges.RequestCopy(raw["locale"], raw["catalog_digest"], raw["pack_digest"], raw["rendered"])
 
 
+def _require_paused_batch(kind: str, value: object) -> None:
+    """A human pause names exactly the Action batch it holds; an Integration pause holds none."""
+    if kind == "integrations" and value is None:
+        return
+    if kind == "human" and isinstance(value, str) and http_payload.SHA256_RE.fullmatch(value) is not None:
+        return
+    raise ContinuationCodecError("continuation paused Action batch is malformed")
+
+
 def decode(
     stored: local_chat_continuation_store.StoredContinuation,
 ) -> DecodedContinuation:
@@ -773,6 +788,7 @@ def _decoded(kind: str, payload: bytes, bindings: tuple[str, ...]) -> DecodedCon
     if not requirements:
         raise ContinuationCodecError("continuation requirements are malformed")
     pending = _pending(body["pending"])
+    _require_paused_batch(kind, pending.paused_batch)
     if _bindings(kind, requirements, pending) != bindings:
         raise ContinuationCodecError("stored continuation release binding changed")
     return DecodedContinuation(kind, requirements, pending)

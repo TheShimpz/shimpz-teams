@@ -183,11 +183,11 @@ def resume_chat_human(
 def cancel_pending(team_id: str) -> bool:
     """Cancel and purge one current Hosted human continuation."""
     _expire_challenges()
-    challenge = runtime_state._human_challenges.current(team_id)
+    challenge = runtime_state._human_challenges.withdraw_team(team_id)
     if challenge is None:
         return False
     if not isinstance(challenge.payload, hosted_assistants._PendingHostedChat):
         raise AssertionError("invalid hosted human continuation")
-    cancelled = runtime_state._human_challenges.cancel_team(team_id)
+    # Only the paused turn's own batch: a turn started since keeps its batch (ADR-0038).
     hosted_chat_segment._purge_hosted_human_pending(challenge.payload)
-    return cancelled
+    return True

@@ -156,8 +156,9 @@ class LocalLeafContractTests(unittest.TestCase):
             chat_segment._run_chat_segment_with_metadata(controller, fresh_request, None)
         controller._raise_chat_problem.assert_called_once()
 
-    def test_stop_chat_cancels_human_generation_and_matching_action(self) -> None:
+    def test_stop_chat_cancels_the_withdrawn_human_batch_and_matching_action(self) -> None:
         container = object()
+        withdrawn = types.SimpleNamespace(payload=object())
         lifecycle = types.SimpleNamespace(
             _network=lambda _team_id: types.SimpleNamespace(id="network-id"),
             _fail_stop_action=mock.Mock(),
@@ -165,10 +166,10 @@ class LocalLeafContractTests(unittest.TestCase):
         controller = types.SimpleNamespace(
             assistant_lifecycle=lifecycle,
             integration_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: False),
-            human_challenges=types.SimpleNamespace(cancel_team=lambda _team_id: True),
+            human_challenges=types.SimpleNamespace(withdraw_team=lambda _team_id: withdrawn),
             oauth_pkce=types.SimpleNamespace(cancel_team=mock.Mock()),
             _delete_chat_continuation=lambda _team_id: False,
-            _purge_human_generation=mock.Mock(),
+            _purge_human_pending=mock.Mock(),
             _active_chat_guard=RLock(),
             _active_chat_tokens={"team_1": "token"},
             _cancelled_chat_tokens=set(),
@@ -180,10 +181,11 @@ class LocalLeafContractTests(unittest.TestCase):
         self.assertTrue(result["accepted"])
         self.assertTrue(result["confirmed"])
         brain_abort.abort.assert_called_once_with()
-        controller._purge_human_generation.assert_called_once_with("network-id")
+        # Only the withdrawn turn's own batch is purged, from its own pending state.
+        controller._purge_human_pending.assert_called_once_with(withdrawn.payload)
         lifecycle._fail_stop_action.assert_called_once_with(container)
 
-        controller.human_challenges.cancel_team = lambda _team_id: False
+        controller.human_challenges.withdraw_team = lambda _team_id: None
         controller._active_action_containers = {"team_1": ("other-token", container)}
         result = chat_resume.stop_chat(controller, "team_1")
         self.assertFalse(result["confirmed"])

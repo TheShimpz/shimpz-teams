@@ -5,13 +5,15 @@ from local.validation import validate_team_id
 
 def stop_chat(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
-    network = self.assistant_lifecycle._network(team_id)
+    self.assistant_lifecycle._network(team_id)
     integration_cancelled = self.integration_challenges.cancel_team(team_id)
-    human_cancelled = self.human_challenges.cancel_team(team_id)
+    human = self.human_challenges.withdraw_team(team_id)
     self.oauth_pkce.cancel_team(team_id)
     continuation_cancelled = self._delete_chat_continuation(team_id)
+    human_cancelled = human is not None
     if human_cancelled:
-        self._purge_human_generation(network.id)
+        # Only the paused turn's own batch: a turn started since keeps its batch (ADR-0038).
+        self._purge_human_pending(human.payload)
     action_stopped = False
     active_action = None
     with self._active_chat_guard:

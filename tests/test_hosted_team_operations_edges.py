@@ -476,7 +476,9 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
 
     def test_destroy_ends_only_this_teams_expired_human_continuations(self) -> None:
         def expired(team_id: str, generation: str) -> object:
-            pending = harness.hosted_assistants._PendingHostedChat(object(), (), (), OWNER, (generation,))
+            pending = harness.hosted_assistants._PendingHostedChat(
+                object(), (), (), OWNER, (generation,), paused_batch="f" * 64
+            )
             return state.action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
 
         humans = state.action_challenges.HumanChallengeStore(retain_expired=True)
@@ -497,7 +499,7 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
         ):
             self.assertTrue(lifecycle._destroy(TEAM_ID, _lease(cleanup_nonce="nonce"))["destroyed"])
 
-        journal.purge.assert_called_once_with("c" * 64)
+        journal.purge_batch.assert_called_once_with("c" * 64, "f" * 64)
         self.assertEqual(humans.drain_expired(), (foreign,))
 
     def test_list_status_inference_logs_and_lifecycle_operations_map_failures(self) -> None:

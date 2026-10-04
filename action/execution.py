@@ -249,6 +249,11 @@ class ActionBatch:
         current = dict(self._strategy.stored_input_generations(request, frozenset()))
         return all(current.get(stored_input_id) == generation for stored_input_id, generation in present.items())
 
+    @property
+    def fingerprint(self) -> str | None:
+        """The prepared batch's fingerprint, which a paused turn keeps to remove exactly its own batch."""
+        return None if self._batch is None else self._batch.fingerprint
+
     def prepare(self, requests: tuple[object, ...]) -> None:
         if self._batch is not None:
             raise action_journal.ActionJournalConflictError("Action batch is already prepared")

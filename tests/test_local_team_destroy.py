@@ -20,7 +20,7 @@ from routine import record as routine_record
 
 
 def _expired_human(team_id: str, generation: str) -> action_challenges.PendingHumanChallenge:
-    pending = PendingLocalChat(object(), (), (), "openai", ("identity", generation, "", "", ""))
+    pending = PendingLocalChat(object(), (), (), "openai", ("identity", generation, "", "", ""), paused_batch="f" * 64)
     return action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
 
 
@@ -87,7 +87,10 @@ class LocalTeamDestroyTests(LocalContractCase):
         controller.brain_runtime = SimpleNamespace(
             delete_thread=lambda thread_id: events.append(("thread-delete", thread_id))
         )
-        controller.action_state = SimpleNamespace(purge=lambda generation: events.append(("action-purge", generation)))
+        controller.action_state = SimpleNamespace(
+            purge=lambda generation: events.append(("action-purge", generation)),
+            purge_batch=lambda generation, batch: events.append(("action-purge-batch", generation, batch)),
+        )
         controller.storage = SimpleNamespace(destroy=lambda _team_id: events.append("storage-destroy") or True)
         controller.inference_store = SimpleNamespace(delete=lambda _team_id: events.append("inference-delete"))
         controller.routine_human_challenges = action_challenges.HumanChallengeStore()
@@ -144,7 +147,7 @@ class LocalTeamDestroyTests(LocalContractCase):
                 "containers-read",
                 "container-validated",
                 # The Team's expired continuation is cleaned by its owning consumer, never left behind.
-                ("action-purge", "c" * 64),
+                ("action-purge-batch", "c" * 64, "f" * 64),
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
                 "helpers-read",

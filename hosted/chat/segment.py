@@ -548,6 +548,7 @@ def _run_hosted_chat_segment_with_metadata(
         requirements.integrations,
         requirements.human,
         locale=request.locale,
+        paused_batch=requirements.paused_batch,
     )
 
 
@@ -606,11 +607,12 @@ def _pause_hosted_connection(
 
 
 def _purge_hosted_human_pending(pending: hosted_assistants._PendingHostedChat) -> None:
+    """Remove exactly the Action batch the paused turn holds; a newer turn's batch in its generation stays."""
     generation = pending.identity[0] if pending.identity else None
-    if not isinstance(generation, str):
+    if not isinstance(generation, str) or not isinstance(pending.paused_batch, str):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "Team capabilities changed; retry")
     try:
-        runtime_state._action_execution_journal().purge(generation)
+        runtime_state._action_execution_journal().purge_batch(generation, pending.paused_batch)
     except action_journal.ActionJournalError as exc:
         raise runtime_state.ApiError(
             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -697,6 +699,7 @@ def _hosted_segment_response(request: HostedSegmentResponseRequest) -> dict[str,
             requests_used=request.requests_used,
             locale=segment.locale,
             usage=None if request.usage is None else request.usage.joined(),
+            paused_batch=segment.paused_batch,
         )
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:

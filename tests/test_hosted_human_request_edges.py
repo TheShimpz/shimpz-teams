@@ -182,12 +182,12 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
 
         with (
             mock.patch.object(human, "_expire_challenges"),
-            mock.patch.object(state._human_challenges, "current", return_value=None),
+            mock.patch.object(state._human_challenges, "withdraw_team", return_value=None),
         ):
             self.assertFalse(human.cancel_pending("team_1"))
         with (
             mock.patch.object(human, "_expire_challenges"),
-            mock.patch.object(state._human_challenges, "current", return_value=SimpleNamespace(payload=object())),
+            mock.patch.object(state._human_challenges, "withdraw_team", return_value=SimpleNamespace(payload=object())),
             self.assertRaises(AssertionError),
         ):
             human.cancel_pending("team_1")
@@ -195,8 +195,7 @@ class HostedHumanRequestEdgeTests(unittest.TestCase):
         challenge = SimpleNamespace(payload=pending)
         with (
             mock.patch.object(human, "_expire_challenges"),
-            mock.patch.object(state._human_challenges, "current", return_value=challenge),
-            mock.patch.object(state._human_challenges, "cancel_team", return_value=True),
+            mock.patch.object(state._human_challenges, "withdraw_team", return_value=challenge),
             mock.patch.object(segment, "_purge_hosted_human_pending") as purge,
         ):
             self.assertTrue(human.cancel_pending("team_1"))

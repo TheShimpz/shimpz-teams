@@ -97,6 +97,8 @@ class _PendingHostedChat:
     locale: str | None = None
     # What the paused turn consumed so far (ADR-0082).
     usage: brain_usage.TurnUsage | None = None
+    # The fingerprint of the Action batch a human request paused, which ending the turn removes exactly.
+    paused_batch: str | None = None
 
 
 def _hosted_integration_spec(active: _ActiveAssistant) -> _HostedAssistantSpec:

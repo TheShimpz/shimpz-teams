@@ -258,6 +258,7 @@ def suspended(self, run: _Run, segment) -> str:
         identity=segment.identity,
         transcripts=chat_orchestrator.retain_suspension_transcripts(run.transcripts, outcome),
         requests_used=run.requests_used,
+        paused_batch=segment.paused_batch,
     )
     return _freeze(self, run, pending, segment)
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import types
 import unittest
 from contextlib import nullcontext
@@ -38,7 +39,7 @@ def _pending(
 
 
 class LocalChatPauseEdgeTests(unittest.TestCase):
-    def test_human_projection_and_generation_purge_fail_closed(self) -> None:
+    def test_human_projection_and_exact_batch_purge_fail_closed(self) -> None:
         with (
             mock.patch.object(
                 action_challenges,
@@ -50,18 +51,22 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
             local_chat_pause._human_response(object(), object())
         self.assertEqual(caught.exception.code, "human-request-invalid")
 
-        with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._purge_human_generation(object(), None)
-        self.assertEqual(caught.exception.code, "team-context-changed")
+        purge_batch = mock.Mock(side_effect=action_journal.ActionJournalError("unavailable"))
+        subject = types.SimpleNamespace(action_state=types.SimpleNamespace(purge_batch=purge_batch))
+        # A pending turn without its generation or its paused batch cannot name what to remove.
+        for pending in (
+            dataclasses.replace(_pending(), identity=("team",), paused_batch="f" * 64),
+            _pending(),
+        ):
+            with self.subTest(pending=pending), self.assertRaises(local_app.ApiProblem) as caught:
+                local_chat_pause._purge_human_pending(subject, pending)
+            self.assertEqual(caught.exception.code, "team-context-changed")
+        purge_batch.assert_not_called()
 
-        subject = types.SimpleNamespace(
-            action_state=types.SimpleNamespace(
-                purge=mock.Mock(side_effect=action_journal.ActionJournalError("unavailable"))
-            )
-        )
         with self.assertRaises(local_app.ApiProblem) as caught:
-            local_chat_pause._purge_human_generation(subject, "generation")
+            local_chat_pause._purge_human_pending(subject, dataclasses.replace(_pending(), paused_batch="f" * 64))
         self.assertEqual(caught.exception.code, "action-state-unavailable")
+        purge_batch.assert_called_once_with("a" * 64, "f" * 64)
 
     def test_terminal_human_failure_requires_terminal_commit(self) -> None:
         subject = types.SimpleNamespace(

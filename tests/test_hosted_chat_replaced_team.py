@@ -44,6 +44,9 @@ def _replacement() -> SimpleNamespace:
     )
 
 
+PAUSED_BATCH = "d" * 64
+
+
 def _stale_lease() -> hosted_resources._AuthorizationLease:
     return hosted_resources._AuthorizationLease(TEAM_ID, OLD_CONTAINER, "account_1", ("account", "account_1"))
 
@@ -59,6 +62,7 @@ def _pending_chat() -> hosted_assistants._PendingHostedChat:
         ("replacement-file",),
         "account_2",
         (REPLACEMENT_CONTAINER,),
+        paused_batch=PAUSED_BATCH,
     )
 
 
@@ -108,6 +112,7 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertIsNotNone(self.integrations.current(TEAM_ID))
         self.projection.assert_not_called()
         self.journal.purge.assert_not_called()
+        self.journal.purge_batch.assert_not_called()
         self.journal.end_settled.assert_not_called()
 
     @staticmethod
@@ -127,7 +132,7 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
         self.assertIsNone(self.humans.current(TEAM_ID))
         self.assertIsNone(self.integrations.current(TEAM_ID))
-        self.journal.purge.assert_called_once_with(REPLACEMENT_CONTAINER)
+        self.journal.purge_batch.assert_called_once_with(REPLACEMENT_CONTAINER, PAUSED_BATCH)
 
     def test_oauth_start_creates_its_state_only_under_the_lifecycle_lock(self) -> None:
         challenge = self.integrations.current(TEAM_ID)
@@ -209,7 +214,7 @@ class ReplacedHostedTeamTests(unittest.TestCase):
         self.assertTrue(result["accepted"])
         self.assertIsNone(self.humans.current(TEAM_ID))
         self.assertIsNone(self.integrations.current(TEAM_ID))
-        self.journal.purge.assert_called_once_with(REPLACEMENT_CONTAINER)
+        self.journal.purge_batch.assert_called_once_with(REPLACEMENT_CONTAINER, PAUSED_BATCH)
 
 
 if __name__ == "__main__":

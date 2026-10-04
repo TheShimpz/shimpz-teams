@@ -397,4 +397,5 @@ def _run_chat_segment_with_metadata(
         requirements.human,
         contracts,
         request.locale,
+        paused_batch=requirements.paused_batch,
     )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
+from http import HTTPStatus
 from types import SimpleNamespace
 from unittest import mock
 
@@ -167,20 +169,21 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
             )
         commit.assert_called_once()
 
-        invalid_pending = self.pending(identity=())
-        with self.assertRaises(state.ApiError):
-            segment._purge_hosted_human_pending(invalid_pending)
+        # A paused turn without its generation or its paused batch cannot name what to remove.
+        for invalid_pending in (self.pending(identity=()), pending):
+            with self.subTest(pending=invalid_pending), self.assertRaises(state.ApiError) as caught:
+                segment._purge_hosted_human_pending(invalid_pending)
+            self.assertEqual(caught.exception.status, HTTPStatus.CONFLICT)
+        purge_batch = mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
         with (
             mock.patch.object(
-                state,
-                "_action_execution_journal",
-                return_value=SimpleNamespace(
-                    purge=mock.Mock(side_effect=segment.action_journal.ActionJournalError("failed"))
-                ),
+                state, "_action_execution_journal", return_value=SimpleNamespace(purge_batch=purge_batch)
             ),
-            self.assertRaises(state.ApiError),
+            self.assertRaises(state.ApiError) as caught,
         ):
-            segment._purge_hosted_human_pending(pending)
+            segment._purge_hosted_human_pending(replace(pending, paused_batch="f" * 64))
+        self.assertEqual(caught.exception.status, HTTPStatus.SERVICE_UNAVAILABLE)
+        purge_batch.assert_called_once_with(pending.identity[0], "f" * 64)
 
         with (
             mock.patch.object(state._human_challenges, "cancel_team"),
@@ -325,7 +328,7 @@ class HostedChatSegmentEdgeTests(unittest.TestCase):
                 self.assertRaisesRegex(segment.chat_orchestrator.ChatOrchestrationError, "copy"),
             ):
                 strategy.human_requirement(requested, stored_request, "de")
-            return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=())
+            return "Team", identity, SimpleNamespace(), SimpleNamespace(integrations=(), human=(), paused_batch=None)
 
         with (
             mock.patch.object(

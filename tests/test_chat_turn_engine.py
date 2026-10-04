@@ -139,7 +139,9 @@ def _context_contract(prepared) -> tuple[object, ...]:
 
 
 class SharedChatTurnEngineTest(unittest.TestCase):
-    def _human_segment(self, *, purpose, cancelled=lambda: False, validate_context=lambda: None, locale="pt"):
+    def _human_segment(
+        self, *, purpose, cancelled=lambda: False, validate_context=lambda: None, locale="pt", paused_batch="f" * 64
+    ):
         descriptor = {
             "kind": "approval",
             "ordinal": 0,
@@ -150,6 +152,8 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         asked: list[tuple[object, ...]] = []
 
         class Batch:
+            fingerprint = paused_batch
+
             @staticmethod
             def prepare(_requests) -> None:
                 return None
@@ -226,6 +230,20 @@ class SharedChatTurnEngineTest(unittest.TestCase):
         self.assertEqual(
             (action.interrupt_id, assistant_name, summary), ("interrupt-1", "Assistant", "Look up one value.")
         )
+
+    def test_a_human_suspension_names_its_paused_batch_or_is_refused(self) -> None:
+        strategy, _asked, _problems = self._human_segment(purpose=lambda: None)
+        result = chat_turn_engine.run_segment(
+            strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+        )
+        self.assertEqual(result[3].paused_batch, "f" * 64)
+
+        strategy, _asked, problems = self._human_segment(purpose=lambda: None, paused_batch=None)
+        with self.assertRaisesRegex(RuntimeError, "invalid-suspension"):
+            chat_turn_engine.run_segment(
+                strategy, message="Run the Action", continuation=None, expected_identity=("identity",)
+            )
+        self.assertEqual(problems, ["invalid-suspension"])
 
     def test_a_missing_purpose_leaves_the_requirement_without_one(self) -> None:
         strategy, _asked, _problems = self._human_segment(purpose=lambda: None)

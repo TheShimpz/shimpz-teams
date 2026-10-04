@@ -26,6 +26,8 @@ class SegmentRequirements:
 
     integrations: tuple[object, ...] = ()
     human: tuple[object, ...] = ()
+    # The fingerprint of the Action batch a human request paused, so ending that turn removes exactly this batch.
+    paused_batch: str | None = None
 
     def groups(self) -> tuple[tuple[object, ...], ...]:
         return self.integrations, self.human
@@ -55,6 +57,8 @@ class SegmentResult:
     contracts: tuple[tuple[str, str], ...] = ()
     # The interface language the turn's start pinned; a suspension keeps it for the rest of the turn (ADR-0091).
     locale: str | None = None
+    # The fingerprint of the Action batch a human request paused; None for any other outcome.
+    paused_batch: str | None = None
 
     def requirement_groups(self) -> tuple[tuple[object, ...], ...]:
         return self.integrations, self.human
@@ -197,7 +201,7 @@ def run_segment(
     if (
         isinstance(outcome, chat_orchestrator.ChatSuspension | chat_orchestrator.ChatHumanSuspension)
         and suspension_gate_count(*groups) != 1
-    ):
+    ) or (isinstance(outcome, chat_orchestrator.ChatHumanSuspension) and requirements.paused_batch is None):
         strategy.raise_problem("invalid-suspension", None)
     return segment.team_name, segment.identity, outcome, requirements
 
@@ -242,6 +246,7 @@ def drive(
             orchestration,
         )
     if isinstance(outcome, chat_orchestrator.ChatHumanSuspension):
+        requirements.paused_batch = segment.durable_batch.fingerprint
         requirements.human = (_with_purpose(strategy, segment, outcome),)
     return outcome
 

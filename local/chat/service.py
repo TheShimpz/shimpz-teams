@@ -222,7 +222,6 @@ class ChatTurnService:
     _commit_suspension = local_chat_pause._commit_suspension
     _integration_response = local_chat_pause._integration_response
     _human_response = local_chat_pause._human_response
-    _purge_human_generation = local_chat_pause._purge_human_generation
     _purge_human_pending = local_chat_pause._purge_human_pending
     _terminal_human_failure = local_chat_pause._terminal_human_failure
     _pause_integration = local_chat_pause._pause_integration

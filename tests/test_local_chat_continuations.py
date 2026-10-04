@@ -71,6 +71,14 @@ def pending(
     )
 
 
+# The fingerprint of the Action batch a human request paused; an Integration pause holds none.
+PAUSED_BATCH = "e" * 64
+
+
+def human_pending(**changes: object) -> local_chat_continuations.PendingLocalChat:
+    return replace(pending(), paused_batch=PAUSED_BATCH, **changes)
+
+
 class LocalChatContinuationCodecTests(unittest.TestCase):
     def _round_trip(
         self,
@@ -78,7 +86,8 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         requirements: tuple[object, ...],
         state: local_chat_continuations.PendingLocalChat | None = None,
     ) -> None:
-        state = pending() if state is None else state
+        if state is None:
+            state = human_pending() if kind == "human" else pending()
         bindings, payload = local_chat_continuations.encode(kind, requirements, state)
         stored = local_chat_continuation_store.StoredContinuation(
             "team_1",
@@ -411,6 +420,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 ),
             ),
             1,
+            paused_batch=PAUSED_BATCH,
         )
         requirement = (
             action_challenges.HumanRequirement(
@@ -435,8 +445,10 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
         self.assertEqual(decoded.requirements, requirement)
         self.assertEqual(decoded.pending, state)
 
-    def test_schema_six_keeps_the_turn_locale_usage_localized_copy_and_file_digests_together(self) -> None:
-        """One paused record carries ADR-0091 locale and copy, ADR-0082 usage, and ADR-0093 file digests."""
+    def test_schema_seven_keeps_the_paused_batch_turn_locale_usage_localized_copy_and_file_digests_together(
+        self,
+    ) -> None:
+        """One paused record carries its Action batch, ADR-0091 locale and copy, ADR-0082 usage, and file digests."""
         request = human_request_fixtures.request("approval")
         requirement = (
             human_request_fixtures.requirement(
@@ -444,13 +456,14 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
             ),
         )
         usage = brain_usage.TurnUsage(1_700_000_000_000, (("openai", "gpt-6-luna", 1331, 36),))
-        state = dataclasses.replace(pending(), locale="pt", usage=usage)
+        state = human_pending(locale="pt", usage=usage)
 
         bindings, payload = local_chat_continuations.encode("human", requirement, state)
         decoded = local_chat_continuations.decode(
             local_chat_continuation_store.StoredContinuation("team_1", "human", "c" * 32, 1_300, 1, bindings, payload)
         )
-        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 6)
+        self.assertEqual(local_chat_continuations.SCHEMA_VERSION, 7)
+        self.assertEqual(decoded.pending.paused_batch, PAUSED_BATCH)
         self.assertEqual(decoded.pending.identity[3][0]["sha256"], "b" * 64)
         self.assertEqual(decoded.pending, state)
         self.assertEqual(decoded.requirements, requirement)
@@ -458,7 +471,11 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
 
         body = json.loads(payload)
         variants = {
-            "schema 4": {**body, "schema": 4},
+            "schema 6": {**body, "schema": 6},
+            "no paused batch": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "paused_batch"}},
+            "human without a paused batch": {**body, "pending": {**body["pending"], "paused_batch": None}},
+            "short paused batch": {**body, "pending": {**body["pending"], "paused_batch": "e" * 63}},
+            "uppercase paused batch": {**body, "pending": {**body["pending"], "paused_batch": "E" * 64}},
             "no locale": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "locale"}},
             "no usage": {**body, "pending": {k: v for k, v in body["pending"].items() if k != "usage"}},
         }
@@ -502,6 +519,7 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 ),
             ),
             1,
+            paused_batch=PAUSED_BATCH,
         )
 
         with self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "secret"):
@@ -527,6 +545,27 @@ class LocalChatContinuationCodecTests(unittest.TestCase):
                 ),
                 state,
             )
+
+    def test_only_a_human_pause_names_its_paused_action_batch(self) -> None:
+        integration = (
+            integration_challenges.IntegrationRequirement(
+                "demo-assistant", "Demo Assistant", ("publish",), (("cloudflare", "cloudflare", ("dns.read",)),)
+            ),
+        )
+        human = (
+            human_request_fixtures.requirement(
+                human_request_fixtures.request("approval"), locale="en", assistant_id="demo-assistant"
+            ),
+        )
+        for kind, requirements, state in (
+            ("integrations", integration, human_pending()),
+            ("human", human, pending()),
+        ):
+            with (
+                self.subTest(kind=kind),
+                self.assertRaisesRegex(local_chat_continuations.ContinuationCodecError, "paused Action batch"),
+            ):
+                local_chat_continuations.encode(kind, requirements, state)
 
     def test_restart_preserves_the_monotonic_human_request_budget(self) -> None:
         requirement = (
