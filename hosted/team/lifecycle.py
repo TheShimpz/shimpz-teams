@@ -617,8 +617,13 @@ def _configure_inference(team_id: str, body: object, lease: hosted_resources._Au
 
 
 def _replace_inference(team_id: str, generation: str, config: inference_config.InferenceConfig) -> None:
-    """Save a Team's inference while it holds the Team lock and chat slot, ending its paused human turn first."""
+    """Save a Team's inference while it holds the Team lock and chat slot, ending its paused turn first.
+
+    A paused turn resumes only in the inference it paused with, so neither a human nor an Integration gate may outlive
+    the change: resuming would otherwise fail while resolving the new provider's credential and keep the gate live.
+    """
     hosted_chat_lifecycle.cancel_replayable_human(team_id, generation)
+    hosted_chat_lifecycle.cancel_paused_integration(team_id)
     try:
         runtime_state._inference_store.save(team_id, config)
     except inference_config.InferenceConfigError as exc:

@@ -32,6 +32,21 @@ def cancel_replayable_human(team_id: str, generation: str) -> bool:
     return True
 
 
+def cancel_paused_integration(team_id: str) -> bool:
+    """Withdraw a pending Integration gate with the Team's OAuth state, which only a live gate can start.
+
+    An Integration pause comes before its Action batch is prepared, so its turn holds no batch to end.
+    """
+    challenge = runtime_state._integration_challenges.withdraw_team(team_id)
+    if challenge is not None and (
+        not isinstance(challenge.payload, hosted_assistants._PendingHostedChat)
+        or challenge.payload.paused_batch is not None
+    ):
+        raise AssertionError("invalid hosted integration continuation")
+    runtime_state._integration_pkce.cancel_team(team_id)
+    return challenge is not None
+
+
 def turn_started(team_id: str, file_ids: object) -> tuple[str, ...]:
     """Record that a new turn references these files, before its Brain start can (ADR-0093); return those it added."""
     if not file_ids:

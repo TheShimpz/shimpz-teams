@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import tempfile
@@ -494,6 +495,77 @@ class HostedOAuthIntegrationTests(unittest.TestCase):
         pkce.cancel_team.assert_called_once_with(TEAM_ID)
         self.assertIsNone(challenges.current(TEAM_ID))
         self.assertEqual(self.store.metadata(TEAM_ID, ASSISTANT_ID, self.contract.integrations)[0].status, "missing")
+
+    def test_a_model_change_ends_the_paused_integration_turn_with_its_oauth_state(self) -> None:
+        # The store the shared resume admission recognizes, whichever module copy this suite loaded.
+        challenges = hosted_chat_api.chat_turn_engine.integration_challenges.IntegrationChallengeStore()
+        pkce = integration_pkce.OAuthPKCEChallengeStore()
+        continuation = chat_orchestrator.ChatContinuation(
+            brain_runtime_client.RuntimeTurn("action-required", "", ()), (), (), 0
+        )
+        pending = hosted_assistants._PendingHostedChat(
+            continuation, (ASSISTANT_ID,), (), "account_1", (ANCHOR_ID, "account_1")
+        )
+        requirement = integration_challenges.IntegrationRequirement(
+            ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
+        )
+        paused = challenges.create(TEAM_ID, (requirement,), pending)
+        # The Owner started connecting the Integration the paused turn asked for.
+        pkce.create(
+            session_binding="browser-session-binding-value",
+            team_id=TEAM_ID,
+            assistant_id=ASSISTANT_ID,
+            integration_id="cloudflare",
+            provider_id="cloudflare",
+            scopes=SCOPES,
+            resource_binding=("account_1", ANCHOR_ID),
+        )
+        lease = hosted_resources._AuthorizationLease(TEAM_ID, ANCHOR_ID, "account_1", ("account", "account_1"))
+        body = {"provider": "anthropic", "model": None, "effort": "low"}
+
+        @contextlib.contextmanager
+        def exclusive(*_args):
+            yield "token", types.SimpleNamespace(id=ANCHOR_ID)
+
+        # The Owner has no credential for the new provider, so a paused turn could never resolve it on resume.
+        missing = runtime_state.ApiError(HTTPStatus.CONFLICT, "configure a model credential")
+        with (
+            mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce),
+            mock.patch.object(runtime_state._inference_store, "save") as save,
+            mock.patch.object(hosted_resources, "_require_current_authorization"),
+            mock.patch.object(hosted_chat_api, "_exclusive_chat_turn", exclusive),
+            mock.patch.object(hosted_chat_segment, "_hosted_chat_setup", side_effect=missing) as setup,
+        ):
+            hosted_lifecycle._configure_inference(TEAM_ID, body, lease)
+            with self.assertRaises(runtime_state.ApiError) as resumed:
+                hosted_chat_api._resume_chat_integrations(TEAM_ID, paused.id, lease)
+
+        save.assert_called_once()
+        self.assertIsNone(challenges.current(TEAM_ID), "the paused Integration gate outlived the model change")
+        self.assertEqual(pkce.cancel_team(TEAM_ID), 0, "OAuth state outlived its withdrawn gate")
+        # The resume answers that the request expired, so the next message can attempt a fresh turn.
+        self.assertEqual(resumed.exception.status, HTTPStatus.CONFLICT)
+        self.assertIn("expired", str(resumed.exception))
+        setup.assert_not_called()
+
+    def test_ending_a_paused_integration_turn_rejects_an_invalid_continuation(self) -> None:
+        challenges = integration_challenges.IntegrationChallengeStore()
+        requirement = integration_challenges.IntegrationRequirement(
+            ASSISTANT_ID, "Shimpz Cloudflare", ("list-zones",), (("cloudflare", "cloudflare", SCOPES),)
+        )
+        batched = hosted_assistants._PendingHostedChat(
+            types.SimpleNamespace(), (ASSISTANT_ID,), (), "account_1", ("identity",), paused_batch="batch"
+        )
+        pkce = types.SimpleNamespace(cancel_team=mock.Mock(return_value=0))
+        with mock.patch.multiple(runtime_state, _integration_challenges=challenges, _integration_pkce=pkce):
+            self.assertFalse(harness.hosted_chat_lifecycle.cancel_paused_integration(TEAM_ID))
+            # An Integration pause precedes its batch, so a continuation holding one, or none at all, is invalid.
+            for payload in (object(), batched):
+                challenges.create(TEAM_ID, (requirement,), payload)
+                with self.subTest(payload=payload), self.assertRaises(AssertionError):
+                    harness.hosted_chat_lifecycle.cancel_paused_integration(TEAM_ID)
+                self.assertIsNone(challenges.current(TEAM_ID))
+        pkce.cancel_team.assert_called_once_with(TEAM_ID)
 
     def test_callback_revalidates_owner_and_container_before_token_exchange(self) -> None:
         binding = integration_pkce.OAuthCallbackBinding(
