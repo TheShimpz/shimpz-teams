@@ -131,15 +131,17 @@ class ChatTurnService:
 
     @contextmanager
     def _drained_chat(self):
-        """Close turn registration Space-wide, stop every running turn, and hold their execution slots meanwhile.
+        """Close turn registration Space-wide, stop every running turn, and hold every Team's execution slot meanwhile.
 
-        Closing and the snapshot of running turns happen under one guard, so a turn that won its slot but has not
-        registered yet is refused at registration and never starts work this drain would miss (ADR-0079).
+        Closing and the snapshot happen under one guard, so a turn that won its slot but has not registered yet is
+        refused at registration and never starts work this drain would miss (ADR-0079). Every slot that exists is
+        awaited, not only those of registered turns: a turn that already committed still writes its Routine lineage
+        before it frees its slot, and any other holder finishes before the reset clears what it may write.
         """
         with self._active_chat_guard:
             self._chat_closed = True
             running = tuple(self._active_chat_tokens)
-            locks = tuple(self._chat_locks[team_id] for team_id in running)
+            locks = tuple(self._chat_locks.values())
         held: list[threading.Lock] = []
         try:
             for team_id in running:

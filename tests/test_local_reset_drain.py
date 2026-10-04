@@ -27,6 +27,25 @@ from local.chat import service as local_chat_service
 from tests import human_request_fixtures
 
 
+class ObservedSlot:
+    """A Team execution slot that reports when an acquirer has to wait for its holder."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.waiting = threading.Event()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        if self.lock.acquire(blocking=False):
+            return True
+        if not blocking:
+            return False
+        self.waiting.set()
+        return self.lock.acquire(timeout=timeout)
+
+    def release(self) -> None:
+        self.lock.release()
+
+
 class LocalResetDrainTests(LocalContractCase):
     def _controller(self, directory: str) -> local_app.LocalController:
         controller = self._chat_controller(directory, Runtime())
@@ -190,3 +209,28 @@ class LocalResetDrainTests(LocalContractCase):
             self.assertFalse(service._chat_closed)
             self.assertTrue(stopped.acquire(blocking=False), "a drained slot stayed held")
             stopped.release()
+
+    def test_reset_waits_for_a_committed_turn_that_still_holds_its_slot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            controller = self._controller(directory)
+            service = controller.chat_turn_service
+            # A turn committed its reply, so its token is gone, but it still holds its slot to record Routine lineage.
+            slot = ObservedSlot()
+            service._chat_locks["team_1"] = slot
+            self.assertTrue(slot.acquire())
+            events: list[str] = []
+            remove = controller._remove_space_resources
+            controller._remove_space_resources = lambda *args: events.append("cleanup") or remove(*args)
+            finished = threading.Event()
+            reset = threading.Thread(target=lambda: (controller.reset_space(), finished.set()), daemon=True)
+            reset.start()
+            for _ in range(500):
+                if slot.waiting.is_set() or finished.is_set():
+                    break
+                finished.wait(0.01)
+            events.append("post-commit write")
+            slot.release()
+            reset.join(5)
+
+            self.assertTrue(finished.is_set())
+            self.assertEqual(events, ["post-commit write", "cleanup"], "reset cleared before the turn left its slot")
