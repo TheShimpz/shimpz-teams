@@ -136,10 +136,11 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         outcome = types.SimpleNamespace(request=request)
         payload = _pending()
         subject = types.SimpleNamespace(
+            _lock=lambda _team_id: nullcontext(),
             human_challenges=types.SimpleNamespace(
                 create=mock.Mock(side_effect=action_challenges.HumanChallengeError("conflict")),
                 cancel_team=mock.Mock(),
-            )
+            ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_pause._pause_human(
@@ -192,10 +193,11 @@ class LocalChatPauseEdgeTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "assistant-integration-contract-invalid")
 
         subject = types.SimpleNamespace(
+            _lock=lambda _team_id: nullcontext(),
             integration_challenges=types.SimpleNamespace(
                 create=mock.Mock(side_effect=integration_challenges.IntegrationChallengeError("conflict")),
                 cancel_team=mock.Mock(),
-            )
+            ),
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_pause._pause_integration(

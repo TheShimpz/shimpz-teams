@@ -71,7 +71,7 @@ class LocalResetDrainTests(LocalContractCase):
         with tempfile.TemporaryDirectory() as directory:
             controller = self._controller(directory)
             service = controller.chat_turn_service
-            turn = PausingTurn(service, service.human_challenges, lambda: bool(service._cancelled_chat_tokens))
+            turn = PausingTurn(service, "human", lambda: bool(service._cancelled_chat_tokens))
             self.addCleanup(turn.release.set)
             turn.start()
             store = controller.chat_continuations

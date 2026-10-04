@@ -106,21 +106,24 @@ def _pause_human(
         return self._terminal_human_failure(team_id, token, payload, "secret-must-be-last")
     if outcome.request.kind in action_human.AUTH_KINDS - {"auth:password"}:
         return self._terminal_human_failure(team_id, token, payload, "authentication-unavailable")
-    try:
-        challenge = self.human_challenges.create(team_id, requirements[0], payload)
-    except action_challenges.HumanChallengeError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Action human request is already pending",
-            code="human-request-conflict",
-        ) from exc
-    try:
-        self._persist_chat_continuation("human", challenge, requirements, payload)
-    except ApiProblem:
-        self.human_challenges.cancel_team(team_id)
-        self._purge_human_pending(payload)
-        raise
-    self._commit_suspension(team_id, token, outcome, payload, self.human_challenges, challenge.id)
+    # Publication, persistence, and the commit or its rollback hold the Team lock, so a relocalization never reissues a
+    # challenge whose commit may still fail.
+    with self._lock(team_id):
+        try:
+            challenge = self.human_challenges.create(team_id, requirements[0], payload)
+        except action_challenges.HumanChallengeError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Action human request is already pending",
+                code="human-request-conflict",
+            ) from exc
+        try:
+            self._persist_chat_continuation("human", challenge, requirements, payload)
+        except ApiProblem:
+            self.human_challenges.cancel_team(team_id)
+            self._purge_human_pending(payload)
+            raise
+        self._commit_suspension(team_id, token, outcome, payload, self.human_challenges, challenge.id)
     return self._human_response(challenge)
 
 
@@ -150,18 +153,21 @@ def _pause_integration(
     requirements: tuple[integration_challenges.IntegrationRequirement, ...],
     payload: _PendingLocalChat,
 ) -> dict[str, object]:
-    try:
-        challenge = self.integration_challenges.create(team_id, requirements, payload)
-    except integration_challenges.IntegrationChallengeError as exc:
-        raise ApiProblem(
-            HTTPStatus.CONFLICT,
-            "Assistant integration request is already pending",
-            code="assistant-integration-challenge-conflict",
-        ) from exc
-    try:
-        self._persist_chat_continuation("integrations", challenge, requirements, payload)
-    except ApiProblem:
-        self.integration_challenges.cancel_team(team_id)
-        raise
-    self._commit_suspension(team_id, token, outcome, payload, self.integration_challenges, challenge.id)
+    # Publication, persistence, and the commit or its rollback hold the Team lock, so an OAuth start never creates PKCE
+    # state from a challenge whose commit may still fail.
+    with self._lock(team_id):
+        try:
+            challenge = self.integration_challenges.create(team_id, requirements, payload)
+        except integration_challenges.IntegrationChallengeError as exc:
+            raise ApiProblem(
+                HTTPStatus.CONFLICT,
+                "Assistant integration request is already pending",
+                code="assistant-integration-challenge-conflict",
+            ) from exc
+        try:
+            self._persist_chat_continuation("integrations", challenge, requirements, payload)
+        except ApiProblem:
+            self.integration_challenges.cancel_team(team_id)
+            raise
+        self._commit_suspension(team_id, token, outcome, payload, self.integration_challenges, challenge.id)
     return self._integration_response(challenge)
