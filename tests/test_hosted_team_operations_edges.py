@@ -474,6 +474,32 @@ class HostedTeamOperationEdgeTests(unittest.TestCase):
                         lifecycle._destroy(TEAM_ID, _lease(cleanup_nonce="nonce"))
         self.assertEqual(lock.release.call_count, 3)
 
+    def test_destroy_ends_only_this_teams_expired_human_continuations(self) -> None:
+        def expired(team_id: str, generation: str) -> object:
+            pending = harness.hosted_assistants._PendingHostedChat(object(), (), (), OWNER, (generation,))
+            return state.action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
+
+        humans = state.action_challenges.HumanChallengeStore(retain_expired=True)
+        foreign = expired("team_2", "d" * 64)
+        humans._expired.extend((expired(TEAM_ID, "c" * 64), foreign))
+        journal = mock.Mock()
+        lock = mock.Mock()
+        lock.acquire.return_value = True
+        complete = resources._CleanupResult(True, True, tuple(lifecycle._TEAM_RESIDUE_ABSENCE))
+        with (
+            mock.patch.object(state, "_human_challenges", humans),
+            mock.patch.object(state, "_action_execution_journal", return_value=journal),
+            mock.patch.object(resources, "_require_cleanup_authorization"),
+            mock.patch.object(state, "_chat_lock_for", return_value=lock),
+            mock.patch.object(lifecycle, "_delete_generation_state", return_value=set()),
+            mock.patch.object(lifecycle, "_teardown", return_value=complete),
+            mock.patch.object(state, "_clear_team_id_runtime_state"),
+        ):
+            self.assertTrue(lifecycle._destroy(TEAM_ID, _lease(cleanup_nonce="nonce"))["destroyed"])
+
+        journal.purge.assert_called_once_with("c" * 64)
+        self.assertEqual(humans.drain_expired(), (foreign,))
+
     def test_list_status_inference_logs_and_lifecycle_operations_map_failures(self) -> None:
         own = _container()
         foreign = _container(id="b", labels={"team.owner": "other"})

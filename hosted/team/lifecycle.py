@@ -16,6 +16,7 @@ from hosted import prepare as hosted_prepare
 from hosted import state as runtime_state
 from hosted.assistant import lifecycle as assistant_lifecycle
 from hosted.assistant import runtime as hosted_assistants
+from hosted.chat import human as hosted_chat_human
 from hosted.chat import lifecycle as hosted_chat_lifecycle
 from hosted.team import postgresql as postgresql_service_client
 from hosted.team import resources as hosted_resources
@@ -539,6 +540,8 @@ def _stop_and_tear_down(team_id: str, lease: hosted_resources._AuthorizationLeas
     if not chat_lock.acquire(timeout=30):
         raise runtime_state.ApiError(HTTPStatus.CONFLICT, "the active chat turn did not stop in time")
     try:
+        # A continuation that already expired is still this Team's; it never outlives the Team.
+        hosted_chat_human._expire_challenges(team_id)
         residue_absent = _delete_generation_state(team_id, lease.container_id)
         cleanup = _teardown(team_id, owner=lease.owner, runtime_id=lease.container_id)
         runtime_state._clear_team_id_runtime_state(team_id)

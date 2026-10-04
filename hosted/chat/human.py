@@ -14,8 +14,9 @@ from hosted.chat import segment as hosted_chat_segment
 from hosted.team import resources as hosted_resources
 
 
-def _expire_challenges() -> None:
-    for challenge in runtime_state._human_challenges.drain_expired():
+def _expire_challenges(team_id: str | None = None) -> None:
+    """Purge what expired continuations, every Team's or only one Team's, left in the Action journal."""
+    for challenge in runtime_state._human_challenges.drain_expired(team_id):
         if not isinstance(challenge.payload, hosted_assistants._PendingHostedChat):
             raise AssertionError("invalid expired hosted human continuation")
         hosted_chat_segment._purge_hosted_human_pending(challenge.payload)

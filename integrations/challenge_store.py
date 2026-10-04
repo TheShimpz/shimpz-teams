@@ -207,15 +207,16 @@ class ChallengeStore[PendingT]:
             self._expired.clear()
             return removed
 
-    def drain_expired(self) -> tuple[PendingT, ...]:
-        """Return expired payloads once so their owning domain can clean dependent state."""
+    def drain_expired(self, team_id: object | None = None) -> tuple[PendingT, ...]:
+        """Return expired payloads once, every Team's or one Team's, so their owning domain cleans dependent state."""
         if not self._retain_expired:
             raise self._contract.error_class(f"{self._contract.label} challenges do not retain expired payloads")
+        team = None if team_id is None else self._team_id(team_id)
         with self._lock:
             self._expire(self._clock())
-            expired = tuple(self._expired)
-            self._expired.clear()
-            return expired
+            drained = [item for item in self._expired if team in {None, item.team_id}]
+            self._expired = [item for item in self._expired if team not in {None, item.team_id}]
+            return tuple(drained)
 
     def _available(self, team_id: str, challenge_id: str) -> PendingT:
         challenge = self._pending.get(challenge_id)

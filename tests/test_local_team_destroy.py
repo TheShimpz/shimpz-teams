@@ -13,9 +13,15 @@ from test_local_turn_lifecycle import LOCAL_TEAM_RESIDUES
 from action import challenges as action_challenges
 from inference import client as brain_runtime_client
 from local import app as local_app
+from local.chat.types import PendingLocalChat
 from local.routine import card as routine_card
 from local.routine import lineage as routine_lineage
 from routine import record as routine_record
+
+
+def _expired_human(team_id: str, generation: str) -> action_challenges.PendingHumanChallenge:
+    pending = PendingLocalChat(object(), (), (), "openai", ("identity", generation, "", "", ""))
+    return action_challenges.PendingHumanChallenge("e" * 32, team_id, 0.0, SimpleNamespace(), pending)
 
 
 class LocalTeamDestroyTests(LocalContractCase):
@@ -101,6 +107,10 @@ class LocalTeamDestroyTests(LocalContractCase):
             delete_routine=lambda _team_id, _routine_id: None,
         )
         controller._wire_collaborators()
+        # Human continuations that already expired, one of this Team's earlier generation and one of another Team.
+        humans = controller.chat_turn_service.human_challenges
+        foreign = _expired_human("team_2", "d" * 64)
+        humans._expired.extend((_expired_human("team_1", "c" * 64), foreign))
         controller.chat_turn_service._active_chat_tokens = {"team_1": "turn-token"}
         controller.chat_turn_service._active_action_containers = {"team_1": ("turn-token", object())}
         controller.chat_turn_service._chat_lock = lambda _team_id: ChatLock()
@@ -133,6 +143,8 @@ class LocalTeamDestroyTests(LocalContractCase):
                 "network-read",
                 "containers-read",
                 "container-validated",
+                # The Team's expired continuation is cleaned by its owning consumer, never left behind.
+                ("action-purge", "c" * 64),
                 ("thread-delete", expected_thread),
                 ("action-purge", "a" * 64),
                 "helpers-read",
@@ -162,6 +174,7 @@ class LocalTeamDestroyTests(LocalContractCase):
             },
         )
         self.assertEqual(controller.registry.identities(), set())
+        self.assertEqual(humans.drain_expired(), (foreign,))
 
     def test_destroy_brain_failure_is_redacted_and_mutates_nothing(self) -> None:
         events: list[str] = []

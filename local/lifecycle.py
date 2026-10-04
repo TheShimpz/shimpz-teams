@@ -243,6 +243,8 @@ def _destroy_confirmed_team(self, team_id: str) -> dict[str, object]:
             network = self.assistant_lifecycle._network(team_id, required=False)
             containers = self._team_assistant_containers(team_id)
             self._validate_destroy_containers(containers, team_id, network)
+            # A continuation that already expired is still this Team's; it never outlives the Team.
+            self.chat_turn_service._expire_human_challenges(team_id)
             self._delete_team_conversation(team_id, network)
             residue_absent.update(("brain_checkpoints", "action_checkpoints"))
             _remove_team_helpers(self, team_id)

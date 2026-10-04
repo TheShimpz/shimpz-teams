@@ -83,8 +83,9 @@ def relocalized(
     return fresh
 
 
-def _expire_human_challenges(self) -> None:
-    for challenge in self.human_challenges.drain_expired():
+def _expire_human_challenges(self, team_id: str | None = None) -> None:
+    """Delete what expired continuations, every Team's or only one Team's, left behind."""
+    for challenge in self.human_challenges.drain_expired(team_id):
         if not isinstance(challenge.payload, PendingLocalChat):
             raise AssertionError("invalid expired local human continuation")
         self._delete_chat_continuation(challenge.team_id, challenge.id)

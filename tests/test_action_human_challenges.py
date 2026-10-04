@@ -70,9 +70,12 @@ class HumanChallengeTests(unittest.TestCase):
         clock = [100.0]
         store = challenges.HumanChallengeStore(ttl_seconds=30, clock=lambda: clock[0], retain_expired=True)
         pending = store.create("team_1", requirement(), {"continuation": "opaque"})
+        other = store.create("team_2", requirement(), {"continuation": "other"})
         clock[0] = 130.0
 
-        self.assertEqual(store.drain_expired(), (pending,))
+        # One Team's drain, as its destruction runs it, leaves every other Team's expiry for that Team's consumer.
+        self.assertEqual(store.drain_expired("team_1"), (pending,))
+        self.assertEqual(store.drain_expired(), (other,))
         self.assertEqual(store.drain_expired(), ())
         self.assertIsNone(store.current("team_1"))
 

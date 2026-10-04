@@ -52,7 +52,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
             assistant_lifecycle=types.SimpleNamespace(_network=mock.Mock()),
             human_challenges=types.SimpleNamespace(
                 current=lambda _team_id: None,
-                drain_expired=lambda: (),
+                drain_expired=lambda _team_id: (),
             ),
         )
         self.assertEqual(
@@ -68,7 +68,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
             {"challenge": challenge},
         )
 
-        subject.human_challenges.drain_expired = lambda: (_challenge(object()),)
+        subject.human_challenges.drain_expired = lambda _team_id: (_challenge(object()),)
         with self.assertRaises(AssertionError):
             local_chat_human._expire_human_challenges(subject)
 
@@ -88,7 +88,7 @@ class LocalHumanBoundaryEdgeTests(unittest.TestCase):
         subject = types.SimpleNamespace(
             human_challenges=types.SimpleNamespace(
                 get=mock.Mock(side_effect=action_challenges.HumanChallengeNotFoundError("expired")),
-                drain_expired=lambda: (),
+                drain_expired=lambda _team_id: (),
             )
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
