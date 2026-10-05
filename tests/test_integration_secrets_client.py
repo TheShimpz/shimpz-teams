@@ -15,15 +15,16 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from inference import integration_secrets as integration_secrets_client
+from protocol.account.delivery.v1 import aad as delivery_protocol
 
 
 def _delivery(account_id: str, provider: str, recipient: str, secret: str) -> dict[str, object]:
     recipient_bytes = integration_secrets_client._b64decode(recipient)
     sender = x25519.X25519PrivateKey.generate()
     sender_public = sender.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    salt = secrets.token_bytes(integration_secrets_client.DELIVERY_SALT_BYTES)
-    nonce = secrets.token_bytes(integration_secrets_client.DELIVERY_NONCE_BYTES)
-    aad = integration_secrets_client._delivery_aad(
+    salt = secrets.token_bytes(delivery_protocol.SALT_BYTES)
+    nonce = secrets.token_bytes(delivery_protocol.NONCE_BYTES)
+    aad = delivery_protocol.delivery_aad(
         account_id,
         provider,
         "api_key",
@@ -33,18 +34,18 @@ def _delivery(account_id: str, provider: str, recipient: str, secret: str) -> di
     shared_key = sender.exchange(x25519.X25519PublicKey.from_public_bytes(recipient_bytes))
     key = HKDF(
         algorithm=hashes.SHA256(),
-        length=integration_secrets_client.DELIVERY_KEY_BYTES,
+        length=delivery_protocol.KEY_BYTES,
         salt=salt,
         info=aad,
     ).derive(shared_key)
     ciphertext = AESGCM(key).encrypt(nonce, secret.encode(), aad)
     return {
-        "v": integration_secrets_client.DELIVERY_VERSION,
-        "alg": integration_secrets_client.DELIVERY_ALGORITHM,
-        "sender_public_key": integration_secrets_client._b64encode(sender_public),
-        "salt": integration_secrets_client._b64encode(salt),
-        "nonce": integration_secrets_client._b64encode(nonce),
-        "ciphertext": integration_secrets_client._b64encode(ciphertext),
+        "v": delivery_protocol.VERSION,
+        "alg": delivery_protocol.ALGORITHM,
+        "sender_public_key": delivery_protocol.encode(sender_public),
+        "salt": delivery_protocol.encode(salt),
+        "nonce": delivery_protocol.encode(nonce),
+        "ciphertext": delivery_protocol.encode(ciphertext),
     }
 
 
@@ -269,17 +270,15 @@ class IntegrationSecretsClientTests(unittest.TestCase):
 
     def test_delivery_envelope_shape_lengths_and_authentication_fail_closed(self) -> None:
         private_key = x25519.X25519PrivateKey.generate()
-        recipient = integration_secrets_client._b64encode(
-            private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        )
+        recipient = delivery_protocol.encode(private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
         valid = _delivery("account-1", "openai", recipient, "secret")
         invalid = (
             None,
             {**valid, "v": 2},
             {**valid, "alg": "unknown"},
-            {**valid, "sender_public_key": integration_secrets_client._b64encode(b"short")},
-            {**valid, "ciphertext": integration_secrets_client._b64encode(b"x" * 16)},
-            {**valid, "ciphertext": integration_secrets_client._b64encode(b"x" * 17)},
+            {**valid, "sender_public_key": delivery_protocol.encode(b"short")},
+            {**valid, "ciphertext": delivery_protocol.encode(b"x" * 16)},
+            {**valid, "ciphertext": delivery_protocol.encode(b"x" * 17)},
         )
         for delivery in invalid:
             with self.subTest(delivery=delivery), self.assertRaises(integration_secrets_client.IntegrationSecretError):
@@ -294,7 +293,7 @@ class IntegrationSecretsClientTests(unittest.TestCase):
         tampered = dict(valid)
         ciphertext = integration_secrets_client._b64decode(valid["ciphertext"])
         # Flip one tag bit; overwriting the byte with a constant leaves it unchanged when it already held it.
-        tampered["ciphertext"] = integration_secrets_client._b64encode(ciphertext[:-1] + bytes([ciphertext[-1] ^ 1]))
+        tampered["ciphertext"] = delivery_protocol.encode(ciphertext[:-1] + bytes([ciphertext[-1] ^ 1]))
         with self.assertRaisesRegex(integration_secrets_client.IntegrationSecretError, "authentication failed"):
             integration_secrets_client._open_delivery(
                 private_key,
@@ -306,9 +305,7 @@ class IntegrationSecretsClientTests(unittest.TestCase):
 
     def test_delivery_rejects_nul_plaintext(self) -> None:
         private_key = x25519.X25519PrivateKey.generate()
-        recipient = integration_secrets_client._b64encode(
-            private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-        )
+        recipient = delivery_protocol.encode(private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw))
         delivery = _delivery("account-1", "openai", recipient, "bad\0secret")
         with self.assertRaisesRegex(
             integration_secrets_client.IntegrationSecretError,

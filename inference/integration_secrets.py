@@ -27,6 +27,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from inference.config import PROVIDERS as MODEL_PROVIDERS
+from protocol.account.delivery.v1 import aad as delivery_protocol
 
 ACCOUNT_URL = os.environ.get("SHIMPZ_ACCOUNT_URL", "http://account:7079")
 RESOLVE_TOKEN_FILE = Path(
@@ -43,11 +44,6 @@ UNSEAL_TOKEN_FILE = Path(
     )
 )
 MAX_RESPONSE_BYTES = 96 * 1024
-DELIVERY_VERSION = 1
-DELIVERY_ALGORITHM = "X25519-HKDF-SHA256+A256GCM"
-DELIVERY_SALT_BYTES = 16
-DELIVERY_NONCE_BYTES = 12
-DELIVERY_KEY_BYTES = 32
 MAX_SECRET_BYTES = 64 * 1024
 MAX_TOKEN_BYTES = 16 * 1024
 SUPPORTED_PROVIDERS = frozenset(MODEL_PROVIDERS)
@@ -65,10 +61,6 @@ def _require_provider(provider: str) -> None:
         raise IntegrationSecretError("Integration secret provider is unsupported")
 
 
-def _b64encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode()
-
-
 def _b64decode(value: object) -> bytes:
     if not isinstance(value, str):
         raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
@@ -76,29 +68,6 @@ def _b64decode(value: object) -> bytes:
         return base64.b64decode(value, altchars=b"-_", validate=True)
     except ValueError as exc:
         raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext") from exc
-
-
-def _delivery_aad(
-    account_id: str,
-    provider: str,
-    auth_type: str,
-    recipient_public_key: bytes,
-    sender_public_key: bytes,
-) -> bytes:
-    return json.dumps(
-        {
-            "account_id": account_id,
-            "alg": DELIVERY_ALGORITHM,
-            "auth_type": auth_type,
-            "provider": provider,
-            "purpose": "shimpz-integration-secret-delivery",
-            "recipient_public_key": _b64encode(recipient_public_key),
-            "sender_public_key": _b64encode(sender_public_key),
-            "v": DELIVERY_VERSION,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
 
 
 def _open_delivery(
@@ -110,21 +79,21 @@ def _open_delivery(
 ) -> str:
     if not isinstance(delivery, dict):
         raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
-    if delivery.get("v") != DELIVERY_VERSION or delivery.get("alg") != DELIVERY_ALGORITHM:
+    if delivery.get("v") != delivery_protocol.VERSION or delivery.get("alg") != delivery_protocol.ALGORITHM:
         raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     sender_public_key = _b64decode(delivery.get("sender_public_key"))
     salt = _b64decode(delivery.get("salt"))
     nonce = _b64decode(delivery.get("nonce"))
     ciphertext = _b64decode(delivery.get("ciphertext"))
     if (
-        len(sender_public_key) != 32
-        or len(salt) != DELIVERY_SALT_BYTES
-        or len(nonce) != DELIVERY_NONCE_BYTES
+        len(sender_public_key) != delivery_protocol.PUBLIC_KEY_BYTES
+        or len(salt) != delivery_protocol.SALT_BYTES
+        or len(nonce) != delivery_protocol.NONCE_BYTES
         or not 16 < len(ciphertext) <= MAX_SECRET_BYTES + 16
     ):
         raise IntegrationSecretError("Integration secret delivery returned invalid ciphertext")
     recipient_public_key = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    aad = _delivery_aad(
+    aad = delivery_protocol.delivery_aad(
         account_id,
         provider,
         auth_type,
@@ -135,7 +104,7 @@ def _open_delivery(
         shared_key = private_key.exchange(x25519.X25519PublicKey.from_public_bytes(sender_public_key))
         delivery_key = HKDF(
             algorithm=hashes.SHA256(),
-            length=DELIVERY_KEY_BYTES,
+            length=delivery_protocol.KEY_BYTES,
             salt=salt,
             info=aad,
         ).derive(shared_key)
@@ -332,7 +301,7 @@ def resolve(
             "provider": provider,
             "auth_type": auth_type,
             "envelope": envelope,
-            "recipient_public_key": _b64encode(recipient_public_key),
+            "recipient_public_key": delivery_protocol.encode(recipient_public_key),
         },
         UNSEAL_TOKEN_FILE,
         session,

@@ -53,6 +53,7 @@ HOSTED_PROTOCOL_DATA = {
     "protocol/account/authority/v1/evaluation-response.schema.json",
     "protocol/account/authority/v1/vectors.json",
     "protocol/account/authority/v1/verify.py",
+    "protocol/account/delivery/v1/aad.py",
     "protocol/http/v1/payload.py",
     "protocol/install/upstream.json",
     "protocol/install/v1/README.md",
@@ -220,6 +221,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
             "/usr/local/bin/cosign",
             "./protocol/account/authority/",
             "./protocol/account/authority/v1/",
+            "./protocol/account/delivery/v1/",
             "./protocol/assistant/v1/validators/",
             "./protocol/http/v1/",
             "./protocol/install/",
@@ -444,7 +446,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
         protocol_runtime_data = {path for path in hosted_paths if path.startswith("protocol/")}
         self.assertEqual(
             protocol_runtime_data,
-            {"protocol/http/v1/payload.py", *ASSISTANT_PROTOCOL_RUNTIME},
+            {"protocol/http/v1/payload.py", "protocol/account/delivery/v1/aad.py", *ASSISTANT_PROTOCOL_RUNTIME},
         )
         local_protocol_runtime_data = {path for path in local_paths if path.startswith("protocol/")}
         self.assertEqual(
