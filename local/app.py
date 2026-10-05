@@ -59,7 +59,7 @@ from local.chat import state as local_chat_state
 from local.chat.service import ChatTurnService
 from local.composition import AssistantLifecycleDependencies, ChatTurnDependencies
 from local.errors import ApiProblemError as ApiProblem
-from local.errors import action_file_unavailable, docker_unavailable, stored_input_unavailable, team_context_changed
+from local.errors import action_file_unavailable, docker_unavailable, team_context_changed
 from local.http.server import REQUEST_TIMEOUT_SECONDS, BoundedServer, Handler
 from local.install import automatic as local_automatic_updates
 from local.install import collector as local_snapshot_collector
@@ -651,7 +651,11 @@ class LocalController:
                 private,
             )
         except (KeyError, action_stored_input.StoredInputStoreError) as exc:
-            raise stored_input_unavailable() from exc
+            raise ApiProblem(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                "Assistant Stored Input could not be saved",
+                code="assistant-stored-input-state-unavailable",
+            ) from exc
         local_audit.record_request(
             "assistant-action",
             result="ok",
