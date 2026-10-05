@@ -4,19 +4,13 @@
 # Separate local-only Team controller. It does not copy the hosted app.py/runsc/PG control
 # plane; only the narrow LangGraph runtime protocol and Controller-owned Action loop are shared.
 FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
-ARG SOURCE_DATE_EPOCH=0
 
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
-ARG SOURCE_DATE_EPOCH=0
+# Cosign is downloaded and hash-checked in its own stage, so curl and APT never reach an image layer.
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS cosign
 ARG COSIGN_VERSION=3.1.2
 ARG COSIGN_AMD64_SHA256=f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf
 ARG COSIGN_ARM64_SHA256=90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302
 ARG TARGETARCH
-WORKDIR /app
-COPY --from=uv /uv /usr/local/bin/uv
-COPY pyproject.toml uv.lock ./
-RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-install-project --no-dev --python 3.14 && \
-    rm -rf /root/.cache/uv
 RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     case "${TARGETARCH}" in \
         amd64) cosign_sha256="${COSIGN_AMD64_SHA256}" ;; \
@@ -25,13 +19,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && \
     esac && \
     curl -LsSf "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
         -o /tmp/cosign && \
-    echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c - && \
-    install -m 0755 /tmp/cosign /opt/venv/bin/cosign
+    echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -
 
-FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS runtime
+# The dependency layer is the runtime's base and a pure function of the pinned base, uv, the lock, and Cosign
+# (Shimpz ADR-0098): no ARG SOURCE_DATE_EPOCH, WORKDIR, COPY, or ADD here; uv, the lock, and Cosign arrive as
+# read-only mounts on a discarded tmpfs, the uv cache is removed, and every /opt timestamp is fixed. An unchanged lock
+# therefore yields the same layer bytes at every commit, with or without a build cache.
+FROM python:3.14-slim@sha256:cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6 AS dependencies
+RUN --mount=type=tmpfs,target=/tmp \
+    --mount=type=bind,from=uv,source=/uv,target=/tmp/uv \
+    --mount=type=bind,source=pyproject.toml,target=/tmp/project/pyproject.toml \
+    --mount=type=bind,source=uv.lock,target=/tmp/project/uv.lock \
+    --mount=type=bind,from=cosign,source=/tmp/cosign,target=/tmp/cosign \
+    cd /tmp/project && \
+    UV_PROJECT_ENVIRONMENT=/opt/venv UV_CACHE_DIR=/opt/uv-cache UV_LINK_MODE=copy \
+        /tmp/uv sync --frozen --no-install-project --no-dev --python 3.14 && \
+    rm -rf /opt/uv-cache && \
+    install -m 0755 /tmp/cosign /opt/venv/bin/cosign && \
+    find /opt -depth -exec touch -h -d @0 {} +
+
+FROM dependencies AS runtime
 ARG SOURCE_DATE_EPOCH=0
 WORKDIR /app
-COPY --from=dependencies /opt/venv /opt/venv
 
 COPY local/__init__.py local/activity.py local/app.py local/audit.py local/authority.py local/composition.py local/errors.py local/healthcheck.py \
     local/inference.py local/labels.py local/lifecycle.py local/names.py local/prepare.py local/token.py \

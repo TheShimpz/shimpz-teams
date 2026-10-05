@@ -338,6 +338,27 @@ class StaticTeamImageContractTests(unittest.TestCase):
             dockerfile,
         )
 
+    def _assert_epoch_free_dependency_base(self, dockerfile: str) -> None:
+        """The runtime derives from a dependency layer that no commit-time input reaches (Shimpz ADR-0098)."""
+        self.assertIn("\nFROM dependencies AS runtime\n", dockerfile)
+        stages = dict(re.findall(r"(?ms)^FROM \S+ AS (\w+)\n(.*?)(?=^FROM |\Z)", dockerfile))
+        self.assertEqual(["cosign", "dependencies", "runtime", "uv"], sorted(stages))
+        dependencies = re.sub(r"\\\n\s*", " ", stages["dependencies"])
+        for stage in ("uv", "cosign", "dependencies"):
+            with self.subTest(stage=stage):
+                self.assertNotRegex(stages[stage], r"(?m)^(ARG SOURCE_DATE_EPOCH|WORKDIR|COPY|ADD)\b")
+        for mount in (
+            "--mount=type=tmpfs,target=/tmp",
+            "--mount=type=bind,from=uv,source=/uv,target=/tmp/uv",
+            "--mount=type=bind,source=pyproject.toml,target=/tmp/project/pyproject.toml",
+            "--mount=type=bind,source=uv.lock,target=/tmp/project/uv.lock",
+            "--mount=type=bind,from=cosign,source=/tmp/cosign,target=/tmp/cosign",
+        ):
+            self.assertIn(mount, dependencies)
+        self.assertIn("uv sync --frozen --no-install-project --no-dev --python 3.14", dependencies)
+        self.assertIn('echo "${cosign_sha256}  /tmp/cosign" | sha256sum -c -', stages["cosign"])
+        self.assertTrue(dependencies.rstrip().endswith("find /opt -depth -exec touch -h -d @0 {} +"))
+
     def test_static_local_image_copies_the_exact_runtime_import_closure(self) -> None:
         dockerfile = (ROOT / "local" / "Dockerfile").read_text(encoding="utf-8")
         for line in re.sub(r"\\\n\s*", " ", dockerfile).splitlines():
@@ -346,8 +367,7 @@ class StaticTeamImageContractTests(unittest.TestCase):
         logical_lines = re.sub(r"\\\n\s*", " ", runtime).splitlines()
 
         self.assertIn(f"FROM {UV_IMAGE} AS uv", dockerfile)
-        self.assertIn("COPY --from=uv /uv /usr/local/bin/uv", dockerfile)
-        self.assertIn("COPY --from=dependencies /opt/venv /opt/venv", runtime)
+        self._assert_epoch_free_dependency_base(dockerfile)
         healthcheck = next(line for line in logical_lines if line.startswith("HEALTHCHECK "))
         self.assertEqual(
             " ".join(healthcheck.split()),
