@@ -248,6 +248,7 @@ if any(routine.canonical_timezone(value) is not None for value in timezones["inv
 
 views = vectors.get("routine_views", {})
 admit_view = {
+    "output": routine.canonical_output,
     "routine": routine.canonical_routine_view,
     "run": routine.canonical_run_view,
     "notice_batch": routine.canonical_notice_batch,

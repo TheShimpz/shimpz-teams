@@ -18,7 +18,7 @@ COMMITMENT = "d" * 64
 
 class CursorTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(), CONTRACTS)
+        self.plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
         self.cursor = routine_cursor.start(self.plan, BINDING, 1_800_000_000)
 
     def test_a_completed_prefix_advances_and_keeps_only_selected_values(self) -> None:
@@ -111,7 +111,10 @@ class CursorTests(unittest.TestCase):
         tampered = (
             b"not json",
             json.dumps(document).encode(),
-            routine_plan.canonical({**document, "version": 2}),
+            routine_plan.canonical({**document, "version": 1}),
+            routine_plan.canonical({key: value for key, value in document.items() if key != "shown"}),
+            routine_plan.canonical({**document, "shown": {"step": "publish"}}),
+            routine_plan.canonical({**document, "shown": []}),
             routine_plan.canonical({key: value for key, value in document.items() if key != "budgets"}),
             routine_plan.canonical({**document, "selected": {}}),
             routine_plan.canonical({**document, "selected": [["publish", "/id"]]}),
@@ -160,7 +163,7 @@ if __name__ == "__main__":
 
 class FaultTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.plan = routine_plan.admit(_document(), CONTRACTS)
+        self.plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
         self.dispatched = routine_cursor.dispatch(
             routine_cursor.start(self.plan, BINDING, 1_800_000_000), self.plan, OPERATION, COMMITMENT
         )

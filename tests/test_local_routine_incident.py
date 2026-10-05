@@ -116,7 +116,7 @@ class HoldTests(IncidentCase):
             routine_fixture.set_aside(service, "team_1", run_id)
             self.assertIsNone(service.routine_store.incident("team_1", run_id))
             # A cursor a crash left behind, whose run and incident are gone, is removed by the next pass.
-            plan = routine_plan.admit(_document(), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
             orphan = routine_cursor.Binding("a" * 64, "b" * 32, 1, "e" * 32)
             service.routine_store.put_cursor("team_1", routine_cursor.start(plan, orphan, 0))
             routine_watchdog.check(service)
@@ -163,7 +163,7 @@ class ResolutionTests(IncidentCase):
     def test_pular_permits_future_cycles_and_then_releases_what_the_incident_kept(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, generation, batch = self.held_run(directory)
-            plan = routine_plan.admit(_document(), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             service.routine_store.put_cursor("team_1", routine_cursor.start(plan, binding, 0))
             routine_incident.hold(service, "team_1", run_id, lease)
@@ -257,9 +257,10 @@ class RecoverySnapshotTests(IncidentCase):
     def compiled(self, service, value: record.Routine, run_id: str, generation: str, revision: int):
         """Seal the run's recovery snapshot and its first cursor, as the executor does before its first dispatch."""
         incarnation = generation.removesuffix(f":routine:{run_id}")
-        plan = routine_plan.admit(_document(), CONTRACTS)
+        document = _document(output={"mode": "chain", "step": None})
+        plan = routine_plan.admit(document, CONTRACTS)
         binding = routine_cursor.Binding(incarnation, value.routine_id, revision, run_id)
-        snapshot = routine_incident.Recovery(binding, value.quote, _document())
+        snapshot = routine_incident.Recovery(binding, value.quote, document)
         routine_incident.seal_recovery(service, "team_1", snapshot)
         cursor = routine_cursor.dispatch(
             routine_cursor.start(plan, binding, 1_800_000_000), plan, "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6", "d" * 64
@@ -532,7 +533,7 @@ class SealedStateTests(IncidentCase):
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, _generation, _batch = self.held_run(directory, batch=False)
             store = service.routine_store
-            plan = routine_plan.admit(_document(), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             cursor = routine_cursor.start(plan, binding, 0)
             store.put_cursor("team_1", cursor)
@@ -579,7 +580,7 @@ class SealedStateTests(IncidentCase):
     def test_the_receipt_handoff_seals_the_cursor_before_receipts_go(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, _lease, generation, _batch = self.held_run(directory, batch=False)
-            plan = routine_plan.admit(_document(), CONTRACTS)
+            plan = routine_plan.admit(_document(output={"mode": "chain", "step": None}), CONTRACTS)
             binding = routine_cursor.Binding("a" * 64, value.routine_id, 1, run_id)
             operation = _operation("publish")
             prepared = service.action_state.prepare_batch(generation, "thread", (operation,), archivable=True)
@@ -607,16 +608,23 @@ class SealedStateTests(IncidentCase):
             self.assertIsNone(service.action_state.current_batch(generation))
             self.assertEqual(order, ["crashed"])
 
-    def test_routine_state_version_six_admits_held_runs_incidents_plans_grants_receipts_and_run_requests(self) -> None:
+    def test_routine_state_version_seven_admits_held_runs_incidents_plans_grants_receipts_and_output_digests(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as directory:
             _controller, service, value, run_id, lease, _generation, _batch = self.held_run(directory)
             routine_incident.hold(service, "team_1", run_id, lease)
             routine_incident.set_paused(service, "team_1", value.routine_id, True)
             path = service.routine_store._team_dir("team_1") / "state.json"
             document = json.loads(path.read_bytes())
-            self.assertEqual(document["schema"], 6)
+            self.assertEqual(document["schema"], 7)
             self.assertEqual(document["routines"][0]["run_requested"], 0)
-            self.assertEqual(document["routines"][0]["plan"]["version"], 1)
+            self.assertEqual(document["routines"][0]["output_digest"], "")
+            self.assertEqual(document["routines"][0]["plan"]["version"], 2)
+            digest = dict(document, routines=[{**document["routines"][0], "output_digest": "d" * 64}])
+            self.assertEqual(
+                routine_store._decode(json.dumps(digest).encode(), "team_1").routines[0].output_digest, "d" * 64
+            )
             receipt = ["c" * 64, 2_000_000_000]
             document["receipts"] = [receipt]
             self.assertEqual(routine_store._decode(json.dumps(document).encode(), "team_1").receipts, (tuple(receipt),))
@@ -630,6 +638,9 @@ class SealedStateTests(IncidentCase):
                 lambda value: value["routines"][0].update(paused="yes"),
                 lambda value: value["routines"][0].update(run_requested=-1),
                 lambda value: value["routines"][0].pop("run_requested"),
+                lambda value: value["routines"][0].pop("output_digest"),
+                lambda value: value["routines"][0].update(output_digest="D" * 64),
+                lambda value: value["routines"][0].update(output_digest=None),
                 lambda value: value["routines"][0].update(name=""),
                 lambda value: value["routines"][0].update(plan={"version": 1}),
                 lambda value: value["routines"][0].update(grant=None),

@@ -332,8 +332,8 @@ def _judge(self, team_id: str, assessment: Assessment, result: object) -> str:
         recovered = assistant_spec.validate_action_payload(
             assessment.action, "output", routine_plan.select(result, verifier["result"])
         )
-        completed = routine_cursor.complete(cursor, assessment.plan, recovered)
-    except routine_plan.PlanError, routine_cursor.CursorError, ValueError:
+        completed = routine_compiled.advance(self.routine_store, team_id, cursor, assessment.plan, recovered)
+    except routine_plan.PlanError, routine_cursor.CursorError, routine_store.RoutineStoreError, ValueError:
         return "inconclusive"
     _seal(self, team_id, completed)
     return "occurred"

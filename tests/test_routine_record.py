@@ -35,13 +35,15 @@ NINE = epoch(2026, 10, 1, 9)
 ANCHOR = epoch(2026, 9, 1)
 
 
-def routine(routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR) -> record.Routine:
+def routine(
+    routine_id: str = "a" * 32, schedule: dict | None = None, *, anchor: int = ANCHOR, plan: dict | None = None
+) -> record.Routine:
     value = routine_fixture.granted(
         record.Routine(
             routine_id=routine_id,
             name="Daily DNS summary",
             quote="Every day at 9, summarize the DNS changes.",
-            plan=routine_fixture.plan_document(),
+            plan=plan or routine_fixture.plan_document(),
             schedule=dict(schedule or DAILY),
             timezone="UTC",
             assistants=(("dns", DIGEST),),
@@ -78,6 +80,7 @@ def bound(now: int = NINE) -> tuple[record.TeamRoutines, record.Claim, record.Le
 DEFINED = {
     "name": "Daily DNS summary",
     "steps": [{"id": "check", "assistant": "dns", "action": "check", "inputs": [], "stored_inputs": []}],
+    "output": {"mode": "show", "step": "check"},
     "schedule": {"kind": "daily", "time": "09:00"},
     "timezone": "UTC",
 }
@@ -101,8 +104,8 @@ class ContractTests(unittest.TestCase):
 
     def test_notice_details_are_closed_and_never_carry_action_data(self):
         valid = {
-            "done": {"actions": [["dns", "list-zones"], ["dns", "replace-dns-record"]]},
-            "recovered": {"actions": [["dns", "replace-dns-record"]]},
+            "done": {"actions": [["dns", "list-zones"], ["dns", "replace-dns-record"]], "output": None},
+            "recovered": {"actions": [["dns", "replace-dns-record"]], "output": None},
             "held": {"assistant_id": "dns", "action": "replace-dns-record"},
             "paused": {"assistant_id": None, "action": None, "reason": "exhausted"},
             "user-skipped": {"assistant_id": "dns", "action": "replace-dns-record", "choice": "recreate"},
@@ -456,7 +459,9 @@ class RunLifecycleTests(unittest.TestCase):
             with self.subTest(outcome=outcome), self.assertRaisesRegex(record.RoutineStateError, "invalid-outcome"):
                 record.finish(state, claim.run.run_id, lease, NINE, outcome, {"missed": 1})
         with self.assertRaisesRegex(record.RoutineStateError, "notice-invalid"):
-            record.finish(state, claim.run.run_id, lease, NINE, "done", {"actions": [["dns", "check"]], "result": {}})
+            record.finish(
+                state, claim.run.run_id, lease, NINE, "stopped", {"actions": [["dns", "check"]], "result": {}}
+            )
         with self.assertRaisesRegex(record.RoutineStateError, "run-not-found"):
             record.run(done, claim.run.run_id)
 
@@ -719,7 +724,11 @@ class RecoveredRunTests(unittest.TestCase):
         self.assertEqual((held.status, held.lease_sha256, held.lease_expires_at), ("held", "", 0))
         done = record.complete_recovered(state, run_id, lease_sha256, NINE + 5)
         self.assertEqual(done.runs, ())
-        self.assertEqual((done.notices[-1].outcome, done.notices[-1].detail), ("done", {"actions": [["dns", "check"]]}))
+        unavailable = {"step": "check", "state": "unavailable", "value": None, "truncated": False}
+        self.assertEqual(
+            (done.notices[-1].outcome, done.notices[-1].detail),
+            ("done", {"actions": [["dns", "check"]], "output": unavailable}),
+        )
         unbound, unclaimed, _lease = claimed()
         for transition, code in (
             (lambda: record.hold_recovered(state, run_id, "0" * 64), "run-changed"),
@@ -750,6 +759,7 @@ class RoutineViewContractTests(unittest.TestCase):
             "routine_views"
         ]
         admit = {
+            "output": http_routine.canonical_output,
             "routine": http_routine.canonical_routine_view,
             "run": http_routine.canonical_run_view,
             "notice_batch": http_routine.canonical_notice_batch,

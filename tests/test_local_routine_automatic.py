@@ -852,5 +852,5 @@ class ContinuationDeadlineTests(BalanceCase):
                 "team_1", run_id, record.Lease("0" * 64, "k"), "token", "openai", value
             )
             with self.assertRaises(routine_recovery.ApiProblem) as caught:
-                routine_recovery.routine_run.complete_sealed(service, run)
+                routine_recovery.routine_run.complete_sealed(service, run, None)
         self.assertEqual(caught.exception.code, "routine-lease-invalid")

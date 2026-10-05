@@ -60,13 +60,14 @@ def _recover(service, team_id: str, value: record.Run) -> str | None:
     """
     now = int(time.time())
     progress = routine_compiled.progress(service, team_id, value)
+    shown = routine_compiled.sealed_shown(service, team_id, value) if progress == "done" else None
 
     def recover(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == value.run_id), None)
         if current is None or current.status != "leased" or current.lease_sha256 != value.lease_sha256:
             return state, None
         if progress == "done":
-            return record.complete_recovered(state, value.run_id, value.lease_sha256, now), "done"
+            return record.complete_recovered(state, value.run_id, value.lease_sha256, now, shown), "done"
         if progress == "partial":
             return record.hold_recovered(state, value.run_id, value.lease_sha256), "held"
         return record.end(state, value.run_id, now, "failed", {"code": "interrupted", "actions": []}), "failed"

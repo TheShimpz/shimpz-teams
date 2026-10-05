@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -22,7 +23,9 @@ from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from core import strict_json
 from protocol.http.v1 import payload as http_payload
@@ -36,7 +39,7 @@ from storage import private_state
 
 ROOT = Path("/var/lib/shimpz-local/routines/state")
 KEY_PATH = Path("/var/lib/shimpz-local/routines/key/aes256.key")
-SCHEMA = 6
+SCHEMA = 7
 # Holds the worst case: every Routine, run, and notice at its bound, with 4-byte characters throughout.
 MAX_STATE_BYTES = 4 * 1024 * 1024
 MAX_CONTINUATION_BYTES = 256 * 1024
@@ -78,6 +81,7 @@ _ROUTINE_FIELDS = frozenset(
         "rollup_minute",
         "rollup_runs",
         "run_requested",
+        "output_digest",
     }
 )
 _RUN_FIELDS = frozenset(
@@ -241,6 +245,8 @@ def _decode_routine(value: object) -> record.Routine:
         and 1 <= value["revision"] < 2**31
         and type(value["paused"]) is bool
         and routine_grant.valid(value["grant"], value["plan"], value["revision"])
+        and isinstance(value["output_digest"], str)
+        and (value["output_digest"] == "" or http_payload.SHA256_RE.fullmatch(value["output_digest"]) is not None)
     )
     return record.Routine(
         routine_id=value["routine_id"],
@@ -264,6 +270,7 @@ def _decode_routine(value: object) -> record.Routine:
         rollup_minute=_instant(value["rollup_minute"]),
         rollup_runs=_rollup_runs(value["rollup_runs"]),
         run_requested=_instant(value["run_requested"]),
+        output_digest=value["output_digest"],
     )
 
 
@@ -805,6 +812,21 @@ class RoutineStore:
         """
         self.put_cursor(team_id, cursor)
         deliver()
+
+    def output_digest(self, team_id: object, binding: routine_cursor.Binding, step: str, material: bytes) -> str:
+        """The keyed digest a ``changes`` Routine compares one run's safe result by (ADR-0092 amendment, 2026-10-05).
+
+        It is bound to the Team, its incarnation, the Routine revision, and the shown step, under a key derived apart
+        from the sealing key, so neither a known Routine id nor a guessed result can be checked against it offline.
+        """
+        team = _team_id(team_id)
+        with self._key_lock:
+            key = _PRIVATE.key(self.key_path, "Routine keyring", allow_create=True)
+        derived = HKDF(hashes.SHA256(), 32, salt=None, info=b"shimpz-routine-output-v1").derive(key)
+        # A JSON header holds no raw line break and names the material's length, so the framing is unambiguous.
+        header = [team, binding.incarnation, binding.routine_id, binding.revision, step, len(material)]
+        framed = json.dumps(header, separators=(",", ":")).encode() + b"\n" + material
+        return hmac.new(derived, framed, hashlib.sha256).hexdigest()
 
     def delete_cursor(self, team_id: object, run_id: object) -> None:
         self._sealed_delete(_team_id(team_id), f"{_run_id(run_id)}.cursor", "Routine cursor")

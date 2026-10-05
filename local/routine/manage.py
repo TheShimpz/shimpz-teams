@@ -27,12 +27,13 @@ def _instant(epoch: int) -> str:
 
 
 def routine_view(value: record.Routine) -> dict[str, object]:
-    """A Routine as its Supervisor inspects it: what it is, when it runs, and its plan's safe projection."""
+    """A Routine as its Supervisor inspects it: what it is, when it runs, its plan's safe projection, and its output."""
     return {
         "routine_id": value.routine_id,
         "name": value.name,
         "quote": value.quote,
         "steps": routine_grant.steps(value.plan, value.grant),
+        "output": dict(value.plan["output"]),
         "schedule": dict(value.schedule),
         "timezone": value.timezone,
         "assistant_ids": [assistant for assistant, _digest in value.assistants],

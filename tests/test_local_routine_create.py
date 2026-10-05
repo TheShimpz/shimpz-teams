@@ -59,6 +59,7 @@ def _change(**changes: object) -> dict[str, object]:
                 },
             }
         ],
+        "output": {"mode": "show", "step": "zones", "instruction": "list my zones"},
     }
     value.update(changes)
     return value
@@ -145,6 +146,7 @@ class DirectCreationTests(LocalContractCase):
                             "stored_inputs": [],
                         }
                     ],
+                    "output": {"mode": "show", "step": "zones"},
                     "schedule": SCHEDULE,
                     "timezone": "America/Sao_Paulo",
                 },
@@ -352,6 +354,7 @@ class DirectCreationTests(LocalContractCase):
                 routine_id=routine.routine_id,
                 expected_revision=1,
                 request="Every Monday at 9:00",
+                output={"mode": "kept"},
                 schedule={"kind": "weekly", "weekday": 0, "time": "10:00"},
             )
             update["steps"][0]["input"] = {"page": {"kind": "kept"}, "per_page": {"kind": "kept"}}
@@ -536,13 +539,14 @@ class DirectCreationTests(LocalContractCase):
         """The owner's incident: the work named by an earlier send, the timing by the message, the cap asked once."""
         now = int(time.time())
         earlier = "list my zones, page 1 with 25 per page"
-        message = "do this every 30 seconds"
+        message = "do this every 30 seconds and show me the zones"
         clarification = {
             "question": "Up to how many runs a day?",
             "options": [{"label": "Up to 100", "description": ""}, {"label": "Up to 500", "description": ""}],
             "default_index": None,
         }
-        candidate = _change(request=message, schedule=None)
+        shown = {"mode": "show", "step": "zones", "instruction": "show me the zones"}
+        candidate = _change(request=message, schedule=None, output=shown)
         values = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
         proposed = {
             **candidate,
@@ -591,6 +595,7 @@ class DirectCreationTests(LocalContractCase):
                 routine_id=created.routine_id,
                 expected_revision=1,
                 request=other,
+                output={"mode": "kept"},
                 schedule={"kind": "weekly", "weekday": 0, "time": "10:00"},
             )
             update["steps"][0]["input"] = {"page": {"kind": "kept"}, "per_page": {"kind": "kept"}}
@@ -601,8 +606,10 @@ class DirectCreationTests(LocalContractCase):
         self.assertEqual((after["revision"], after["selected"]), (2, None))
         self.assertEqual(after["message"], routine_request.commitment((("said", other),)))
         self.assertNotEqual(after["receipt"], before["receipt"])
-        # Each kept input keeps its proof against the first message, and the answer selected for it.
+        # Each kept input keeps its proof against the first message, and the answer selected for it; so does the kept
+        # output disposition, with the words that first chose it.
         self.assertEqual(after["sources"], before["sources"])
+        self.assertEqual((after["output"], updated.plan["output"]), (before["output"], created.plan["output"]))
         self.assertEqual(
             after["sources"]["zones"]["per_page"]["by"],
             {"message": before["message"], "receipt": before["receipt"], "revision": 1, "selected": "50"},
@@ -620,7 +627,9 @@ class DirectCreationTests(LocalContractCase):
                 "options": [{"label": "25", "description": ""}, {"label": "50", "description": ""}],
                 "default_index": None,
             }
-            update = _change(op="update", routine_id=created.routine_id, expected_revision=1, request=other)
+            update = _change(
+                op="update", routine_id=created.routine_id, expected_revision=1, request=other, output={"mode": "kept"}
+            )
             update["steps"][0]["input"] = {"page": {"kind": "kept"}}
             field = {"kind": "input", "step": "zones", "member": "per_page"}
             proposed = {
@@ -669,20 +678,23 @@ class DirectCreationTests(LocalContractCase):
         """The owner's 2026-10-05 transcript, answered piece by piece until the Routine exists.
 
         A bare request, then answers for the work, the interval, the paging the Action requires and declares no default
-        for, and the daily cap. A candidate missing a paging member never reaches the person; the created Routine holds
-        exactly the paging the person stated.
+        for, what to do with each run's result (ADR-0092 amendment, 2026-10-05, output), and the daily cap. A candidate
+        missing a paging member never reaches the person; the created Routine holds exactly the paging the person stated
+        and shows each run's zones, as the person's selected answer chose.
         """
         first = "Cria uma nova rotina pra mim"
         work = ("Que trabalho você quer que a rotina repita?", "Listar zonas")
         timing = ("Com que frequência devo listar as zonas?", "a cada 25 segundos")
         paging = ("Qual página e quantas zonas por página devo listar?", "Página 1, 50 zonas")
+        output = ("O que fazer com o resultado?", "Mostrar o resultado a cada execução")
         cap = ("Qual limite diário de execuções você quer?", "Até 100 execuções por dia")
 
         def asking(question: str, *labels: str) -> dict[str, object]:
             options = [{"label": label, "description": ""} for label in labels]
             return {"question": question, "options": options, "default_index": None}
 
-        candidate = _change(request=first, schedule=None, continues=True)
+        shown = {"mode": "show", "step": "zones", "instruction": output[1]}
+        candidate = _change(request=first, schedule=None, continues=True, output=shown)
         candidate["steps"][0]["input"]["per_page"] = {"kind": "literal", "value": 50, "origins": [_origin("50")]}
         values = [{"kind": "continuous", "gap": 25, "cap": 100}, {"kind": "continuous", "gap": 25, "cap": 500}]
         capped = {
@@ -695,6 +707,10 @@ class DirectCreationTests(LocalContractCase):
             ({"op": "need", "continues": False}, asking(work[0], work[1])),
             ({"op": "need", "continues": True}, asking(timing[0], "a cada 30 segundos", "a cada 5 minutos")),
             ({"op": "need", "continues": True}, asking(paging[0], paging[1], "Página 1, 5 zonas")),
+            (
+                {"op": "need", "continues": True},
+                asking(output[0], output[1], "Mostrar só quando o resultado mudar", "Não mostrar nada"),
+            ),
             (partial, asking(cap[0], cap[1], "Até 500 execuções por dia")),
             (capped, asking(cap[0], cap[1], "Até 500 execuções por dia")),
         ]
@@ -718,6 +734,9 @@ class DirectCreationTests(LocalContractCase):
                 asked = self.chat(service, _body(message, nonce=nonce * 32))
             self.assertEqual(asked["clarification"]["question"], paging[0])
             message = f"{message}\n\nPergunta: {paging[0]}\nResposta: {paging[1]}"
+            asked = self.chat(service, _body(message, nonce="4" * 32))
+            self.assertEqual(asked["clarification"]["question"], output[0])
+            message = f"{message}\n\nPergunta: {output[0]}\nResposta: {output[1]}"
             # A cap question whose candidate leaves a required paging member out is refused before it is shown.
             with self.assertRaises(local_app.ApiProblem) as caught:
                 self.chat(service, _body(message, nonce="5" * 32))
@@ -728,26 +747,29 @@ class DirectCreationTests(LocalContractCase):
             (routine,) = service.routine_store.load("team_1").routines
             source = routine_source.load(service, "team_1", routine.routine_id)
         # Each answer reached the Brain alone as the said text, after the draft of every earlier said part.
-        said = [("said", first), ("said", work[1]), ("said", timing[1])]
+        said = [("said", first), ("said", work[1]), ("said", timing[1]), ("said", paging[1])]
         self.assertEqual(
             [(context.routine_draft, context.routine_answer) for context in runtime.contexts],
             [
                 ((), None),
                 (tuple(said[:1]), work[1]),
                 (tuple(said[:2]), timing[1]),
-                (tuple(said), paging[1]),
-                (tuple(said), paging[1]),
+                (tuple(said[:3]), paging[1]),
+                (tuple(said), output[1]),
+                (tuple(said), output[1]),
             ],
         )
-        # The selected cap committed with no further model call; the plan holds the stated paging exactly.
-        self.assertEqual(len(runtime.contexts), 5)
+        # The selected cap committed with no further model call; the plan holds the stated paging exactly and shows
+        # each run's result, as the person's own selected answer chose.
+        self.assertEqual(len(runtime.contexts), 6)
+        self.assertEqual(routine.plan["output"], {"mode": "show", "step": "zones"})
         self.assertEqual(routine.schedule, {"kind": "continuous", "gap": 25, "cap": 100})
         self.assertEqual(
             routine.plan["steps"][0]["input"],
             {"page": {"kind": "literal", "value": 1}, "per_page": {"kind": "literal", "value": 50}},
         )
-        # Recriar recompiles from exactly these sealed words: every said part, the paging answer, and the cap label.
-        self.assertEqual(source.parts, (*said, ("said", paging[1]), ("said", cap[1])))
+        # Recriar recompiles from exactly these sealed words: every said part, the output answer, and the cap label.
+        self.assertEqual(source.parts, (*said, ("said", output[1]), ("said", cap[1])))
         self.assertEqual(source.selected, (("schedule",), values[0]))
 
     def test_a_multiline_answer_is_never_a_fresh_grant_even_when_the_model_cites_the_question(self) -> None:

@@ -79,7 +79,7 @@ def contracts(assistants: tuple[object, ...], locale: str) -> dict[tuple[str, st
         admitted.update(
             {
                 (active.spec.assistant_id, action_id): routine_plan.ActionContract(
-                    pins[action_id], action.input_schema, action.input_files
+                    pins[action_id], action.input_schema, action.input_files, action.output_schema
                 )
                 for action_id, action in active.spec.actions.items()
             }
@@ -139,7 +139,7 @@ def definition(
             words,
             # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
             contracts(assistants, routine_pin.SCOPE_LOCALE),
-            None if existing is None else (existing.plan, existing.grant["sources"]),
+            None if existing is None else (existing.plan, existing.grant["sources"], existing.grant["output"]),
             request.timezone or DEFAULT_TIMEZONE,
             selected,
         )
@@ -162,7 +162,9 @@ def definition(
         compiled.document,
         anchor=0,
         next_run_at=0,
-        grant=routine_grant.evidence(routine_request.commitment(parts), compiled.quote_span, compiled.sources, stored),
+        grant=routine_grant.evidence(
+            routine_request.commitment(parts), compiled.quote_span, compiled.sources, stored, compiled.output
+        ),
     )
 
 

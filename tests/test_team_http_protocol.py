@@ -131,6 +131,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "detail": {
                 "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
                 "steps": _bounded_steps(),
+                "output": {"mode": "changes", "step": f"s{routine.MAX_ROUTINE_STEPS - 1}"},
                 "schedule": {"kind": "weekly", "weekday": 6, "time": "23:59"},
                 "timezone": "/".join(["Z" * 32] * 3),
             },
@@ -145,6 +146,7 @@ class RoutineListBoundTests(unittest.TestCase):
             "name": WIDE * routine.MAX_ROUTINE_NAME_CHARS,
             "quote": quote,
             "steps": _bounded_steps(),
+            "output": {"mode": "changes", "step": f"s{routine.MAX_ROUTINE_STEPS - 1}"},
             "schedule": {
                 "kind": "continuous",
                 "gap": routine.MAX_CONTINUOUS_GAP_SECONDS,

@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest import mock
 
 from local_controller_harness import LocalContractCase
-from test_local_routine_create import PRINCIPAL, Runtime, _body, _change
+from test_local_routine_create import PRINCIPAL, Runtime, _body
+from test_local_routine_create import _change as _created
 
 from inference import client as brain_runtime_client
 from inference import config as inference_config
@@ -42,6 +43,12 @@ CAP = {
     "default_index": None,
 }
 CONTINUOUS = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
+
+
+def _change(**changes: object) -> dict[str, object]:
+    """A create whose output disposition the person's own Portuguese words chose."""
+    shown = {"mode": "show", "step": "zones", "instruction": "minhas zonas"}
+    return _created(**{"output": shown, **changes})
 
 
 def _turn(

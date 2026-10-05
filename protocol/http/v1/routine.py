@@ -201,13 +201,18 @@ _INPUT_FIELDS = {
     "literal": frozenset({"member", "source", "value"}),
     "run_clock": frozenset({"member", "source", "value"}),
     "step_output": frozenset({"member", "source", "step", "pointer"}),
+    "step_text": frozenset({"member", "source", "step", "pointer"}),
 }
+
+
+def escaped(text: str) -> str:
+    """Text with every control or invisible character, and a lone surrogate, written as its JSON unicode escape."""
+    return _PLAN_UNSAFE_RE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
 
 
 def literal_preview(value: object) -> str:
     """A literal's JSON text, with every control or invisible character escaped, cut to 120 characters."""
-    text = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    text = _PLAN_UNSAFE_RE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+    text = escaped(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
     return text if len(text) <= MAX_PREVIEW_CHARS else text[: MAX_PREVIEW_CHARS - 1] + "…"
 
 
@@ -267,11 +272,113 @@ def canonical_steps(value: object) -> list[dict[str, object]] | None:
     return copy.deepcopy(value) if encoded_bytes(value) <= MAX_STEPS_BYTES else None
 
 
+# What a completed run does with its result (ADR-0092 amendment, 2026-10-05, output): show one step's result after every
+# run, only when it changed, hand it to a later step, or show none of it. show and changes name the shown step.
+OUTPUT_MODES = ("show", "changes", "chain", "none")
+SHOWN_MODES = frozenset({"show", "changes"})
+
+
+def canonical_disposition(value: object, steps: object) -> dict[str, object] | None:
+    """A plan's output disposition, whose shown step is one of the projected steps, or None."""
+    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
+        return None
+    ids = [step["id"] for step in steps] if isinstance(steps, list) else []
+    shown = value["step"]
+    valid = isinstance(shown, str) and shown in ids if value["mode"] in SHOWN_MODES else shown is None
+    return {"mode": value["mode"], "step": shown} if valid else None
+
+
+# A shown result (ADR-0092 amendment, 2026-10-05, output): Team's bounded, redacted, ordered projection of one step's
+# result, which Admin renders as escaped plain text. Each node is one closed variant; containers nest at most
+# MAX_OUTPUT_DEPTH levels, past which a container is elided.
+OUTPUT_STATES = ("shown", "unchanged", "unavailable")
+MAX_OUTPUT_DEPTH = 4
+MAX_OUTPUT_ITEMS = 50
+MAX_OUTPUT_FIELDS = 24
+MAX_OUTPUT_TEXT_CHARS = 300
+MAX_OUTPUT_KEY_CHARS = 64
+MAX_OUTPUT_BYTES = 16 * 1024
+
+
+def _count(value: object) -> bool:
+    return type(value) is int and 0 <= value < 2**31
+
+
+def _scalar_node(value: dict[str, object]) -> bool:
+    """One scalar node: null, redacted, elided, a boolean, a finite number, or escaped text of bounded length."""
+    kind, item = value.get("kind"), value.get("value")
+    checks = {
+        "null": lambda: set(value) == {"kind"},
+        "redacted": lambda: set(value) == {"kind"},
+        "elided": lambda: set(value) == {"kind"},
+        "bool": lambda: set(value) == {"kind", "value"} and type(item) is bool,
+        "number": lambda: set(value) == {"kind", "value"} and type(item) in (int, float) and math.isfinite(item),
+        "text": lambda: (
+            set(value) == {"kind", "value", "cut"}
+            and type(value["cut"]) is bool
+            and _plain_text(item, MAX_OUTPUT_TEXT_CHARS)
+        ),
+    }
+    return isinstance(kind, str) and kind in checks and checks[kind]()
+
+
+def _plain_text(value: object, maximum: int) -> bool:
+    return isinstance(value, str) and len(value) <= maximum and _PLAN_UNSAFE_RE.search(value) is None
+
+
+def _output_node(value: object, depth: int) -> bool:
+    if not isinstance(value, dict):
+        return False
+    kind = value.get("kind")
+    if kind not in ("list", "fields"):
+        return _scalar_node(value)
+    if depth >= MAX_OUTPUT_DEPTH or not _count(value.get("omitted")):
+        return False
+    if kind == "list":
+        items = value.get("items")
+        return (
+            set(value) == {"kind", "items", "omitted"}
+            and isinstance(items, list)
+            and len(items) <= MAX_OUTPUT_ITEMS
+            and all(_output_node(item, depth + 1) for item in items)
+        )
+    fields = value.get("fields")
+    return (
+        set(value) == {"kind", "fields", "omitted"}
+        and isinstance(fields, list)
+        and len(fields) <= MAX_OUTPUT_FIELDS
+        and all(
+            isinstance(field, list)
+            and len(field) == 2
+            and _plain(field[0], MAX_OUTPUT_KEY_CHARS)
+            and _output_node(field[1], depth + 1)
+            for field in fields
+        )
+        and len({field[0] for field in fields}) == len(fields)
+    )
+
+
+def canonical_output(value: object) -> dict[str, object] | None:
+    """A completed run's result as shown: its step and state, and for a shown one its bounded projection."""
+    if not isinstance(value, dict) or set(value) != {"step", "state", "value", "truncated"}:
+        return None
+    state, node = value["state"], value["value"]
+    valid = (
+        _identity(value["step"], STEP_ID_RE)
+        and state in OUTPUT_STATES
+        and type(value["truncated"]) is bool
+        and (_output_node(node, 0) if state == "shown" else node is None and value["truncated"] is False)
+        and encoded_bytes(value) <= MAX_OUTPUT_BYTES
+    )
+    return copy.deepcopy(value) if valid else None
+
+
 def _defined(detail: dict[str, object]) -> bool:
-    """What a created or changed Routine does: its name, its plan's safe projection, and when."""
+    """What a created or changed Routine does: its name, its plan's projection, its result's disposition, and when."""
     return (
         canonical_name(detail["name"]) == detail["name"]
         and canonical_steps(detail["steps"]) is not None
+        and canonical_disposition(detail["output"], detail["steps"]) == detail["output"]
         and canonical_schedule(detail["schedule"]) == detail["schedule"]
         and canonical_timezone(detail["timezone"]) is not None
     )
@@ -287,8 +394,12 @@ def _frozen(detail: dict[str, object]) -> bool:
 
 
 def _completed(detail: dict[str, object]) -> bool:
-    """The ordered Assistant Actions a completed run carried out; never their input or result."""
-    return _actions(detail["actions"]) and 0 < len(detail["actions"]) <= MAX_ROUTINE_STEPS
+    """The ordered Assistant Actions a completed run carried out, and the result it shows, if any; never an input."""
+    return (
+        _actions(detail["actions"])
+        and 0 < len(detail["actions"]) <= MAX_ROUTINE_STEPS
+        and (detail["output"] is None or canonical_output(detail["output"]) is not None)
+    )
 
 
 def _step_pair(assistant_id: object, action: object) -> bool:
@@ -308,8 +419,8 @@ _STEP_FIELDS = {"assistant_id", "action"}
 # paused, and user-skipped name the step whose possible effects are unresolved, and user-skipped the card choice that
 # set the run aside.
 _DETAILS = {
-    "done": ({"actions"}, _completed),
-    "recovered": ({"actions"}, _completed),
+    "done": ({"actions", "output"}, _completed),
+    "recovered": ({"actions", "output"}, _completed),
     "held": (_STEP_FIELDS, _held_step),
     "paused": (_STEP_FIELDS | {"reason"}, lambda detail: _held_step(detail) and detail["reason"] in PAUSE_REASONS),
     "user-skipped": (
@@ -326,8 +437,8 @@ _DETAILS = {
     ),
     "denied": ({"actions"}, lambda detail: _actions(detail["actions"])),
     "stopped": ({"actions"}, lambda detail: _actions(detail["actions"])),
-    "created": ({"name", "steps", "schedule", "timezone"}, _defined),
-    "changed": ({"name", "steps", "schedule", "timezone"}, _defined),
+    "created": ({"name", "steps", "output", "schedule", "timezone"}, _defined),
+    "changed": ({"name", "steps", "output", "schedule", "timezone"}, _defined),
 }
 
 
@@ -384,12 +495,13 @@ def _optional(value: object, pattern: re.Pattern[str]) -> bool:
 def canonical_routine_view(value: object) -> dict[str, object] | None:
     """One Routine as a Supervisor sees it, with its name and its plan's safe projection."""
     fields = {"routine_id", "name", "quote", "schedule", "timezone", "assistant_ids", "next_run_at", "needs_reconfirm"}
-    if not isinstance(value, dict) or set(value) != fields | {"deleting", "paused", "steps"}:
+    if not isinstance(value, dict) or set(value) != fields | {"deleting", "paused", "steps", "output"}:
         return None
     valid = (
         _identity(value["routine_id"], ROUTINE_ID_RE)
         and canonical_name(value["name"]) == value["name"]
         and canonical_steps(value["steps"]) is not None
+        and canonical_disposition(value["output"], value["steps"]) == value["output"]
         and value["quote"] is not None
         and canonical_quote(value["quote"]) == value["quote"]
         and value["schedule"] is not None

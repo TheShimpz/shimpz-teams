@@ -4,7 +4,10 @@ The Brain proposes one closed change: ``create``, or ``update`` of a listed Rout
 name, the user's own words that state the standing request, a schedule, an optional timezone, and at most eight ordered
 steps. Each step names one exact Assistant Action and gives every input member one source: a literal with its
 provenance, a run-clock token, an earlier step's output selected by an RFC 6901 pointer with the user's own words that
-relate the two, or, in an update, the member's source kept exactly as the current revision has it.
+relate the two (``step_output``, or ``step_text`` for its plain text), or, in an update, the member's source kept
+exactly as the current revision has it. The change also says what a completed run does with its result (``output``,
+ADR-0092 amendment, 2026-10-05): show one step's result, show it only when it changed, hand it on, or show none, with
+the user's own said words that chose it; an update may keep the current one.
 
 Team recomputes everything against the Routine's words, the person's own kinded parts each parsed on its own
 (``Words``); the standing request must stand in a said part's own words. ``continues`` says whether the change continues
@@ -56,13 +59,15 @@ _QUOTED_RE = re.compile(
     re.MULTILINE,
 )
 _FIELDS = frozenset(
-    {"op", "routine_id", "expected_revision", "name", "request", "schedule", "timezone", "steps", "continues"}
+    {"op", "routine_id", "expected_revision", "name", "request", "schedule", "timezone", "steps", "continues", "output"}
 )
+_OUTPUT_FIELDS = frozenset({"mode", "step", "instruction"})
 _STEP_FIELDS = frozenset({"id", "assistant", "action", "input"})
 _SOURCE_FIELDS = {
     "literal": frozenset({"kind", "value", "origins"}),
     "run_clock": frozenset({"kind", "format"}),
     "step_output": frozenset({"kind", "step", "pointer", "instruction"}),
+    "step_text": frozenset({"kind", "step", "pointer", "instruction"}),
     "kept": frozenset({"kind"}),
 }
 _ORIGIN_FIELDS = frozenset({"at", "from", "text", "region", "instruction"})
@@ -93,6 +98,8 @@ class Change:
     steps: tuple[dict[str, object], ...]
     # Whether the change continues the person's Routine draft; an update never does.
     continues: bool = False
+    # What a completed run does with its result: {"mode", "step", "instruction"}, or {"mode": "kept"} in an update.
+    output: dict[str, object] = dataclasses.field(default_factory=lambda: {"mode": "kept"})
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -105,6 +112,7 @@ class Change:
             "timezone": self.timezone,
             "steps": copy.deepcopy(list(self.steps)),
             "continues": self.continues,
+            "output": copy.deepcopy(self.output),
         }
 
 
@@ -123,6 +131,8 @@ class Compiled:
     # Each step input's validated provenance, by step id and member: a literal's origins, a reference's
     # relating words, or nothing for a run-clock token.
     sources: dict[str, dict[str, dict[str, object]]] = dataclasses.field(default_factory=dict)
+    # The output disposition's provenance: the said words that chose it, or the kept one's with what first granted it.
+    output: dict[str, object] = dataclasses.field(default_factory=dict)
 
     @property
     def assistants(self) -> tuple[str, ...]:
@@ -153,9 +163,21 @@ def _source(value: object) -> bool:
     if kind == "literal":
         origins = value["origins"]
         return isinstance(origins, list) and 0 < len(origins) <= MAX_ORIGINS and all(map(_origin, origins))
-    if kind == "step_output":
+    if kind in routine_plan.BINDINGS:
         return _text(value["instruction"])
     return True
+
+
+def _output(value: object, op: str) -> bool:
+    """A disposition from the closed set with the words that chose it, or, in an update only, the kept one."""
+    if value == {"mode": "kept"}:
+        return op == "update"
+    if not isinstance(value, dict) or set(value) != _OUTPUT_FIELDS or not _text(value["instruction"]):
+        return False
+    mode, step = value["mode"], value["step"]
+    if mode in routine_plan.SHOWN_MODES:
+        return isinstance(step, str) and routine_plan.STEP_ID_RE.fullmatch(step) is not None
+    return mode in routine_plan.OUTPUT_MODES and step is None
 
 
 def _step(value: object) -> bool:
@@ -206,10 +228,20 @@ def parse(value: object) -> Change:
         or not isinstance(steps, list)
         or not 0 < len(steps) <= routine_plan.MAX_STEPS
         or not all(map(_step, steps))
+        or not _output(value["output"], op)
     ):
         raise ChangeError("routine-change-invalid")
     return Change(
-        op, routine_id, revision, value["name"], value["request"], schedule, timezone, tuple(steps), continues
+        op,
+        routine_id,
+        revision,
+        value["name"],
+        value["request"],
+        schedule,
+        timezone,
+        tuple(steps),
+        continues,
+        copy.deepcopy(value["output"]),
     )
 
 
@@ -399,12 +431,12 @@ def _plan_source(
         return literal, _pending({"origins": [_cited_span(origin, words) for origin in source["origins"]]})
     if kind == "run_clock":
         return {"kind": "run_clock", "format": source["format"]}, _pending({})
-    if kind == "step_output":
+    if kind in routine_plan.BINDINGS:
         relation_span = words.span(source["instruction"])
         if relation_span is None:
             raise ChangeError("routine-reference-unproven")
         relation = _pending({"instruction": list(relation_span)})
-        return {"kind": "step_output", "step": source["step"], "pointer": source["pointer"]}, relation
+        return {"kind": kind, "step": source["step"], "pointer": source["pointer"]}, relation
     if kept is None or name not in kept[0] or name not in kept[1]:
         raise ChangeError("routine-kept-invalid")
     return copy.deepcopy(kept[0][name]), copy.deepcopy(kept[1][name])
@@ -437,19 +469,45 @@ def prove_cap(
         raise ChangeError("routine-cap-unproven")
 
 
+def _disposition(
+    change: Change,
+    words: Words,
+    current: tuple[Mapping[str, object], Mapping[str, object], Mapping[str, object]] | None,
+    steps: list[dict[str, object]],
+) -> tuple[dict[str, object], dict[str, object]]:
+    """The plan's output disposition and its provenance.
+
+    New words must stand in a said part, never only in a cited send; a kept disposition is copied exactly, and only
+    while its shown step still names the same Assistant Action.
+    """
+    output = change.output
+    if output["mode"] == "kept":
+        kept = dict(current[0]["output"])
+        before = {step["id"]: (step["assistant"], step["action"]) for step in current[0]["steps"]}
+        now = {step["id"]: (step["assistant"], step["action"]) for step in steps}
+        if kept["step"] is not None and before.get(kept["step"]) != now.get(kept["step"]):
+            raise ChangeError("routine-output-unproven")
+        return kept, copy.deepcopy(dict(current[2]))
+    span = words.said_span(output["instruction"])
+    if span is None:
+        raise ChangeError("routine-output-unproven")
+    return {"mode": output["mode"], "step": output["step"]}, _pending({"instruction": list(span)})
+
+
 def compile_change(
     change: Change,
     words: Words,
     contracts: Mapping[tuple[str, str], routine_plan.ActionContract],
-    current: tuple[Mapping[str, object], Mapping[str, object]] | None,
+    current: tuple[Mapping[str, object], Mapping[str, object], Mapping[str, object]] | None,
     default_timezone: str,
     selected: tuple[str, str] | None = None,
 ) -> Compiled:
     """Admit a parsed change against the committed message and the exact current contracts; refuse anything unproven.
 
-    An update also names the current revision's plan document and its inputs' provenance, which a ``kept`` member
-    copies exactly. ``selected`` names the one step input a bound Routine question fills from the option the user
-    selects. The schedule's daily cap is proven apart, by ``prove_cap``.
+    An update also names the current revision's plan document, its inputs' provenance, and its output disposition's
+    provenance, which a ``kept`` member or disposition copies exactly. ``selected`` names the one step input a bound
+    Routine question fills from the option the user selects. The schedule's daily cap is proven apart, by
+    ``prove_cap``.
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
@@ -480,12 +538,15 @@ def compile_change(
         identity = {"id": raw["id"], "assistant": raw["assistant"], "action": raw["action"]}
         steps.append({**identity, "pin": contract.pin, "input": {name: item[0] for name, item in admitted.items()}})
         sources[raw["id"]] = {name: item[1] for name, item in admitted.items()}
-    document = {"version": routine_plan.VERSION, "timezone": timezone, "steps": steps}
+    output, output_proof = _disposition(change, words, current, steps)
+    document = {"version": routine_plan.VERSION, "timezone": timezone, "steps": steps, "output": output}
     try:
         plan = routine_plan.admit(document, contracts)
     except routine_plan.PlanError as exc:
         raise ChangeError(exc.code) from exc
-    return Compiled(change.name, change.request, dict(change.schedule), timezone, document, plan, quote_span, sources)
+    return Compiled(
+        change.name, change.request, dict(change.schedule), timezone, document, plan, quote_span, sources, output_proof
+    )
 
 
 @dataclass(frozen=True, slots=True)

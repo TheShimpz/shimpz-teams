@@ -11,7 +11,7 @@ from routine import grant as routine_grant
 from routine import request as routine_request
 
 PLAN = {
-    "version": 1,
+    "version": 2,
     "timezone": "UTC",
     "steps": [
         {
@@ -32,6 +32,7 @@ PLAN = {
             },
         },
     ],
+    "output": {"mode": "chain", "step": None},
 }
 
 
@@ -56,8 +57,12 @@ class GrantTests(unittest.TestCase):
         }
         # The evidence commits to the Routine's words as the structured request committed them, never one joined text.
         commitment = routine_request.commitment((("said", "Every day, list"),))
-        partial = routine_grant.evidence(commitment, (0, 9), sources, {"zones": [], "records": ["token", "api"]})
+        output = {"proof": {"instruction": [0, 4]}, "by": None}
+        partial = routine_grant.evidence(
+            commitment, (0, 9), sources, {"zones": [], "records": ["token", "api"]}, output
+        )
         self.assertEqual(partial["message"], commitment)
+        self.assertIsNone(output["by"])
         partial["selected"] = {"field": ["input", "zones", "page"], "label": "Página 1"}
         complete = routine_grant.complete(partial, "e" * 64, 2, PLAN)
         self.assertTrue(routine_grant.valid(complete, PLAN, 2))
@@ -68,6 +73,11 @@ class GrantTests(unittest.TestCase):
         )
         self.assertEqual(complete["sources"]["records"]["zone"]["by"]["selected"], None)
         self.assertEqual(complete["sources"]["records"]["day"]["by"], first)
+        # The words that chose the output disposition are bound like a proved input, never as a selected answer.
+        self.assertEqual(
+            complete["output"],
+            {"proof": {"instruction": [0, 4]}, "by": {**complete["sources"]["records"]["zone"]["by"]}},
+        )
         self.assertEqual(routine_grant.complete({**partial, "sources": []}, "e" * 64, 1, PLAN), {})
         self.assertEqual(complete["stored_inputs"]["records"], ["api", "token"])
         self.assertEqual(routine_grant.complete({"message": "x"}, "e" * 64, 1, PLAN), {})
@@ -95,6 +105,10 @@ class GrantTests(unittest.TestCase):
             lambda value: value["sources"].update(records=[]),
             lambda value: value["sources"]["records"].pop("day"),
             lambda value: value["sources"]["records"].update(day=[]),
+            lambda value: value.pop("output"),
+            lambda value: value.update(output={"proof": {}, "by": first}),
+            lambda value: value.update(output={"proof": {"instruction": [0, 4]}, "by": None}),
+            lambda value: value.update(output={"proof": {"instruction": [4, 0]}, "by": first}),
             lambda value: value["sources"]["records"].update(day={"origins": [], "instruction": "x"}),
             lambda value: value["sources"]["records"]["zone"].update(proof={"instruction": "then share it"}),
             lambda value: value["sources"]["zones"]["page"].update(proof={"origins": []}),

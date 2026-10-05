@@ -2,9 +2,10 @@
 
 A cursor binds the Team incarnation, the Routine and its revision, the run, the exact plan (whose digest covers every
 step's complete pin), the run's one start instant, the current step, that step's logical ``operation_id``, attempts,
-and resolved-input commitment, the values later steps selected from completed ones, and the remaining recovery
-budgets. A completed step is never run again: the successful prefix is durable even when a later step fails. Restart
-never replenishes a budget, and no secret, human response, or complete output is ever held here.
+and resolved-input commitment, the values later steps selected from completed ones, the shown step's bounded result
+and its keyed comparison digest (ADR-0092 amendment, 2026-10-05, output), and the remaining recovery budgets. A
+completed step is never run again: the successful prefix is durable even when a later step fails. Restart never
+replenishes a budget, and no secret, human response, or complete output is ever held here.
 """
 
 from __future__ import annotations
@@ -15,9 +16,10 @@ from dataclasses import dataclass
 
 from action import journal as action_journal
 from core import strict_json
+from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 
-VERSION = 1
+VERSION = 2
 MAX_CURSOR_BYTES = 256 * 1024
 # The initial automatic recovery bounds; consumption is persisted before any paid dispatch.
 BUDGETS = (
@@ -61,8 +63,10 @@ _FIELDS = frozenset(
         "fault",
         "workload",
         "dispatched_at",
+        "shown",
     }
 )
+_SHOWN_FIELDS = frozenset({"step", "output", "digest"})
 
 
 class CursorError(ValueError):
@@ -106,6 +110,9 @@ class Cursor:
     # The workload the last attempt was dispatched to, and when, so recovery can prove it stopped since (ADR-0092).
     workload: str = ""
     dispatched_at: int = 0
+    # The shown step's result as its notice shows it, and the keyed digest of its safe form, or None when no step
+    # shown so far: {"step", "output", "digest"}; it outlives later steps, holds, and continuations.
+    shown: dict[str, object] | None = None
 
     @property
     def generation_suffix(self) -> str:
@@ -168,8 +175,11 @@ def failed(cursor: Cursor, fault: str) -> Cursor:
     return _checked(dataclasses.replace(cursor, fault=fault))
 
 
-def complete(cursor: Cursor, plan: routine_plan.Plan, result: object) -> Cursor:
-    """Advance past the current step, keeping only the values later steps select from its result."""
+def complete(cursor: Cursor, plan: routine_plan.Plan, result: object, shown: dict[str, object] | None = None) -> Cursor:
+    """Advance past the current step, keeping only the values later steps select from its result.
+
+    The plan's shown step also keeps ``shown``, its bounded result and comparison digest; no other step may.
+    """
     _same_plan(cursor, plan)
     if cursor.done(plan) or cursor.operation_id is None:
         raise CursorError("cursor-not-dispatched")
@@ -178,9 +188,15 @@ def complete(cursor: Cursor, plan: routine_plan.Plan, result: object) -> Cursor:
         chosen = routine_plan.selections(plan, step_id, result)
     except routine_plan.PlanError as exc:
         raise CursorError(exc.code) from exc
+    shown_step = plan.shown()
+    if (shown is not None) != (shown_step is not None and shown_step.step_id == step_id) or (
+        shown is not None and (not isinstance(shown, dict) or shown.get("step") != step_id)
+    ):
+        raise CursorError("cursor-shown-invalid")
     selected = (*cursor.selected, *((step_id, pointer, value) for pointer, value in sorted(chosen.items())))
     advanced = Cursor(cursor.binding, cursor.plan, cursor.started_at, cursor.step + 1, selected=selected)
-    return _checked(dataclasses.replace(advanced, budgets=cursor.budgets, segment=cursor.segment))
+    kept = cursor.shown if shown is None else shown
+    return _checked(dataclasses.replace(advanced, budgets=cursor.budgets, segment=cursor.segment, shown=kept))
 
 
 def proven_absent(cursor: Cursor) -> Cursor:
@@ -254,6 +270,7 @@ def _document(cursor: Cursor) -> dict[str, object]:
         "fault": cursor.fault,
         "workload": cursor.workload,
         "dispatched_at": cursor.dispatched_at,
+        "shown": cursor.shown,
     }
 
 
@@ -291,6 +308,7 @@ def decode(raw: bytes, binding: Binding) -> Cursor:
         value["fault"],
         value["workload"],
         value["dispatched_at"],
+        value["shown"],
     )
     if cursor.binding != binding or routine_plan.canonical(_document(cursor)) != raw:
         raise CursorError("cursor-invalid")
@@ -332,6 +350,7 @@ def _checked(cursor: Cursor) -> Cursor:
         and type(cursor.dispatched_at) is int
         and cursor.dispatched_at >= 0
         and (dispatched or (cursor.workload, cursor.dispatched_at) == ("", 0))
+        and _shown_valid(cursor.shown)
     )
     if not valid:
         raise CursorError("cursor-invalid")
@@ -352,6 +371,22 @@ def binding_valid(binding: object) -> bool:
         and 1 <= binding.revision < 2**31
         and isinstance(binding.run_id, str)
         and _ID_RE.fullmatch(binding.run_id) is not None
+    )
+
+
+def _shown_valid(shown: object) -> bool:
+    """No shown result, or one step's shown output with its keyed digest, or no digest when it was too large."""
+    if shown is None:
+        return True
+    if not isinstance(shown, dict) or set(shown) != _SHOWN_FIELDS:
+        return False
+    output, digest = http_routine.canonical_output(shown["output"]), shown["digest"]
+    return (
+        output is not None
+        and output["step"] == shown["step"]
+        and output["state"] in ("shown", "unavailable")
+        and (digest is None or (isinstance(digest, str) and _HEX64_RE.fullmatch(digest) is not None))
+        and (digest is None or output["state"] == "shown")
     )
 
 

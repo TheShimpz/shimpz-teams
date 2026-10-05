@@ -93,6 +93,7 @@ def _change(**changes: object) -> dict[str, object]:
                 },
             },
         ],
+        "output": {"mode": "chain", "step": None, "instruction": "then share it"},
     }
     value.update(changes)
     return value
@@ -215,7 +216,12 @@ class CompileTests(unittest.TestCase):
     def test_a_message_that_refers_to_an_earlier_send_compiles_its_work_and_values_from_it(self) -> None:
         earlier = ('publish "Weekly report" with 5 items, then share it to #news',)
         compiled = routine_change.compile_change(
-            routine_change.parse(_change(request="Every Monday at 9, do this")),
+            routine_change.parse(
+                _change(
+                    request="Every Monday at 9, do this",
+                    output={"mode": "chain", "step": None, "instruction": "do this"},
+                )
+            ),
             _words("Every Monday at 9, do this", earlier),
             CONTRACTS,
             None,
@@ -274,7 +280,8 @@ class CompileTests(unittest.TestCase):
 
     def test_every_scalar_needs_exactly_one_typed_origin_or_the_whole_default(self) -> None:
         message = "Daily, publish Report in en with 0.5 ratio, 7 tags, true"
-        base = _change(request="Daily, publish", steps=[_change()["steps"][0]])
+        shown = {"mode": "show", "step": "publish", "instruction": "publish"}
+        base = _change(request="Daily, publish", steps=[_change()["steps"][0]], output=shown)
         base["steps"][0]["input"] = {"title": {"kind": "literal", "value": "Report", "origins": [_message("Report")]}}
         accepted = (
             ("ratio", 0.5, [_message("0.5")]),

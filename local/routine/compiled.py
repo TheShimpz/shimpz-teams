@@ -141,10 +141,13 @@ class CompiledRuntime:
 
     def resume(self, _context, results: Mapping[str, object]) -> brain_runtime_client.RuntimeTurn:
         """Seal the completed step's selected values, before the journal may drop its receipts, then go on."""
+        result = results.get(self.interrupt(self.cursor.step))
         try:
-            advanced = routine_cursor.complete(self.cursor, self._plan, results.get(self.interrupt(self.cursor.step)))
+            advanced = advance(self._seal.store, self._seal.team_id, self.cursor, self._plan, result)
         except routine_cursor.CursorError as exc:
             raise CompiledRunError(exc.code) from exc
+        except routine_store.RoutineStoreError as exc:
+            raise CompiledRunError("routine-cursor-unavailable") from exc
         self.seal(advanced)
         return self._turn()
 
@@ -210,6 +213,50 @@ class CompiledRuntime:
     def purpose(_context, _request, _assistant_name, _summary) -> None:
         """A compiled run asks no model why it pauses."""
         return
+
+
+def advance(
+    store: routine_store.RoutineStore,
+    team_id: str,
+    cursor: routine_cursor.Cursor,
+    plan: routine_plan.Plan,
+    result: object,
+) -> routine_cursor.Cursor:
+    """The cursor past its completed step; the plan's shown step also keeps its bounded result and keyed digest."""
+    shown_step = plan.shown()
+    slot = None
+    if not cursor.done(plan) and shown_step is not None and plan.steps[cursor.step].step_id == shown_step.step_id:
+        slot = _slot(store, team_id, cursor.binding, shown_step, result)
+    return routine_cursor.complete(cursor, plan, result, slot)
+
+
+def _slot(
+    store: routine_store.RoutineStore,
+    team_id: str,
+    binding: routine_cursor.Binding,
+    step: routine_plan.Step,
+    result: object,
+) -> dict[str, object]:
+    """One shown step's result as its notice will show it, with the keyed digest a change is compared on.
+
+    A result that cannot be projected is kept as unavailable, so the run still completes and says so.
+    """
+    try:
+        node = routine_plan.output_safe(result, step.output_schema)
+    except routine_plan.OutputError:
+        return {"step": step.step_id, "output": routine_plan.output_state(step.step_id, "unavailable"), "digest": None}
+    material = routine_plan.output_compared(node)
+    digest = None if material is None else store.output_digest(team_id, binding, step.step_id, material)
+    return {"step": step.step_id, "output": routine_plan.output_shown(step.step_id, node), "digest": digest}
+
+
+def sealed_shown(self, team_id: str, value: record.Run) -> dict[str, object] | None:
+    """The shown result a run's sealed cursor kept, or None when it kept none or cannot be read."""
+    try:
+        _batch, _snapshot, cursor = _sealed(self, team_id, value)
+    except action_journal.ActionJournalError, routine_store.RoutineStoreError, ApiProblem:
+        return None
+    return None if cursor is None else cursor.shown
 
 
 def _plan(self, team_id: str, routine: record.Routine) -> routine_plan.Plan:
@@ -353,7 +400,7 @@ def _ended(self, run: routine_run._Run, value: record.Run, batches: list, exc: A
             code = "active-time-exceeded"
             if progress(self, run.team_id, value) == "done":
                 # Out of time, not stopped by a person, after its sealed cursor completed every step: it is complete.
-                return routine_run.complete_sealed(self, run)
+                return routine_run.complete_sealed(self, run, sealed_shown(self, run.team_id, value))
         elif not uncertain:
             return routine_run._end(self, run.team_id, run.run_id, "stopped", {"actions": []})
     if not uncertain and progress(self, run.team_id, value) == "none":
@@ -379,7 +426,8 @@ def execute(
         return _ended(self, run, value, [] if segment is None else segment.batches, exc)
     routine_run._spend(self, run.team_id, run.run_id, run.lease, int(time.monotonic() - started))
     if isinstance(outcome.outcome, chat_orchestrator.ChatOutcome):
-        return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value))
+        shown = segment.runtime.cursor.shown
+        return routine_run.finished(self, run, value, lambda: _sealed_done(self, run.team_id, value), shown)
     return routine_run.suspended(self, run, outcome)
 
 

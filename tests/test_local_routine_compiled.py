@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import hashlib
 import json
 import struct
 import tempfile
@@ -107,9 +108,25 @@ class ExecutionTests(CompiledRunCase):
         )
         self.assertEqual(calls[1][1], {**LOOKUP_INPUT, "zone_id": ZONE})
         self.assertNotEqual(calls[0][2], calls[1][2])
+        # The plan shows its last step's result: Team's bounded projection of the records it listed, in sorted key
+        # order, with no model call (ADR-0092 amendment, 2026-10-05, output).
+        pagination = {
+            "kind": "fields",
+            "fields": [
+                ["count", {"kind": "number", "value": 0}],
+                ["page", {"kind": "number", "value": 1}],
+                ["per_page", {"kind": "number", "value": 25}],
+                ["total_count", {"kind": "number", "value": 0}],
+                ["total_pages", {"kind": "number", "value": 0}],
+            ],
+            "omitted": 0,
+        }
+        records = {"kind": "list", "items": [], "omitted": 0}
+        shown = {"kind": "fields", "fields": [["pagination", pagination], ["records", records]], "omitted": 0}
+        output = {"step": "records", "state": "shown", "value": shown, "truncated": False}
         self.assertEqual(
             [(item.outcome, item.detail) for item in state.notices],
-            [("done", {"actions": record.plan_actions(value.plan)})],
+            [("done", {"actions": record.plan_actions(value.plan), "output": output})],
         )
         self.assertEqual(leftovers, ((), ()))
 
@@ -171,7 +188,8 @@ class ExecutionTests(CompiledRunCase):
         )
         # The replay is the same logical operation.
         self.assertEqual(calls[1][1], calls[2][1])
-        self.assertEqual(state.notices[-1].detail, {"actions": record.plan_actions(value.plan)})
+        detail = state.notices[-1].detail
+        self.assertEqual((detail["actions"], detail["output"]["state"]), (record.plan_actions(value.plan), "shown"))
 
     def test_a_reopened_run_that_cannot_read_its_cursor_is_held_with_its_completed_prefix(self) -> None:
         """Whether a run already acted comes from durable state, never from a runtime that failed to open it."""
@@ -432,7 +450,8 @@ class RealRpcTests(CompiledRunCase):
         # Each step is its own logical operation, and the Integration token reached only the Assistant.
         self.assertNotEqual(first["operation_id"], second["operation_id"])
         self.assertEqual(set(first["integrations"]), {"cloudflare"})
-        self.assertEqual(state.notices[-1].detail, {"actions": record.plan_actions(value.plan)})
+        detail = state.notices[-1].detail
+        self.assertEqual((detail["actions"], detail["output"]["state"]), (record.plan_actions(value.plan), "shown"))
 
 
 class StopTests(CompiledRunCase):
@@ -576,3 +595,67 @@ class RuntimeTests(CompiledRunCase):
                 self.assertEqual(routine_compiled.progress(service, "team_1", run), "partial")
             with mock.patch.object(journal, "uncertain_fingerprint", side_effect=failing):
                 self.assertTrue(routine_compiled._uncertain(service, run, []))
+
+
+class ShownResultTests(CompiledRunCase):
+    """The plan's shown step keeps its bounded result and keyed digest in the sealed cursor (ADR-0092, 2026-10-05)."""
+
+    OPERATION = "6f1c2b8e-3a4d-4c5e-9f60-718293a4b5c6"
+
+    runtime = RuntimeTests.runtime
+
+    def shown_runtime(self, service, value: record.Routine) -> routine_compiled.CompiledRuntime:
+        compiled = self.runtime(service, value)
+        compiled.seal(dataclasses.replace(compiled.cursor, step=1, selected=(("zones", "/zones/0/id", ZONE),)))
+        request = compiled.start(None, "").actions[0]
+        compiled.dispatching(request, self.OPERATION)
+        return compiled
+
+    def test_the_shown_step_keeps_its_result_and_a_keyed_digest_bound_to_its_run(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = self.shown_runtime(service, value)
+            turn = compiled.resume(None, {"routine-step-1": RECORDS})
+            shown = compiled.cursor.shown
+            store, binding = service.routine_store, compiled.cursor.binding
+            material = routine_plan.canonical(routine_plan.output_safe(RECORDS, {}))
+            again = store.output_digest("team_1", binding, "records", material)
+            others = {
+                store.output_digest("team_1", dataclasses.replace(binding, revision=2), "records", material),
+                store.output_digest("team_1", binding, "zones", material),
+                store.output_digest("team_1", binding, "records", material + b" "),
+                store.output_digest("team_2", binding, "records", material),
+            }
+            sealed = routine_compiled.sealed_shown(
+                service, "team_1", record.Run(binding.run_id, value.routine_id, "leased", 0, generation="x")
+            )
+        self.assertEqual(turn.status, "completed")
+        self.assertEqual((shown["step"], shown["output"]["state"], shown["digest"]), ("records", "shown", again))
+        # The digest is keyed: it is neither the material's plain hash nor equal for any other binding or result.
+        self.assertNotEqual(again, hashlib.sha256(material).hexdigest())
+        self.assertNotIn(again, others)
+        self.assertEqual(len(others), 4)
+        # A run whose sealed state cannot be read keeps no shown result.
+        self.assertIsNone(sealed)
+
+    def test_a_result_that_cannot_be_projected_or_digested_never_passes_as_shown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service, _brain, value = self.compiled(directory, None)
+            compiled = self.shown_runtime(service, value)
+            dispatched = compiled.cursor
+            with mock.patch.object(routine_plan, "output_safe", side_effect=routine_plan.OutputError("x")):
+                compiled.resume(None, {"routine-step-1": RECORDS})
+            unavailable = compiled.cursor.shown
+            compiled.cursor = dispatched
+            with (
+                mock.patch.object(
+                    service.routine_store, "output_digest", side_effect=routine_store.RoutineStoreError("x")
+                ),
+                self.assertRaises(routine_compiled.CompiledRunError) as lost,
+            ):
+                compiled.resume(None, {"routine-step-1": RECORDS})
+        self.assertEqual(
+            unavailable,
+            {"step": "records", "output": routine_plan.output_state("records", "unavailable"), "digest": None},
+        )
+        self.assertEqual(lost.exception.code, "routine-cursor-unavailable")

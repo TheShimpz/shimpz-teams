@@ -60,6 +60,7 @@ def _change(**changes: object) -> dict[str, object]:
                 },
             }
         ],
+        "output": {"mode": "show", "step": "zones", "instruction": "list my zones"},
     }
     value.update(changes)
     return value
@@ -320,7 +321,9 @@ class RecriarTests(CardCase):
     def test_recriar_recompiles_with_the_sealed_earlier_sends_and_admits_their_words(self) -> None:
         """A Routine whose message referred to earlier work recompiles from exactly that sealed source."""
         earlier = "list my zones, page 1 with 25 per page"
-        cited = _change(request="Every day at 9, do this")
+        cited = _change(
+            request="Every day at 9, do this", output={"mode": "show", "step": "zones", "instruction": "do this"}
+        )
         with tempfile.TemporaryDirectory() as directory:
             service, brain, value, run_id = self.held_with(directory, _compiled(cited), _compiled(cited))
             # Without its earlier send the same change cites words the message lacks, so it is refused.

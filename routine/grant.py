@@ -4,7 +4,8 @@ Each committed revision keeps minimal Team-owned evidence of what authorized it,
 that made it, the revision it defines, and its plan digest: a commitment to the user's message and the earlier sends of
 theirs it cites, where in that message the user's own words state the request, the option a bound question's answer
 selected, each step input's validated provenance with the message, receipt, revision, and selected answer that first
-granted it, and the Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
+granted it, the words that chose what a run does with its result (ADR-0092 amendment, 2026-10-05, output), and the
+Stored Inputs each step's Action uses, by name only. It holds no secret: a literal never holds one,
 and a Stored Input appears only as its declared id. Provenance is kept only as spans of the committed message, never as
 the cited prose, so words around a value never persist. A Supervisor inspects a Routine through ``steps``, a projection
 of its plan that shows each literal as a bounded preview and every reference by its step and pointer.
@@ -21,7 +22,9 @@ from protocol.http.v1 import routine as http_routine
 from routine import plan as routine_plan
 from routine import request as routine_request
 
-FIELDS = frozenset({"receipt", "revision", "plan", "message", "quote", "selected", "sources", "stored_inputs"})
+FIELDS = frozenset(
+    {"receipt", "revision", "plan", "message", "quote", "selected", "sources", "output", "stored_inputs"}
+)
 _PARTIAL = FIELDS - {"receipt", "revision", "plan"}
 _HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 MAX_ORIGINS = 64
@@ -38,16 +41,19 @@ def evidence(
     quote: tuple[int, int],
     sources: Mapping[str, Mapping[str, Mapping[str, object]]],
     stored_inputs: Mapping[str, list[str]],
+    output: Mapping[str, object],
 ) -> dict[str, object]:
     """A revision's evidence before it commits; the commit binds its receipt, revision, and plan digest.
 
     ``commitment`` commits to the Routine's words: the message and the earlier sends it cites (``Request.commitment``).
+    ``output`` is the provenance of the output disposition: the said words that chose it, or the kept one's.
     """
     return {
         "message": commitment,
         "quote": list(quote),
         "selected": None,
         "sources": copy.deepcopy(dict(sources)),
+        "output": copy.deepcopy(dict(output)),
         "stored_inputs": {step: sorted(names) for step, names in stored_inputs.items()},
     }
 
@@ -62,11 +68,14 @@ def complete(partial: object, receipt: str, revision: int, plan: Mapping[str, ob
         return {}
     value = copy.deepcopy({key: partial[key] for key in _PARTIAL})
     selected = value["selected"] or {}
+    by = {"message": value["message"], "receipt": receipt, "revision": revision}
     for step, members in value["sources"].items():
         for member, entry in members.items() if isinstance(members, dict) else ():
             if isinstance(entry, dict) and entry.get("by", False) is None:
                 label = selected.get("label") if selected.get("field") == ["input", step, member] else None
-                entry["by"] = {"message": value["message"], "receipt": receipt, "revision": revision, "selected": label}
+                entry["by"] = {**by, "selected": label}
+    if isinstance(value["output"], dict) and value["output"].get("by", False) is None:
+        value["output"]["by"] = {**by, "selected": None}
     return {**value, "receipt": receipt, "revision": revision, "plan": plan_digest(plan)}
 
 
@@ -177,6 +186,8 @@ def valid(value: object, plan: Mapping[str, object], revision: int) -> bool:
         and isinstance(stored, dict)
         and set(stored) == set(steps)
         and all(_stored(item) for item in stored.values())
+        and _granted(value["output"], revision, value["message"], value["receipt"])
+        and "instruction" in value["output"]["proof"]
     )
 
 
@@ -185,7 +196,7 @@ def _input(member: str, source: Mapping[str, object]) -> dict[str, object]:
         return {"member": member, "source": "literal", "value": http_routine.literal_preview(source["value"])}
     if source["kind"] == "run_clock":
         return {"member": member, "source": "run_clock", "value": source["format"]}
-    return {"member": member, "source": "step_output", "step": source["step"], "pointer": source["pointer"]}
+    return {"member": member, "source": source["kind"], "step": source["step"], "pointer": source["pointer"]}
 
 
 def steps(plan: Mapping[str, object], value: Mapping[str, object]) -> list[dict[str, object]]:

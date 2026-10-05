@@ -22,7 +22,10 @@ MINUTE = base.NINE
 
 
 def continuous(gap: int = 5) -> record.TeamRoutines:
-    value = base.routine(schedule={"kind": "continuous", "gap": gap, "cap": 1000})
+    # A Routine that hands each run's result on keeps the compact minute rollup (ADR-0092 amendment, 2026-10-05).
+    value = base.routine(
+        schedule={"kind": "continuous", "gap": gap, "cap": 1000}, plan=routine_fixture.chain_document()
+    )
     return base.at(base.added(value), ROUTINE_ID, MINUTE)
 
 
@@ -58,7 +61,10 @@ def same_minute_change() -> tuple[list[list[dict[str, object]]], record.TeamRout
     first = delivery(state)
     deliveries = [first]
     state = restarted(run_once(state, MINUTE + 10, MINUTE + 11))
-    changed = record.scheduled(base.routine(schedule={"kind": "continuous", "gap": 6, "cap": 1000}), MINUTE + 20)
+    changed = record.scheduled(
+        base.routine(schedule={"kind": "continuous", "gap": 6, "cap": 1000}, plan=routine_fixture.chain_document()),
+        MINUTE + 20,
+    )
     state, _updated = record.update(state, changed, 1, MINUTE + 20, base.RECEIPT, MINUTE + 900)
     state = run_once(state, MINUTE + 30, MINUTE + 31)
     # The first delivery's acknowledgment arrives only now, after the minute's count grew twice.

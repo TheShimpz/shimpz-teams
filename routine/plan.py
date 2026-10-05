@@ -10,14 +10,21 @@ included) fail closed. Only the selected values are retained, never a complete o
 belongs in is refused: such a value must be the Action's declared Stored Input. An Action that declares a file input
 is refused in v1: a Routine holds no file grant, so no literal id or copied output may stand for an attached file
 (ADR-0093).
+
+A plan also states what a completed run does with its result (ADR-0092 amendment, 2026-10-05, output): ``show`` one
+step's result to the person after every run, show it only when it ``changes``, hand it to a later step (``chain``), or
+show ``none`` of it. A ``step_text`` source copies an earlier step's selected value as deterministic plain text, the one
+narrow conversion a plan has, for a destination that takes a string.
 """
 
 from __future__ import annotations
 
 import copy
+import dataclasses
 import datetime
 import hashlib
 import json
+import math
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -25,9 +32,10 @@ from typing import Any
 
 from assistant import action_schema
 from assistant import manifest as assistant_manifest
+from protocol.http.v1 import routine as http_routine
 from routine import schedule
 
-VERSION = 1
+VERSION = 2
 MAX_STEPS = 8
 MAX_PLAN_BYTES = 64 * 1024
 MAX_RETAINED_BYTES = 128 * 1024
@@ -39,6 +47,13 @@ PIN_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _POINTER_RE = re.compile(r"(?:/(?:[^/~]|~[01])*)*\Z")
 _INDEX_RE = re.compile(r"(?:0|[1-9][0-9]{0,8})\Z")
 CLOCK_FORMATS = ("date", "time", "datetime", "epoch_seconds")
+# What a completed run does with its result; ``show`` and ``changes`` name the step whose result is shown.
+OUTPUT_MODES = ("show", "changes", "chain", "none")
+SHOWN_MODES = frozenset({"show", "changes"})
+# Sources that copy a value an earlier step of the same run returned.
+BINDINGS = frozenset({"step_output", "step_text"})
+# The longest text a step_text source renders; a longer one is refused before dispatch, never cut.
+MAX_TEXT_BYTES = 16 * 1024
 # A secret is never a literal: one of these in a destination name, or a destination marked write-only or as a password.
 _SECRET_MARKERS = (
     "secret",
@@ -71,6 +86,8 @@ class Step:
     action: str
     pin: str
     inputs: Mapping[str, Mapping[str, object]]
+    # The Action's reviewed output schema, which orders and redacts a shown result; never part of the document.
+    output_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +95,14 @@ class Plan:
     timezone: str
     steps: tuple[Step, ...]
     digest: str
+    # What a completed run does with its result: {"mode": one of OUTPUT_MODES, "step": the shown step id or None}.
+    output: Mapping[str, object] = dataclasses.field(default_factory=lambda: {"mode": "none", "step": None})
+
+    def shown(self) -> Step | None:
+        """The step whose result a completed run shows, or None when the plan shows none."""
+        if self.output["mode"] not in SHOWN_MODES:
+            return None
+        return next(step for step in self.steps if step.step_id == self.output["step"])
 
     def references(self, step_id: str) -> tuple[str, ...]:
         """The pointers later steps select from ``step_id``'s output, sorted, each once."""
@@ -87,7 +112,7 @@ class Plan:
                     source["pointer"]
                     for step in self.steps
                     for source in step.inputs.values()
-                    if source["kind"] == "step_output" and source["step"] == step_id
+                    if source["kind"] in BINDINGS and source["step"] == step_id
                 }
             )
         )
@@ -100,6 +125,7 @@ class ActionContract:
     pin: str
     input_schema: Mapping[str, Any]
     input_files: tuple[str, ...] = ()
+    output_schema: Mapping[str, Any] = dataclasses.field(default_factory=dict)
 
 
 def canonical(value: object) -> bytes:
@@ -108,28 +134,30 @@ def canonical(value: object) -> bytes:
 
 def admit(document: object, contracts: Mapping[tuple[str, str], ActionContract]) -> Plan:
     """Admit one plan at creation against the exact current contracts of the Actions it names."""
-    timezone, raw_steps, encoded = _document(document)
+    timezone, raw_steps, output, encoded = _document(document)
     steps: list[Step] = []
     for raw in raw_steps:
         steps.append(_step(raw, contracts, tuple(item.step_id for item in steps)))
-    return Plan(timezone, tuple(steps), "sha256:" + hashlib.sha256(encoded).hexdigest())
+    _output(output, steps)
+    return Plan(timezone, tuple(steps), "sha256:" + hashlib.sha256(encoded).hexdigest(), copy.deepcopy(output))
 
 
 def well_formed(document: object) -> bool:
     """Whether a kept plan still has the closed shape and bounds of an admitted one; its contracts are checked apart."""
     try:
-        _timezone, raw_steps, _encoded = _document(document)
-        earlier: list[str] = []
+        _timezone, raw_steps, output, _encoded = _document(document)
+        shapes: list[tuple[str, str, str, str, dict[str, object]]] = []
         for raw in raw_steps:
-            earlier.append(_step_shape(raw, tuple(earlier))[0])
+            shapes.append(_step_shape(raw, tuple(shape[0] for shape in shapes)))
+        _output(output, [Step(shape[0], shape[1], shape[2], shape[3], shape[4]) for shape in shapes])
     except PlanError:
         return False
     return True
 
 
-def _document(document: object) -> tuple[str, list[object], bytes]:
-    """A plan's timezone, raw steps, and canonical bytes, within its closed top-level shape and bounds."""
-    if not isinstance(document, dict) or set(document) != {"version", "timezone", "steps"}:
+def _document(document: object) -> tuple[str, list[object], object, bytes]:
+    """A plan's timezone, raw steps, raw output, and canonical bytes, within its closed top-level shape and bounds."""
+    if not isinstance(document, dict) or set(document) != {"version", "timezone", "steps", "output"}:
         raise PlanError("plan-invalid")
     try:
         encoded = canonical(document)
@@ -145,7 +173,22 @@ def _document(document: object) -> tuple[str, list[object], bytes]:
     raw_steps = document["steps"]
     if not isinstance(raw_steps, list) or not 1 <= len(raw_steps) <= MAX_STEPS:
         raise PlanError("plan-invalid")
-    return timezone, raw_steps, encoded
+    return timezone, raw_steps, document["output"], encoded
+
+
+def _output(value: object, steps: list[Step]) -> None:
+    """The run's output disposition: a shown step must be one of the plan's; a chain needs a binding to hand it on."""
+    if not isinstance(value, dict) or set(value) != {"mode", "step"} or value["mode"] not in OUTPUT_MODES:
+        raise PlanError("plan-output-invalid")
+    shown = value["step"]
+    if value["mode"] in SHOWN_MODES:
+        valid = isinstance(shown, str) and any(step.step_id == shown for step in steps)
+    else:
+        valid = shown is None
+    if value["mode"] == "chain":
+        valid = valid and any(source["kind"] in BINDINGS for step in steps for source in step.inputs.values())
+    if not valid:
+        raise PlanError("plan-output-invalid")
 
 
 def _step_shape(raw: object, earlier: tuple[str, ...]) -> tuple[str, str, str, str, dict[str, object]]:
@@ -185,7 +228,7 @@ def _step(raw: object, contracts: Mapping[tuple[str, str], ActionContract], earl
         raise PlanError("plan-secret-literal")
     for name, source in inputs.items():
         _typed(name, source, schema)
-    return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs))
+    return Step(step_id, assistant_id, action, pin, copy.deepcopy(inputs), copy.deepcopy(contract.output_schema))
 
 
 def _matches(value: object, pattern: re.Pattern[str]) -> bool:
@@ -195,14 +238,19 @@ def _matches(value: object, pattern: re.Pattern[str]) -> bool:
 def _source(source: object, earlier: tuple[str, ...]) -> None:
     """One value source's closed shape: a literal, a run-clock format, or a reference to an earlier step."""
     kind = source.get("kind") if isinstance(source, dict) else None
-    fields = {"literal": {"kind", "value"}, "run_clock": {"kind", "format"}, "step_output": {"kind", "step", "pointer"}}
+    fields = {
+        "literal": {"kind", "value"},
+        "run_clock": {"kind", "format"},
+        "step_output": {"kind", "step", "pointer"},
+        "step_text": {"kind", "step", "pointer"},
+    }
     if kind not in fields or set(source) != fields[kind]:
         raise PlanError("plan-input-invalid")
     if kind == "literal" and _holds_credential(source["value"]):
         raise PlanError("plan-secret-literal")
     if kind == "run_clock" and source["format"] not in CLOCK_FORMATS:
         raise PlanError("plan-input-invalid")
-    if kind == "step_output" and (source["step"] not in earlier or pointer_tokens(source["pointer"]) is None):
+    if kind in BINDINGS and (source["step"] not in earlier or pointer_tokens(source["pointer"]) is None):
         raise PlanError("plan-reference-invalid")
 
 
@@ -232,19 +280,22 @@ def _secret_literal(root: Mapping[str, Any], name: str, value: object, subschema
         return False
     if depth > MAX_SECRET_DEPTH:
         return True
-    candidates = _applicable(root, subschema, 0, value)
-    if _secret_position(root, name, candidates):
+    candidates = applicable(root, subschema, 0, value)
+    if secret_position(root, name, candidates):
         return True
     if isinstance(value, dict):
-        return any(_secret_literal(root, key, item, _member(candidates, key), depth + 1) for key, item in value.items())
+        return any(
+            _secret_literal(root, key, item, member_schemas(candidates, key), depth + 1) for key, item in value.items()
+        )
     if isinstance(value, list):
         return any(
-            _secret_literal(root, name, item, _items(candidates, index), depth + 1) for index, item in enumerate(value)
+            _secret_literal(root, name, item, item_schemas(candidates, index), depth + 1)
+            for index, item in enumerate(value)
         )
     return False
 
 
-def _secret_position(root: Mapping[str, Any], name: str, candidates: list[Mapping[str, Any]]) -> bool:
+def secret_position(root: Mapping[str, Any], name: str, candidates: list[Mapping[str, Any]]) -> bool:
     """Whether one position itself is a secret destination, or an unmodelled applicator there could reach one."""
     return (
         _secret_name(name.lower().replace("-", "_"))
@@ -269,7 +320,7 @@ def _marked(subschema: Mapping[str, Any]) -> bool:
     return subschema.get("writeOnly") is True or subschema.get("format") == "password"
 
 
-def _applicable(root: Mapping[str, Any], subschema: object, depth: int, value: object) -> list[Mapping[str, Any]]:
+def applicable(root: Mapping[str, Any], subschema: object, depth: int, value: object) -> list[Mapping[str, Any]]:
     """The subschemas that apply at one position.
 
     That is the node, its local reference, its combinator members, and the ``dependentSchemas`` of each member the
@@ -290,11 +341,11 @@ def _applicable(root: Mapping[str, Any], subschema: object, depth: int, value: o
         members.extend(dependent[key] for key in value if key in dependent)
     found: list[Mapping[str, Any]] = [subschema]
     for member in members:
-        found.extend(_applicable(root, member, depth + 1, value))
+        found.extend(applicable(root, member, depth + 1, value))
     return found
 
 
-def _member(candidates: list[Mapping[str, Any]], key: str) -> dict[str, Any]:
+def member_schemas(candidates: list[Mapping[str, Any]], key: str) -> dict[str, Any]:
     """Every subschema the candidates apply to one object member.
 
     That is its property, each matching pattern, or else the candidate's additional-properties schema.
@@ -317,7 +368,7 @@ def _member(candidates: list[Mapping[str, Any]], key: str) -> dict[str, Any]:
     return {"allOf": members}
 
 
-def _items(candidates: list[Mapping[str, Any]], index: int) -> dict[str, Any]:
+def item_schemas(candidates: list[Mapping[str, Any]], index: int) -> dict[str, Any]:
     members = []
     for item in candidates:
         prefix = item.get("prefixItems")
@@ -435,7 +486,8 @@ def resolve(
         elif source["kind"] == "run_clock":
             resolved[name] = clock_value(source["format"], instant, plan.timezone)
         elif (source["step"], source["pointer"]) in selected:
-            resolved[name] = copy.deepcopy(selected[(source["step"], source["pointer"])])
+            chosen = copy.deepcopy(selected[(source["step"], source["pointer"])])
+            resolved[name] = chosen if source["kind"] == "step_output" else _text_within(chosen)
         else:
             raise PlanError("plan-reference-missing")
     try:
@@ -445,6 +497,218 @@ def resolve(
     return resolved
 
 
+def text(value: object) -> str:
+    """One selected value as deterministic, locale-neutral plain text, complete and never cut.
+
+    A string selected whole is itself, verbatim. Anything else is unambiguous: every key and scalar inside it is its
+    JSON text, so a string is quoted and escaped and can never make another line, field, or item. A list is one ``-``
+    line per item and an object one ``"key":`` line per member in sorted key order; a scalar follows on the same line
+    after a space, a non-empty list or object on the next lines indented two spaces more. An empty list or object is
+    its JSON text.
+    """
+    if isinstance(value, str):
+        return value
+    return "\n".join(_text_lines(value, 0)) if isinstance(value, dict | list) and value else _json_text(value)
+
+
+def _json_text(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":"))
+
+
+def _text_lines(value: object, depth: int) -> list[str]:
+    indent = "  " * depth
+    if isinstance(value, list):
+        entries = [("-", item) for item in value]
+    else:
+        entries = [(_json_text(key) + ":", value[key]) for key in sorted(value)]
+    lines: list[str] = []
+    for label, item in entries:
+        if isinstance(item, dict | list) and item:
+            lines.append(indent + label)
+            lines.extend(_text_lines(item, depth + 1))
+        else:
+            lines.append(f"{indent}{label} {_json_text(item)}")
+    return lines
+
+
+def _text_within(value: object) -> str:
+    rendered = text(value)
+    if len(rendered.encode("utf-8")) > MAX_TEXT_BYTES:
+        raise PlanError("plan-input-type")
+    return rendered
+
+
 def commitment(resolved: Mapping[str, object]) -> str:
     """The digest binding one dispatch to its exact resolved input."""
     return hashlib.sha256(canonical(dict(resolved))).hexdigest()
+
+
+# What a completed run shows of its result (ADR-0092 amendment, 2026-10-05, output).
+#
+# A Routine that shows a result shows one step's validated result, never a model's summary of it: healthy runs stay
+# model-free. The result is first projected into its safe form: every value the step's reviewed output schema marks as
+# secret (a secret-named member, ``writeOnly``, ``format: password``, or a position an unmodelled applicator could make
+# secret, walked exactly as plan admission walks a literal), every credential-shaped string, and the value of every
+# credential-shaped key is redacted; every key and text is escaped; and an object's members are in sorted key order,
+# the canonical order of the pinned contract itself. Redaction always comes before any cut. The safe form is what a
+# change is compared on, so a change only inside redacted content is never shown; the shown form is the safe form cut to
+# a fixed ladder of bounds until its whole encoding fits ``MAX_OUTPUT_BYTES``, marking every cut and omission; labels
+# that read alike after escaping or shortening are numbered apart. Projection never refuses a result: anything it
+# cannot project is shown as unavailable instead, and nothing is replayed.
+
+MAX_OUTPUT_DEPTH = http_routine.MAX_OUTPUT_DEPTH
+MAX_OUTPUT_BYTES = http_routine.MAX_OUTPUT_BYTES
+MAX_OUTPUT_KEY_CHARS = http_routine.MAX_OUTPUT_KEY_CHARS
+# The bounds a shown result is cut to, (items, fields, text characters), each tried in turn until its encoding fits.
+OUTPUT_LEVELS = (
+    (http_routine.MAX_OUTPUT_ITEMS, http_routine.MAX_OUTPUT_FIELDS, http_routine.MAX_OUTPUT_TEXT_CHARS),
+    (25, 24, 120),
+    (12, 12, 60),
+    (6, 8, 40),
+    (3, 4, 20),
+    (1, 2, 12),
+    (0, 0, 0),
+)
+# The safe form a change is compared on; a larger one always compares as changed.
+MAX_COMPARED_OUTPUT_BYTES = 1024 * 1024
+# Nesting the safe form follows; anything deeper is elided, never followed further.
+MAX_SAFE_OUTPUT_DEPTH = MAX_SECRET_DEPTH
+OUTPUT_REDACTED_KEY = "[redacted]"
+OUTPUT_REDACTED = {"kind": "redacted"}
+OUTPUT_ELIDED = {"kind": "elided"}
+
+
+class OutputError(ValueError):
+    """A result could not be projected; the run shows its result as unavailable."""
+
+
+def output_safe(result: object, schema: object) -> dict[str, object]:
+    """The complete safe form of one validated result under its Action's reviewed output schema."""
+    root = schema if isinstance(schema, dict) else {}
+    try:
+        return _output_node(result, root, root, "", 0)
+    except (PlanError, RecursionError, TypeError, ValueError) as exc:
+        raise OutputError("routine-output-unavailable") from exc
+
+
+def output_compared(node: dict[str, object]) -> bytes | None:
+    """The canonical bytes a change is compared on, or None when they are too large to compare."""
+    encoded = canonical(node)
+    return encoded if len(encoded) <= MAX_COMPARED_OUTPUT_BYTES else None
+
+
+def output_shown(step: str, node: dict[str, object]) -> dict[str, object]:
+    """The safe form cut to the first bounds whose whole shown output fits; the last step elides it entirely."""
+    for limits in OUTPUT_LEVELS:
+        value, truncated = _output_bounded(node, limits, 0)
+        candidate = {"step": step, "state": "shown", "value": value, "truncated": truncated}
+        if http_routine.encoded_bytes(candidate) <= MAX_OUTPUT_BYTES:
+            return candidate
+    return {"step": step, "state": "shown", "value": dict(OUTPUT_ELIDED), "truncated": True}
+
+
+def output_state(step: str, state: str) -> dict[str, object]:
+    """A completed run's output that shows no value: unchanged since the last shown one, or unavailable."""
+    return {"step": step, "state": state, "value": None, "truncated": False}
+
+
+def _output_node(value: object, root: dict, subschema: object, name: str, depth: int) -> dict[str, object]:
+    if depth > MAX_SAFE_OUTPUT_DEPTH:
+        return dict(OUTPUT_ELIDED)
+    candidates = applicable(root, subschema, 0, value)
+    if secret_position(root, name, candidates):
+        return dict(OUTPUT_REDACTED)
+    if isinstance(value, dict):
+        return _output_fields(value, root, candidates, depth)
+    if isinstance(value, list):
+        items = [
+            _output_node(item, root, item_schemas(candidates, index), name, depth + 1)
+            for index, item in enumerate(value)
+        ]
+        return {"kind": "list", "items": items, "omitted": 0}
+    return _output_scalar(value)
+
+
+def _output_scalar(value: object) -> dict[str, object]:
+    if value is None:
+        return {"kind": "null"}
+    if isinstance(value, bool):
+        return {"kind": "bool", "value": value}
+    if isinstance(value, int | float):
+        if not math.isfinite(value):
+            raise OutputError("routine-output-unavailable")
+        return {"kind": "number", "value": value}
+    if isinstance(value, str):
+        if assistant_manifest.resembles_credential(value):
+            return dict(OUTPUT_REDACTED)
+        return {"kind": "text", "value": http_routine.escaped(value), "cut": False}
+    raise OutputError("routine-output-unavailable")
+
+
+def _output_fields(value: dict, root: dict, candidates: list, depth: int) -> dict[str, object]:
+    """An object's members in sorted key order, each under its member schema; a credential-shaped key is redacted."""
+    fields: list[list[object]] = []
+    redacted = 0
+    for key in sorted(value):
+        if assistant_manifest.resembles_credential(key):
+            redacted += 1
+            label = OUTPUT_REDACTED_KEY if redacted == 1 else f"{OUTPUT_REDACTED_KEY} {redacted}"
+            fields.append([label, dict(OUTPUT_REDACTED)])
+            continue
+        try:
+            member = member_schemas(candidates, key)
+        except PlanError:
+            fields.append([output_label(key), dict(OUTPUT_REDACTED)])
+            continue
+        fields.append([output_label(key), _output_node(value[key], root, member, key, depth + 1)])
+    return {"kind": "fields", "fields": _output_distinct(fields), "omitted": 0}
+
+
+def _output_distinct(fields: list[list[object]]) -> list[list[object]]:
+    """The fields with every repeated label numbered, since escaping or shortening may make two keys read alike."""
+    seen: set[str] = set()
+    for field in fields:
+        label, number = field[0], 1
+        while field[0] in seen:
+            number += 1
+            field[0] = f"{label[: MAX_OUTPUT_KEY_CHARS - 6]} ({number})"
+        seen.add(field[0])
+    return fields
+
+
+def output_label(key: str) -> str:
+    """A key as shown: escaped, quoted when empty, and a long one shortened with a digest so labels stay distinct."""
+    label = http_routine.escaped(key) or '""'
+    if len(label) <= MAX_OUTPUT_KEY_CHARS:
+        return label
+    return (
+        label[: MAX_OUTPUT_KEY_CHARS - 8] + "…" + hashlib.sha256(key.encode("utf-8", "surrogatepass")).hexdigest()[:7]
+    )
+
+
+def _output_bounded(
+    node: dict[str, object], limits: tuple[int, int, int], depth: int
+) -> tuple[dict[str, object], bool]:
+    """The node cut to ``limits``, and whether anything was cut, omitted, or elided."""
+    items, fields, chars = limits
+    kind = node["kind"]
+    if kind == "text":
+        text = node["value"]
+        if len(text) <= chars:
+            return dict(node), False
+        return {"kind": "text", "value": text[: max(chars - 1, 0)] + "…", "cut": True}, True
+    if kind not in ("list", "fields"):
+        return dict(node), False
+    if depth >= MAX_OUTPUT_DEPTH:
+        return dict(OUTPUT_ELIDED), True
+    entries = node["items"] if kind == "list" else node["fields"]
+    kept = entries[: items if kind == "list" else fields]
+    truncated = len(kept) < len(entries)
+    bounded = []
+    for entry in kept:
+        child, cut = _output_bounded(entry if kind == "list" else entry[1], limits, depth + 1)
+        truncated = truncated or cut
+        bounded.append(child if kind == "list" else [entry[0], child])
+    omitted = node["omitted"] + len(entries) - len(kept)
+    key = "items" if kind == "list" else "fields"
+    return {"kind": kind, key: bounded, "omitted": omitted}, truncated

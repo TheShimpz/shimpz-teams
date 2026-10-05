@@ -185,34 +185,37 @@ def _end(self, team_id: str, run_id: str, outcome: str, detail: dict[str, object
     return outcome
 
 
-def _finish(self, run: _Run, outcome: str, detail: dict[str, object]) -> str:
+def _finish(self, run: _Run, outcome: str, detail: dict[str, object], shown: dict[str, object] | None) -> str:
     """A worker's own ending; when its lease or time ran out meanwhile, Team records the run as failed instead."""
     now = int(time.time())
 
     def finish(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str]:
         try:
-            return record.finish(state, run.run_id, run.lease, now, outcome, detail), outcome
+            return record.finish(state, run.run_id, run.lease, now, outcome, detail, shown), outcome
         except record.RoutineStateError:
             return record.end(state, run.run_id, now, "failed", {"code": "lease-expired", "actions": []}), "failed"
 
     return routine_state.update(self, run.team_id, finish)
 
 
-def finished(self, run: _Run, value: record.Run, sealed_done: Callable[[], bool]) -> str:
+def finished(
+    self, run: _Run, value: record.Run, sealed_done: Callable[[], bool], shown: dict[str, object] | None = None
+) -> str:
     """A compiled run completed every step: commit its end exactly when Stop did not win it; no model is asked.
 
     Its notice names the Actions it carried out, and says recovered when a continuation after a hold completed it. A
     deadline is no person's Stop: when it, not a person, cut a run whose sealed cursor proves every step complete, the
-    run is recorded complete like the watchdog would, which also resets its failure streak.
+    run is recorded complete like the watchdog would, which also resets its failure streak. ``shown`` is the result the
+    run's sealed cursor kept for its Routine's output disposition.
     """
     if not self._commit_chat_terminal(run.team_id, run.token):
         if _deadline_cut(self, run) and sealed_done():
-            return complete_sealed(self, run)
+            return complete_sealed(self, run, shown)
         return _end(self, run.team_id, run.run_id, "stopped", {"actions": []})
-    return complete(self, run, value)
+    return complete(self, run, value, shown)
 
 
-def complete_sealed(self, run: _Run) -> str:
+def complete_sealed(self, run: _Run, shown: dict[str, object] | None) -> str:
     """Record a run its own deadline cut after its sealed cursor completed every step, as complete.
 
     It uses the Team-authoritative transition the watchdog uses, bound to this run's exact lease but not to time left
@@ -224,7 +227,7 @@ def complete_sealed(self, run: _Run) -> str:
     def change(state: record.TeamRoutines) -> tuple[record.TeamRoutines, str | None]:
         current = next((item for item in state.runs if item.run_id == run.run_id), None)
         try:
-            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now)
+            completed = record.complete_recovered(state, run.run_id, run.lease.sha256, now, shown)
         except record.RoutineStateError:
             return state, None
         return completed, record.completed(current)
@@ -235,9 +238,9 @@ def complete_sealed(self, run: _Run) -> str:
     return outcome
 
 
-def complete(self, run: _Run, value: record.Run) -> str:
-    """Record a run whose every step completed: done, or recovered for a continuation, naming its Actions."""
-    return _finish(self, run, record.completed(value), {"actions": record.plan_actions(run.routine.plan)})
+def complete(self, run: _Run, value: record.Run, shown: dict[str, object] | None) -> str:
+    """Record a run whose every step completed: done, or recovered for a continuation, by its output disposition."""
+    return _finish(self, run, record.completed(value), {}, shown)
 
 
 def _deadline_cut(self, run: _Run) -> bool:

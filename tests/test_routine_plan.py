@@ -47,7 +47,7 @@ CONTRACTS = {
 
 def _document(**changes: object) -> dict[str, object]:
     document = {
-        "version": 1,
+        "version": 2,
         "timezone": "America/Sao_Paulo",
         "steps": [
             {
@@ -72,6 +72,7 @@ def _document(**changes: object) -> dict[str, object]:
                 },
             },
         ],
+        "output": {"mode": "show", "step": "publish"},
     }
     document.update(changes)
     return document
@@ -106,7 +107,7 @@ class PlanAdmissionTests(unittest.TestCase):
         cases = (
             ([], "plan-invalid"),
             ({**_document(), "extra": 1}, "plan-invalid"),
-            (_document(version=2), "plan-invalid"),
+            (_document(version=1), "plan-invalid"),
             (_document(steps=[]), "plan-invalid"),
             (_document(steps=nine), "plan-invalid"),
             (_document(steps={}), "plan-invalid"),
@@ -280,9 +281,9 @@ class PlanAdmissionTests(unittest.TestCase):
         self.assertTrue(routine_plan._secret_literal(nested, "items", deep, {"type": "array"}, 0))
         chain = {"$defs": {f"d{index}": {"$ref": f"#/$defs/d{index + 1}"} for index in range(70)}}
         with self.assertRaises(routine_plan.PlanError) as indirect:
-            routine_plan._applicable(chain, {"$ref": "#/$defs/d0"}, 0, None)
+            routine_plan.applicable(chain, {"$ref": "#/$defs/d0"}, 0, None)
         self.assertEqual(indirect.exception.code, "plan-secret-literal")
-        self.assertEqual(routine_plan._applicable(nested, None, 0, None), [])
+        self.assertEqual(routine_plan.applicable(nested, None, 0, None), [])
 
     def test_every_admitted_applicator_is_followed_or_refused_for_secret_literals(self) -> None:
         sealed = {"type": "string", "writeOnly": True}
@@ -380,11 +381,11 @@ class PlanAdmissionTests(unittest.TestCase):
         self.assertEqual(admit(harmless, {"x": "a"}).steps[0].inputs["options"]["value"], {"x": "a"})
         # An additional-properties schema applies only to members no property or pattern names.
         extra = {"properties": {"a": plain}, "patternProperties": {"^b$": plain}, "additionalProperties": sealed}
-        self.assertEqual(routine_plan._member([extra], "c"), {"allOf": [sealed]})
-        self.assertEqual(routine_plan._member([extra], "a"), {"allOf": [plain]})
-        self.assertEqual(routine_plan._member([extra], "b"), {"allOf": [plain]})
+        self.assertEqual(routine_plan.member_schemas([extra], "c"), {"allOf": [sealed]})
+        self.assertEqual(routine_plan.member_schemas([extra], "a"), {"allOf": [plain]})
+        self.assertEqual(routine_plan.member_schemas([extra], "b"), {"allOf": [plain]})
         with self.assertRaises(routine_plan.PlanError) as unmatchable:
-            routine_plan._member([{"patternProperties": {"(?<=a)b": plain}}], "ab")
+            routine_plan.member_schemas([{"patternProperties": {"(?<=a)b": plain}}], "ab")
         self.assertEqual(unmatchable.exception.code, "plan-secret-literal")
         deep: object = {"type": "string"}
         for _ in range(routine_plan.MAX_SECRET_DEPTH + 2):

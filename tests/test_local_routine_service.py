@@ -110,8 +110,9 @@ class RoutineServiceCase(LocalContractCase):
         """A compiled plan of literal-input steps, each pinned to the Team's current Action contract."""
         _name, _network, active = service._team_assistants("team_1")
         contracts = routine_turn.contracts(tuple(active.values()), routine_pin.SCOPE_LOCALE)
+        steps = steps or (("zones", "list-zones", LOOKUP_INPUT),)
         return {
-            "version": 1,
+            "version": 2,
             "timezone": "UTC",
             "steps": [
                 {
@@ -121,8 +122,10 @@ class RoutineServiceCase(LocalContractCase):
                     "pin": contracts[(ASSISTANT, action)].pin,
                     "input": {name: {"kind": "literal", "value": value} for name, value in inputs.items()},
                 }
-                for step_id, action, inputs in steps or (("zones", "list-zones", LOOKUP_INPUT),)
+                for step_id, action, inputs in steps
             ],
+            # The last step's result is shown after every run unless a test chooses another disposition.
+            "output": {"mode": "show", "step": steps[-1][0]},
         }
 
     def routine(self, service, *, next_run_at: int | None = None, plan: dict | None = None) -> record.Routine:
@@ -202,10 +205,9 @@ class RunTests(RoutineServiceCase):
             state = self.state(service)
         self.assertEqual(result["status"], "done")
         self.assertEqual(state.runs, ())
-        self.assertEqual(
-            [(item.outcome, item.detail) for item in state.notices],
-            [("done", {"actions": record.plan_actions(state.routines[0].plan)})],
-        )
+        ((outcome, detail),) = [(item.outcome, item.detail) for item in state.notices]
+        self.assertEqual((outcome, detail["actions"]), ("done", record.plan_actions(state.routines[0].plan)))
+        self.assertEqual((detail["output"]["step"], detail["output"]["state"]), ("zones", "shown"))
         # A healthy compiled run never asks the Brain anything.
         self.assertEqual(runtime.contexts, [])
 
@@ -374,9 +376,9 @@ class FreezeTests(RoutineServiceCase):
             )
             state = self.state(service)
         self.assertEqual(resumed["status"], "done")
-        self.assertEqual(
-            (state.runs, state.notices[-1].detail), ((), {"actions": record.plan_actions(state.routines[0].plan)})
-        )
+        detail = state.notices[-1].detail
+        self.assertEqual((state.runs, detail["actions"]), ((), record.plan_actions(state.routines[0].plan)))
+        self.assertEqual(detail["output"]["state"], "shown")
 
     def test_a_rename_never_ends_a_frozen_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
