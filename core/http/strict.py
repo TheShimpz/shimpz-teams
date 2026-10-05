@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from typing import BinaryIO
@@ -15,6 +17,7 @@ MAX_REQUEST_TARGET_BYTES = 512
 MAX_FILENAME_BYTES = 255
 MAX_MEDIA_TYPE_CHARS = 127
 FILE_NAME_HEADER = "X-Shimpz-Filename"
+_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
 
 
 class HttpContractError(ValueError):
@@ -39,6 +42,16 @@ class FileUploadMetadata:
     media_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class CapturedBody:
+    """One request body read once before authorization: its binding and its JSON document or file metadata."""
+
+    binding: dict[str, object]
+    raw: bytes | None = None
+    document: dict[str, object] | None = None
+    file: FileUploadMetadata | None = None
+
+
 def bearer_matches(headers: object, token: str) -> bool:
     """Accept exactly one bearer header and compare it in constant time."""
     values = headers.get_all("Authorization", failobj=[])
@@ -46,13 +59,8 @@ def bearer_matches(headers: object, token: str) -> bool:
     return len(values) == 1 and values[0].isascii() and hmac.compare_digest(values[0], f"Bearer {token}")
 
 
-def read_json_document(
-    headers: object,
-    stream: BinaryIO,
-    *,
-    max_bytes: int,
-) -> tuple[bytes, dict[str, object]]:
-    """Capture and parse one finite duplicate-free JSON object exactly once."""
+def _content_length(headers: object) -> int:
+    """The single declared length of an unchunked request body."""
     if headers.get_all("Transfer-Encoding", failobj=[]):
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
@@ -67,13 +75,23 @@ def read_json_document(
             code="content-length",
         )
     try:
-        length = int(lengths[0])
+        return int(lengths[0])
     except ValueError as exc:
         raise HttpContractError(
             HTTPStatus.BAD_REQUEST,
             "invalid Content-Length",
             code="content-length",
         ) from exc
+
+
+def read_json_document(
+    headers: object,
+    stream: BinaryIO,
+    *,
+    max_bytes: int,
+) -> tuple[bytes, dict[str, object]]:
+    """Capture and parse one finite duplicate-free JSON object exactly once."""
+    length = _content_length(headers)
     if length < 2 or length > max_bytes:
         raise HttpContractError(
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -124,27 +142,7 @@ def file_upload_metadata(
     max_bytes: int,
 ) -> FileUploadMetadata:
     """Validate file framing and metadata before reading untrusted content."""
-    if headers.get_all("Transfer-Encoding", failobj=[]):
-        raise HttpContractError(
-            HTTPStatus.BAD_REQUEST,
-            "chunked requests are not accepted",
-            code="chunked-request",
-        )
-    lengths = headers.get_all("Content-Length", failobj=[])
-    if len(lengths) != 1:
-        raise HttpContractError(
-            HTTPStatus.LENGTH_REQUIRED,
-            "one Content-Length is required",
-            code="content-length",
-        )
-    try:
-        length = int(lengths[0])
-    except ValueError as exc:
-        raise HttpContractError(
-            HTTPStatus.BAD_REQUEST,
-            "invalid Content-Length",
-            code="content-length",
-        ) from exc
+    length = _content_length(headers)
     if not 1 <= length <= max_bytes:
         raise HttpContractError(
             HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
@@ -562,3 +560,32 @@ def resolve_controller_route(profile: str, method: str, parts: tuple[str, ...]) 
         else:
             return ControllerRouteMatch(route.operation, params)
     return None
+
+
+def capture_body(
+    headers: object,
+    stream: BinaryIO,
+    operation: str,
+    json_limits: Mapping[str, int],
+    file_max_bytes: int,
+) -> CapturedBody:
+    """Capture the body an operation admits exactly once: file metadata, one bounded JSON document, or nothing.
+
+    A file's content stays unread until the caller authorizes it; JSON and the empty body bind their exact bytes.
+    """
+    if operation == "file-upload":
+        metadata = file_upload_metadata(headers, max_bytes=file_max_bytes)
+        binding = {
+            "kind": "file",
+            "length": metadata.length,
+            "filename": metadata.filename,
+            "media_type": metadata.media_type,
+        }
+        return CapturedBody(binding, file=metadata)
+    limit = json_limits.get(operation)
+    if limit is not None:
+        raw, document = read_json_document(headers, stream, max_bytes=limit)
+        binding = {"kind": "json", "length": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+        return CapturedBody(binding, raw, document)
+    reject_body(headers)
+    return CapturedBody({"kind": "none", "length": 0, "sha256": _EMPTY_SHA256})

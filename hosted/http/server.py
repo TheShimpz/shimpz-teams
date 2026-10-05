@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import contextlib
 import functools
-import hashlib
 import json
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -207,36 +206,15 @@ class Handler(BaseHTTPRequestHandler):
         self._captured_json_body = None
         self._captured_file_metadata = None
         try:
-            if operation == "file-upload":
-                metadata = strict_http.file_upload_metadata(
-                    self.headers,
-                    max_bytes=hosted_assistants.MAX_FILE_BODY_BYTES,
-                )
-                self._captured_file_metadata = metadata
-                return {
-                    "kind": "file",
-                    "length": metadata.length,
-                    "filename": metadata.filename,
-                    "media_type": metadata.media_type,
-                }
-            limit = _JSON_BODY_LIMITS.get(operation)
-            if limit is not None:
-                raw, body = strict_http.read_json_document(self.headers, self.rfile, max_bytes=limit)
-                self._captured_json_raw = raw
-                self._captured_json_body = body
-                return {
-                    "kind": "json",
-                    "length": len(raw),
-                    "sha256": hashlib.sha256(raw).hexdigest(),
-                }
-            strict_http.reject_body(self.headers)
+            captured = strict_http.capture_body(
+                self.headers, self.rfile, operation, _JSON_BODY_LIMITS, hosted_assistants.MAX_FILE_BODY_BYTES
+            )
         except strict_http.HttpContractError as exc:
             raise runtime_state.ApiError(exc.status, exc.message) from exc
-        return {
-            "kind": "none",
-            "length": 0,
-            "sha256": account_authority.EMPTY_SHA256,
-        }
+        self._captured_json_raw = captured.raw
+        self._captured_json_body = captured.document
+        self._captured_file_metadata = captured.file
+        return captured.binding
 
     def _read_team_body(self, keys: set[str]) -> dict[str, object]:
         """Read one closed Team mutation document; arbitrary scripts/shapes never cross the bridge."""

@@ -1,7 +1,6 @@
 """Bounded HTTP adapter for the local Team controller."""
 
 import contextlib
-import hashlib
 import json
 import threading
 from http import HTTPStatus
@@ -177,40 +176,15 @@ class Handler(BaseHTTPRequestHandler):
         self._captured_json_body = None
         self._captured_file_metadata = None
         try:
-            if operation == "file-upload":
-                metadata = strict_http.file_upload_metadata(
-                    self.headers,
-                    max_bytes=MAX_FILE_BODY_BYTES,
-                )
-                self._captured_file_metadata = metadata
-                return {
-                    "kind": "file",
-                    "length": metadata.length,
-                    "filename": metadata.filename,
-                    "media_type": metadata.media_type,
-                }
-            limit = _JSON_BODY_LIMITS.get(operation)
-            if limit is not None:
-                raw, body = strict_http.read_json_document(
-                    self.headers,
-                    self.rfile,
-                    max_bytes=limit,
-                )
-                self._captured_json_raw = raw
-                self._captured_json_body = body
-                return {
-                    "kind": "json",
-                    "length": len(raw),
-                    "sha256": hashlib.sha256(raw).hexdigest(),
-                }
-            strict_http.reject_body(self.headers)
+            captured = strict_http.capture_body(
+                self.headers, self.rfile, operation, _JSON_BODY_LIMITS, MAX_FILE_BODY_BYTES
+            )
         except strict_http.HttpContractError as exc:
             raise ApiProblem(exc.status, exc.message, code=exc.code) from exc
-        return {
-            "kind": "none",
-            "length": 0,
-            "sha256": supervisor_contract.EMPTY_SHA256,
-        }
+        self._captured_json_raw = captured.raw
+        self._captured_json_body = captured.document
+        self._captured_file_metadata = captured.file
+        return captured.binding
 
     def _team_name_body(self) -> object:
         """Team create, rename, and delete each carry exactly one Team name; Team validates it."""
