@@ -581,6 +581,88 @@ class DirectCreationTests(LocalContractCase):
         self.assertTrue(all(context.routines is not None for context in runtime.contexts[1:]))
         self.assertEqual((state.routines, state.receipts), ((), ()))
 
+    def test_the_owners_answers_ask_the_unstated_paging_and_create_the_routine_with_the_words_given(self) -> None:
+        """The owner's 2026-10-05 transcript, answered piece by piece until the Routine exists.
+
+        A bare request, then answers for the work, the interval, the paging the Action requires and declares no default
+        for, and the daily cap. A candidate missing a paging member never reaches the person; the created Routine holds
+        exactly the paging the person stated.
+        """
+        first = "Cria uma nova rotina pra mim"
+        work = ("Que trabalho você quer que a rotina repita?", "Listar zonas")
+        timing = ("Com que frequência devo listar as zonas?", "a cada 25 segundos")
+        paging = ("Qual página e quantas zonas por página devo listar?", "Página 1, 50 zonas")
+        cap = ("Qual limite diário de execuções você quer?", "Até 100 execuções por dia")
+
+        def asking(question: str, *labels: str) -> dict[str, object]:
+            options = [{"label": label, "description": ""} for label in labels]
+            return {"question": question, "options": options, "default_index": None}
+
+        candidate = _change(request=first, schedule=None, continues=True)
+        candidate["steps"][0]["input"]["per_page"] = {"kind": "literal", "value": 50, "origins": [_origin("50")]}
+        values = [{"kind": "continuous", "gap": 25, "cap": 100}, {"kind": "continuous", "gap": 25, "cap": 500}]
+        capped = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+        partial = copy.deepcopy(capped)
+        del partial["steps"][0]["input"]["per_page"]
+        turns = [
+            ({"op": "need", "continues": False}, asking(work[0], work[1])),
+            ({"op": "need", "continues": True}, asking(timing[0], "a cada 30 segundos", "a cada 5 minutos")),
+            ({"op": "need", "continues": True}, asking(paging[0], paging[1], "Página 1, 5 zonas")),
+            (partial, asking(cap[0], cap[1], "Até 500 execuções por dia")),
+            (capped, asking(cap[0], cap[1], "Até 500 execuções por dia")),
+        ]
+
+        class Asking(Runtime):
+            def start(self, context, _message, *, conversation=()):
+                self.contexts.append(context)
+                routine, clarification = turns.pop(0)
+                reply = http_payload.render_clarification(clarification)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=routine
+                )
+
+        runtime = Asking()
+        message = first
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, runtime)
+            self.chat(service, _body(message, nonce="1" * 32))
+            for nonce, (question, answer) in zip("23", (work, timing), strict=True):
+                message = f"{message}\n\nPergunta: {question}\nResposta: {answer}"
+                asked = self.chat(service, _body(message, nonce=nonce * 32))
+            self.assertEqual(asked["clarification"]["question"], paging[0])
+            message = f"{message}\n\nPergunta: {paging[0]}\nResposta: {paging[1]}"
+            # A cap question whose candidate leaves a required paging member out is refused before it is shown.
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service, _body(message, nonce="5" * 32))
+            self.assertEqual(caught.exception.code, "plan-input-mismatch")
+            asked = self.chat(service, _body(message, nonce="6" * 32))
+            self.assertEqual(asked["clarification"]["question"], cap[0])
+            self.chat(service, _body(f"{message}\n\nPergunta: {cap[0]}\nResposta: {cap[1]}", nonce="7" * 32))
+            (routine,) = service.routine_store.load("team_1").routines
+            source = routine_source.load(service, "team_1", routine.routine_id)
+        # Each answer reached the Brain alone as the said text, after the draft of every earlier said part.
+        said = [("said", first), ("said", work[1]), ("said", timing[1])]
+        self.assertEqual(
+            [(context.routine_draft, context.routine_answer) for context in runtime.contexts],
+            [
+                ((), None),
+                (tuple(said[:1]), work[1]),
+                (tuple(said[:2]), timing[1]),
+                (tuple(said), paging[1]),
+                (tuple(said), paging[1]),
+            ],
+        )
+        # The selected cap committed with no further model call; the plan holds the stated paging exactly.
+        self.assertEqual(len(runtime.contexts), 5)
+        self.assertEqual(routine.schedule, {"kind": "continuous", "gap": 25, "cap": 100})
+        self.assertEqual(
+            routine.plan["steps"][0]["input"],
+            {"page": {"kind": "literal", "value": 1}, "per_page": {"kind": "literal", "value": 50}},
+        )
+        # Recriar recompiles from exactly these sealed words: every said part, the paging answer, and the cap label.
+        self.assertEqual(source.parts, (*said, ("said", paging[1]), ("said", cap[1])))
+        self.assertEqual(source.selected, (("schedule",), values[0]))
+
     def test_a_multiline_answer_is_never_a_fresh_grant_even_when_the_model_cites_the_question(self) -> None:
         """Text after a composed answer never makes it a fresh request; the question's words never become a grant."""
         with tempfile.TemporaryDirectory() as directory:
