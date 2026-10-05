@@ -400,10 +400,9 @@ def _clarification(value: object) -> dict[str, object]:
         raise _ClarificationShapeError
     question = _clarification_text(value["question"], MAX_CLARIFICATION_QUESTION_CHARS)
     raw_options = value["options"]
-    if (
-        not isinstance(raw_options, list)
-        or not MIN_CLARIFICATION_OPTIONS <= len(raw_options) <= MAX_CLARIFICATION_OPTIONS
-    ):
+    # A question that recommends nothing (a Routine question) may offer one suggestion beside the free-text answer.
+    minimum = 1 if value["default_index"] is None else MIN_CLARIFICATION_OPTIONS
+    if not isinstance(raw_options, list) or not minimum <= len(raw_options) <= MAX_CLARIFICATION_OPTIONS:
         raise _ClarificationShapeError
     options = []
     for option in raw_options:
@@ -418,11 +417,13 @@ def _clarification(value: object) -> dict[str, object]:
             }
         )
     default_index = value["default_index"]
-    if (
-        len({option["label"].casefold() for option in options}) != len(options)
-        or isinstance(default_index, bool)
-        or not isinstance(default_index, int)
-        or not 0 <= default_index < len(options)
+    if len({option["label"].casefold() for option in options}) != len(options) or (
+        default_index is not None
+        and (
+            isinstance(default_index, bool)
+            or not isinstance(default_index, int)
+            or not 0 <= default_index < len(options)
+        )
     ):
         raise _ClarificationShapeError
     return {"question": question, "options": options, "default_index": default_index}
@@ -432,7 +433,9 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
     """Return one exact Brain multiple-choice clarification, or None when it breaks the closed shape (ADR-0081).
 
     Every text is already NFC, trimmed, and free of control and line-separator characters; labels are distinct
-    ignoring case; the default points to one option. The shape is presentation only and carries no authority.
+    ignoring case; the default points to one option, or is null when no option is recommended or preselected, as in
+    every Routine question (ADR-0092 amendment, 2026-10-05), which may then offer a single option. The shape is
+    presentation only and carries no authority.
     """
     try:
         return _clarification(value)
@@ -443,8 +446,9 @@ def canonical_clarification(value: object) -> dict[str, object] | None:
 def render_clarification(clarification: dict[str, object]) -> str:
     """The exact plain reply that accompanies one canonical clarification: the question, then numbered options.
 
-    The recommended default is marked with " ✓" and a non-empty description follows " — ". Every boundary requires a
-    clarified reply to equal this rendering, so a reply can never say something the question does not.
+    A recommended default is marked with " ✓" (a null default marks none) and a non-empty description follows " — ".
+    Every boundary requires a clarified reply to equal this rendering, so a reply can never say something the question
+    does not.
     """
     lines = [str(clarification["question"]), ""]
     for index, option in enumerate(clarification["options"]):

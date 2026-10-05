@@ -1721,11 +1721,15 @@
   "clarification": {
     "valid": [
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
-      {"question": "Which format?", "options": [{"label": "List", "description": ""}, {"label": "Table", "description": "Compact."}, {"label": "Report", "description": ""}, {"label": "Slides", "description": ""}, {"label": "Email", "description": ""}], "default_index": 4}
+      {"question": "Which format?", "options": [{"label": "List", "description": ""}, {"label": "Table", "description": "Compact."}, {"label": "Report", "description": ""}, {"label": "Slides", "description": ""}, {"label": "Email", "description": ""}], "default_index": 4},
+      {"question": "Qual limite diário?", "options": [{"label": "Até 100 por dia", "description": ""}, {"label": "Até 500 por dia", "description": ""}], "default_index": null},
+      {"question": "Qual trabalho a rotina deve repetir?", "options": [{"label": "Listar os domínios", "description": ""}], "default_index": null}
     ],
     "rendered": [
       "Qual período você quer cobrir?\n\n1. Hoje ✓ — Só lançamentos de hoje.\n2. Esta semana",
-      "Which format?\n\n1. List\n2. Table — Compact.\n3. Report\n4. Slides\n5. Email ✓"
+      "Which format?\n\n1. List\n2. Table — Compact.\n3. Report\n4. Slides\n5. Email ✓",
+      "Qual limite diário?\n\n1. Até 100 por dia\n2. Até 500 por dia",
+      "Qual trabalho a rotina deve repetir?\n\n1. Listar os domínios"
     ],
     "invalid": [
       null,
@@ -1735,6 +1739,7 @@
       {"question": " Hoje?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
       {"question": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}, {"label": "Esta semana", "description": ""}], "default_index": 0},
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": "Só lançamentos de hoje."}], "default_index": 0},
+      {"question": "Qual período você quer cobrir?", "options": [], "default_index": null},
       {"question": "Qual período você quer cobrir?", "options": [{"label": "O0", "description": ""}, {"label": "O1", "description": ""}, {"label": "O2", "description": ""}, {"label": "O3", "description": ""}, {"label": "O4", "description": ""}, {"label": "O5", "description": ""}], "default_index": 0},
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": ""}, {"label": "hoje", "description": ""}], "default_index": 0},
       {"question": "Qual período você quer cobrir?", "options": [{"label": "Hoje", "description": ""}, {"label": "B​", "description": ""}], "default_index": 0},
