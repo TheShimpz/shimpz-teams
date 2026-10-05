@@ -117,6 +117,13 @@ class CardCase(RecoveryCase):
         self.card(service, run_id)
 
     @staticmethod
+    def seal_answer(service, value: record.Routine, label: str, selected: tuple) -> None:
+        """Seal the words a bound answer seals: the asking message, then the label the person selected."""
+        network = service.assistant_lifecycle._network("team_1").id
+        source = routine_source.Source(value.routine_id, network, (("said", MESSAGE), ("said", label)), selected)
+        routine_source.seal(service, "team_1", source)
+
+    @staticmethod
     def seal(service, value: record.Routine, message: str = MESSAGE, selected=None, earlier=()) -> None:
         network = service.assistant_lifecycle._network("team_1").id
         parts = (*(("cited", text) for text in earlier), ("said", message))
@@ -343,7 +350,8 @@ class RecriarTests(CardCase):
         }
         clarification = {
             "question": "When?",
-            "options": [{"label": "At 10", "description": ""}, {"label": "At 9", "description": ""}],
+            # The recompile words its labels anew; the grant keeps the person's own sealed answer instead.
+            "options": [{"label": "At ten", "description": ""}, {"label": "At nine", "description": ""}],
             "default_index": None,
         }
         with tempfile.TemporaryDirectory() as directory:
@@ -353,11 +361,31 @@ class RecriarTests(CardCase):
             self.seal(service, value)
             self.refused(service, run_id, "recreate", "routine-recreate-refused")
             service.routine_store.delete_source("team_1", value.routine_id)
-            self.seal(service, value, selected=(("schedule",), DAILY))
+            self.seal_answer(service, value, "At 9", (("schedule",), DAILY))
             self.answer(service, run_id, self.card(service, run_id), "recreate")
             (routine,) = self.state(service).routines
         self.assertEqual(routine.schedule, DAILY)
         self.assertEqual(routine.grant["selected"], {"field": ["schedule"], "label": "At 9"})
+
+    def test_a_recompiled_cap_question_selects_the_sealed_cap_in_any_option_order(self) -> None:
+        """Only the option holding the sealed value is admitted, its cap proven by the person's own sealed label."""
+        selected = {"kind": "continuous", "gap": 30, "cap": 500}
+        for caps in ((100, 500), (500, 100)):
+            asked = _change(schedule=None)
+            asked["question"] = {
+                "field": {"kind": "schedule"},
+                "values": [{"kind": "continuous", "gap": 30, "cap": cap} for cap in caps],
+                "replies": [f"Pronto: {cap}." for cap in caps],
+            }
+            options = [{"label": f"Up to {cap} a day", "description": ""} for cap in caps]
+            clarification = {"question": "How many a day?", "options": options, "default_index": None}
+            with self.subTest(caps=caps), tempfile.TemporaryDirectory() as directory:
+                service, _brain, value, run_id = self.held_with(directory, _compiled(asked, clarification))
+                self.seal_answer(service, value, "Até 500 por dia", (("schedule",), selected))
+                self.answer(service, run_id, self.card(service, run_id), "recreate")
+                (routine,) = self.state(service).routines
+            self.assertEqual(routine.schedule, selected)
+            self.assertEqual(routine.grant["selected"], {"field": ["schedule"], "label": "Até 500 por dia"})
 
     def test_recriar_changes_nothing_when_refused_unavailable_stopped_or_without_its_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

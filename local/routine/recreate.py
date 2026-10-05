@@ -68,15 +68,28 @@ def _same(left: object, right: object) -> bool:
     return routine_plan.canonical(left) == routine_plan.canonical(right)
 
 
-def _admitted(change: routine_change.Change, request: RoutineRequest, active, scope, selected=None) -> record.Routine:
+def _admitted(
+    change: routine_change.Change, request: RoutineRequest, active, scope, selected=None, cap_label=None
+) -> record.Routine:
     """A recompiled create admitted against every sealed part: the words that once granted the Routine, whole."""
     if change.op != "create":
         raise _refused()
     change = dataclasses.replace(change, continues=request.draft is not None)
     try:
-        return routine_turn.definition(change, request, active, scope, None, selected)
+        return routine_turn.definition(change, request, active, scope, None, selected, cap_label)
     except ApiProblem as exc:
         raise _refused() from exc
+
+
+def _proposed(change: routine_change.Change, field: tuple[str, ...]) -> object:
+    """What one option of a recompiled question proposes for its open field, as the admitted Routine would hold it."""
+    if field == ("schedule",):
+        return change.schedule
+    if field == ("timezone",):
+        return change.timezone
+    step = next((item for item in change.steps if item["id"] == field[1]), None)
+    source = None if step is None else step["input"].get(field[2])
+    return None if source is None else {"kind": source["kind"], "value": source.get("value")}
 
 
 def _definition(
@@ -100,19 +113,22 @@ def _definition(
         return value
     if source.selected is None:
         raise _refused()
-    labels = [option["label"] for option in compiled.clarification["options"]]
     try:
-        question = routine_change.parse_question(compiled.routine, len(labels))
+        question = routine_change.parse_question(compiled.routine, len(compiled.clarification["options"]))
     except routine_change.ChangeError as exc:
         raise _refused() from exc
     field, wanted = source.selected
-    if question.field != field:
+    # Only the option holding the value the person once selected is admitted, whatever order the options came in;
+    # its label is the person's own sealed answer, never one the recompile wrote.
+    chosen = [change for change in question.changes if _same(_proposed(change, field), wanted)]
+    if question.field != field or len(chosen) != 1:
         raise _refused()
-    for label, change in zip(labels, question.changes, strict=True):
-        value = _admitted(change, request, active, scope, question.selected)
-        if _same(routine_source.field_value(value, field), wanted):
-            return dataclasses.replace(value, grant={**value.grant, "selected": {"field": list(field), "label": label}})
-    raise _refused()
+    label = request.message
+    cap_label = label if routine_change.caps_vary(question) else None
+    value = _admitted(chosen[0], request, active, scope, question.selected, cap_label)
+    if not _same(routine_source.field_value(value, field), wanted):
+        raise _refused()
+    return dataclasses.replace(value, grant={**value.grant, "selected": {"field": list(field), "label": label}})
 
 
 def _compile(self, team_id: str, source: routine_source.Source, credential: tuple[str, str], runtime) -> object:

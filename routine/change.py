@@ -37,8 +37,13 @@ MAX_CHANGE_BYTES = 96 * 1024
 MAX_ORIGINS = 64
 _ID_RE = re.compile(r"[0-9a-f]{32}\Z")
 _NUMBER_RE = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\Z")
-# A whole count as a person writes it, digits with any thousands groups ("1000", "1.000", "1,000").
-_COUNT_RE = re.compile(r"[0-9]+(?:[.,][0-9]{3})*")
+# A whole count as a person writes it ("1000", "1.000", "1,000"), at most seven digits or 999,999,999, and only a
+# complete one: never a fragment of a longer number, a decimal, a signed number, or an exponent ("100.25", "-100",
+# "1e3", "1,0000").
+_COUNT_RE = re.compile(
+    r"(?<![0-9.,+-])(?<![0-9][eE])(?<![0-9][eE][+-])(?:[0-9]{1,3}(?:[.,][0-9]{3}){1,2}|[0-9]{1,7})"
+    r"(?![0-9]|[.,][0-9]|[eE][+-]?[0-9])"
+)
 # The user's own words exclude quoted, fenced, and block-quoted material, exactly as the Brain separates them.
 _QUOTED_RE = re.compile(
     r"```[\s\S]*?```|`[^`\n]*`|\"[^\"\n]*\"|“[^”\n]*”|‘[^’\n]*’|«[^»\n]*»"
@@ -257,11 +262,11 @@ class Words:
         return None
 
     def counts(self) -> frozenset[int]:
-        """Every whole count the user's own words write in digits."""
+        """Every whole count the user's own words write in digits, each stretch read on its own."""
         return frozenset(
             int(re.sub(r"[.,]", "", match.group()))
             for start, end in self.own
-            for match in _COUNT_RE.finditer(self.message, start, end)
+            for match in _COUNT_RE.finditer(self.message[start:end])
         )
 
     def adopted(self, region: int, text: str, instruction: str) -> bool:
@@ -400,17 +405,31 @@ def _plan_source(
     return copy.deepcopy(kept[0][name]), copy.deepcopy(kept[1][name])
 
 
-def _cap_proven(schedule: Mapping[str, object], words: Words, kept: Mapping[str, object] | None) -> bool:
-    """Whether a continuous Routine's daily cap is the person's: a count their words write, or one an update keeps.
-
-    The cap is never a safe default (ADR-0092 section 9): the person states it, or picks an option whose label, their
-    answer, states it, so a cap the compiler chose is refused.
-    """
+def _cap_proven(
+    schedule: Mapping[str, object], words: Words, kept: Mapping[str, object] | None, label: str | None
+) -> bool:
     if schedule["kind"] != "continuous":
         return True
+    if label is not None:
+        return schedule["cap"] in Words(((routine_request.SAID, label),)).counts()
     if kept is not None and kept.get("kind") == "continuous" and kept["cap"] == schedule["cap"]:
         return True
     return schedule["cap"] in words.counts()
+
+
+def prove_cap(
+    schedule: Mapping[str, object], words: Words, kept: Mapping[str, object] | None = None, label: str | None = None
+) -> None:
+    """Refuse a continuous Routine's daily cap unless it is the person's: a count their words write, or one kept.
+
+    The cap is never a safe default (ADR-0092 section 9), so a cap the compiler chose is refused. ``kept`` is the
+    schedule of the Routine an update changes, whose cap it may keep. ``label`` is the option label of a schedule
+    question whose options differ in their cap: that option's cap must then be a count its own label writes, the
+    person's answer once picked, and nothing else proves it. Like a literal's provenance, this proves where the count
+    came from, never that the person meant it as the cap.
+    """
+    if not _cap_proven(schedule, words, kept, label):
+        raise ChangeError("routine-cap-unproven")
 
 
 def compile_change(
@@ -420,21 +439,18 @@ def compile_change(
     current: tuple[Mapping[str, object], Mapping[str, object]] | None,
     default_timezone: str,
     selected: tuple[str, str] | None = None,
-    kept_schedule: Mapping[str, object] | None = None,
 ) -> Compiled:
     """Admit a parsed change against the committed message and the exact current contracts; refuse anything unproven.
 
     An update also names the current revision's plan document and its inputs' provenance, which a ``kept`` member
-    copies exactly, and its schedule, whose daily cap it may keep. ``selected`` names the one step input a bound
-    Routine question fills from the option the user selects.
+    copies exactly. ``selected`` names the one step input a bound Routine question fills from the option the user
+    selects. The schedule's daily cap is proven apart, by ``prove_cap``.
     """
     if (change.op == "update") != (current is not None):
         raise ChangeError("routine-change-invalid")
     quote_span = words.said_span(change.request)
     if quote_span is None:
         raise ChangeError("routine-request-unproven")
-    if not _cap_proven(change.schedule, words, kept_schedule):
-        raise ChangeError("routine-cap-unproven")
     if assistant_manifest.resembles_credential(change.request) or assistant_manifest.resembles_credential(change.name):
         # The request and name are kept and shown in plaintext; a secret never becomes either.
         raise ChangeError("routine-request-secret")
@@ -551,6 +567,12 @@ def parse_question(value: object, options: int) -> Question:
     except ChangeError as exc:
         raise ChangeError("routine-question-invalid") from exc
     return Question(field, changes, tuple(replies))
+
+
+def caps_vary(question: Question) -> bool:
+    """Whether a schedule question's options differ in their daily cap, so each option's own label must prove it."""
+    caps = {change.schedule.get("cap") for change in question.changes}
+    return question.field == ("schedule",) and len(caps) > 1
 
 
 def kind(value: object) -> str:

@@ -99,15 +99,18 @@ def _change(**changes: object) -> dict[str, object]:
 
 
 def _compile(value: dict[str, object], message: str = MESSAGE, **kwargs: object) -> routine_change.Compiled:
-    return routine_change.compile_change(
-        routine_change.parse(value),
-        _words(message),
+    """Admit a change as Team does: its plan against the words and contracts, then its daily cap."""
+    change, words = routine_change.parse(value), _words(message)
+    compiled = routine_change.compile_change(
+        change,
+        words,
         kwargs.pop("contracts", CONTRACTS),
         kwargs.pop("current", None),
         kwargs.pop("default_timezone", "America/Sao_Paulo"),
         kwargs.pop("selected", None),
-        kwargs.pop("kept_schedule", None),
     )
+    routine_change.prove_cap(change.schedule, words, kwargs.pop("kept_schedule", None), kwargs.pop("cap_label", None))
+    return compiled
 
 
 def _literal(change: dict[str, object], name: str, value: object, origins: list[dict[str, object]]) -> None:
@@ -378,7 +381,7 @@ class CompileTests(unittest.TestCase):
 
         def continuous(cap: int, message: str, **kwargs: object) -> routine_change.Compiled:
             value = _change(schedule={"kind": "continuous", "gap": 30, "cap": cap})
-            return _compile(value, f"{message}\n{MESSAGE}", **kwargs)
+            return _compile(value, f"{MESSAGE}\n{message}", **kwargs)
 
         for cap, message in (
             (500, "At most 500 runs a day."),
@@ -395,12 +398,26 @@ class CompileTests(unittest.TestCase):
             (100, "At most 1000 runs a day."),
             (15, "At most 1.5 thousand runs."),
             (100, "Since 2100, at most a few runs."),
+            # Only a complete count: never a decimal, signed, exponent, or overlong fragment, nor a bad group.
+            (100, "At most 100.25 runs a day."),
+            (100, "At most -100 runs a day."),
+            (3, "At most 1e3 runs a day."),
+            (1000, "At most 1,0000 runs a day."),
+            (999, "At most " + "9" * 5000 + " runs a day."),
             # A count in quoted or block-quoted text is not the person's own.
             (250, 'She wrote "250 a day".'),
             (250, "> 250 a day"),
         ):
             with self.subTest(message=message), self.assertRaises(routine_change.ChangeError) as caught:
                 continuous(cap, message)
+            self.assertEqual(caught.exception.code, "routine-cap-unproven")
+        # A schedule question whose options differ in their cap proves each option's cap by its own label alone:
+        # never by a count elsewhere in the words, and never by the cap an update keeps.
+        kept = {"kind": "continuous", "gap": 30, "cap": 100}
+        self.assertEqual(continuous(500, "100 a day", cap_label="Up to 500 a day").schedule["cap"], 500)
+        for kwargs in ({}, {"kept_schedule": kept}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(routine_change.ChangeError) as caught:
+                continuous(100, "100 a day", cap_label="Up to 500 a day", **kwargs)
             self.assertEqual(caught.exception.code, "routine-cap-unproven")
         # Only a continuous schedule has a cap; every other one is untouched by this rule.
         self.assertEqual(_compile(_change()).schedule["kind"], "weekly")

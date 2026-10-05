@@ -122,29 +122,28 @@ def definition(
     scope: dict[str, str],
     existing: record.Routine | None,
     selected: tuple[str, str] | None = None,
-    label: str | None = None,
+    cap_label: str | None = None,
 ) -> record.Routine:
     """The Routine a change defines, admitted against the user's own words and the exact current contracts.
 
-    ``selected`` is the one step input a bound Routine question fills from the option the user picks, and ``label``
-    that option's label: the person's own answer once they pick it, so the option is admitted with it as their last
-    said part, exactly the words its commit then binds. A change that continues the person's draft, which
-    ``continued`` proved the request froze, holds the draft's parts in its words.
+    ``selected`` is the one step input a bound Routine question fills from the option the user picks. ``cap_label`` is
+    the option's label when a schedule question's options differ in their daily cap: that label alone, the person's
+    answer once picked, proves the option's cap, and it proves nothing else. A change that continues the person's
+    draft, which ``continued`` proved the request froze, holds the draft's parts in its words.
     """
     parts = request.parts(change.continues)
-    if label is not None:
-        parts = (*parts, (routine_request.SAID, label))
+    words = routine_change.Words(parts)
     try:
         compiled = routine_change.compile_change(
             change,
-            routine_change.Words(parts),
+            words,
             # Every Routine pins its Actions in one fixed locale; each pin still covers the whole language pack.
             contracts(assistants, routine_pin.SCOPE_LOCALE),
             None if existing is None else (existing.plan, existing.grant["sources"]),
             request.timezone or DEFAULT_TIMEZONE,
             selected,
-            None if existing is None else existing.schedule,
         )
+        routine_change.prove_cap(change.schedule, words, None if existing is None else existing.schedule, cap_label)
     except routine_change.ChangeError as exc:
         raise refused(exc) from exc
     specs = {active.spec.assistant_id: active.spec for active in assistants}

@@ -502,6 +502,36 @@ class DirectCreationTests(LocalContractCase):
                 self.assertEqual(caught.exception.code, "routine-cap-unproven")
                 self.assertEqual(service.routine_store.load("team_1").routines, ())
 
+    def test_a_cap_options_label_proves_only_its_cap_never_another_value_of_the_routine(self) -> None:
+        """A label is the person's answer to the one open field; text in it never grants any other value."""
+        clarification = {
+            "question": "Up to how many runs a day?",
+            "options": [
+                {"label": "Up to 100 a day, 40 per page", "description": ""},
+                {"label": "Up to 500 a day, 40 per page", "description": ""},
+            ],
+            "default_index": None,
+        }
+        candidate = _change(request="Every 30 seconds, list my zones", schedule=None)
+        candidate["steps"][0]["input"]["per_page"] = {"kind": "literal", "value": 40, "origins": [_origin("40")]}
+        values = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
+        proposed = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "replies": ["A.", "B."]}}
+
+        class Asking(Runtime):
+            def start(self, context, message, *, conversation=()):
+                self.contexts.append(context)
+                reply = http_payload.render_clarification(clarification)
+                return brain_runtime_client.RuntimeTurn(
+                    "completed", reply, (), clarification=clarification, routine=proposed
+                )
+
+        with tempfile.TemporaryDirectory() as directory:
+            _controller, service = self.controller(directory, Asking())
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service, _body("Every 30 seconds, list my zones, page 1"))
+            self.assertEqual(caught.exception.code, "routine-literal-unproven")
+            self.assertEqual(service.routine_store.load("team_1").routines, ())
+
     def test_do_this_every_30_seconds_creates_the_earlier_work_after_its_cap_question_and_seals_both(self) -> None:
         """The owner's incident: the work named by an earlier send, the timing by the message, the cap asked once."""
         now = int(time.time())
