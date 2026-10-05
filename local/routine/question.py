@@ -27,12 +27,13 @@ from routine import record
 from routine.request import Request as RoutineRequest
 
 
-def admit(self, response: object, proposed: object, clarification: dict[str, object] | None) -> Callable[[], None]:
+def admit(self, response: object, proposed: object, clarification: dict[str, object] | None) -> Callable[..., None]:
     """Admit a completed turn's Routine question: every option's Routine, before the question reaches the user.
 
-    The returned write runs exactly when the reply commits: a create question keeps the Routine's words as the person's
-    draft, so a typed or free-text answer continues it (ADR-0092 amendment, 2026-10-05), and records the question bound
-    to that very draft; an update question only records itself.
+    The returned write runs exactly when the reply commits, calling ``before`` once nothing can refuse it any more: a
+    create question keeps the Routine's words as the person's draft, so a typed or free-text answer continues it
+    (ADR-0092 amendment, 2026-10-05), and records the question bound to that very draft; an update question only
+    records itself.
     """
     if clarification is None or clarification["default_index"] is not None or len(clarification["options"]) < 2:
         # A Routine question recommends nothing, and one field with a single value leaves nothing to ask.
@@ -71,13 +72,17 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         words=words,
     )
 
-    def write() -> None:
-        generation = None
-        if head.op == "create":
-            generation = routine_draft.save(
-                self, response.team_id, request, network_id, words, clarification["question"]
-            )
-        self.routine_lineage.record(response.team_id, dataclasses.replace(asked, generation=generation))
+    def write(before: Callable[[], None]) -> None:
+        if head.op != "create":
+            before()
+            self.routine_lineage.record(response.team_id, asked)
+            return
+        generation = routine_draft.save(
+            self, response.team_id, request, network_id, (words, clarification["question"]), before
+        )
+        # A create question binds only inside the draft it wrote: words that did not fit one leave nothing to bind.
+        if generation is not None:
+            self.routine_lineage.record(response.team_id, dataclasses.replace(asked, generation=generation))
 
     return write
 
@@ -111,6 +116,8 @@ def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routi
         value = routine_turn.scheduled(bound.routine, int(time.time()))
         source = None
         if question.op == "create":
+            # The asking words may hold the person's draft, which must still be of this Team incarnation.
+            routine_turn.continued(request, True, network_id)
             selected = (question.field, routine_source.field_value(value, question.field))
             source = routine_source.Source(value.routine_id, network_id, bound.words, selected)
         write = routine_turn.writer(

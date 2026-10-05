@@ -15,6 +15,7 @@ from local_controller_harness import LocalContractCase
 from test_local_routine_create import PRINCIPAL, Runtime, _body, _change
 
 from inference import client as brain_runtime_client
+from inference import config as inference_config
 from local import app as local_app
 from local import audit as local_audit
 from local.routine import draft as routine_draft
@@ -101,6 +102,8 @@ class DraftValueTests(unittest.TestCase):
             changed(parts=[]),
             changed(parts="x"),
             changed(parts=[{"kind": "said"}]),
+            changed(parts=[{"kind": "said", "text": None}]),
+            changed(parts=[{"kind": [], "text": "x"}]),
             changed(parts=[{"kind": "quoted", "text": "x"}]),
             changed(parts=[{"kind": "said", "text": " padded"}]),
             changed(parts=[{"kind": "said", "text": "x"}] * 9),
@@ -194,9 +197,12 @@ class DraftStoreTests(unittest.TestCase):
         self.store.put_draft("team_1", "b" * 32, routine_draft.encode(self.put(), 0))
         (self.store._team_dir("team_1") / (hashlib.sha256(b"b" * 32).hexdigest() + ".draft")).replace(path)
         self.assertIsNone(routine_draft.current(self.service, "team_1", PRINCIPAL))
-        # A sealed record whose plaintext is not a draft is proven unusable too.
-        self.store.put_draft("team_1", PRINCIPAL, b"{}")
-        self.assertIsNone(routine_draft.current(self.service, "team_1", PRINCIPAL))
+        # A sealed record whose plaintext is not a draft is proven unusable too, whatever types its parts hold.
+        broken = routine_draft.encode(Draft("1" * 32, "n", (("said", "x"),)), 0).replace(b'"x"', b"null")
+        for plaintext in (b"{}", broken, broken.replace(b'"said"', b"[]").replace(b"null", b'"x"')):
+            self.store.put_draft("team_1", PRINCIPAL, plaintext)
+            self.assertIsNone(routine_draft.current(self.service, "team_1", PRINCIPAL))
+            self.assertIsNone(self.store.draft("team_1", PRINCIPAL))
         self.put()
         self.store.key_path.unlink()
         with self.assertRaises(local_app.ApiProblem) as caught:
@@ -210,7 +216,7 @@ class DraftStoreTests(unittest.TestCase):
         for request in (stale, Request(PRINCIPAL, FIRST, 0, "n", draft=Draft("9" * 32, "network-1", live.parts))):
             for change in (
                 lambda request=request: routine_draft.save(
-                    self.service, "team_1", request, "network-1", live.parts, "Q?"
+                    self.service, "team_1", request, "network-1", (live.parts, "Q?")
                 ),
                 lambda request=request: routine_draft.discard(self.service, "team_1", request),
             ):
@@ -218,7 +224,7 @@ class DraftStoreTests(unittest.TestCase):
                     change()
                 self.assertEqual(caught.exception.code, "routine-request-expired")
                 self.assertEqual(routine_draft.current(self.service, "team_1", PRINCIPAL), live)
-        generation = routine_draft.save(self.service, "team_1", frozen, "network-1", (("said", FIRST),), "Q?")
+        generation = routine_draft.save(self.service, "team_1", frozen, "network-1", ((("said", FIRST),), "Q?"))
         saved = routine_draft.current(self.service, "team_1", PRINCIPAL)
         self.assertEqual(
             (saved.generation, saved.question), (generation, ("Q?", hashlib.sha256(FIRST.encode()).hexdigest()))
@@ -226,7 +232,7 @@ class DraftStoreTests(unittest.TestCase):
         self.assertNotEqual(generation, live.generation)
         # Parts that do not fit whole remove the draft instead of being cut down.
         after = Request(PRINCIPAL, FIRST, 0, "n", draft=saved)
-        self.assertIsNone(routine_draft.save(self.service, "team_1", after, "network-1", (("said", "x"),) * 9, "Q?"))
+        self.assertIsNone(routine_draft.save(self.service, "team_1", after, "network-1", ((("said", "x"),) * 9, "Q?")))
         self.assertIsNone(routine_draft.current(self.service, "team_1", PRINCIPAL))
 
     def test_the_sweep_removes_only_expired_drafts_even_in_a_team_with_no_routine(self) -> None:
@@ -379,6 +385,74 @@ class DraftJourneyTests(LocalContractCase):
             self.chat(service, _composed(SECOND, CAP["question"], "Até 100 por dia"))
             (routine,) = service.routine_store.load("team_1").routines
         self.assertEqual(routine.schedule, CONTINUOUS[1])
+
+    def test_a_create_question_whose_words_fit_no_draft_cannot_be_answered_by_its_card(self) -> None:
+        asking = "Listar minhas zonas, página 1 com 25 por página, password=hunter2-Blue-horse"
+        question = _cap_question(False, request="Listar minhas zonas, página 1 com 25 por página")
+        runtime = Scripted(_turn(question, CAP), _turn(None))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.service(directory, runtime)
+            self.chat(service, asking)
+            # Nothing was kept, so the card's own option binds nothing and creates nothing.
+            self.chat(service, _composed(asking, CAP["question"], "Até 100 por dia"))
+            state = service.routine_store.load("team_1")
+            draft = self.draft(service)
+        self.assertEqual((state.routines, draft), ((), None))
+        self.assertIsNone(runtime.contexts[1].routines)
+
+    def test_a_card_answer_from_another_team_incarnation_changes_nothing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.service(directory, Scripted(_turn(_cap_question(False), CAP)))
+            self.chat(service, SECOND)
+            live = self.draft(service)
+            foreign = Draft(live.generation, "another-network", live.parts, live.question)
+            service.routine_store.put_draft("team_1", PRINCIPAL, routine_draft.encode(foreign, int(time.time())))
+            with self.assertRaises(local_app.ApiProblem) as caught:
+                self.chat(service, _composed(SECOND, CAP["question"], "Até 100 por dia"))
+            state = service.routine_store.load("team_1")
+        self.assertEqual((caught.exception.code, state.routines), ("team-context-changed", ()))
+
+    def test_a_failed_knowledge_save_leaves_a_question_or_discard_retryable(self) -> None:
+        remember = ({"op": "remember", "topic": "language", "preference": "Responda em português."},)
+        need = brain_runtime_client.RuntimeTurn(
+            "completed",
+            http_payload.render_clarification(NEED),
+            (),
+            clarification=NEED,
+            routine=_need(),
+            memory=remember,
+        )
+        ask = brain_runtime_client.RuntimeTurn(
+            "completed",
+            http_payload.render_clarification(CAP),
+            (),
+            clarification=CAP,
+            routine=_cap_question(False),
+            memory=remember,
+        )
+        discard = brain_runtime_client.RuntimeTurn(
+            "completed", "Nada foi criado.", (), routine={"op": "discard"}, memory=remember
+        )
+        for name, setup, turn, message in (
+            ("need", (), need, FIRST),
+            ("ask", (), ask, SECOND),
+            ("discard", (_turn(_need(), NEED),), discard, "esquece essa rotina"),
+        ):
+            with self.subTest(outcome=name), tempfile.TemporaryDirectory() as directory:
+                service = self.service(directory, Scripted(*setup, turn, turn))
+                if setup:
+                    self.chat(service, FIRST)
+                before = self.draft(service)
+                failing = mock.patch.object(
+                    service.inference_store, "apply_knowledge", side_effect=inference_config.InferenceConfigError("x")
+                )
+                with failing, self.assertRaises(local_app.ApiProblem) as caught:
+                    self.chat(service, message, nonce="f" * 32)
+                self.assertEqual(caught.exception.code, "memory-store-failed")
+                # Nothing about the draft changed, so the same request succeeds once knowledge saves again.
+                self.assertEqual(self.draft(service), before)
+                self.chat(service, message, nonce="f" * 32)
+                self.assertEqual(self.draft(service) is None, name == "discard")
 
     def test_a_retry_after_its_draft_changed_changes_nothing(self) -> None:
         runtime = Scripted(_turn(_need(), NEED), _turn(_need(True), NEED), _turn(_need(), NEED))

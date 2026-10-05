@@ -259,7 +259,7 @@ def _unasked(clarification: dict[str, object] | None) -> bool:
     return clarification is None or clarification["default_index"] is not None
 
 
-def admit_need(self, response: object, proposed: object, clarification: dict | None) -> Callable[[], None]:
+def admit_need(self, response: object, proposed: object, clarification: dict | None) -> Callable[..., object]:
     """Admit a ``need`` question: the person's words leave a piece missing, so the turn asks and keeps their draft.
 
     The write keeps the Routine's words as the person's draft, with the question it asks, as the reply commits.
@@ -274,11 +274,11 @@ def admit_need(self, response: object, proposed: object, clarification: dict | N
         raise ApiProblem(HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed")
     request, network_id, _assistants = checked(self, response)
     continued(request, continues, network_id)
-    parts = request.parts(continues)
-    return lambda: routine_draft.save(self, response.team_id, request, network_id, parts, clarification["question"])
+    words = (request.parts(continues), clarification["question"])
+    return lambda before: routine_draft.save(self, response.team_id, request, network_id, words, before)
 
 
-def admit_discard(self, response: object, proposed: object) -> Callable[[], None]:
+def admit_discard(self, response: object, proposed: object) -> Callable[..., object]:
     """Admit a ``discard``: the person asked to drop the Routine being set up; the write removes their draft."""
     try:
         routine_change.parse_discard(proposed)
@@ -287,12 +287,7 @@ def admit_discard(self, response: object, proposed: object) -> Callable[[], None
             HTTPStatus.BAD_GATEWAY, "Brain could not complete the Team turn", code="brain-runtime-failed"
         ) from exc
     request, _network_id, _assistants = checked(self, response)
-
-    def write() -> None:
-        with self.routine_store.lock(response.team_id):
-            routine_draft.discard(self, response.team_id, request)
-
-    return write
+    return lambda before: routine_draft.discard(self, response.team_id, request, before)
 
 
 class ContractsUnavailableError(Exception):

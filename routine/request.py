@@ -74,7 +74,9 @@ def canonical_parts(value: object) -> tuple[Part, ...] | None:
         return None
     parts = []
     for item in value:
-        if not isinstance(item, dict) or set(item) != {"kind", "text"} or item["kind"] not in KINDS:
+        if not isinstance(item, dict) or set(item) != {"kind", "text"} or not isinstance(item["kind"], str):
+            return None
+        if item["kind"] not in KINDS:
             return None
         text = item["text"]
         if not isinstance(text, str) or not 0 < len(text) <= MAX_MESSAGE_CHARS or "\0" in text:

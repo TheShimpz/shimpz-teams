@@ -54,7 +54,11 @@ def _pending_chat_continuation(self, team_id: str, locale: str | None = None) ->
 
 
 def _routine_write(self, response: _ResponseRequest, terminal: chat_orchestrator.ChatOutcome):
-    """The write of a turn's Routine outcome; the caller holds the lifecycle lock until it commits."""
+    """The write of a turn's Routine outcome, given what must run with it; the caller holds the lifecycle lock.
+
+    A question or a discard runs ``before`` once its draft is proven current and before the draft changes, so a failure
+    there leaves the request retryable. A change commits first: its receipt makes a retry repeat nothing.
+    """
     outcome = routine_change.kind(terminal.routine)
     if outcome == "need":
         return self._routine_need(response, terminal.routine, terminal.clarification)
@@ -63,7 +67,8 @@ def _routine_write(self, response: _ResponseRequest, terminal: chat_orchestrator
     if terminal.clarification is not None:
         # Every option's Routine is admitted before the question is shown; only a bound answer commits one.
         return self._routine_question(response, terminal.routine, terminal.clarification)
-    return self._routine_change(response, terminal.routine)
+    write = self._routine_change(response, terminal.routine)
+    return lambda before: (write(), before())
 
 
 def _segment_response(
@@ -119,7 +124,7 @@ def _segment_response(
         # changes (ADR-0092).
         with self._lock(team_id):
             write = _routine_write(self, response, terminal)
-            return self._commit_chat_terminal(team_id, token, lambda: (write(), save_knowledge(terminal)))
+            return self._commit_chat_terminal(team_id, token, lambda: write(lambda: save_knowledge(terminal)))
 
     def complete(terminal: chat_orchestrator.ChatOutcome) -> dict[str, object]:
         self._delete_chat_continuation(team_id)
@@ -172,8 +177,9 @@ def _timezone(value: object) -> str | None:
 
 def _same_draft(question: routine_lineage.Question, request: RoutineRequest) -> bool:
     """Whether a bound question may still bind: an update question always; a create one only in its own draft."""
-    frozen = None if request.draft is None else request.draft.generation
-    return question.op != "create" or question.generation == frozen
+    if question.op != "create":
+        return True
+    return request.draft is not None and question.generation == request.draft.generation
 
 
 def _routine_request(

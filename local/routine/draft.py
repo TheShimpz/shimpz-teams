@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
+from collections.abc import Callable
 from http import HTTPStatus
 
 from assistant import manifest as assistant_manifest
@@ -50,13 +51,14 @@ def storable(parts: tuple[routine_request.Part, ...]) -> bool:
     """Whether parts fit a draft whole: at most 8 canonical texts, 32,000 characters, none resembling a credential."""
     return (
         0 < len(parts) <= routine_request.MAX_DRAFT_PARTS
-        and sum(len(text) for _kind, text in parts) <= routine_request.MAX_DRAFT_CHARS
         and all(
-            kind in routine_request.KINDS
+            isinstance(kind, str)
+            and kind in routine_request.KINDS
             and routine_request.canonical_text(text, routine_request.MAX_MESSAGE_CHARS) is not None
             and not assistant_manifest.resembles_credential(text)
             for kind, text in parts
         )
+        and sum(len(text) for _kind, text in parts) <= routine_request.MAX_DRAFT_CHARS
     )
 
 
@@ -168,16 +170,25 @@ def expect(self, team_id: str, request: RoutineRequest) -> None:
 
 
 def save(
-    self, team_id: str, request: RoutineRequest, network_id: str, parts: tuple[routine_request.Part, ...], asked: str
+    self,
+    team_id: str,
+    request: RoutineRequest,
+    network_id: str,
+    words: tuple[tuple[routine_request.Part, ...], str],
+    before: Callable[[], None] = lambda: None,
 ) -> str | None:
-    """Keep the parts and the question just asked as the person's draft; returns its new generation.
+    """Keep the words and the question just asked as the person's draft; returns its new generation.
 
-    Parts that do not fit a draft whole are never cut down: the person's draft is removed instead, so a later answer
-    cannot continue it and the person states the Routine again. Returns None then.
+    ``words`` are the parts and the question's text. ``before`` runs after the draft is proven current and before it
+    changes, so a failure there leaves the draft exactly as the request froze it and the request retryable. Parts that
+    do not fit a draft whole are never cut down: the person's draft is removed instead, so a later answer cannot
+    continue it and the person states the Routine again. Returns None then.
     """
+    parts, asked = words
     store = self.routine_store
     with store.lock(team_id):
         expect(self, team_id, request)
+        before()
         if not storable(parts):
             routine_state.call(lambda: store.delete_draft(team_id, request.principal))
             return None
@@ -188,10 +199,12 @@ def save(
         return generation
 
 
-def discard(self, team_id: str, request: RoutineRequest) -> None:
-    """Remove the person's draft, exactly the one the request froze; the caller holds the lock."""
-    expect(self, team_id, request)
-    routine_state.call(lambda: self.routine_store.delete_draft(team_id, request.principal))
+def discard(self, team_id: str, request: RoutineRequest, before: Callable[[], None] = lambda: None) -> None:
+    """Remove the person's draft, exactly the one the request froze; ``before`` runs once that is proven."""
+    with self.routine_store.lock(team_id):
+        expect(self, team_id, request)
+        before()
+        routine_state.call(lambda: self.routine_store.delete_draft(team_id, request.principal))
 
 
 def answer(draft: Draft | None, message: str) -> str | None:
