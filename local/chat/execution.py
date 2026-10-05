@@ -23,6 +23,7 @@ from local import audit as local_audit
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import stored_input_unavailable
 
 
 def project_action_result(
@@ -163,11 +164,7 @@ def clear_rejected_stored_input(
     try:
         store.delete(team_id, assistant_id, stored_input_id)
     except action_stored_input.StoredInputStoreError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant Stored Input state is unavailable",
-            code="assistant-stored-input-state-unavailable",
-        ) from exc
+        raise stored_input_unavailable() from exc
     raise ApiProblem(
         HTTPStatus.CONFLICT,
         "the Assistant rejected its stored input; retry the task to provide a new value",

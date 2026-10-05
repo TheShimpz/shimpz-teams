@@ -18,6 +18,7 @@ from integrations import store as integration_store
 from local.chat.types import ActiveAssistant as _ActiveAssistant
 from local.chat.types import required_active_assistant as _required_active_assistant
 from local.errors import ApiProblemError as ApiProblem
+from local.errors import stored_input_unavailable
 from local.install.runtime import AssistantSpec
 from local.validation import validate_team_id
 
@@ -62,11 +63,7 @@ def _resolve_action_stored_inputs(
             ),
         )
     except action_stored_input.StoredInputStoreError as exc:
-        raise ApiProblem(
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            "Assistant Stored Input state is unavailable",
-            code="assistant-stored-input-state-unavailable",
-        ) from exc
+        raise stored_input_unavailable() from exc
 
 
 def _action_stored_input_generations(
@@ -173,14 +170,6 @@ def _raise_integration_problem(exc: integration_store.OAuthIntegrationStoreError
     ) from exc
 
 
-def _raise_stored_input_problem(exc: action_stored_input.StoredInputStoreError) -> NoReturn:
-    raise ApiProblem(
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        "Assistant Stored Input state is unavailable",
-        code="assistant-stored-input-state-unavailable",
-    ) from exc
-
-
 def list_assistant_stored_inputs(self, team_id: str) -> dict[str, object]:
     team_id = validate_team_id(team_id)
     with self._lock(team_id):
@@ -188,7 +177,7 @@ def list_assistant_stored_inputs(self, team_id: str) -> dict[str, object]:
         try:
             return self.assistant_stored_inputs.inventory(team_id, specs)
         except action_stored_input.StoredInputStoreError as exc:
-            self._raise_stored_input_problem(exc)
+            raise stored_input_unavailable() from exc
 
 
 def clear_assistant_stored_input(
@@ -209,7 +198,7 @@ def clear_assistant_stored_input(
         try:
             cleared = self.assistant_stored_inputs.delete(team, spec.assistant_id, stored_input_id)
         except action_stored_input.StoredInputStoreError as exc:
-            self._raise_stored_input_problem(exc)
+            raise stored_input_unavailable() from exc
     return {
         "team_id": team,
         "assistant_id": spec.assistant_id,

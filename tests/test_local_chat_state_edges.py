@@ -252,7 +252,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
             )
             with self.subTest(operation=operation.__name__), self.assertRaises(local_app.ApiProblem) as caught:
                 operation(subject, *arguments)
-            self.assertEqual(caught.exception.code, "stored-input-state-unavailable")
+            self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
 
         spec = types.SimpleNamespace(assistant_id="assistant", stored_inputs={})
         subject = types.SimpleNamespace(
@@ -260,7 +260,7 @@ class LocalChatStateEdgeTests(unittest.TestCase):
         )
         with self.assertRaises(local_app.ApiProblem) as caught:
             local_chat_state._retain_declared_assistant_stored_input_state(subject, "team_1", spec)
-        self.assertEqual(caught.exception.code, "stored-input-state-unavailable")
+        self.assertEqual(caught.exception.code, "assistant-stored-input-state-unavailable")
 
     def test_persistence_validates_lifetime_and_maps_codec_or_store_failures(self) -> None:
         with self.assertRaises(local_app.ApiProblem) as caught:

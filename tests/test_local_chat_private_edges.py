@@ -616,7 +616,6 @@ class LocalChatPrivateEdgeTests(unittest.TestCase):
                 _resolve=lambda *_args: spec,
             ),
             assistant_stored_inputs=store,
-            _raise_stored_input_problem=local_chat_private._raise_stored_input_problem,
         )
 
         self.assertEqual(

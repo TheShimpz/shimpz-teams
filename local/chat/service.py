@@ -294,7 +294,6 @@ class ChatTurnService:
     _resolve_action_stored_inputs = local_chat_private._resolve_action_stored_inputs
     _require_action_rpc_envelope = local_chat_private._require_action_rpc_envelope
     _raise_integration_problem = staticmethod(local_chat_private._raise_integration_problem)
-    _raise_stored_input_problem = staticmethod(local_chat_private._raise_stored_input_problem)
     list_assistant_integrations = local_chat_private.list_assistant_integrations
     list_assistant_stored_inputs = local_chat_private.list_assistant_stored_inputs
     clear_assistant_stored_input = local_chat_private.clear_assistant_stored_input
