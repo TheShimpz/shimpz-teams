@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.client
 import json
 import runpy
 import threading
-import time
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -20,6 +21,30 @@ from local.install.automatic import AutomaticAssistantUpdater
 
 TOKEN = "a" * 64
 CONNECTION = http.client.HTTPConnection
+
+
+class SettledActivity(local_activity.Activity):
+    """Lets a test wait for the exact moment the in-flight count returns to zero.
+
+    The handler sends its response inside its counted work, so a client can read the reply before the count drops.
+    """
+
+    def __init__(self, **options: object) -> None:
+        super().__init__(**options)
+        self._settled = threading.Condition()
+
+    @contextlib.contextmanager
+    def working(self) -> Iterator[None]:
+        try:
+            with super().working():
+                yield
+        finally:
+            with self._settled:
+                self._settled.notify_all()
+
+    def wait_settled(self) -> bool:
+        with self._settled:
+            return self._settled.wait_for(lambda: not self._active, timeout=5)
 
 
 class ActivityCounterTests(unittest.TestCase):
@@ -93,7 +118,7 @@ class SupervisorQuietWindowTests(unittest.TestCase):
         verify.start()
         self.addCleanup(verify.stop)
         self.server = server.BoundedServer(("127.0.0.1", 0), server.Handler, controller, TOKEN)
-        self.server.activity = local_activity.Activity(clock=lambda: self.now)
+        self.server.activity = SettledActivity(clock=lambda: self.now)
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -109,9 +134,7 @@ class SupervisorQuietWindowTests(unittest.TestCase):
         status = connection.getresponse().status
         connection.close()
         # The response leaves before the handler's in-flight count drops; wait for it so only the window remains.
-        deadline = time.monotonic() + 5
-        while self.server.activity._active and time.monotonic() < deadline:
-            time.sleep(0.005)
+        self.assertTrue(self.server.activity.wait_settled())
         return status
 
     def create_team(self) -> int:
@@ -168,6 +191,7 @@ class LoopbackActivityTests(unittest.TestCase):
         audit.start()
         self.addCleanup(audit.stop)
         self.server = server.BoundedServer(("127.0.0.1", 0), server.Handler, controller, TOKEN)
+        self.server.activity = SettledActivity()
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
@@ -207,6 +231,7 @@ class LoopbackActivityTests(unittest.TestCase):
         self.assertEqual(self.client(), (0, "busy"))
         self.release.set()
         request.join(5)
+        self.assertTrue(self.server.activity.wait_settled())
         self.assertEqual(self.client(), (0, "idle"))
 
     def test_the_route_requires_the_machine_bearer_and_the_client_fails_closed(self) -> None:
