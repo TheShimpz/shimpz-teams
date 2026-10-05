@@ -53,7 +53,7 @@ COPY assistant/__init__.py assistant/action_schema.py assistant/cache.py assista
     ./assistant/
 COPY chat/__init__.py chat/attachments.py chat/contract.py chat/knowledge.py chat/orchestrator.py chat/progress.py \
     chat/turn.py ./chat/
-COPY core/__init__.py core/strict_json.py ./core/
+COPY core/__init__.py core/base64url.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/

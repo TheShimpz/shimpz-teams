@@ -10,6 +10,7 @@ from unittest import mock
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from core import base64url
 from hosted.install import developers_delegation as delegation
 from install.contract import ContractValidationError
 
@@ -94,11 +95,11 @@ class DevelopersDelegationEdgeTests(unittest.TestCase):
             delegation._verify_jwt("one.two.three", key)
 
     def test_json_and_base64_segments_are_strictly_canonical(self) -> None:
-        invalid_json = delegation._encode_segment(b"not-json")
+        invalid_json = base64url.encode(b"not-json")
         with self.assertRaises(delegation.DevelopersDelegationError):
             delegation._json_segment(invalid_json)
 
-        noncanonical_json = delegation._encode_segment(json.dumps({"b": 1, "a": 2}).encode())
+        noncanonical_json = base64url.encode(json.dumps({"b": 1, "a": 2}).encode())
         with self.assertRaises(delegation.DevelopersDelegationError):
             delegation._json_segment(noncanonical_json)
 

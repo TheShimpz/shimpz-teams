@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import hmac
 import json
 import threading
@@ -16,6 +14,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
+from core import base64url
 from install.contract import ContractValidationError, ContractValidator
 
 _MAX_TOKEN_BYTES = 8192
@@ -144,29 +143,18 @@ def _json_segment(encoded: str) -> object:
         value = json.loads(raw)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise DevelopersDelegationError("delegation token is malformed") from exc
-    if _encode_segment(json.dumps(value, separators=(",", ":"), sort_keys=True).encode()) != encoded:
+    if base64url.encode(json.dumps(value, separators=(",", ":"), sort_keys=True).encode()) != encoded:
         raise DevelopersDelegationError("delegation token is not canonical")
     return value
 
 
 def _decode_segment(encoded: str) -> bytes:
-    if not encoded.isascii() or "=" in encoded:
-        raise DevelopersDelegationError("delegation token is malformed")
     try:
-        raw = base64.b64decode(
-            encoded + "=" * (-len(encoded) % 4),
-            altchars=b"-_",
-            validate=True,
-        )
-    except (ValueError, binascii.Error) as exc:
+        return base64url.decode(encoded)
+    except base64url.NonCanonicalError as exc:
+        raise DevelopersDelegationError("delegation token is not canonical") from exc
+    except ValueError as exc:
         raise DevelopersDelegationError("delegation token is malformed") from exc
-    if _encode_segment(raw) != encoded:
-        raise DevelopersDelegationError("delegation token is not canonical")
-    return raw
-
-
-def _encode_segment(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
 
 def _verify_time(claims: dict[str, Any], now: int) -> None:

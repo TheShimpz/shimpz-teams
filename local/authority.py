@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import binascii
 import grp
 import hashlib
 import hmac
@@ -21,6 +19,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_pem_public_key
 
+from core import base64url
 from protocol.http.v1 import supervisor as contract
 
 PUBLIC_KEY_FILE = Path(
@@ -218,24 +217,11 @@ def require_supervisor_absent() -> None:
     raise SupervisorEstablishedError("Local Supervisor is already established")
 
 
-def _encode_segment(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
 def _decode_segment(encoded: str) -> bytes:
-    if not encoded.isascii() or "=" in encoded:
-        raise SupervisorDeniedError("Local Supervisor assertion is malformed")
     try:
-        raw = base64.b64decode(
-            encoded + "=" * (-len(encoded) % 4),
-            altchars=b"-_",
-            validate=True,
-        )
-    except (ValueError, binascii.Error) as exc:
+        return base64url.decode(encoded)
+    except ValueError as exc:
         raise SupervisorDeniedError("Local Supervisor assertion is malformed") from exc
-    if _encode_segment(raw) != encoded:
-        raise SupervisorDeniedError("Local Supervisor assertion is malformed")
-    return raw
 
 
 def _json_segment(encoded: str) -> object:
@@ -248,7 +234,7 @@ def _json_segment(encoded: str) -> object:
         canonical = contract.canonical_json(value)
     except contract.SupervisorAssertionError as exc:
         raise SupervisorDeniedError("Local Supervisor assertion is malformed") from exc
-    if not hmac.compare_digest(_encode_segment(canonical), encoded):
+    if not hmac.compare_digest(base64url.encode(canonical), encoded):
         raise SupervisorDeniedError("Local Supervisor assertion is not canonical")
     return value
 

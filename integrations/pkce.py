@@ -7,7 +7,6 @@ Team, Assistant, and integration binding that started the flow.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import re
@@ -16,6 +15,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from core import base64url
 from integrations import providers as integration_providers
 from protocol.http.v1 import payload as http_payload
 
@@ -132,10 +132,6 @@ def _resource_binding(value: object) -> tuple[str, str] | None:
     return value
 
 
-def _base64url(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
-
-
 class OAuthPKCEChallengeStore:
     """Keep PKCE verifiers memory-only, bounded, short-lived, and one-use."""
 
@@ -226,7 +222,7 @@ class OAuthPKCEChallengeStore:
             while state in self._pending:
                 state = secrets.token_urlsafe(32)
             verifier = secrets.token_urlsafe(64)
-            code_challenge = _base64url(hashlib.sha256(verifier.encode("ascii")).digest())
+            code_challenge = base64url.encode(hashlib.sha256(verifier.encode("ascii")).digest())
             public = OAuthAuthorizationChallenge(
                 state=state,
                 provider_id=intent.provider.id,

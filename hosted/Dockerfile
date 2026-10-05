@@ -138,7 +138,7 @@ COPY protocol/assistant/v1/validators/action_effect.py protocol/assistant/v1/val
     protocol/assistant/v1/validators/human_request.py protocol/assistant/v1/validators/input_file.py \
     protocol/assistant/v1/validators/message_catalog.py \
     ./protocol/assistant/v1/validators/
-COPY core/__init__.py core/strict_json.py ./core/
+COPY core/__init__.py core/base64url.py core/strict_json.py ./core/
 COPY core/container/__init__.py core/container/network.py ./core/container/
 COPY core/http/__init__.py core/http/stdlib.py core/http/strict.py ./core/http/
 COPY egress/__init__.py egress/policy.py ./egress/
