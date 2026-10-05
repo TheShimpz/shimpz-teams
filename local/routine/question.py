@@ -68,7 +68,7 @@ def admit(self, response: object, proposed: object, clarification: dict[str, obj
         head.op,
         head.expected_revision,
         tuple(routines),
-        question.reply,
+        question.replies,
         words=words,
     )
 
@@ -102,7 +102,7 @@ def _current(self, team_id: str, value: record.Routine) -> tuple[str, str]:
 
 
 def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routine_lineage.Answer) -> dict[str, object]:
-    """Commit the Routine the selected option completes, with its reply, exactly when Stop did not win the turn.
+    """Commit the Routine the selected option completes, with the reply written for it, unless Stop won the turn.
 
     The question stays pending until that commit, so a failed or stopped answer may be sent again. A create question
     commits only while the person's draft is still the one it was asked in, which the commit then removes; its source
@@ -133,4 +133,4 @@ def answer(self, team_id: str, token: str, request: RoutineRequest, bound: routi
     if not committed:
         raise ApiProblem(HTTPStatus.CONFLICT, "chat turn stopped", code="chat-stopped")
     self.routine_lineage.settle(team_id, question)
-    return {"team_id": team_id, "team_name": team_name, "reply": question.reply, "clarification": None}
+    return {"team_id": team_id, "team_name": team_name, "reply": bound.reply, "clarification": None}

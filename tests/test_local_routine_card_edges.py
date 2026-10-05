@@ -31,7 +31,7 @@ def _asked(**question: object) -> dict[str, object]:
     asked["question"] = {
         "field": {"kind": "schedule"},
         "values": [{"kind": "daily", "time": "10:00"}, DAILY],
-        "reply": "Pronto.",
+        "replies": ["Pronto: 10:00.", "Pronto: 09:00."],
         **question,
     }
     return asked

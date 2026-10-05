@@ -404,7 +404,10 @@ class DirectCreationTests(LocalContractCase):
         candidate = _change(request=original)
         del candidate["steps"][0]["input"]["per_page"]
         field = {"kind": "input", "step": "zones", "member": "per_page"}
-        proposed = {**candidate, "question": {"field": field, "values": values or [25, 50], "reply": "Pronto."}}
+        proposed = {
+            **candidate,
+            "question": {"field": field, "values": values or [25, 50], "replies": ["Pronto: 25.", "Pronto: 50."]},
+        }
 
         class Asking(Runtime):
             def start(self, context, message, *, conversation=()):
@@ -431,7 +434,11 @@ class DirectCreationTests(LocalContractCase):
             # Settled once committed: the same answer again binds nothing and reaches the Brain without Routines.
             runtime.changes.append(None)
             self.chat(service, _body(answer + "50", nonce="e" * 32))
-        self.assertEqual((response["reply"], response["clarification"], len(runtime.contexts)), ("Pronto.", None, 2))
+        # The reply is the one written for the selected option's own Routine, never one written before the answer for
+        # every option, which could only speak of the choice as still pending (the owner's 2026-10-05 Routine).
+        self.assertEqual(
+            (response["reply"], response["clarification"], len(runtime.contexts)), ("Pronto: 50.", None, 2)
+        )
         (routine,) = state.routines
         self.assertEqual(
             routine.plan["steps"][0]["input"],
@@ -479,7 +486,14 @@ class DirectCreationTests(LocalContractCase):
             [{"kind": "continuous", "gap": 30, "cap": 1000}, {"kind": "continuous", "gap": 30, "cap": 500}],
             [{"kind": "continuous", "gap": 30, "cap": 500}, {"kind": "continuous", "gap": 30, "cap": 100}],
         ):
-            proposed = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+            proposed = {
+                **candidate,
+                "question": {
+                    "field": {"kind": "schedule"},
+                    "values": values,
+                    "replies": ["Pronto: 100.", "Pronto: 500."],
+                },
+            }
             runtime = Asking(proposed)
             with self.subTest(values=values), tempfile.TemporaryDirectory() as directory:
                 _controller, service = self.controller(directory, runtime)
@@ -500,7 +514,10 @@ class DirectCreationTests(LocalContractCase):
         }
         candidate = _change(request=message, schedule=None)
         values = [{"kind": "continuous", "gap": 30, "cap": 100}, {"kind": "continuous", "gap": 30, "cap": 500}]
-        proposed = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+        proposed = {
+            **candidate,
+            "question": {"field": {"kind": "schedule"}, "values": values, "replies": ["Pronto: 100.", "Pronto: 500."]},
+        }
 
         class Asking(Runtime):
             def start(self, context, message, *, conversation=()):
@@ -576,7 +593,10 @@ class DirectCreationTests(LocalContractCase):
             update = _change(op="update", routine_id=created.routine_id, expected_revision=1, request=other)
             update["steps"][0]["input"] = {"page": {"kind": "kept"}}
             field = {"kind": "input", "step": "zones", "member": "per_page"}
-            proposed = {**update, "question": {"field": field, "values": [25, 50], "reply": "Pronto."}}
+            proposed = {
+                **update,
+                "question": {"field": field, "values": [25, 50], "replies": ["Pronto: 25.", "Pronto: 50."]},
+            }
             reply = http_payload.render_clarification(clarification)
 
             def ask(context, _message, *, conversation=()):
@@ -635,7 +655,10 @@ class DirectCreationTests(LocalContractCase):
         candidate = _change(request=first, schedule=None, continues=True)
         candidate["steps"][0]["input"]["per_page"] = {"kind": "literal", "value": 50, "origins": [_origin("50")]}
         values = [{"kind": "continuous", "gap": 25, "cap": 100}, {"kind": "continuous", "gap": 25, "cap": 500}]
-        capped = {**candidate, "question": {"field": {"kind": "schedule"}, "values": values, "reply": "Pronto."}}
+        capped = {
+            **candidate,
+            "question": {"field": {"kind": "schedule"}, "values": values, "replies": ["Pronto: 100.", "Pronto: 500."]},
+        }
         partial = copy.deepcopy(capped)
         del partial["steps"][0]["input"]["per_page"]
         turns = [

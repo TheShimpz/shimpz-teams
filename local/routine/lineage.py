@@ -45,7 +45,8 @@ class Question:
     op: str
     expected_revision: int | None
     routines: tuple[record.Routine, ...]
-    reply: str
+    # What the person is told once each option's Routine commits, written for exactly that Routine.
+    replies: tuple[str, ...]
     expires_at: float = 0.0
     # The Routine's words the asking request compiled from, frozen with it; an answer never reselects them.
     words: tuple[routine_request.Part, ...] = ()
@@ -64,6 +65,11 @@ class Answer:
     @property
     def label(self) -> str:
         return self.question.labels[self.index]
+
+    @property
+    def reply(self) -> str:
+        """The reply written for the selected option's own Routine, never one written for another option."""
+        return self.question.replies[self.index]
 
     @property
     def words(self) -> tuple[routine_request.Part, ...]:

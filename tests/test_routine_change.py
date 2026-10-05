@@ -456,7 +456,10 @@ def _question(field: dict[str, object], values: list[object], **changes: object)
     value = _change(**changes)
     if field.get("kind") == "input":
         value["steps"][0]["input"].pop(field.get("member"), None)
-    return {**value, "question": {"field": field, "values": values, "reply": "Done: it is set up."}}
+    return {
+        **value,
+        "question": {"field": field, "values": values, "replies": [f"Done: {index}." for index in range(len(values))]},
+    }
 
 
 COUNT = {"kind": "input", "step": "publish", "member": "count"}
@@ -466,8 +469,8 @@ class QuestionTests(unittest.TestCase):
     def test_each_option_completes_the_candidate_only_in_its_open_field(self) -> None:
         question = routine_change.parse_question(_question(COUNT, [5, 10]), 2)
         self.assertEqual(
-            (question.field, question.selected, question.reply),
-            (("input", "publish", "count"), ("publish", "count"), "Done: it is set up."),
+            (question.field, question.selected, question.replies),
+            (("input", "publish", "count"), ("publish", "count"), ("Done: 0.", "Done: 1.")),
         )
         counts = [change.steps[0]["input"]["count"] for change in question.changes]
         self.assertEqual([item["value"] for item in counts], [5, 10])
@@ -493,9 +496,13 @@ class QuestionTests(unittest.TestCase):
             (valid, 3),
             (_question(COUNT, [5, 5]), 2),
             (_question(COUNT, [float("nan"), 1]), 2),
-            ({**valid, "question": {**valid["question"], "reply": " padded"}}, 2),
-            ({**valid, "question": {**valid["question"], "reply": "line break"}}, 2),
-            ({**valid, "question": {**valid["question"], "reply": ""}}, 2),
+            # Every option carries its own reply: one well-formed line each, never one shared or one missing.
+            ({**valid, "question": {**valid["question"], "replies": ["Done.", " padded"]}}, 2),
+            ({**valid, "question": {**valid["question"], "replies": ["line break", "Done."]}}, 2),
+            ({**valid, "question": {**valid["question"], "replies": ["Done.", ""]}}, 2),
+            ({**valid, "question": {**valid["question"], "replies": ["Done."]}}, 2),
+            ({**valid, "question": {**valid["question"], "replies": "Done."}}, 2),
+            ({**valid, "question": {"field": COUNT, "values": [5, 10], "reply": "Done."}}, 2),
             ({**open_member, "question": valid["question"]}, 2),
             (_question({"kind": "input", "step": "missing", "member": "count"}, [5, 10]), 2),
             (_question({"kind": "input", "step": "Bad", "member": "count"}, [5, 10]), 2),

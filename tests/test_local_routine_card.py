@@ -339,7 +339,7 @@ class RecriarTests(CardCase):
         asked["question"] = {
             "field": {"kind": "schedule"},
             "values": [{"kind": "daily", "time": "10:00"}, DAILY],
-            "reply": "Pronto.",
+            "replies": ["Pronto: 10:00.", "Pronto: 09:00."],
         }
         clarification = {
             "question": "When?",

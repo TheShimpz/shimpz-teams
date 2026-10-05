@@ -56,7 +56,7 @@ _SOURCE_FIELDS = {
     "kept": frozenset({"kind"}),
 }
 _ORIGIN_FIELDS = frozenset({"at", "from", "text", "region", "instruction"})
-_QUESTION_FIELDS = frozenset({"field", "values", "reply"})
+_QUESTION_FIELDS = frozenset({"field", "values", "replies"})
 MAX_REPLY_CHARS = 280
 _UNSAFE_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Cn", "Zl", "Zp"})
 # The origin of the one value a bound Routine question's selected option fills; nothing else may claim it.
@@ -472,13 +472,14 @@ class Question:
     """A Routine question: the candidate change with exactly one field left open, one complete change per option.
 
     ``field`` is ``("schedule",)``, ``("timezone",)``, or ``("input", step_id, member)``. Each change differs from the
-    candidate only in that field, which holds its option's value; ``reply`` is what the user is told once the change
-    their selected option completes commits.
+    candidate only in that field, which holds its option's value. ``replies`` hold, per option, what the user is told
+    once the change that option completes commits: each is written for its own complete Routine, so a reply written
+    before the person answers never speaks for a value they did not pick.
     """
 
     field: tuple[str, ...]
     changes: tuple[Change, ...]
-    reply: str
+    replies: tuple[str, ...]
 
     @property
     def selected(self) -> tuple[str, str] | None:
@@ -522,14 +523,21 @@ def _reply(value: object) -> bool:
 
 
 def parse_question(value: object, options: int) -> Question:
-    """Admit one Routine question whose ``options`` visible choices each carry exactly one value of its open field."""
+    """Admit one Routine question whose ``options`` choices each carry one value of its open field and its reply."""
     if not isinstance(value, dict) or set(value) != {*_FIELDS, "question"}:
         raise ChangeError("routine-question-invalid")
     question = value["question"]
     if not isinstance(question, dict) or set(question) != _QUESTION_FIELDS:
         raise ChangeError("routine-question-invalid")
-    field, values = _field(question["field"]), question["values"]
-    if field is None or not isinstance(values, list) or len(values) != options or not _reply(question["reply"]):
+    field, values, replies = _field(question["field"]), question["values"], question["replies"]
+    if (
+        field is None
+        or not isinstance(values, list)
+        or len(values) != options
+        or not isinstance(replies, list)
+        or len(replies) != options
+        or not all(map(_reply, replies))
+    ):
         raise ChangeError("routine-question-invalid")
     try:
         distinct = len({routine_plan.canonical(item) for item in values}) == len(values)
@@ -542,7 +550,7 @@ def parse_question(value: object, options: int) -> Question:
         changes = tuple(parse(_filled(candidate, field, item)) for item in values)
     except ChangeError as exc:
         raise ChangeError("routine-question-invalid") from exc
-    return Question(field, changes, question["reply"])
+    return Question(field, changes, tuple(replies))
 
 
 def kind(value: object) -> str:

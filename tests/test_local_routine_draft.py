@@ -58,7 +58,10 @@ def _need(continues: bool = False) -> dict[str, object]:
 
 def _cap_question(continues: bool = True, request: str = SECOND) -> dict[str, object]:
     candidate = _change(request=request, schedule=None, continues=continues)
-    return {**candidate, "question": {"field": {"kind": "schedule"}, "values": CONTINUOUS, "reply": "Pronto."}}
+    return {
+        **candidate,
+        "question": {"field": {"kind": "schedule"}, "values": CONTINUOUS, "replies": ["Pronto: 100.", "Pronto: 500."]},
+    }
 
 
 def _composed(asked: str, question: str, answer: str) -> str:

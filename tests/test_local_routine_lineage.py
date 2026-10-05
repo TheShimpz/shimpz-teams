@@ -34,7 +34,9 @@ FIELD = ("input", "post", "channel")
 
 def _question() -> routine_lineage.Question:
     options = tuple(Option(name, {"selected": None}) for name in ("news", "general"))
-    return routine_lineage.Question(PRINCIPAL, ORIGINAL, QUESTION, LABELS, FIELD, "create", None, options, "Done.")
+    return routine_lineage.Question(
+        PRINCIPAL, ORIGINAL, QUESTION, LABELS, FIELD, "create", None, options, ("Done: news.", "Done: general.")
+    )
 
 
 def _answer(label: str, *, question: str = QUESTION, labels: tuple[str, str] = ("Pergunta", "Resposta")) -> str:
@@ -49,6 +51,8 @@ class LineageTests(unittest.TestCase):
         for label, index in (("#general", 1), ("#news", 0)):
             bound = book.bound("team_1", PRINCIPAL, _answer(label, labels=("Question", "Answer")))
             self.assertEqual((bound.index, bound.routine.name), (index, ("news", "general")[index]))
+            # Its reply is the one written for that option's own Routine.
+            self.assertEqual(bound.reply, ("Done: news.", "Done: general.")[index])
             # Its evidence names the open field and the label the answer selected.
             self.assertEqual(bound.routine.grant["selected"], {"field": list(FIELD), "label": label})
         bound = book.bound("team_1", PRINCIPAL, _answer("#general"))
