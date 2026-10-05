@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
-from docker.errors import DockerException, ImageNotFound
+from docker.errors import DockerException, ImageNotFound, NotFound
 
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
@@ -439,9 +439,20 @@ def _extract_paths(
             "the Local Assistant admission container could not be removed"
         ) from cleanup_failure
     if failure is not None:
-        error = LocalSnapshotUnavailableError if isinstance(failure, DockerException) else LocalSnapshotError
+        error = LocalSnapshotUnavailableError if _unavailable(failure) else LocalSnapshotError
         raise error("the Local Assistant files could not be admitted") from failure
     return extracted
+
+
+def _unavailable(failure: Exception) -> bool:
+    """Whether Docker failed to answer, as opposed to the image lacking a file its stage contract requires.
+
+    Docker's 404 for an absent path makes the image inadmissible until it is staged again; any other daemon, transport,
+    or archive-stream failure is transient and stays retryable.
+    """
+    if isinstance(failure, assistant_manifest.ManifestUnavailableError):
+        return not isinstance(failure.__cause__, NotFound)
+    return isinstance(failure, DockerException)
 
 
 def _remove_temporary_container(container) -> Exception | None:

@@ -9,6 +9,8 @@ import tarfile
 from types import SimpleNamespace
 from unittest import mock
 
+from docker.errors import NotFound
+
 from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from local.install import snapshots, source_package
@@ -102,6 +104,9 @@ def _container(files: dict[str, bytes]):
     container = mock.Mock()
 
     def get_archive(path: str):
+        # Docker answers an absent path with 404, exactly as for an image staged without that file.
+        if path not in files:
+            raise NotFound(f"Could not find the file {path} in container")
         contents = files[path]
         name = path.rsplit("/", 1)[1]
         return iter((archive(name, contents),)), {"name": name, "size": len(contents), "mode": 0o444}

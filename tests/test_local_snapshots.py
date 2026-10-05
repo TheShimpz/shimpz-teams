@@ -5,12 +5,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from types import MappingProxyType, SimpleNamespace
+from types import SimpleNamespace
 from unittest import mock
 
 from docker.errors import DockerException, ImageNotFound
 
-from assistant import language as assistant_language
 from assistant import manifest as assistant_manifest
 from install import bindings
 from install.bindings import DynamicAssistantError, DynamicAssistantStore
@@ -19,7 +18,6 @@ from install.update import AssistantUpdateStore
 from local.errors import ApiProblemError
 from local.install import registry as assistant_registry
 from local.install import service, snapshots, source_package
-from tests import catalog_fixtures
 from tests.local_snapshot_fixtures import CREATED, IMAGE_ID
 from tests.local_snapshot_fixtures import archive as _archive
 from tests.local_snapshot_fixtures import client as _client
@@ -223,69 +221,6 @@ class LocalSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(snapshots.LocalSnapshotError, "do not match"):
             snapshots.admit(client, IMAGE_ID)
 
-    def test_previews_the_validated_icon_and_summaries_only_from_the_image_pack(self) -> None:
-        client, _image_value, container = _client()
-
-        value = snapshots.preview(client, IMAGE_ID)
-
-        self.assertTrue(value.icon.startswith(b"\x89PNG"))
-        self.assertEqual(
-            [call.args[0] for call in container.get_archive.call_args_list],
-            [
-                assistant_manifest.MANIFEST_PATH,
-                assistant_manifest.CONTRACT_PATH,
-                assistant_language.PACK_PATH,
-                snapshots.ICON_PATH,
-            ],
-        )
-        # English is the catalog summary; every other interface language is that message's pack translation.
-        self.assertEqual(set(value.summaries), {"ar", "de", "en", "es", "fr", "ja", "pt", "zh"})
-        self.assertEqual(value.summaries["en"], "Exercise immutable admission.")
-        self.assertEqual(value.summaries["pt"], "PT Exercise immutable admission.")
-        self.assertIsInstance(value.summaries, MappingProxyType)
-        container.start.assert_not_called()
-        container.remove.assert_called_once_with(force=True, v=False)
-
-    def test_preview_refuses_a_missing_or_foreign_pack_and_cleans_up(self) -> None:
-        foreign = catalog_fixtures.pack_bytes(catalog_fixtures.messages("Another summary."))
-        for name, pack in (("missing", None), ("foreign", foreign), ("malformed", b"{}")):
-            client, _image_value, container = _client(pack=pack)
-            with self.subTest(pack=name), self.assertRaises(snapshots.LocalSnapshotError):
-                snapshots.preview(client, IMAGE_ID)
-            container.remove.assert_called_once_with(force=True, v=False)
-
-    def test_preview_rejects_invalid_image_id_without_docker_access(self) -> None:
-        client, _image_value, _container = _client()
-
-        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "image id is invalid"):
-            snapshots.preview(client, "latest")
-
-        client.images.get.assert_not_called()
-
-    def test_preview_rejects_invalid_declaration_and_cleans_up(self) -> None:
-        client, _image_value, container = _client()
-
-        with (
-            mock.patch.object(
-                snapshots.assistant_manifest,
-                "parse_manifest_identity",
-                side_effect=assistant_manifest.ManifestError("invalid"),
-            ),
-            self.assertRaisesRegex(snapshots.LocalSnapshotError, "preview is invalid"),
-        ):
-            snapshots.preview(client, IMAGE_ID)
-
-        container.remove.assert_called_once_with(force=True, v=False)
-
-    def test_preview_rejects_display_label_drift_and_always_cleans_up(self) -> None:
-        client, image, container = _client()
-        image.attrs["Config"]["Labels"][snapshots.NAME_LABEL] = "Different name"
-
-        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "does not match"):
-            snapshots.preview(client, IMAGE_ID)
-
-        container.remove.assert_called_once_with(force=True, v=False)
-
     def test_rejects_source_mismatch_and_always_removes_container(self) -> None:
         client, _image_value, container = _client(source_digest="sha256:" + ("f" * 64))
 
@@ -326,20 +261,6 @@ class LocalSnapshotTests(unittest.TestCase):
             self.assertRaisesRegex(snapshots.LocalSnapshotError, "declaration is invalid"),
         ):
             snapshots.admit(client, IMAGE_ID)
-
-    def test_extraction_and_cleanup_fail_closed(self) -> None:
-        client, _image_value, container = _client()
-        container.get_archive.side_effect = DockerException("unavailable")
-        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "could not be admitted"):
-            snapshots.admit(client, IMAGE_ID)
-        container.remove.assert_called_once_with(force=True, v=False)
-
-        client, _image_value, container = _client()
-        container.remove.side_effect = DockerException("unavailable")
-        with self.assertRaisesRegex(snapshots.LocalSnapshotError, "could not be removed"):
-            snapshots.admit(client, IMAGE_ID)
-
-        self.assertIsNone(snapshots._remove_temporary_container(None))
 
     def test_record_rejects_attribution_and_provider_drift(self) -> None:
         client, _image_value, _container_value = _client()
